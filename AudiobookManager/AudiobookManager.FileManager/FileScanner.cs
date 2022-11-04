@@ -3,26 +3,22 @@ using AudiobookManager.Domain;
 namespace AudiobookManager.FileManager;
 public class FileScanner
 {
-    public static List<Audiobook> ParseDirectoryForAudiobooks(string path)
+    public static List<AudiobookFileInfo> ScanDirectoryForAudiobookFiles(string path)
     {
-        var result = new List<Audiobook>();
+        var result = new List<AudiobookFileInfo>();
 
         foreach (string sPath in Directory.GetFiles(path))
         {
-            try
+            var fileInfo = new FileInfo(sPath);
+            if (AudiobookParser.IsSupported(fileInfo))
             {
-                var book = AudiobookParser.ParseAudiobook(sPath);
-                result.Add(book);
-            }
-            catch
-            {
-
+                result.Add(new AudiobookFileInfo(fileInfo));
             }
         }
 
         foreach (string sPath in Directory.GetDirectories(path))
         {
-            result.AddRange(ParseDirectoryForAudiobooks(sPath));
+            result.AddRange(ScanDirectoryForAudiobookFiles(sPath));
         }
 
         return result;

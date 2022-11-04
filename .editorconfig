@@ -1,0 +1,307 @@
+# Rules in this file were initially inferred by Visual Studio IntelliCode from the C:\Users\rk\source\repos\LiveProtocol2b codebase based on best match to current usage at 14/12/2021
+# You can modify the rules from these initially generated values to suit your own policies
+# You can learn more about editorconfig here: https://docs.microsoft.com/en-us/visualstudio/ide/editorconfig-code-style-settings-reference
+
+# top-most EditorConfig file
+root = true
+
+[*.cs]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+#Core editorconfig formatting - indentation
+#use soft tabs (spaces) for indentation
+indent_style = space
+indent_size = 4
+
+
+#Naming
+# Defining the 'private_fields' symbol group
+dotnet_naming_symbols.private_fields.applicable_kinds           = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+# Define standard camel_case_style
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+
+# Private fields must use camel case style
+dotnet_naming_rule.private_fields_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_camel_case.style = camel_case_style
+dotnet_naming_rule.private_fields_camel_case.severity = warning
+
+
+## Formatting references: https://docs.microsoft.com/en-us/dotnet/fundamentals/code-analysis/style-rules/formatting-rules
+
+#Formatting - organize using options
+
+#Sort System.* using directives before other using directives
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = private_fields_camel_case
+
+#Dotnet namespace options
+dotnet_style_namespace_match_folder = true:warning
+
+#Formatting - new line options
+
+#place catch statements on a new line
+csharp_new_line_before_catch = true
+#place finally statements on a new line
+csharp_new_line_before_finally = true
+#place else statements on a new line
+csharp_new_line_before_else = true
+#require members of object intializers to be on separate lines
+csharp_new_line_before_members_in_object_initializers = true
+#do not require memebers of anonymous types to be on separate lines
+csharp_new_line_before_members_in_anonymous_types = false
+csharp_new_line_between_query_expression_clauses = true
+#require braces to be on a new line for methods, control_blocks, types, lambdas, and object_collection_array_initializers (also known as "Allman" style)
+csharp_new_line_before_open_brace = methods, control_blocks, types, lambdas, object_collection_array_initializers
+
+#Formatting - Indentation options
+#indent switch case contents.
+csharp_indent_case_contents = true
+#indent switch labels
+csharp_indent_switch_labels = true
+csharp_indent_block_contents = true
+csharp_indent_braces = false
+csharp_indent_case_contents_when_block = false
+
+#Formatting - spacing options
+
+#require NO space between a cast and the value
+csharp_space_after_cast = false
+#require a space after a keyword in a control flow statement such as a for loop
+csharp_space_after_keywords_in_control_flow_statements = true
+#place space between parentheses for control flow statements
+csharp_space_between_parentheses = control_flow_statements
+#require a space before the colon for bases or interfaces in a type declaration
+csharp_space_before_colon_in_inheritance_clause = true
+#require a space before the colon for bases or interfaces in a type declaration
+csharp_space_after_colon_in_inheritance_clause = true
+#require space before and after binary operators
+csharp_space_around_binary_operators = before_and_after
+#place a space character after the opening parenthesis and before the closing parenthesis of a method declaration parameter list.
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+#remove space within empty parameter list parentheses for a method declaration
+csharp_space_between_method_declaration_empty_parameter_list_parentheses = false
+#remove space between method name and opening parenthesis
+csharp_space_between_method_declaration_name_and_open_parenthesis = false
+#do not place space characters after the opening parenthesis and before the closing parenthesis of a method call
+csharp_space_between_method_call_parameter_list_parentheses = false
+#remove space within empty argument list parentheses
+csharp_space_between_method_call_empty_parameter_list_parentheses = false
+#remove space between method call name and opening parenthesis
+csharp_space_between_method_call_name_and_opening_parenthesis = false
+#require space after comma
+csharp_space_after_comma = true
+#remove space after dot
+csharp_space_after_dot = false
+#remove space before dot
+csharp_space_before_dot = false
+#require space after semicolon in for statement
+csharp_space_after_semicolon_in_for_statement = true
+#remove space before semicolon in for statement
+csharp_space_before_semicolon_in_for_statement = false
+#remove extra spaces around declation statements
+csharp_space_around_declaration_statements = false
+#remove space before square bracket
+csharp_space_before_open_square_brackets = false
+csharp_space_between_empty_square_brackets = false
+csharp_space_between_square_brackets = false
+
+
+
+#Formatting - wrapping options
+
+csharp_preserve_single_line_statements = false
+
+#leave code block on single line
+csharp_preserve_single_line_blocks = true
+
+#Formatting - Using directive options IDE0065
+
+csharp_using_directive_placement  = outside_namespace
+
+#Formatting - Namespace options
+
+csharp_style_namespace_declarations = file_scoped:suggestion
+
+#Style - language keyword and framework type options IDE0049
+
+#prefer the language keyword for local variables, method parameters, and class members, instead of the type name, for types that have a keyword to represent them
+dotnet_style_predefined_type_for_locals_parameters_members = true:suggestion
+dotnet_style_predefined_type_for_member_access = true:suggestion
+
+#Style - Miscellaneous preferences
+
+#prefer anonymous functions over local functions
+csharp_style_pattern_local_over_anonymous_function = false:suggestion
+
+#Style - qualification options IDE0003
+
+#prefer fields not to be prefaced with this. or Me. in Visual Basic
+dotnet_style_qualification_for_field = false:suggestion
+#prefer methods not to be prefaced with this. or Me. in Visual Basic
+dotnet_style_qualification_for_method = false:suggestion
+#prefer properties not to be prefaced with this. or Me. in Visual Basic
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+
+#Style - Modifier preferences IDE0036)
+
+#when this rule is set to a list of modifiers, prefer the specified ordering.
+csharp_preferred_modifier_order = public,private,protected,internal,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,volatile,async:suggestion
+
+#Style - modifier options IDE0040
+
+#prefer accessibility modifiers to be declared except for public interface members. This will currently not differ from always and will act as future proofing for if C# adds default interface methods.
+dotnet_style_require_accessibility_modifiers = for_non_interface_members
+
+#Style - readonly modifier IDE0044
+
+dotnet_style_readonly_field = true
+
+#Style - local function static IDE0062
+
+csharp_prefer_static_local_function = true:suggestion
+
+#Style - Parentheses preferences IDE0047 and IDE0048
+
+dotnet_style_parentheses_in_arithmetic_binary_operators = always_for_clarity
+dotnet_style_parentheses_in_relational_binary_operators = always_for_clarity
+dotnet_style_parentheses_in_other_binary_operators = always_for_clarity
+dotnet_style_parentheses_in_other_operators = never_if_unnecessary
+
+#Style - Expression-level  preferences
+
+#prefer objects to be initialized using object initializers when possible IDE0017
+dotnet_style_object_initializer = true:suggestion
+
+#IDE0018
+csharp_style_inlined_variable_declaration = true
+
+#IDE0028
+dotnet_style_collection_initializer = true
+
+#IDE0032
+dotnet_style_prefer_auto_properties = true
+
+#IDE0033
+dotnet_style_explicit_tuple_names = true
+
+#IDE0034
+csharp_prefer_simple_default_expression = true
+
+#IDE0037
+dotnet_style_prefer_inferred_tuple_names = false
+dotnet_style_prefer_inferred_anonymous_type_member_names = false
+
+#IDE0039
+csharp_style_pattern_local_over_anonymous_function = false
+
+#IDE0042
+csharp_style_deconstructed_variable_declaration = true
+
+#IDE0045
+dotnet_style_prefer_conditional_expression_over_assignment = true
+
+#IDE0046
+dotnet_style_prefer_conditional_expression_over_return = true
+
+#IDE0074
+dotnet_style_prefer_compound_assignment = true
+
+#IDE0075
+dotnet_style_prefer_simplified_boolean_expressions = true
+
+#IDE0090
+csharp_style_implicit_object_creation_when_type_is_apparent = false
+
+#Style - Null-checking preferences
+
+#IDE0016
+csharp_style_throw_expression = true
+
+#IDE0029 and IDE0030
+dotnet_style_coalesce_expression = true
+
+#IDE0031
+dotnet_style_null_propagation = true
+
+#IDE0041
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true
+
+#IDE1005
+csharp_style_conditional_delegate_call = true
+
+#Style - var preferences IDE0007 and IDE0008
+
+csharp_style_var_for_built_in_types = true
+csharp_style_var_when_type_is_apparent = true
+csharp_style_var_elsewhere = true
+
+
+#Style - Expression-bodied members
+
+#IDE0021
+csharp_style_expression_bodied_constructors = false
+
+#IDE0022
+csharp_style_expression_bodied_methods = when_on_single_line
+
+#IDE0023 and IDE0024
+csharp_style_expression_bodied_operators = when_on_single_line
+
+#IDE0025
+csharp_style_expression_bodied_properties = when_on_single_line
+
+#IDE0026
+csharp_style_expression_bodied_indexers = true
+
+#IDE0027
+csharp_style_expression_bodied_accessors = true
+
+#IDE0053
+csharp_style_expression_bodied_lambdas = true
+
+#IDE0061
+csharp_style_expression_bodied_local_functions = false
+
+#Style - Pattern matching preferences
+
+#IDE0019
+csharp_style_pattern_matching_over_as_with_null_check = true
+
+#IDE0020 and IDE0038
+csharp_style_pattern_matching_over_is_with_cast_check = true
+
+#IDE0066
+csharp_style_prefer_switch_expression = true:suggestion
+
+#IDE0078
+csharp_style_prefer_pattern_matching = true:suggestion
+
+#IDE0083
+csharp_style_prefer_not_pattern = true:suggestion
+
+
+#Style - Code block preferences
+
+#prefer curly braces even for one line of code IDE0011
+csharp_prefer_braces = true
+
+#IDE0063
+csharp_prefer_simple_using_statement = true
+
+#Style - Unnecessary code rules
+
+#IDE0058
+csharp_style_unused_value_expression_statement_preference = discard_variable
+
+#IDE0059
+csharp_style_unused_value_assignment_preference = discard_variable
+
+#IDE0060
+dotnet_code_quality_unused_parameters = true
+
+

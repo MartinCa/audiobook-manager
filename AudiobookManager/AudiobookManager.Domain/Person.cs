@@ -1,13 +1,12 @@
-﻿namespace AudiobookManager.Domain
-{
-    public class Person
-    {
-        public string Name { get; set; }
-        public string? Role { get; set; }
+﻿namespace AudiobookManager.Domain;
 
-        public Person(string name)
-        {
-            Name = name;
-        }
+public class Person
+{
+    public string Name { get; set; }
+    public string? Role { get; set; }
+
+    public Person(string name)
+    {
+        Name = name;
     }
 }
