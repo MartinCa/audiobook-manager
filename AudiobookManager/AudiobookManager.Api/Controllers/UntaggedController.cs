@@ -20,4 +20,9 @@ public class UntaggedController : Controller
     {
         return _untaggedService.ScanInputDirectoryForAudiobookFiles();
     }
+
+    [HttpGet("/test")]
+    public void Test()
+    {
+    }
 }

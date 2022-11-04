@@ -16,7 +16,7 @@ public static class AudiobookParser
     {
         var track = new Track(fileInfo.FullName);
 
-        if ( !track.AudioFormat.Readable || track.AudioFormat.ID == -1 )
+        if (!track.AudioFormat.Readable || track.AudioFormat.ID == -1)
         {
             throw new UnsupportedFormatException($"{fileInfo.FullName} not readable by ATL");
         }
@@ -26,7 +26,7 @@ public static class AudiobookParser
 
         var embeddedPicture = track.EmbeddedPictures.FirstOrDefault();
         AudiobookImage? cover = null;
-        if ( embeddedPicture is not null )
+        if (embeddedPicture is not null)
         {
             cover = new AudiobookImage(
                 Convert.ToBase64String(embeddedPicture.PictureData),
@@ -52,20 +52,64 @@ public static class AudiobookParser
         };
     }
 
-    public static void UpdateAudiobookTags(string filePath, Audiobook audiobook)
+    public static async Task UpdateAudiobookTags(string filePath, Audiobook audiobook)
     {
         var track = new Track(filePath);
 
-        if ( !track.AudioFormat.Readable || track.AudioFormat.ID == -1 )
+        if (!track.AudioFormat.Readable || track.AudioFormat.ID == -1)
         {
             throw new UnsupportedFormatException($"{filePath} not readable by ATL");
         }
 
+        // Series
+        string? group = null;
+        string? albumSort = audiobook.BookName;
+        string? title = $"{audiobook.Year} - {audiobook.BookName}";
+        if (!string.IsNullOrEmpty(audiobook.Series))
+        {
+            var paddedSeriesPart = audiobook.SeriesPart is not null ? audiobook.SeriesPart.PadLeft(2, '0') : "";
+            var paddedSeriesPartWithLeadingSpace = audiobook.SeriesPart is not null ? $" {paddedSeriesPart}" : "";
+            var groupSeriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $", Book #{paddedSeriesPart}" : "";
+            albumSort = $"{audiobook.Series}{paddedSeriesPartWithLeadingSpace} - {albumSort}";
+            group = $"{audiobook.Series}{groupSeriesPart}";
+            title = $"{audiobook.Series}{paddedSeriesPartWithLeadingSpace} - {title}";
+        }
 
         track.AlbumArtist = GetStringFromListOfPersons(audiobook.Authors);
+        track.Composer = GetStringFromListOfPersons(audiobook.Narrators);
+        track.Album = audiobook.BookName;
+        track.WriteSpecialTag(SpecialTagField.Subtitle, audiobook.Subtitle);
+        track.Year = audiobook.Year;
+        track.Artist = GetStringFromListOfPersons(audiobook.Authors.Concat(audiobook.Narrators));
+        track.Group = group;
+        track.Title = title;
+        track.SortAlbum = albumSort;
+        track.Genre = string.Join("/", audiobook.Genres);
+        track.Description = audiobook.Description;
+        track.Copyright = audiobook.Copyright;
+        track.Publisher = audiobook.Publisher;
+        track.WriteSpecialTag(SpecialTagField.Rating, audiobook.Rating);
+        track.WriteSpecialTag(SpecialTagField.ASIN, audiobook.Asin);
+        track.WriteSpecialTag(SpecialTagField.Www, audiobook.Www);
+        track.Comment = audiobook.Description;
 
-        // Special
-        //track.Group = 
+        track.WriteSpecialTag(SpecialTagField.ShowMovement, !string.IsNullOrEmpty(audiobook.Series) ? "1" : "0");
+        track.SeriesTitle = audiobook.Series;
+        track.WriteSpecialTag(SpecialTagField.Mp4Series, audiobook.Series);
+        track.SeriesPart = audiobook.SeriesPart;
+        track.WriteSpecialTag(SpecialTagField.Mp4SeriesPart, audiobook.SeriesPart);
+
+        track.WriteSpecialTag(SpecialTagField.ItunesGapless, "1");
+        track.WriteSpecialTag(SpecialTagField.ItunesMediaType, "2");
+
+        track.EmbeddedPictures.Clear();
+        if (audiobook.Cover is not null)
+        {
+            var picture = PictureInfo.fromBinaryData(Convert.FromBase64String(audiobook.Cover.Base64Data), PictureInfo.PIC_TYPE.Front);
+            track.EmbeddedPictures.Add(picture);
+        }
+
+        await track.SaveAsync();
     }
 
     private static List<Person> ParsePersonsFromString(string str)
@@ -73,18 +117,8 @@ public static class AudiobookParser
         return str.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(x => new Person(x.Trim())).ToList();
     }
 
-    private static string GetStringFromListOfPersons(List<Person> persons)
+    private static string GetStringFromListOfPersons(IEnumerable<Person> persons)
     {
         return string.Join(", ", persons.Select(x => x.Name));
-    }
-
-    private static string? ExtractFromAdditionalFields(Track track, string key)
-    {
-        return track.AdditionalFields.ContainsKey(key) ? NullableString(track.AdditionalFields[key]) : null;
-    }
-
-    private static string? NullableString(string? str)
-    {
-        return str is null || string.IsNullOrWhiteSpace(str) ? null : str;
     }
 }
