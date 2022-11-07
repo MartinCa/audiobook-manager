@@ -1,9 +1,22 @@
+using AudiobookManager.FileManager;
 using AudiobookManager.Services;
+using AudiobookManager.Settings;
+
 internal class Program
 {
     private static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        builder.Configuration
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+            .AddEnvironmentVariables();
+
+        builder.Services.Configure<AudiobookManagerSettings>(builder.Configuration);
+
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
 
         // Add services to the container.
 
@@ -13,6 +26,7 @@ internal class Program
         builder.Services.AddSwaggerGen();
 
         builder.Services.AddServices();
+        builder.Services.SetupFileManager();
 
         var app = builder.Build();
 

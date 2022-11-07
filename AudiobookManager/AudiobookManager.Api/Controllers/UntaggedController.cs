@@ -5,14 +5,16 @@ using Microsoft.AspNetCore.Mvc;
 namespace AudiobookManager.Api.Controllers;
 
 [ApiController]
-[Route("[controller]")]
-public class UntaggedController : Controller
+[Route("api/[controller]")]
+public class UntaggedController : ControllerBase
 {
-    private readonly IUntaggedService _untaggedService;
+    private readonly IFileService _untaggedService;
+    private readonly ILogger _logger;
 
-    public UntaggedController(IUntaggedService untaggedService)
+    public UntaggedController(IFileService untaggedService, ILogger<UntaggedController> logger)
     {
         this._untaggedService = untaggedService;
+        this._logger = logger;
     }
 
     [HttpGet(Name = "GetUntaggedAudiobookFiles")]
@@ -21,8 +23,24 @@ public class UntaggedController : Controller
         return _untaggedService.ScanInputDirectoryForAudiobookFiles();
     }
 
-    [HttpGet("/test")]
-    public void Test()
-    {
-    }
+    //[HttpGet("/test")]
+    //public void Test()
+    //{
+    //    var testData = new Audiobook(new List<Person> { new Person("Test Author"), new Person("Test Author 2") }, "Book Name", 2012)
+    //    {
+    //        Asin = "TEST_ASIN",
+    //        Copyright = "TEST_COPYRIGHT",
+    //        Description = "TEST_DESCRIPTION",
+    //        Genres = new List<string> { "Nonfiction", "Test Genre" },
+    //        Narrators = new List<Person> { new Person("Test Narrator"), new Person("Test Narrator 2") },
+    //        Publisher = "TEST_PUBLISHER",
+    //        Rating = "4.9",
+    //        Series = "TEST_SERIES",
+    //        SeriesPart = "2-10",
+    //        Subtitle = "TEST_SUBTITLE",
+    //        Www = "TEST_WWW"
+    //    };
+
+    //    _untaggedService.SaveAudiobookTags("C:\\tools\\abtest\\Hercule Poirot 01 - 2020 - The Mysterious Affair at Styles.m4b", testData);
+    //}
 }

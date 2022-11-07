@@ -9,7 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.FileManage
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.Domain", "AudiobookManager.Domain\AudiobookManager.Domain.csproj", "{23AB82CF-558D-47EE-A26A-ABFCB87A0FCF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudiobookManager.Services", "AudiobookManager.Services\AudiobookManager.Services.csproj", "{9C6F1E2D-29BC-4C78-8ED2-29A52EC2963D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.Services", "AudiobookManager.Services\AudiobookManager.Services.csproj", "{9C6F1E2D-29BC-4C78-8ED2-29A52EC2963D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudiobookManager.Settings", "AudiobookManager.Settings\AudiobookManager.Settings.csproj", "{83CA4A4F-A9BC-4D79-99D8-9E767A2BD020}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,6 +35,10 @@ Global
 		{9C6F1E2D-29BC-4C78-8ED2-29A52EC2963D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9C6F1E2D-29BC-4C78-8ED2-29A52EC2963D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9C6F1E2D-29BC-4C78-8ED2-29A52EC2963D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{83CA4A4F-A9BC-4D79-99D8-9E767A2BD020}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{83CA4A4F-A9BC-4D79-99D8-9E767A2BD020}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{83CA4A4F-A9BC-4D79-99D8-9E767A2BD020}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{83CA4A4F-A9BC-4D79-99D8-9E767A2BD020}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

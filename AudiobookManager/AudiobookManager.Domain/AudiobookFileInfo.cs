@@ -1,4 +1,6 @@
-﻿namespace AudiobookManager.Domain;
+﻿using System.Text.Json.Serialization;
+
+namespace AudiobookManager.Domain;
 
 public class AudiobookFileInfo
 {
@@ -6,6 +8,7 @@ public class AudiobookFileInfo
     public string FileName { get; set; }
     public long SizeInBytes { get; set; }
 
+    [JsonConstructor]
     public AudiobookFileInfo(string fullPath, string fileName, long sizeInBytes)
     {
         FullPath = fullPath;

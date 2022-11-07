@@ -12,7 +12,7 @@
     "AudiobookManager.Api": {
       "commandName": "Project",
       "dotnetRunMessages": true,
-      "launchBrowser": true,
+      "launchBrowser": false,
       "launchUrl": "swagger",
       "applicationUrl": "http://localhost:5271",
       "environmentVariables": {

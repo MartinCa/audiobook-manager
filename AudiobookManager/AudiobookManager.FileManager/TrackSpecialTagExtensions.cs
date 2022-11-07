@@ -1,12 +1,17 @@
-﻿using ATL;
+﻿using System.Text.RegularExpressions;
+using ATL;
 
 namespace AudiobookManager.FileManager;
 
-public static class TrackSpecialTabExtensions
+public static class TrackSpecialTagExtensions
 {
+    private static readonly Regex _mp4SeriesPartRegex = new Regex(@"^\d+");
+
+    public const string mp4Name = "MPEG-4 Part 14";
+
     private static readonly Dictionary<SpecialTagField, string> _emptyMap = new Dictionary<SpecialTagField, string>();
 
-    private static readonly Dictionary<SpecialTagField, string> _mp4Map = new()
+    private static readonly Dictionary<SpecialTagField, string> _mp4Map = new Dictionary<SpecialTagField, string>()
     {
         { SpecialTagField.ASIN, "----:com.apple.iTunes:ASIN" },
         { SpecialTagField.Rating, "----:com.apple.iTunes:RATING WMP" },
@@ -14,14 +19,16 @@ public static class TrackSpecialTabExtensions
         { SpecialTagField.Www, "----:com.apple.iTunes:WWWAUDIOFILE" },
         { SpecialTagField.ItunesGapless, "pgap" },
         { SpecialTagField.ItunesMediaType, "stik" },
-        { SpecialTagField.ShowMovement, "shwm" }
+        { SpecialTagField.ShowMovement, "shwm" },
+        { SpecialTagField.Mp4Series, "----:com.apple.iTunes:SERIES" },
+        { SpecialTagField.Mp4SeriesPart, "----:com.apple.iTunes:SERIES-PART" }
     };
 
     public static string? ReadSpecialTag(this Track track, SpecialTagField field)
     {
         var map = GetSpecialTagFieldMap(track);
         var fieldExists = map.TryGetValue(field, out var key);
-        if (!fieldExists)
+        if (!fieldExists || key is null)
         {
             return null;
         }
@@ -29,11 +36,12 @@ public static class TrackSpecialTabExtensions
         return ExtractFromAdditionalFields(track, key);
     }
 
+    // TODO log
     public static void WriteSpecialTag(this Track track, SpecialTagField field, string? value)
     {
         var map = GetSpecialTagFieldMap(track);
         var fieldExists = map.TryGetValue(field, out var key);
-        if (!fieldExists)
+        if (!fieldExists || key is null)
         {
             return;
         }
@@ -46,6 +54,40 @@ public static class TrackSpecialTabExtensions
         {
             track.AdditionalFields[key] = value;
         }
+    }
+
+    public static void WriteSeriesPart(this Track track, string? seriesPart)
+    {
+        track.WriteSpecialTag(SpecialTagField.Mp4SeriesPart, seriesPart);
+
+        if (seriesPart is not null && track.AudioFormat.Name == mp4Name)
+        {
+            var regexMatch = _mp4SeriesPartRegex.Match(seriesPart);
+            if (regexMatch.Success)
+            {
+                // Actually stored in Movement Part
+                track.SeriesPart = regexMatch.Captures.Single().Value;
+            }
+            else
+            {
+                track.SeriesPart = null;
+            }
+        }
+
+        else
+        {
+            track.SeriesPart = seriesPart;
+        }
+    }
+
+    public static string? GetSeriesPart(this Track track)
+    {
+        if (track.AudioFormat.Name == mp4Name)
+        {
+            return track.ReadSpecialTag(SpecialTagField.Mp4SeriesPart);
+        }
+
+        return track.SeriesPart;
     }
 
     private static string? ExtractFromAdditionalFields(Track track, string key)
@@ -62,7 +104,7 @@ public static class TrackSpecialTabExtensions
     {
         return track.AudioFormat.Name switch
         {
-            "MPEG-4 Part 14" => _mp4Map,
+            mp4Name => _mp4Map,
             _ => _emptyMap
         };
     }
