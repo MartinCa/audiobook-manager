@@ -1,4 +1,3 @@
-using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 
@@ -26,7 +25,6 @@ internal class Program
         builder.Services.AddSwaggerGen();
 
         builder.Services.AddServices();
-        builder.Services.SetupFileManager();
 
         var app = builder.Build();
 

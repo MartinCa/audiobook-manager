@@ -7,15 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="0.17.1" />
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AudiobookManager.Database\AudiobookManager.Database.csproj" />
     <ProjectReference Include="..\AudiobookManager.Domain\AudiobookManager.Domain.csproj" />
-    <ProjectReference Include="..\AudiobookManager.FileManager\AudiobookManager.FileManager.csproj" />
-    <ProjectReference Include="..\AudiobookManager.Scraping\AudiobookManager.Scraping.csproj" />
-    <ProjectReference Include="..\AudiobookManager.Settings\AudiobookManager.Settings.csproj" />
   </ItemGroup>
 
 </Project>
