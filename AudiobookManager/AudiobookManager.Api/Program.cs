@@ -1,5 +1,7 @@
+using AudiobookManager.Database;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
+using Microsoft.EntityFrameworkCore;
 
 internal class Program
 {
@@ -16,6 +18,18 @@ internal class Program
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
+
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(
+                policy =>
+                {
+                    policy.WithOrigins("http://localhost:3000")
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials();
+                });
+        });
 
         // Add services to the container.
 
@@ -37,11 +51,23 @@ internal class Program
 
         // app.UseHttpsRedirection();
 
+        app.UseCors();
+
+        var defaultFileOptions = new DefaultFilesOptions();
+        defaultFileOptions.DefaultFileNames.Clear();
+        defaultFileOptions.DefaultFileNames.Add("index.html");
+        app.UseDefaultFiles(defaultFileOptions);
+
         app.UseStaticFiles();
 
         app.UseAuthorization();
 
         app.MapControllers();
+
+        using (var scope = builder.Services.BuildServiceProvider().CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
+        }
 
         app.Run();
     }

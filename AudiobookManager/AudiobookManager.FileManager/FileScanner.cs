@@ -18,7 +18,7 @@ public class FileScanner
 
         foreach (string sPath in Directory.GetDirectories(path))
         {
-            result.AddRange(ScanDirectoryForFiles(sPath));
+            result.AddRange(ScanDirectoryForFiles(sPath, fileFilter));
         }
 
         return result;
