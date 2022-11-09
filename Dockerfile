@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:6.0-alpine AS build-env
 WORKDIR /app
 
 # Copy everything
@@ -9,7 +9,7 @@ RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
 # Build client app
-FROM node:18 as build-node
+FROM node:18-alpine as build-node
 WORKDIR /app
 COPY /client/package*.json ./
 
@@ -20,21 +20,22 @@ COPY /client ./
 RUN npm run build
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:6.0
+FROM mcr.microsoft.com/dotnet/aspnet:6.0-alpine
+
+# User manipulation tools
+RUN apk add --no-cache --update --upgrade shadow
+
 WORKDIR /app
 COPY --from=build-env /app/out .
 COPY --from=build-node /app/dist ./wwwroot
 
 COPY ./dockerscripts/. ./
 
-# Add group to use for the user
-RUN addgroup xyzgroup --gid 911
-
-# Add user to run the app as
-RUN useradd --uid 911 -d /app -g xyzgroup appuser
+RUN addgroup appgroup -g 911
+RUN adduser -D -u 911 -h /app -G appgroup appuser
 
 # Make the user the owner of the app dir
-RUN chown -R appuser:xyzgroup /app
+RUN chown -R appuser:appgroup /app
 
 RUN chmod +x ./run.sh
 

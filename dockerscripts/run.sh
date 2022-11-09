@@ -5,7 +5,7 @@ umask 0000
 PUID=${PUID:-911}
 PGID=${PGID:-911}
 
-groupmod -o -g "$PGID" xyzgroup
+groupmod -o -g "$PGID" appgroup
 usermod -o -u "$PUID" appuser
 
 echo "
