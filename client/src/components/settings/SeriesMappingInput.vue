@@ -1,45 +1,45 @@
 <template>
-    <v-form ref="form"
-            v-if="input">
-        <v-row>
-            <v-col>
-                <v-text-field density="comfortable"
-                              v-model="input.mapped_series"
-                              :rules="[v => !!v || 'Mapped series is required']"
-                              label="Mapped series"
-                              hide-details="auto">
+  <v-form ref="form"
+          v-if="input">
+    <v-row>
+      <v-col>
+        <v-text-field density="comfortable"
+                      v-model="input.mappedSeries"
+                      :rules="[v => !!v || 'Mapped series is required']"
+                      label="Mapped series"
+                      hide-details="auto">
 
-                </v-text-field>
-            </v-col>
-            <v-col>
-                <v-text-field density="comfortable"
-                              v-model="input.regex"
-                              :rules="[v => !!v || 'Regex is required']"
-                              label="Regex"
-                              hide-details="auto">
+        </v-text-field>
+      </v-col>
+      <v-col>
+        <v-text-field density="comfortable"
+                      v-model="input.regex"
+                      :rules="[v => !!v || 'Regex is required']"
+                      label="Regex"
+                      hide-details="auto">
 
-                </v-text-field>
-            </v-col>
-            <v-col>
-                <v-switch v-model="input.warn_about_part"
-                          color="primary"
-                          hide-details="auto"
-                          label="Warn about part"></v-switch>
-            </v-col>
-            <v-col>
-                <v-btn icon
-                       title="Save"
-                       @click="updateMapping">
-                    <v-icon>mdi-check</v-icon>
-                </v-btn>
-                <v-btn icon
-                       title="Delete"
-                       @click="deleteMapping">
-                    <v-icon>mdi-delete</v-icon>
-                </v-btn>
-            </v-col>
-        </v-row>
-    </v-form>
+        </v-text-field>
+      </v-col>
+      <v-col>
+        <v-switch v-model="input.warnAboutPart"
+                  color="primary"
+                  hide-details="auto"
+                  label="Warn about part"></v-switch>
+      </v-col>
+      <v-col>
+        <v-btn icon
+               title="Save"
+               @click="updateMapping">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+        <v-btn icon
+               title="Delete"
+               @click="deleteMapping">
+          <v-icon>mdi-delete</v-icon>
+        </v-btn>
+      </v-col>
+    </v-row>
+  </v-form>
 </template>
 
 <script setup lang="ts">
@@ -54,49 +54,49 @@ const props = defineProps<{ mapping?: SeriesMapping }>();
 const input: Ref<SeriesMapping | undefined> = ref(undefined);
 
 const emit = defineEmits<{
-    (e: "mappingDeleted", mapping: SeriesMapping | undefined): void,
-    (e: "mappingUpdated", updatedMapping: SeriesMapping): void
+  (e: "mappingDeleted", mapping: SeriesMapping | undefined): void,
+  (e: "mappingUpdated", updatedMapping: SeriesMapping): void
 }>();
 
 onMounted(() => {
-    input.value = Object.assign({ id: -1, regex: "", mapped_series: "", warn_about_part: false }, props.mapping)
+  input.value = Object.assign({ id: -1, regex: "", mapped_series: "", warn_about_part: false }, props.mapping)
 });
 
 const deleteMapping = async () => {
-    if (props.mapping) {
-        await SettingsService.deleteSeriesMapping(props.mapping.id);
-    }
+  if (props.mapping) {
+    await SettingsService.deleteSeriesMapping(props.mapping.id);
+  }
 
-    emit("mappingDeleted", props.mapping)
+  emit("mappingDeleted", props.mapping)
 }
 
 
 const validateForm = async (): Promise<boolean> => {
-    if (!form) {
-        return false;
-    }
+  if (!form) {
+    return false;
+  }
 
-    const formValidation = await form.value.validate();
+  const formValidation = await form.value.validate();
 
-    return formValidation.valid;
+  return formValidation.valid;
 }
 
 const updateMapping = async () => {
-    const formValid = await validateForm();
+  const formValid = await validateForm();
 
-    if (!formValid) {
-        return;
-    }
+  if (!formValid) {
+    return;
+  }
 
-    let updatedMapping: SeriesMapping | undefined = input.value;
+  let updatedMapping: SeriesMapping | undefined = input.value;
 
-    if (props.mapping && input.value) {
-        updatedMapping = await SettingsService.updateSeriesMapping(input.value)
-    }
+  if (props.mapping && input.value) {
+    updatedMapping = await SettingsService.updateSeriesMapping(input.value)
+  }
 
-    if (updatedMapping) {
-        emit("mappingUpdated", updatedMapping);
-    }
+  if (updatedMapping) {
+    emit("mappingUpdated", updatedMapping);
+  }
 }
 
 </script>

@@ -18,6 +18,12 @@ public class DatabaseContext : DbContext
         _settings = settings.Value;
     }
 
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SeriesMappingDb>()
+            .HasIndex(u => u.Regex)
+            .IsUnique();
+    }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

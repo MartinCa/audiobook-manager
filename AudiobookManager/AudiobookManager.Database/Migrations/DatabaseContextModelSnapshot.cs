@@ -39,6 +39,9 @@ namespace AudiobookManager.Database.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Regex")
+                        .IsUnique();
+
                     b.ToTable("series_mapping");
                 });
 #pragma warning restore 612, 618

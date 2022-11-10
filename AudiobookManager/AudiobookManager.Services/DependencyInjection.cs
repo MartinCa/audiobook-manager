@@ -7,10 +7,11 @@ namespace AudiobookManager.Services;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddServices(this IServiceCollection services) => services
+    public static IServiceCollection SetupServiceLayer(this IServiceCollection services) => services
         .AddScoped<IFileService, FileService>()
         .AddScoped<IAudiobookService, AudiobookService>()
         .AddScoped<IScrapingService, ScrapingService>()
+        .AddScoped<ISettingsService, SettingsService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

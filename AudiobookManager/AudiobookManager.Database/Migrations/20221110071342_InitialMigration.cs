@@ -12,16 +12,22 @@ namespace AudiobookManager.Database.Migrations
                 name: "series_mapping",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    Regex = table.Column<string>(type: "TEXT", nullable: false),
-                    MappedSeries = table.Column<string>(type: "TEXT", nullable: false),
-                    WarnAboutPart = table.Column<bool>(type: "INTEGER", nullable: false)
+                    regex = table.Column<string>(type: "TEXT", nullable: false),
+                    mapped_series = table.Column<string>(type: "TEXT", nullable: false),
+                    warn_about_part = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_series_mapping", x => x.Id);
+                    table.PrimaryKey("PK_series_mapping", x => x.id);
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_series_mapping_regex",
+                table: "series_mapping",
+                column: "regex",
+                unique: true);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)

@@ -4,15 +4,34 @@ using AudiobookManager.Scraping.Models;
 namespace AudiobookManager.Services;
 public class ScrapingService : IScrapingService
 {
-    private readonly IAudibleScraper _audibleScraper;
+    private readonly IEnumerable<IScraper> _scrapers;
 
-    public ScrapingService(IAudibleScraper audibleScraper)
+    public ScrapingService(IEnumerable<IScraper> scrapers)
     {
-        _audibleScraper = audibleScraper;
+        _scrapers = scrapers;
     }
 
-    public Task<IList<BookSearchResult>> SearchAudible(string searchTerm)
+    public Task<IList<BookSearchResult>> Search(string sourceName, string searchTerm)
     {
-        return _audibleScraper.SearchAudible(searchTerm);
+        var scraper = _scrapers.SingleOrDefault(s => s.IsSource(sourceName));
+
+        if (scraper == default)
+        {
+            throw new Exception($"No scraper for source {sourceName}");
+        }
+
+        return scraper.Search(searchTerm);
+    }
+
+    public Task<BookSearchResult> GetBookDetails(string bookUrl)
+    {
+        var scraper = _scrapers.SingleOrDefault(s => s.SupportsUrl(bookUrl));
+
+        if (scraper == default)
+        {
+            throw new Exception($"No scraper supports url {bookUrl}");
+        }
+
+        return scraper.GetBookDetails(bookUrl);
     }
 }

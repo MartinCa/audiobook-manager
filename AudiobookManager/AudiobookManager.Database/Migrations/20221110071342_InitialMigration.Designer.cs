@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20221108133524_InitialMigration")]
+    [Migration("20221110071342_InitialMigration")]
     partial class InitialMigration
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -22,20 +22,27 @@ namespace AudiobookManager.Database.Migrations
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
 
                     b.Property<string>("MappedSeries")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mapped_series");
 
                     b.Property<string>("Regex")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("regex");
 
                     b.Property<bool>("WarnAboutPart")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("warn_about_part");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Regex")
+                        .IsUnique();
 
                     b.ToTable("series_mapping");
                 });

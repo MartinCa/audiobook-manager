@@ -7,18 +7,24 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace AudiobookManager.Scraping;
 
-public class AudibleScraper : IAudibleScraper
+public class AudibleScraper : IScraper
 {
     private const string _audibleBaseUrl = "https://www.audible.com";
+    private const string _sourceName = "Audible";
 
-    private static Regex _rePersonWithRole = new Regex(@"([^-]+)( - )(.+)", RegexOptions.Compiled);
+    private static readonly Regex _rePersonWithRole = new Regex(@"([^-]+)( - )(.+)", RegexOptions.Compiled);
+    private static readonly Regex _reAsin = new Regex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$", RegexOptions.Compiled);
+    private static readonly Regex _reSeriesPart = new Regex(@".*Book (\d+\.?\d*)", RegexOptions.Compiled);
 
-    private static Regex _reAsin = new Regex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$", RegexOptions.Compiled);
-    private static Regex _reSeriesPart = new Regex(@".*Book (\d+\.?\d*)", RegexOptions.Compiled);
+    private static readonly Dictionary<string, string> _audibleCommonQueryParameters = new()
+    {
+        ["skip_spell_correction"] = "true",
+        ["overrideBaseCountry"] = "true",
+        ["ipRedirectOverride"] = "true"
+    };
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBookSeriesMapper _bookSeriesMapper;
-
 
     public AudibleScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper)
     {
@@ -26,19 +32,20 @@ public class AudibleScraper : IAudibleScraper
         _bookSeriesMapper = bookSeriesMapper;
     }
 
-    public async Task<IList<BookSearchResult>> SearchAudible(string searchTerm)
+    public bool SupportsUrl(string url) => url.Contains("audible.com");
+
+    public bool IsSource(string sourceName) => _sourceName.Equals(sourceName, StringComparison.InvariantCultureIgnoreCase);
+
+    public async Task<IList<BookSearchResult>> Search(string searchTerm)
     {
-        var queryParameters = new Dictionary<string, string>()
+        var queryParameters = new Dictionary<string, string>(_audibleCommonQueryParameters)
         {
-            ["keywords"] = searchTerm,
-            ["skip_spell_correction"] = "true",
-            ["overrideBaseCountry"] = "true",
-            ["ipRedirectOverride"] = "true"
+            { "keywords", searchTerm }
         };
-        var url = $"{_audibleBaseUrl}/search";
-        url = QueryHelpers.AddQueryString(url, queryParameters);
+
+        var uri = QueryHelpers.AddQueryString($"{_audibleBaseUrl}/search", queryParameters);
         var httpClient = _httpClientFactory.CreateClient();
-        var response = await httpClient.GetAsync(url);
+        var response = await httpClient.GetAsync(uri);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -54,6 +61,8 @@ public class AudibleScraper : IAudibleScraper
 
         return searchResultElements.Select(x => ParseAudibleSearchResult(x)).Where(x => x is not null).ToList();
     }
+
+    public Task<BookSearchResult> GetBookDetails(string bookUrl) => throw new NotImplementedException();
 
     private BookSearchResult? ParseAudibleSearchResult(IElement resultElem)
     {
@@ -123,12 +132,12 @@ public class AudibleScraper : IAudibleScraper
         };
     }
 
-    private string? ParseLength(IElement? elem)
+    private static string? ParseLength(IElement? elem)
     {
         return ExtractStringFromTagWithPrefix(elem, "li.bc-list-item.runtimeLabel", "Length:");
     }
 
-    private IList<Person>? ParsePersons(IElement? elem)
+    private static IList<Person>? ParsePersons(IElement? elem)
     {
         if (elem is null)
         {
@@ -138,7 +147,7 @@ public class AudibleScraper : IAudibleScraper
         return elem.QuerySelectorAll("a").Select(x => ParsePersonFromString(x.Text())).ToList();
     }
 
-    private Person ParsePersonFromString(string personString)
+    private static Person ParsePersonFromString(string personString)
     {
         var match = _rePersonWithRole.Match(personString);
         if (match.Success)
@@ -149,7 +158,7 @@ public class AudibleScraper : IAudibleScraper
         return new Person(personString.Trim());
     }
 
-    private string? ExtractStringFromTagWithPrefix(IElement? elem, string querySelector, string prefix)
+    private static string? ExtractStringFromTagWithPrefix(IElement? elem, string querySelector, string prefix)
     {
         var tag = elem?.QuerySelector(querySelector);
         if (tag is null)
@@ -162,7 +171,7 @@ public class AudibleScraper : IAudibleScraper
         return tagText.Substring(prefixIdx + prefix.Length).Trim();
     }
 
-    private string? ParseAsinFromUrl(string url)
+    private static string? ParseAsinFromUrl(string url)
     {
         var match = _reAsin.Match(url);
         if (match is null)

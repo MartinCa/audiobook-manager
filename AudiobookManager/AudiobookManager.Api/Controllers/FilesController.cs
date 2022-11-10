@@ -20,4 +20,10 @@ public class FilesController : ControllerBase
     {
         return _fileService.GetDirectoryContents(dto.Path);
     }
+
+    [HttpPost("delete_directory")]
+    public void DeleteDirectory([FromBody] PathDto dto)
+    {
+        _fileService.DeleteDirectory(dto.Path);
+    }
 }

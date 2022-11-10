@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Scraping.Models;
+﻿using AudiobookManager.Api.Dtos;
+using AudiobookManager.Scraping.Models;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,9 +15,15 @@ public class SearchController : ControllerBase
         _scrapingService = scrapingService;
     }
 
-    [HttpGet("audible")]
-    public async Task<IList<BookSearchResult>> SearchAudible([FromQuery] string q)
+    [HttpGet("{sourceName}")]
+    public async Task<IList<BookSearchResult>> Search(string sourceName, [FromQuery] string q)
     {
-        return await _scrapingService.SearchAudible(q);
+        return await _scrapingService.Search(sourceName, q);
+    }
+
+    [HttpPost("details")]
+    public async Task<BookSearchResult> GetBookDetails([FromBody] PathDto dto)
+    {
+        return await _scrapingService.GetBookDetails(dto.Path);
     }
 }

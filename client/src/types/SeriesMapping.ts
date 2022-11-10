@@ -1,14 +1,14 @@
 export interface SeriesMappingBase {
-    regex: string,
-    mapped_series: string,
-    warn_about_part: boolean
+  regex: string,
+  mappedSeries: string,
+  warnAboutPart: boolean
 }
 
 export interface SeriesMapping extends SeriesMappingBase {
-    id: number
+  id: number
 }
 
 export interface GroupMapping {
-    mapped_series: string,
-    mappings: SeriesMapping[]
+  mappedSeries: string,
+  mappings: SeriesMapping[]
 }

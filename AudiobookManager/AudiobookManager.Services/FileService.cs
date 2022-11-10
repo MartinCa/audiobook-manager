@@ -7,12 +7,10 @@ namespace AudiobookManager.Services;
 
 public class FileService : IFileService
 {
-    private readonly IAudiobookTagHandler _tagHandler;
     private readonly AudiobookManagerSettings _settings;
 
-    public FileService(IAudiobookTagHandler tagHandler, IOptions<AudiobookManagerSettings> settings)
+    public FileService(IOptions<AudiobookManagerSettings> settings)
     {
-        _tagHandler = tagHandler;
         _settings = settings.Value;
     }
 

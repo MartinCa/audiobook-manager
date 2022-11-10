@@ -8,6 +8,7 @@ public class SeriesMappingDb
 {
     [Key]
     [Column("id")]
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public long Id { get; set; }
     [Required]
     [Column("regex")]
