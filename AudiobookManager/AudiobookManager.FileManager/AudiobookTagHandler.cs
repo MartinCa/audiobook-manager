@@ -145,13 +145,13 @@ public class AudiobookTagHandler : IAudiobookTagHandler
 
         var filename = $"{audiobook.Year} - {audiobook.BookName}";
 
-        var subtitle = audiobook.Subtitle is not null ? "" : $" - {audiobook.Subtitle}";
+        var subtitle = string.IsNullOrEmpty(audiobook.Subtitle) ? "" : $" - {audiobook.Subtitle}";
         string? fileDirectory;
         if (!string.IsNullOrEmpty(audiobook.Series))
         {
             var seriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $" {PadSeriesPart(audiobook.SeriesPart)}" : "";
             filename = $"{audiobook.Series}{seriesPart} - {filename}";
-            var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book {seriesPart} - " : "";
+            var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book{seriesPart} - " : "";
             fileDirectory = $"{GetStringFromListOfPersons(audiobook.Authors)}/{audiobook.Series}/{seriesDirectory}{audiobook.Year} - {audiobook.BookName}{subtitle}";
         }
         else

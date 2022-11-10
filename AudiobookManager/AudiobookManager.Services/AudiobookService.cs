@@ -24,14 +24,32 @@ public class AudiobookService : IAudiobookService
 
     public Audiobook OrganizeAudiobook(Audiobook audiobook)
     {
+        if (string.IsNullOrEmpty(audiobook.FileInfo?.FullPath))
+        {
+            throw new Exception("No full path for audiobook");
+        }
+
+        var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
+
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
 
         var newRelativePath = _tagHandler.GenerateRelativeAudiobookPath(audiobook);
         var newFullPath = Path.Join(_settings.AudiobookLibraryPath, newRelativePath);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(newFullPath));
-        File.Move(audiobook.FileInfo.FullPath, newFullPath);
+        if (File.Exists(newFullPath))
+        {
+            throw new Exception($"File '{newFullPath}' already exists");
+        }
 
-        return ParseAudiobook(newFullPath);
+        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+        var newParsed = ParseAudiobook(newFullPath);
+
+        AudiobookFileHandler.WriteMetadata(newParsed);
+
+        AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+
+        return newParsed;
     }
+
+
 }
