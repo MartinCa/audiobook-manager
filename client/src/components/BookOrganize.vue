@@ -266,6 +266,7 @@ import ErrorNotifications from './ErrorNotifications.vue';
 import { useDialogWidth } from './dialog';
 import { useErrors } from './errors';
 import AudiobookService from '../services/AudiobookService';
+import { joinPersons } from '../helpers/bookDetailsHelpers';
 
 const props = defineProps<{
   bookPath: string
@@ -410,8 +411,8 @@ const loadImgFromUrl = async (overwriteUrl: string | undefined) => {
 };
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
   if (searchData) {
-    input.value.authors = searchData.authors.join(", ");
-    input.value.narrators = searchData.narrators?.join(", ") ?? null;
+    input.value.authors = joinPersons(searchData.authors);
+    input.value.narrators = joinPersons(searchData.narrators) ?? null;
     input.value.www = searchData.url;
     input.value.bookName = searchData.bookName;
     input.value.subtitle = searchData.subtitle;

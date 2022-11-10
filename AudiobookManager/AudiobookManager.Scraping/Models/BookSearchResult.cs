@@ -15,7 +15,8 @@ public class BookSearchResult
     public IList<BookSeriesSearchResult>? Series { get; set; }
     public string? Description { get; set; }
     public IList<string> Genres { get; set; }
-    public string? Rating { get; set; }
+    public float? Rating { get; set; }
+    public int? NumberOfRatings { get; set; }
     public string? Copyright { get; set; }
     public string? Publisher { get; set; }
     public string? Asin { get; set; }

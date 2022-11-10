@@ -1,9 +1,5 @@
-import BookFileInfo from "../types/BookFileInfo";
 import { BookSearchResult } from "../types/BookSearchResult";
 import BaseHttpService from "./BaseHttpService";
-
-const reAudible = /audible\.com/i;
-const reGoodreads = /goodreads\.com/i;
 
 class SearchService extends BaseHttpService {
   searchSource(source: string, searchTerm: string): Promise<BookSearchResult[]> {
@@ -11,11 +7,7 @@ class SearchService extends BaseHttpService {
   }
 
   getBookDetails(bookPath: string): Promise<BookSearchResult> {
-    if (reAudible.test(bookPath)) {
-      return this.postData("/search/audible/details", { path: bookPath });
-    } else {
-      return this.postData("/search/goodreads/details", { path: bookPath });
-    }
+    return this.postData("/search/details", { path: bookPath });
   }
 }
 

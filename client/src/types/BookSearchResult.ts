@@ -21,6 +21,7 @@ export interface BookSearchResult {
   description?: string,
   genres: string[],
   rating?: number,
+  numberOfRatings?: number,
   copyright?: string,
   publisher?: string,
   asin?: string

@@ -128,7 +128,10 @@
           <thead>
             <tr>
               <th>
-                Author
+                Authors
+              </th>
+              <th>
+                Narrators
               </th>
               <th>
                 Name
@@ -146,6 +149,9 @@
                 Language
               </th>
               <th>
+                Number of Ratings
+              </th>
+              <th>
                 Link
               </th>
               <th>
@@ -157,7 +163,10 @@
             <tr v-for="(result, i) in searchResults"
                 :key="i">
               <td>
-                {{ result.authors.join(", ") }}
+                {{ joinPersons(result.authors) }}
+              </td>
+              <td>
+                {{ joinPersons(result.narrators) }}
               </td>
               <td>
                 {{ result.bookName }}
@@ -173,6 +182,9 @@
               </td>
               <td>
                 {{ result.language }}
+              </td>
+              <td>
+                {{ result.numberOfRatings }}
               </td>
               <td>
                 <a :href="result.url"
