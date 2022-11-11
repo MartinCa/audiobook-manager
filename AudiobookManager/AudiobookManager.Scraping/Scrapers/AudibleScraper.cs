@@ -169,7 +169,7 @@ public class AudibleScraper : IScraper
             Description = null,
             Genres = new List<string>(),
             Rating = ratingResult.Rating,
-            NumberOfRatings = ratingResult.NumRatings,
+            NumberOfRatings = ratingResult.NumberOfRatings,
             Copyright = null,
             Publisher = null,
             Asin = asin,
@@ -277,16 +277,16 @@ public class AudibleScraper : IScraper
             Description = description,
             Genres = genres,
             Rating = ratingResult.Rating,
-            NumberOfRatings = ratingResult.NumRatings,
+            NumberOfRatings = ratingResult.NumberOfRatings,
             Copyright = copyright,
             Publisher = publisher,
             Asin = asin,
         };
     }
 
-    private static (float? Rating, int? NumRatings) ParseRating(IElement mainElem)
+    private static ParsedRating ParseRating(IElement mainElem)
     {
-        (float? Rating, int? NumRatings) result = (rating: null, numRatings: null);
+        ParsedRating result = new();
         var ratingTag = mainElem.QuerySelector("li.bc-list-item.ratingsLabel");
         if (ratingTag is not null)
         {
@@ -302,7 +302,7 @@ public class AudibleScraper : IScraper
                 var numRatingsMatch = _reNumRatings.Match(bcTextTagText);
                 if (numRatingsMatch.Success)
                 {
-                    result.NumRatings = int.Parse(numRatingsMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
+                    result.NumberOfRatings = int.Parse(numRatingsMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
                 }
             }
         }
