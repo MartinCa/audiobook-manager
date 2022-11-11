@@ -2,12 +2,13 @@
 using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Scraping.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Scraping;
 
 public interface IBookSeriesMapper
 {
-    public IList<BookSeriesSearchResult> MapBookSeries(IList<BookSeriesSearchResult> results);
+    public Task<IList<BookSeriesSearchResult>> MapBookSeries(IList<BookSeriesSearchResult> results);
 }
 
 public class BookSeriesMapper : IBookSeriesMapper
@@ -19,16 +20,20 @@ public class BookSeriesMapper : IBookSeriesMapper
         _db = db;
     }
 
-    public IList<BookSeriesSearchResult> MapBookSeries(IList<BookSeriesSearchResult> results)
+    public async Task<IList<BookSeriesSearchResult>> MapBookSeries(IList<BookSeriesSearchResult> results)
     {
-        var mappings = GetRegexMappings();
+        var mappings = await GetRegexMappings();
 
-        return results.Select(x => MapSingleBookSeries(x, mappings)).ToList();
+        var mappingTasks = results.Select(x => MapSingleBookSeries(x, mappings));
+
+        await Task.WhenAll(mappingTasks);
+
+        return mappingTasks.Select(task => task.Result).ToList();
     }
 
-    public BookSeriesSearchResult MapSingleBookSeries(BookSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMappingDb Mapping)>? mappings = null)
+    public async Task<BookSeriesSearchResult> MapSingleBookSeries(BookSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMappingDb Mapping)>? mappings = null)
     {
-        var allMappings = mappings ?? GetRegexMappings();
+        var allMappings = mappings ?? await GetRegexMappings();
 
         var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(result.SeriesName));
         if (matchingMapping != default)
@@ -44,9 +49,9 @@ public class BookSeriesMapper : IBookSeriesMapper
         return result;
     }
 
-    private IList<(Regex CompiledRegex, SeriesMappingDb Mapping)> GetRegexMappings()
+    private async Task<IList<(Regex CompiledRegex, SeriesMappingDb Mapping)>> GetRegexMappings()
     {
-        var mappings = _db.SeriesMappings.ToList();
+        var mappings = await _db.SeriesMappings.ToListAsync();
         return mappings.ConvertAll(x => (CompiledRegex: new Regex(x.Regex, RegexOptions.Compiled), Mapping: x));
     }
 }

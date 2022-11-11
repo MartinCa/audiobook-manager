@@ -1,6 +1,6 @@
 ﻿using AudiobookManager.Scraping.Models;
 
-namespace AudiobookManager.Scraping;
+namespace AudiobookManager.Scraping.Scrapers;
 public interface IScraper
 {
     bool IsSource(string sourceName);

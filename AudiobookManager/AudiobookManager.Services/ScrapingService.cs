@@ -1,5 +1,5 @@
-﻿using AudiobookManager.Scraping;
-using AudiobookManager.Scraping.Models;
+﻿using AudiobookManager.Scraping.Models;
+using AudiobookManager.Scraping.Scrapers;
 
 namespace AudiobookManager.Services;
 public class ScrapingService : IScrapingService

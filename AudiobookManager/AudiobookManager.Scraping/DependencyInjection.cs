@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using AudiobookManager.Scraping.Scrapers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AudiobookManager.Scraping;
 public static class DependencyInjection

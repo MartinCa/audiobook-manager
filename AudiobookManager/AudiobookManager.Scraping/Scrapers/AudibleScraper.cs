@@ -6,11 +6,12 @@ using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using Microsoft.AspNetCore.WebUtilities;
 
-namespace AudiobookManager.Scraping;
+namespace AudiobookManager.Scraping.Scrapers;
 
 public class AudibleScraper : IScraper
 {
-    private const string _audibleBaseUrl = "https://www.audible.com";
+    private const string _audibleDomain = "audible.com";
+    private const string _audibleBaseUrl = $"https://www.{_audibleDomain}";
     private const string _sourceName = "Audible";
 
     private static readonly Regex _rePersonWithRole = new Regex(@"([^-]+)( - )(.+)", RegexOptions.Compiled);
@@ -37,7 +38,7 @@ public class AudibleScraper : IScraper
         _bookSeriesMapper = bookSeriesMapper;
     }
 
-    public bool SupportsUrl(string url) => url.Contains("audible.com");
+    public bool SupportsUrl(string url) => url.Contains(_audibleDomain);
 
     public bool IsSource(string sourceName) => _sourceName.Equals(sourceName, StringComparison.InvariantCultureIgnoreCase);
 
@@ -64,7 +65,14 @@ public class AudibleScraper : IScraper
 
         var searchResultElements = doc.QuerySelectorAll("li.bc-list-item.productListItem");
 
-        return searchResultElements.Select(x => ParseAudibleSearchResult(x)).Where(x => x is not null).ToList();
+        var searchResultTasks = searchResultElements
+            .Select(resultElement => ParseAudibleSearchResult(resultElement));
+
+        await Task.WhenAll(searchResultTasks);
+
+        return searchResultTasks
+            .Select(task => task.Result)
+            .Where(result => result is not null).ToList();
     }
 
     public async Task<BookSearchResult> GetBookDetails(string bookUrl)
@@ -90,10 +98,10 @@ public class AudibleScraper : IScraper
             throw new Exception($"Invalid response from Audible, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
         }
 
-        return ParseAudibleDetails(mainElement, bookUrl);
+        return await ParseAudibleDetails(mainElement, bookUrl);
     }
 
-    private BookSearchResult? ParseAudibleSearchResult(IElement resultElem)
+    private async Task<BookSearchResult?> ParseAudibleSearchResult(IElement resultElem)
     {
         var titleTag = resultElem.QuerySelector("h3 a");
 
@@ -144,7 +152,7 @@ public class AudibleScraper : IScraper
 
         var asin = ParseAsinFromUrl(link);
 
-        var series = ParseBookSeries(resultElem);
+        var series = await ParseBookSeries(resultElem);
 
         var ratingResult = ParseRating(resultElem);
 
@@ -168,7 +176,7 @@ public class AudibleScraper : IScraper
         };
     }
 
-    private BookSearchResult ParseAudibleDetails(IElement mainElem, string bookUrl)
+    private async Task<BookSearchResult> ParseAudibleDetails(IElement mainElem, string bookUrl)
     {
         var titleTag = mainElem.QuerySelector("h1.bc-heading");
 
@@ -200,7 +208,7 @@ public class AudibleScraper : IScraper
 
         var genres = ParseGenres(mainElem);
 
-        var series = ParseBookSeries(mainElem);
+        var series = await ParseBookSeries(mainElem);
 
         string? imgUrl = null;
         var imgTag = mainElem.QuerySelector("img.bc-pub-block");
@@ -289,7 +297,7 @@ public class AudibleScraper : IScraper
                 var ratingMatch = _reRating.Match(bcTextTag.Text().Trim());
                 if (ratingMatch.Success)
                 {
-                    result.Rating = float.Parse(ratingMatch.Groups[1].Value, System.Globalization.NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+                    result.Rating = float.Parse(ratingMatch.Groups[1].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
                 }
                 var numRatingsMatch = _reNumRatings.Match(bcTextTagText);
                 if (numRatingsMatch.Success)
@@ -377,7 +385,7 @@ public class AudibleScraper : IScraper
         return match.Groups[1].Value;
     }
 
-    private IList<BookSeriesSearchResult> ParseBookSeries(IElement? elem)
+    private async Task<IList<BookSeriesSearchResult>> ParseBookSeries(IElement? elem)
     {
         var result = new List<BookSeriesSearchResult>();
         var seriesTag = elem?.QuerySelector("li.bc-list-item.seriesLabel");
@@ -406,6 +414,6 @@ public class AudibleScraper : IScraper
             }
         }
 
-        return _bookSeriesMapper.MapBookSeries(result);
+        return await _bookSeriesMapper.MapBookSeries(result);
     }
 }
