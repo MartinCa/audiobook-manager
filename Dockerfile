@@ -25,6 +25,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:6.0-alpine
 # User manipulation tools
 RUN apk add --no-cache --update --upgrade shadow
 
+# Environment
+ENV PUID=""
+ENV PGID=""
+ENV AudiobookImportPath="/input"
+ENV AudiobookLibraryPath ="/library"
+ENV DbLocation="/config/audiobookmanager.db"
+
 WORKDIR /app
 COPY --from=build-env /app/out .
 COPY --from=build-node /app/dist ./wwwroot
