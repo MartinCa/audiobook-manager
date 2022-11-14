@@ -15,16 +15,18 @@ public class GoodreadsScraper : IScraper
     private const string _goodreadsBaseUrl = $"https://www.{_goodreadsDomain}";
     private const string _sourceName = "Goodreads";
 
-    private static List<string> _ignoredAuthorRoles = new() { "illustrator" };
+    private static readonly IList<string> _ignoredAuthorRoles = new List<string> { "illustrator" };
+    private static readonly IList<string> _ignoredGenres = new List<string> { "Fiction" };
 
-    private static readonly Regex _reUrlWithoutQuery = new Regex(@"^([^\\?]+)", RegexOptions.Compiled);
+    private static readonly Regex _reUrlWithoutQuery = new(@"^([^\\?]+)", RegexOptions.Compiled);
     private static readonly Regex _reImgUrl = new(@"(.*_S\w)\d+(_\..*)", RegexOptions.Compiled);
-    private static readonly Regex _reRating = new Regex(@"(\d\.?\d*) avg", RegexOptions.Compiled);
-    private static readonly Regex _reNumRatings = new(@"([\d,]+) ratings", RegexOptions.Compiled);
+    private static readonly Regex _reRating = new(@"(\d\.?\d*) avg", RegexOptions.Compiled);
+    private static readonly Regex _reNumRatings = new(@"([\d,]+)\s?ratings", RegexOptions.Compiled);
     private static readonly Regex _reYear = new(@".*published\s+(\d+)", RegexOptions.Compiled);
     private static readonly Regex _reDetailsYear = new(@"\d{4}", RegexOptions.Compiled);
     private static readonly Regex _rePublisher = new(@"by(.+)", RegexOptions.Compiled);
     private static readonly Regex _reSeries = new(@"([^#]+)#?(.*)", RegexOptions.Compiled);
+    private static readonly Regex _reNewDetailsSeriesPart = new(@"\(#([^\)]+)\)", RegexOptions.Compiled);
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBookSeriesMapper _bookSeriesMapper;
@@ -56,14 +58,19 @@ public class GoodreadsScraper : IScraper
         HtmlParser parser = new();
         var doc = parser.ParseDocument(responseStream);
 
-        var mainElement = doc.QuerySelector("div#topcol");
-
-        if (mainElement is null)
+        var mainElementOld = doc.QuerySelector("div#topcol");
+        if (mainElementOld is not null)
         {
-            throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+            return await ParseBookDetails(doc, bookUrl);
         }
 
-        return await ParseBookDetails(doc, bookUrl);
+        var mainElemenNew = doc.QuerySelector("main.BookPage");
+        if (mainElemenNew is not null)
+        {
+            return await ParseNewBookDetails(mainElemenNew, bookUrl);
+        }
+
+        throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
     }
 
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
@@ -103,12 +110,81 @@ public class GoodreadsScraper : IScraper
         throw new Exception("Invalid response from Goodreads");
     }
 
-    public async Task<BookSearchResult> ParseBookDetails(IHtmlDocument doc, string bookUrl)
+
+
+    public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
+    public bool SupportsUrl(string url) => url.Contains(_goodreadsDomain);
+
+    private async Task<BookSearchResult> ParseNewBookDetails(IElement mainElem, string bookUrl)
+    {
+        var allPersons = ParseNewDetailsPersons(mainElem);
+        var narrators = allPersons.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
+        var authors = FilterAuthors(allPersons.Except(narrators));
+
+        string? bookName = null;
+        string? subtitle = null;
+        if (mainElem.TryGetTextFromQuerySelector("div.BookPageTitleSection h1", out var rawBookTitle))
+        {
+            var splitTitle = rawBookTitle.Split(":");
+            bookName = splitTitle[0].Trim();
+            if (splitTitle.Length > 1)
+            {
+                subtitle = splitTitle[1].Trim();
+            }
+        }
+
+        string? imgUrl = null;
+        var imgTag = mainElem.QuerySelector("div.BookCover img");
+        if (imgTag is not null)
+        {
+            imgUrl = imgTag.Attributes["src"]?.Value;
+        }
+
+        int? year = null;
+        var publicationDetailsTag = mainElem.QuerySelector("p[data-testid='publicationInfo']");
+        if (publicationDetailsTag is not null && _reDetailsYear.TryMatch(publicationDetailsTag.Text(), out var match))
+        {
+            year = int.Parse(match.Value);
+        }
+
+        string? description = null;
+        if (mainElem.TryGetTextFromQuerySelector("div.BookPageMetadataSection__description", out var descriptionText))
+        {
+            description = descriptionText;
+        }
+
+        var genres = ParseNewDetailsGenres(mainElem);
+
+        ParsedRating? ratingResult = ParseNewDetailsRating(mainElem);
+
+        var series = await ParseNewDetailsSeries(mainElem);
+
+        return new BookSearchResult(bookUrl, bookName)
+        {
+            Authors = authors,
+            Narrators = narrators,
+            Subtitle = subtitle,
+            Duration = null,
+            Year = year,
+            Language = null,
+            ImageUrl = imgUrl,
+            Series = series,
+            Description = description,
+            Genres = genres,
+            Rating = ratingResult?.Rating,
+            NumberOfRatings = ratingResult?.NumberOfRatings,
+            Copyright = null,
+            Publisher = null,
+            Asin = null,
+        };
+    }
+
+    private async Task<BookSearchResult> ParseBookDetails(IHtmlDocument doc, string bookUrl)
     {
         var mainElem = doc.QuerySelector("div#topcol");
         var allAuthors = ParseAuthors(mainElem);
-        var authors = allAuthors.Where(x => x.Role is null || !_ignoredAuthorRoles.Contains(x.Role)).ToList();
         var narrators = allAuthors.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
+        var authors = FilterAuthors(allAuthors.Except(narrators));
 
         string? bookName = null;
         string? subtitle = null;
@@ -137,7 +213,7 @@ public class GoodreadsScraper : IScraper
         var ratingTag = mainElem.QuerySelector("span[itemprop='ratingValue']");
         if (ratingTag is not null)
         {
-            ratingResult = ParseRating(ratingTag.ParentElement.Text().Trim());
+            ratingResult = ParseOldDetailsRating(ratingTag);
         }
 
         var bookSeries = await ParseBookSeries(mainElem);
@@ -164,7 +240,7 @@ public class GoodreadsScraper : IScraper
         };
     }
 
-    public static BookSearchResult ParseSearchResult(IElement resultElem)
+    private static BookSearchResult ParseSearchResult(IElement resultElem)
     {
         var coverTag = resultElem.QuerySelector("td");
         var coverLinkTag = coverTag?.QuerySelector("a");
@@ -227,13 +303,100 @@ public class GoodreadsScraper : IScraper
         };
     }
 
-    public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
-    public bool SupportsUrl(string url) => url.Contains(_goodreadsDomain);
+    private async Task<IList<BookSeriesSearchResult>> ParseNewDetailsSeries(IElement mainElem)
+    {
+        var resultingSeries = new List<BookSeriesSearchResult>();
+
+        foreach (var workDetailsTag in mainElem.QuerySelectorAll("div.WorkDetails div.DescListItem").ToList())
+        {
+            var dtTagText = workDetailsTag.QuerySelector("dt")?.Text().Trim();
+            if (dtTagText is null || dtTagText != "Series")
+            {
+                continue;
+            }
+
+            foreach (var aTag in workDetailsTag.QuerySelectorAll("a").ToList())
+            {
+                var series = new BookSeriesSearchResult(aTag.Text().Trim());
+                var seriesPart = aTag.NextSibling?.Text().Trim();
+                if (seriesPart is not null && _reNewDetailsSeriesPart.TryMatch(seriesPart, out var seriesPartMatch))
+                {
+                    series.SeriesPart = seriesPartMatch.Groups[1].Value;
+                }
+                resultingSeries.Add(series);
+            }
+        }
+
+        return await _bookSeriesMapper.MapBookSeries(resultingSeries);
+    }
+
+    private static ParsedRating? ParseNewDetailsRating(IElement mainElem)
+    {
+        var parsedResult = new ParsedRating();
+        if (mainElem.TryGetTextFromQuerySelector("div.RatingStatistics__rating", out var ratingText))
+        {
+            parsedResult.Rating = float.Parse(ratingText, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+        }
+
+        if (mainElem.TryGetTextFromQuerySelector("span[data-testid='ratingsCount']", out var ratingsCountText) && _reNumRatings.TryMatch(ratingsCountText, out var ratingsCountMatch))
+        {
+            parsedResult.NumberOfRatings = int.Parse(ratingsCountMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
+        }
+
+        return parsedResult;
+    }
+
+    private static IList<Person> FilterAuthors(IEnumerable<Person> persons)
+    {
+        return persons
+            .Where(p => p.Role is null || !_ignoredAuthorRoles.Any(ignoredRole => string.Equals(ignoredRole, p.Role, StringComparison.InvariantCultureIgnoreCase)))
+            .ToList();
+    }
+
+    private static IList<Person> ParseNewDetailsPersons(IElement mainElem)
+    {
+        var persons = new List<Person>();
+
+        var contributorLinks = mainElem.QuerySelectorAll("div.ContributorLinksList a.ContributorLink");
+
+        foreach (var contributorLink in contributorLinks.ToList())
+        {
+            if (contributorLink.TryGetTextFromQuerySelector("span.ContributorLink__name", out var personName))
+            {
+                var person = new Person(personName);
+
+                if (contributorLink.TryGetTextFromQuerySelector("span.ContributorLink__role", out var roleName))
+                {
+                    person.Role = roleName;
+                }
+
+                persons.Add(person);
+            }
+        }
+
+        return persons;
+    }
+
+    private static IList<string> FilterGenres(IEnumerable<string> genres)
+    {
+        return genres
+            .Where(genreText => _ignoredGenres.All(ignoredGenre => !string.Equals(ignoredGenre, genreText, StringComparison.InvariantCultureIgnoreCase)))
+            .Take(5)
+            .ToList();
+    }
+
+    private static IList<string> ParseNewDetailsGenres(IElement mainElem)
+    {
+        var genreTags = mainElem.QuerySelectorAll("div.BookPageMetadataSection__genres span.BookPageMetadataSection__genreButton");
+        return FilterGenres(genreTags
+            .ToList()
+            .Select(genreElement => genreElement.Text().Trim()));
+    }
 
     private static IList<string> ParseGenres(IHtmlDocument doc)
     {
         var genres = new List<string>();
-        var genreHeaderTag = doc.QuerySelectorAll("h2.brownBackground").ToList().Where(x => x.Text().Trim() == "Genres").FirstOrDefault();
+        var genreHeaderTag = doc.QuerySelectorAll("h2.brownBackground").ToList().FirstOrDefault(x => x.Text().Trim() == "Genres");
 
         if (genreHeaderTag is not null)
         {
@@ -247,17 +410,12 @@ public class GoodreadsScraper : IScraper
                     if (genreATags is not null)
                     {
                         genres.Add(genreATags.Last().Text().Trim());
-                        if (genres.Count > 4)
-                        {
-                            break;
-                        }
                     }
                 }
             }
-
         }
 
-        return genres;
+        return FilterGenres(genres);
     }
 
     private async Task<IList<BookSeriesSearchResult>> ParseBookSeries(IElement mainElem)
@@ -344,6 +502,21 @@ public class GoodreadsScraper : IScraper
         }
 
         return result;
+    }
+
+    private static ParsedRating ParseOldDetailsRating(IElement ratingElement)
+    {
+        var parsed = new ParsedRating();
+
+        parsed.Rating = float.Parse(ratingElement.Text().Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+
+        var numRatingsTagValue = ratingElement.ParentElement?.QuerySelector("meta[itemprop='ratingCount']")?.Attributes["content"]?.Value;
+        if (numRatingsTagValue is not null)
+        {
+            parsed.NumberOfRatings = int.Parse(numRatingsTagValue, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
+        }
+
+        return parsed;
     }
 
     private static ParsedRating ParseRating(string ratingText)
