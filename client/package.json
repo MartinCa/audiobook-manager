@@ -10,7 +10,7 @@
     "@mdi/font": "7.0.96",
     "axios": "1.1.3",
     "roboto-fontface": "0.10.0",
-    "vue": "3.2.41",
+    "vue": "3.2.45",
     "vue-router": "^4.1.6",
     "vuetify": "3.0.0",
     "webfontloader": "1.6.28"
