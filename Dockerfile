@@ -20,7 +20,7 @@ COPY /client ./
 RUN npm run build
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:6.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:7.0-alpine
 
 # User manipulation tools
 RUN apk add --no-cache --update --upgrade shadow
