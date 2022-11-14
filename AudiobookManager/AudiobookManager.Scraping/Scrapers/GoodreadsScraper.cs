@@ -7,6 +7,9 @@ using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Extensions;
 using AudiobookManager.Scraping.Models;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 
 namespace AudiobookManager.Scraping.Scrapers;
 public class GoodreadsScraper : IScraper
@@ -28,13 +31,26 @@ public class GoodreadsScraper : IScraper
     private static readonly Regex _reSeries = new(@"([^#]+)#?(.*)", RegexOptions.Compiled);
     private static readonly Regex _reNewDetailsSeriesPart = new(@"\(#([^\)]+)\)", RegexOptions.Compiled);
 
+    private readonly AsyncRetryPolicy _retryPolicy;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBookSeriesMapper _bookSeriesMapper;
+    private readonly ILogger<GoodreadsScraper> _logger;
 
-    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper)
+    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<GoodreadsScraper> logger)
     {
         _httpClientFactory = httpClientFactory;
         _bookSeriesMapper = bookSeriesMapper;
+        _logger = logger;
+
+        int maxRetries = 5;
+
+        _retryPolicy = Policy.Handle<Exception>().WaitAndRetryAsync(
+            retryCount: maxRetries,
+            sleepDurationProvider: (int retryNum) => TimeSpan.FromSeconds(3),
+            onRetry: (exception, sleepDuration, attemptNumber, context) =>
+            {
+                _logger.LogWarning("Exception: {exceptionMessage}, Retrying in {sleepDuration}. {attemptNumber}/{maxRetries}", exception.Message, sleepDuration, attemptNumber, maxRetries);
+            });
     }
 
     public async Task<BookSearchResult> GetBookDetails(string bookUrl)
@@ -46,31 +62,35 @@ public class GoodreadsScraper : IScraper
 
         var uri = QueryHelpers.AddQueryString(bookUrl, queryParameters);
         var httpClient = _httpClientFactory.CreateClient();
-        var response = await httpClient.GetAsync(uri);
 
-        if (!response.IsSuccessStatusCode)
+        return await _retryPolicy.ExecuteAsync(async () =>
         {
+            var response = await httpClient.GetAsync(uri);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+            }
+
+            var responseStream = await response.Content.ReadAsStreamAsync();
+
+            HtmlParser parser = new();
+            var doc = parser.ParseDocument(responseStream);
+
+            var mainElementOld = doc.QuerySelector("div#topcol");
+            if (mainElementOld is not null)
+            {
+                return await ParseBookDetails(doc, bookUrl);
+            }
+
+            var mainElemenNew = doc.QuerySelector("main.BookPage");
+            if (mainElemenNew is not null)
+            {
+                return await ParseNewBookDetails(mainElemenNew, bookUrl);
+            }
+
             throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-        }
-
-        var responseStream = await response.Content.ReadAsStreamAsync();
-
-        HtmlParser parser = new();
-        var doc = parser.ParseDocument(responseStream);
-
-        var mainElementOld = doc.QuerySelector("div#topcol");
-        if (mainElementOld is not null)
-        {
-            return await ParseBookDetails(doc, bookUrl);
-        }
-
-        var mainElemenNew = doc.QuerySelector("main.BookPage");
-        if (mainElemenNew is not null)
-        {
-            return await ParseNewBookDetails(mainElemenNew, bookUrl);
-        }
-
-        throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+        });
     }
 
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
@@ -83,31 +103,35 @@ public class GoodreadsScraper : IScraper
 
         var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/search", queryParameters);
         var httpClient = _httpClientFactory.CreateClient();
-        var response = await httpClient.GetAsync(uri);
 
-        if (!response.IsSuccessStatusCode)
+        return await _retryPolicy.ExecuteAsync(async () =>
         {
-            throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-        }
+            var response = await httpClient.GetAsync(uri);
 
-        var responseStream = await response.Content.ReadAsStreamAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+            }
 
-        HtmlParser parser = new();
-        var doc = parser.ParseDocument(responseStream);
+            var responseStream = await response.Content.ReadAsStreamAsync();
 
-        var tableRowTags = doc.QuerySelectorAll("table.tableList tr");
-        if (tableRowTags is not null && tableRowTags.Any())
-        {
-            return tableRowTags.Select(rowElem => ParseSearchResult(rowElem)).ToList();
-        }
+            HtmlParser parser = new();
+            var doc = parser.ParseDocument(responseStream);
 
-        var searchHeaderTag = doc.QuerySelector("h3.searchSubNavContainer");
-        if (searchHeaderTag is not null && searchHeaderTag.Text().Trim().StartsWith("No results"))
-        {
-            return new List<BookSearchResult>();
-        }
+            var tableRowTags = doc.QuerySelectorAll("table.tableList tr");
+            if (tableRowTags is not null && tableRowTags.Any())
+            {
+                return tableRowTags.Select(rowElem => ParseSearchResult(rowElem)).ToList();
+            }
 
-        throw new Exception("Invalid response from Goodreads");
+            var searchHeaderTag = doc.QuerySelector("h3.searchSubNavContainer");
+            if (searchHeaderTag is not null && searchHeaderTag.Text().Trim().StartsWith("No results"))
+            {
+                return new List<BookSearchResult>();
+            }
+
+            throw new Exception("Invalid response from Goodreads");
+        });
     }
 
 
