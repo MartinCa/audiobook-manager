@@ -1,16 +1,17 @@
 ﻿using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Domain;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Services;
 
 public interface ISettingsService
 {
-    SeriesMapping CreateSeriesMapping(SeriesMapping seriesMapping);
-    SeriesMapping UpdateSeriesMapping(SeriesMapping seriesMapping);
-    IList<SeriesMapping> GetSeriesMappings();
-    SeriesMapping? GetSeriesMapping(long id);
-    void DeleteSeriesMapping(long id);
+    Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping);
+    Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping);
+    Task<IList<SeriesMapping>> GetSeriesMappings();
+    Task<SeriesMapping?> GetSeriesMapping(long id);
+    Task DeleteSeriesMapping(long id);
 }
 
 public class SettingsService : ISettingsService
@@ -22,27 +23,27 @@ public class SettingsService : ISettingsService
         _db = db;
     }
 
-    public SeriesMapping CreateSeriesMapping(SeriesMapping seriesMapping)
+    public async Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping)
     {
         var dbModel = ToDb(seriesMapping);
         _db.SeriesMappings.Add(dbModel);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync();
         return ToDomain(dbModel);
     }
 
-    public void DeleteSeriesMapping(long id)
+    public async Task DeleteSeriesMapping(long id)
     {
         var entity = _db.SeriesMappings.SingleOrDefault(x => x.Id == id);
         if (entity != default)
         {
             _db.Remove(entity);
-            _db.SaveChanges();
+            await _db.SaveChangesAsync();
         }
     }
 
-    public SeriesMapping? GetSeriesMapping(long id)
+    public async Task<SeriesMapping?> GetSeriesMapping(long id)
     {
-        var entity = _db.SeriesMappings.SingleOrDefault(x => x.Id == id);
+        var entity = await _db.SeriesMappings.SingleOrDefaultAsync(x => x.Id == id);
         if (entity == default)
         {
             return null;
@@ -51,17 +52,18 @@ public class SettingsService : ISettingsService
         return ToDomain(entity);
     }
 
-    public IList<SeriesMapping> GetSeriesMappings()
+    public async Task<IList<SeriesMapping>> GetSeriesMappings()
     {
-        return _db.SeriesMappings.Select(x => ToDomain(x)).ToList();
+        var dbModels = await _db.SeriesMappings.ToListAsync();
+        return dbModels.Select(ToDomain).ToList();
     }
 
-    public SeriesMapping UpdateSeriesMapping(SeriesMapping seriesMapping)
+    public async Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping)
     {
         var entity = ToDb(seriesMapping);
 
         _db.SeriesMappings.Update(entity);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync();
 
         return ToDomain(entity);
     }

@@ -15,26 +15,26 @@ public class SettingsController : ControllerBase
     }
 
     [HttpGet("series_mappings")]
-    public IList<SeriesMapping> GetSeriesMappings()
+    public async Task<IList<SeriesMapping>> GetSeriesMappings()
     {
-        return _settingsService.GetSeriesMappings();
+        return await _settingsService.GetSeriesMappings();
     }
 
     [HttpPost("series_mappings")]
-    public SeriesMapping CreateSeriesMapping([FromBody] SeriesMapping dto)
+    public async Task<SeriesMapping> CreateSeriesMapping([FromBody] SeriesMapping dto)
     {
-        return _settingsService.CreateSeriesMapping(dto);
+        return await _settingsService.CreateSeriesMapping(dto);
     }
 
     [HttpPut("series_mapping/{mappingId}")]
-    public SeriesMapping UpdateSeriesMapping([FromBody] SeriesMapping dto, long mappingId)
+    public async Task<SeriesMapping> UpdateSeriesMappingAsync([FromBody] SeriesMapping dto, long mappingId)
     {
-        return _settingsService.UpdateSeriesMapping(dto);
+        return await _settingsService.UpdateSeriesMapping(dto);
     }
 
     [HttpDelete("series_mapping/{mappingId}")]
-    public void DeleteSeriesMapping(long mappingId)
+    public async Task DeleteSeriesMappingAsync(long mappingId)
     {
-        _settingsService.DeleteSeriesMapping(mappingId);
+        await _settingsService.DeleteSeriesMapping(mappingId);
     }
 }
