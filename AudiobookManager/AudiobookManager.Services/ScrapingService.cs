@@ -34,4 +34,9 @@ public class ScrapingService : IScrapingService
 
         return scraper.GetBookDetails(bookUrl);
     }
+
+    public IList<string> GetListOfScrapingServices()
+    {
+        return _scrapers.Select(x => x.SourceName).ToList();
+    }
 }

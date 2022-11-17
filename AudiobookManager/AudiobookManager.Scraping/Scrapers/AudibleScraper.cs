@@ -42,6 +42,8 @@ public class AudibleScraper : IScraper
 
     public bool IsSource(string sourceName) => _sourceName.Equals(sourceName, StringComparison.InvariantCultureIgnoreCase);
 
+    public string SourceName => _sourceName;
+
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
     {
         var queryParameters = new Dictionary<string, string>(_audibleCommonQueryParameters)

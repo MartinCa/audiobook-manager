@@ -3,6 +3,8 @@
 namespace AudiobookManager.Scraping.Scrapers;
 public interface IScraper
 {
+    string SourceName { get; }
+
     bool IsSource(string sourceName);
 
     bool SupportsUrl(string url);

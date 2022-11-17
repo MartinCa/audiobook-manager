@@ -137,7 +137,10 @@ public class GoodreadsScraper : IScraper
 
 
     public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
+
     public bool SupportsUrl(string url) => url.Contains(_goodreadsDomain);
+
+    public string SourceName => _sourceName;
 
     private async Task<BookSearchResult> ParseNewBookDetails(IElement mainElem, string bookUrl)
     {

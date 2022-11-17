@@ -26,4 +26,10 @@ public class SearchController : ControllerBase
     {
         return await _scrapingService.GetBookDetails(dto.Path);
     }
+
+    [HttpGet("services")]
+    public IList<string> GetSearchServices()
+    {
+        return _scrapingService.GetListOfScrapingServices();
+    }
 }
