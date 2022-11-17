@@ -31,3 +31,7 @@ Default project: AudiobookManager.Database
 Command: `Add-Migration <migration name>`
 
 Migrations are performed at runtime.
+
+### Swagger / Redoc
+
+Swagger is hosted at `http://localhost:5271/swagger/index.html`
