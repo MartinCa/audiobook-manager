@@ -19,6 +19,8 @@ internal class Program
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
 
+        builder.Services.AddRouting(options => options.LowercaseUrls= true);
+
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(
