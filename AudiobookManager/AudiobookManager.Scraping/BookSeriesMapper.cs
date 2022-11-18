@@ -31,7 +31,7 @@ public class BookSeriesMapper : IBookSeriesMapper
         return mappingTasks.Select(task => task.Result).ToList();
     }
 
-    public async Task<BookSeriesSearchResult> MapSingleBookSeries(BookSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMappingDb Mapping)>? mappings = null)
+    public async Task<BookSeriesSearchResult> MapSingleBookSeries(BookSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping)>? mappings = null)
     {
         var allMappings = mappings ?? await GetRegexMappings();
 
@@ -49,7 +49,7 @@ public class BookSeriesMapper : IBookSeriesMapper
         return result;
     }
 
-    private async Task<IList<(Regex CompiledRegex, SeriesMappingDb Mapping)>> GetRegexMappings()
+    private async Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>> GetRegexMappings()
     {
         var mappings = await _db.SeriesMappings.ToListAsync();
         return mappings.ConvertAll(x => (CompiledRegex: new Regex(x.Regex, RegexOptions.Compiled), Mapping: x));

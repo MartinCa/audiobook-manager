@@ -2,6 +2,7 @@
 
 public class Audiobook
 {
+    public long? Id { get; set; }
     public List<Person> Authors { get; set; }
     public List<Person> Narrators { get; set; }
     public string? BookName { get; set; }
@@ -17,6 +18,7 @@ public class Audiobook
     public string? Asin { get; set; }
     public string? Www { get; set; }
     public AudiobookImage? Cover { get; set; }
+    public string? CoverFilePath { get; set; }
 
     public int? DurationInSeconds { get; set; }
 

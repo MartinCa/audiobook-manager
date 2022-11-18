@@ -1,10 +1,14 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using AudiobookManager.Database.Repositories;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AudiobookManager.Database;
 public static class DependencyInjection
 {
-    public static IServiceCollection SetupDatabase(this IServiceCollection services)
-    {
-        return services.AddDbContext<DatabaseContext>();
-    }
+    public static IServiceCollection SetupDatabase(this IServiceCollection services) =>
+        services
+            .AddDbContext<DatabaseContext>()
+            .AddScoped<IAudiobookRepository, AudiobookRepository>()
+            .AddScoped<IPersonRepository, PersonRepository>()
+            .AddScoped<IGenreRepository, GenreRepository>();
+
 }

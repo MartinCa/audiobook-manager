@@ -19,7 +19,7 @@ internal class Program
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
 
-        builder.Services.AddRouting(options => options.LowercaseUrls= true);
+        builder.Services.AddRouting(options => options.LowercaseUrls = true);
 
         builder.Services.AddCors(options =>
         {
@@ -55,11 +55,11 @@ internal class Program
 
         app.UseCors();
 
+        // Serve the frontend app
         var defaultFileOptions = new DefaultFilesOptions();
         defaultFileOptions.DefaultFileNames.Clear();
         defaultFileOptions.DefaultFileNames.Add("index.html");
         app.UseDefaultFiles(defaultFileOptions);
-
         app.UseStaticFiles();
 
         app.UseAuthorization();

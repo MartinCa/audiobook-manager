@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace AudiobookManager.Database.Models;
 
 [Table("series_mapping")]
-public class SeriesMappingDb
+public class SeriesMapping
 {
     [Key]
     [Column("id")]
@@ -20,7 +20,7 @@ public class SeriesMappingDb
     [Column("warn_about_part")]
     public bool WarnAboutPart { get; set; }
 
-    public SeriesMappingDb(long id, string regex, string mappedSeries, bool warnAboutPart)
+    public SeriesMapping(long id, string regex, string mappedSeries, bool warnAboutPart)
     {
         Id = id;
         Regex = regex;

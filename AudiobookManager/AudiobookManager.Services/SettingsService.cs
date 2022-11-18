@@ -1,16 +1,14 @@
 ﻿using AudiobookManager.Database;
-using AudiobookManager.Database.Models;
-using AudiobookManager.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Services;
 
 public interface ISettingsService
 {
-    Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping);
-    Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping);
-    Task<IList<SeriesMapping>> GetSeriesMappings();
-    Task<SeriesMapping?> GetSeriesMapping(long id);
+    Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping);
+    Task<Domain.SeriesMapping> UpdateSeriesMapping(Domain.SeriesMapping seriesMapping);
+    Task<IList<Domain.SeriesMapping>> GetSeriesMappings();
+    Task<Domain.SeriesMapping?> GetSeriesMapping(long id);
     Task DeleteSeriesMapping(long id);
 }
 
@@ -23,7 +21,7 @@ public class SettingsService : ISettingsService
         _db = db;
     }
 
-    public async Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping)
+    public async Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping)
     {
         var dbModel = ToDb(seriesMapping);
         _db.SeriesMappings.Add(dbModel);
@@ -41,7 +39,7 @@ public class SettingsService : ISettingsService
         }
     }
 
-    public async Task<SeriesMapping?> GetSeriesMapping(long id)
+    public async Task<Domain.SeriesMapping?> GetSeriesMapping(long id)
     {
         var entity = await _db.SeriesMappings.SingleOrDefaultAsync(x => x.Id == id);
         if (entity == default)
@@ -52,13 +50,13 @@ public class SettingsService : ISettingsService
         return ToDomain(entity);
     }
 
-    public async Task<IList<SeriesMapping>> GetSeriesMappings()
+    public async Task<IList<Domain.SeriesMapping>> GetSeriesMappings()
     {
         var dbModels = await _db.SeriesMappings.ToListAsync();
         return dbModels.Select(ToDomain).ToList();
     }
 
-    public async Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping)
+    public async Task<Domain.SeriesMapping> UpdateSeriesMapping(Domain.SeriesMapping seriesMapping)
     {
         var entity = ToDb(seriesMapping);
 
@@ -68,8 +66,8 @@ public class SettingsService : ISettingsService
         return ToDomain(entity);
     }
 
-    private static SeriesMapping ToDomain(SeriesMappingDb dbModel) => new SeriesMapping(dbModel.Id, dbModel.Regex, dbModel.MappedSeries, dbModel.WarnAboutPart);
+    private static Domain.SeriesMapping ToDomain(Database.Models.SeriesMapping dbModel) => new Domain.SeriesMapping(dbModel.Id, dbModel.Regex, dbModel.MappedSeries, dbModel.WarnAboutPart);
 
-    private static SeriesMappingDb ToDb(SeriesMapping domainModel) => new SeriesMappingDb(domainModel.Id ?? default, domainModel.Regex, domainModel.MappedSeries, domainModel.WarnAboutParth);
+    private static Database.Models.SeriesMapping ToDb(Domain.SeriesMapping domainModel) => new Database.Models.SeriesMapping(domainModel.Id ?? default, domainModel.Regex, domainModel.MappedSeries, domainModel.WarnAboutParth);
 
 }

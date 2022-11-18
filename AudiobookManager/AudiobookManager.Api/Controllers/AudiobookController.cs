@@ -22,8 +22,12 @@ public class AudiobookController : ControllerBase
     }
 
     [HttpPost("organize")]
-    public Audiobook OrganizeAudiobook([FromBody] Audiobook book)
+    public async Task<Audiobook> OrganizeAudiobook([FromBody] Audiobook book)
     {
-        return _audiobookService.OrganizeAudiobook(book);
+        var result = _audiobookService.OrganizeAudiobook(book);
+
+        await _audiobookService.InsertAudiobook(result);
+
+        return result;
     }
 }

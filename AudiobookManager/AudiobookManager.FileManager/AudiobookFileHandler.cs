@@ -21,13 +21,22 @@ public static class AudiobookFileHandler
         {
             MakeMetadataFile(directoryPath, "reader.txt", string.Join(", ", audiobook.Narrators.Select(x => x.Name)));
         }
+    }
+
+    public static string WriteCover(Audiobook audiobook)
+    {
         if (audiobook.Cover is not null)
         {
+            var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
             var coverExtension = GetMimeFileExt(audiobook.Cover.MimeType);
             var fileName = Path.Join(directoryPath, $"cover{coverExtension}");
             using var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write);
             fs.Write(Convert.FromBase64String(audiobook.Cover.Base64Data));
+
+            return fileName;
         }
+
+        return null;
     }
 
     public static void RemoveDirIfEmpty(string directoryPath)

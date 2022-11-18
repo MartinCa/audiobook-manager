@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using AudiobookManager.Database.EntityMappings;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Settings;
 using Microsoft.EntityFrameworkCore;
@@ -20,17 +21,19 @@ public class DatabaseContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<SeriesMappingDb>()
-            .HasIndex(u => u.Regex)
-            .IsUnique();
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(SeriesMappingMapping).Assembly);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var dbPath = _settings?.DbLocation ?? "testdb.db";
         var connectionString = $"Data Source={dbPath}";
-        optionsBuilder.UseSqlite(connectionString, options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName));
+        optionsBuilder.UseSqlite(connectionString, options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
+            .UseSnakeCaseNamingConvention();
     }
 
-    public DbSet<SeriesMappingDb> SeriesMappings { get; set; }
+    public DbSet<SeriesMapping> SeriesMappings { get; set; }
+    public DbSet<Audiobook> Audiobooks { get; set; }
+    public DbSet<Genre> Genres { get; set; }
+    public DbSet<Person> Persons { get; set; }
 }

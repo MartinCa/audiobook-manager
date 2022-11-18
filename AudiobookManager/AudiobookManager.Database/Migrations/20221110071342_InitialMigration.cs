@@ -10,8 +10,7 @@ namespace AudiobookManager.Database.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "series_mapping",
-                columns: table => new
-                {
+                columns: table => new {
                     id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     regex = table.Column<string>(type: "TEXT", nullable: false),
