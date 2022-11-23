@@ -12,7 +12,7 @@ using Polly;
 using Polly.Retry;
 
 namespace AudiobookManager.Scraping.Scrapers;
-public class GoodreadsScraper : IScraper
+public partial class GoodreadsScraper : IScraper
 {
     private const string _goodreadsDomain = "goodreads.com";
     private const string _goodreadsBaseUrl = $"https://www.{_goodreadsDomain}";
@@ -21,15 +21,24 @@ public class GoodreadsScraper : IScraper
     private static readonly IList<string> _ignoredAuthorRoles = new List<string> { "illustrator" };
     private static readonly IList<string> _ignoredGenres = new List<string> { "Fiction" };
 
-    private static readonly Regex _reUrlWithoutQuery = new(@"^([^\\?]+)", RegexOptions.Compiled);
-    private static readonly Regex _reImgUrl = new(@"(.*_S\w)\d+(_\..*)", RegexOptions.Compiled);
-    private static readonly Regex _reRating = new(@"(\d\.?\d*) avg", RegexOptions.Compiled);
-    private static readonly Regex _reNumRatings = new(@"([\d,]+)\s?ratings", RegexOptions.Compiled);
-    private static readonly Regex _reYear = new(@".*published\s+(\d+)", RegexOptions.Compiled);
-    private static readonly Regex _reDetailsYear = new(@"\d{4}", RegexOptions.Compiled);
-    private static readonly Regex _rePublisher = new(@"by(.+)", RegexOptions.Compiled);
-    private static readonly Regex _reSeries = new(@"([^#]+)#?(.*)", RegexOptions.Compiled);
-    private static readonly Regex _reNewDetailsSeriesPart = new(@"\(#([^\)]+)\)", RegexOptions.Compiled);
+    [GeneratedRegex(@"^([^\\?]+)")]
+    private static partial Regex ReUrlWithoutQuery();
+    [GeneratedRegex(@"(.*_S\w)\d+(_\..*)")]
+    private static partial Regex ReImgUrl();
+    [GeneratedRegex(@"(\d\.?\d*) avg")]
+    private static partial Regex ReRating();
+    [GeneratedRegex(@"([\d,]+)\s?ratings")]
+    private static partial Regex ReNumRatings();
+    [GeneratedRegex(@".*published\s+(\d+)")]
+    private static partial Regex ReYear();
+    [GeneratedRegex(@"\d{4}")]
+    private static partial Regex ReDetailsYear();
+    [GeneratedRegex(@"by(.+)")]
+    private static partial Regex RePublisher();
+    [GeneratedRegex(@"([^#]+)#?(.*)")]
+    private static partial Regex ReSeries();
+    [GeneratedRegex(@"\(#([^\)]+)\)")]
+    private static partial Regex ReNewDetailsSeriesPart();
 
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -169,7 +178,7 @@ public class GoodreadsScraper : IScraper
 
         int? year = null;
         var publicationDetailsTag = mainElem.QuerySelector("p[data-testid='publicationInfo']");
-        if (publicationDetailsTag is not null && _reDetailsYear.TryMatch(publicationDetailsTag.Text(), out var match))
+        if (publicationDetailsTag is not null && ReDetailsYear().TryMatch(publicationDetailsTag.Text(), out var match))
         {
             year = int.Parse(match.Value);
         }
@@ -273,7 +282,7 @@ public class GoodreadsScraper : IScraper
         var coverLinkTag = coverTag?.QuerySelector("a");
         var fullLink = $"{_goodreadsBaseUrl}{coverLinkTag?.Attributes["href"]?.Value}";
         string? link = null;
-        var urlMatch = _reUrlWithoutQuery.Match(fullLink);
+        var urlMatch = ReUrlWithoutQuery().Match(fullLink);
         if (urlMatch.Success)
         {
             link = urlMatch.Groups[1].Value;
@@ -305,7 +314,7 @@ public class GoodreadsScraper : IScraper
 
         int? year = null;
         var publishedTag = ratingTag?.NextSibling;
-        if (_reYear.TryMatch(publishedTag?.Text().Trim(), out var match))
+        if (ReYear().TryMatch(publishedTag?.Text().Trim(), out var match))
         {
             year = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
         }
@@ -346,7 +355,7 @@ public class GoodreadsScraper : IScraper
             {
                 var series = new BookSeriesSearchResult(aTag.Text().Trim());
                 var seriesPart = aTag.NextSibling?.Text().Trim();
-                if (seriesPart is not null && _reNewDetailsSeriesPart.TryMatch(seriesPart, out var seriesPartMatch))
+                if (seriesPart is not null && ReNewDetailsSeriesPart().TryMatch(seriesPart, out var seriesPartMatch))
                 {
                     series.SeriesPart = seriesPartMatch.Groups[1].Value;
                 }
@@ -365,7 +374,7 @@ public class GoodreadsScraper : IScraper
             parsedResult.Rating = float.Parse(ratingText, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
         }
 
-        if (mainElem.TryGetTextFromQuerySelector("span[data-testid='ratingsCount']", out var ratingsCountText) && _reNumRatings.TryMatch(ratingsCountText, out var ratingsCountMatch))
+        if (mainElem.TryGetTextFromQuerySelector("span[data-testid='ratingsCount']", out var ratingsCountText) && ReNumRatings().TryMatch(ratingsCountText, out var ratingsCountMatch))
         {
             parsedResult.NumberOfRatings = int.Parse(ratingsCountMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
         }
@@ -460,7 +469,7 @@ public class GoodreadsScraper : IScraper
                     var itemATags = dataDivTag.QuerySelectorAll("div.infoBoxRowItem a");
                     foreach (var itemATag in itemATags.ToList())
                     {
-                        if (_reSeries.TryMatch(itemATag.Text().Trim(), out var seriesMatch))
+                        if (ReSeries().TryMatch(itemATag.Text().Trim(), out var seriesMatch))
                         {
                             series.Add(new BookSeriesSearchResult(seriesMatch.Groups[1].Value.Trim())
                             {
@@ -512,7 +521,7 @@ public class GoodreadsScraper : IScraper
         var publisherText = publisherElem?.Text().Trim();
         if (!string.IsNullOrEmpty(publisherText))
         {
-            var yearMatches = _reDetailsYear.Matches(publisherText);
+            var yearMatches = ReDetailsYear().Matches(publisherText);
             foreach (var yearMatch in yearMatches.ToList())
             {
                 var parsedYear = int.Parse(yearMatch.Value);
@@ -522,7 +531,7 @@ public class GoodreadsScraper : IScraper
                 }
             }
 
-            if (_rePublisher.TryMatch(publisherText, out var publisherMatch))
+            if (RePublisher().TryMatch(publisherText, out var publisherMatch))
             {
                 result.Publisher = publisherMatch.Groups[1].Value.Trim();
             }
@@ -550,12 +559,12 @@ public class GoodreadsScraper : IScraper
     {
         ParsedRating rating = new();
 
-        if (_reRating.TryMatch(ratingText, out var ratingMatch))
+        if (ReRating().TryMatch(ratingText, out var ratingMatch))
         {
             rating.Rating = float.Parse(ratingMatch.Groups[1].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
         }
 
-        if (_reNumRatings.TryMatch(ratingText, out var numRatingsMatch))
+        if (ReNumRatings().TryMatch(ratingText, out var numRatingsMatch))
         {
             rating.NumberOfRatings = int.Parse(numRatingsMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
         }
@@ -570,7 +579,7 @@ public class GoodreadsScraper : IScraper
             return null;
         }
 
-        var imgUrlMatch = _reImgUrl.Match(imgUrl);
+        var imgUrlMatch = ReImgUrl().Match(imgUrl);
         if (imgUrlMatch.Success)
         {
             return $"{imgUrlMatch.Groups[1].Value}1000{imgUrlMatch.Groups[2].Value}";

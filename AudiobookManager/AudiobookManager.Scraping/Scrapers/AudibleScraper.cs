@@ -8,19 +8,26 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace AudiobookManager.Scraping.Scrapers;
 
-public class AudibleScraper : IScraper
+public partial class AudibleScraper : IScraper
 {
     private const string _audibleDomain = "audible.com";
     private const string _audibleBaseUrl = $"https://www.{_audibleDomain}";
     private const string _sourceName = "Audible";
 
-    private static readonly Regex _rePersonWithRole = new Regex(@"([^-]+)( - )(.+)", RegexOptions.Compiled);
-    private static readonly Regex _reAsin = new Regex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$", RegexOptions.Compiled);
-    private static readonly Regex _reSeriesPart = new Regex(@".*Book (\d+\.?\d*)", RegexOptions.Compiled);
-    private static readonly Regex _reYear = new Regex(@"\d{4}", RegexOptions.Compiled);
-    private static readonly Regex _reCopyrightPublisher = new Regex(@"^©\d+(.+)\(P\)\d+(.+)$", RegexOptions.Compiled);
-    private static readonly Regex _reRating = new Regex(@"^(\d\.?\d?)(?!.*ratings)", RegexOptions.Compiled);
-    private static readonly Regex _reNumRatings = new Regex(@"\(?([\d,]+) ratings\)?", RegexOptions.Compiled);
+    [GeneratedRegex(@"([^-]+)( - )(.+)")]
+    private static partial Regex RePersonWithRole();
+    [GeneratedRegex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$")]
+    private static partial Regex ReAsin();
+    [GeneratedRegex(@".*Book (\d+\.?\d*)")]
+    private static partial Regex ReSeriesPart();
+    [GeneratedRegex(@"\d{4}")]
+    private static partial Regex ReYear();
+    [GeneratedRegex(@"^©\d+(.+)\(P\)\d+(.+)$")]
+    private static partial Regex ReCopyrightPublisher();
+    [GeneratedRegex(@"^(\d\.?\d?)(?!.*ratings)")]
+    private static partial Regex ReRating();
+    [GeneratedRegex(@"\(?([\d,]+) ratings\)?")]
+    private static partial Regex ReNumRatings();
 
     private static readonly Dictionary<string, string> _audibleCommonQueryParameters = new()
     {
@@ -234,7 +241,7 @@ public class AudibleScraper : IScraper
             if (bcBoxesTags.Length > 1)
             {
                 var copyrightText = bcBoxesTags.Last().Text().Trim();
-                var yearMatches = _reYear.Matches(copyrightText);
+                var yearMatches = ReYear().Matches(copyrightText);
                 foreach (var yearMatch in yearMatches.ToList())
                 {
                     var parsedYear = int.Parse(yearMatch.Value);
@@ -244,7 +251,7 @@ public class AudibleScraper : IScraper
                     }
                 }
 
-                var copyrightPublisherMatch = _reCopyrightPublisher.Match(copyrightText);
+                var copyrightPublisherMatch = ReCopyrightPublisher().Match(copyrightText);
                 if (copyrightPublisherMatch.Success)
                 {
                     copyright = copyrightPublisherMatch.Groups[1].Value;
@@ -296,12 +303,12 @@ public class AudibleScraper : IScraper
             foreach (var bcTextTag in bcTextTags)
             {
                 var bcTextTagText = bcTextTag.Text().Trim();
-                var ratingMatch = _reRating.Match(bcTextTag.Text().Trim());
+                var ratingMatch = ReRating().Match(bcTextTag.Text().Trim());
                 if (ratingMatch.Success)
                 {
                     result.Rating = float.Parse(ratingMatch.Groups[1].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
                 }
-                var numRatingsMatch = _reNumRatings.Match(bcTextTagText);
+                var numRatingsMatch = ReNumRatings().Match(bcTextTagText);
                 if (numRatingsMatch.Success)
                 {
                     result.NumberOfRatings = int.Parse(numRatingsMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
@@ -354,7 +361,7 @@ public class AudibleScraper : IScraper
 
     private static Person ParsePersonFromString(string personString)
     {
-        var match = _rePersonWithRole.Match(personString);
+        var match = RePersonWithRole().Match(personString);
         if (match.Success)
         {
             return new Person(match.Groups[1].Value.Trim()) { Role = match.Groups[3].Value.Trim() };
@@ -378,7 +385,7 @@ public class AudibleScraper : IScraper
 
     private static string? ParseAsinFromUrl(string url)
     {
-        var match = _reAsin.Match(url);
+        var match = ReAsin().Match(url);
         if (match is null)
         {
             return null;
@@ -406,7 +413,7 @@ public class AudibleScraper : IScraper
                 var nextSiblingText = aTag.NextSibling?.Text();
                 if (!string.IsNullOrEmpty(nextSiblingText))
                 {
-                    var match = _reSeriesPart.Match(nextSiblingText);
+                    var match = ReSeriesPart().Match(nextSiblingText);
                     if (match.Success)
                     {
                         seriesPart = match.Groups[1].Value.Trim();
