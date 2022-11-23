@@ -1,73 +1,49 @@
-﻿using AudiobookManager.Database;
-using Microsoft.EntityFrameworkCore;
+﻿using AudiobookManager.Database.Repositories;
+using AudiobookManager.Services.MappingExtensions;
 
 namespace AudiobookManager.Services;
 
-public interface ISettingsService
-{
-    Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping);
-    Task<Domain.SeriesMapping> UpdateSeriesMapping(Domain.SeriesMapping seriesMapping);
-    Task<IList<Domain.SeriesMapping>> GetSeriesMappings();
-    Task<Domain.SeriesMapping?> GetSeriesMapping(long id);
-    Task DeleteSeriesMapping(long id);
-}
-
 public class SettingsService : ISettingsService
 {
-    private readonly DatabaseContext _db;
+    private readonly ISeriesMappingRepository _seriesMappingRepository;
 
-    public SettingsService(DatabaseContext db)
+    public SettingsService(ISeriesMappingRepository seriesMappingRepository)
     {
-        _db = db;
+        _seriesMappingRepository= seriesMappingRepository;
     }
 
     public async Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping)
     {
-        var dbModel = ToDb(seriesMapping);
-        _db.SeriesMappings.Add(dbModel);
-        await _db.SaveChangesAsync();
-        return ToDomain(dbModel);
+        var dbModel = seriesMapping.ToDb();
+        dbModel = await _seriesMappingRepository.CreateSeriesMapping(dbModel);
+        return dbModel.ToDomain();
     }
 
     public async Task DeleteSeriesMapping(long id)
     {
-        var entity = _db.SeriesMappings.SingleOrDefault(x => x.Id == id);
-        if (entity != default)
-        {
-            _db.Remove(entity);
-            await _db.SaveChangesAsync();
-        }
+        await _seriesMappingRepository.DeleteSeriesMapping(id);
     }
 
     public async Task<Domain.SeriesMapping?> GetSeriesMapping(long id)
     {
-        var entity = await _db.SeriesMappings.SingleOrDefaultAsync(x => x.Id == id);
-        if (entity == default)
-        {
-            return null;
-        }
+        var dbModel = await _seriesMappingRepository.GetSeriesMapping(id);
 
-        return ToDomain(entity);
+        return dbModel?.ToDomain();
     }
 
     public async Task<IList<Domain.SeriesMapping>> GetSeriesMappings()
     {
-        var dbModels = await _db.SeriesMappings.ToListAsync();
-        return dbModels.Select(ToDomain).ToList();
+        var dbModels = await _seriesMappingRepository.GetSeriesMappings();
+        return dbModels.Select(SeriesMappingMapping.ToDomain).ToList();
     }
 
     public async Task<Domain.SeriesMapping> UpdateSeriesMapping(Domain.SeriesMapping seriesMapping)
     {
-        var entity = ToDb(seriesMapping);
+        var dbModel = seriesMapping.ToDb();
 
-        _db.SeriesMappings.Update(entity);
-        await _db.SaveChangesAsync();
+        dbModel = await _seriesMappingRepository.UpdateSeriesMapping(dbModel);
 
-        return ToDomain(entity);
+        return dbModel.ToDomain();
     }
-
-    private static Domain.SeriesMapping ToDomain(Database.Models.SeriesMapping dbModel) => new Domain.SeriesMapping(dbModel.Id, dbModel.Regex, dbModel.MappedSeries, dbModel.WarnAboutPart);
-
-    private static Database.Models.SeriesMapping ToDb(Domain.SeriesMapping domainModel) => new Database.Models.SeriesMapping(domainModel.Id ?? default, domainModel.Regex, domainModel.MappedSeries, domainModel.WarnAboutParth);
 
 }

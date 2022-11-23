@@ -23,16 +23,20 @@ public class SettingsController : ControllerBase
     [HttpPost("series_mappings")]
     public async Task<SeriesMapping> CreateSeriesMapping([FromBody] SeriesMapping dto)
     {
+        if (dto.Id is not null && dto.Id != default(long))
+        {
+            throw new Exception("Frontend is not allowed to specify id");
+        }
         return await _settingsService.CreateSeriesMapping(dto);
     }
 
-    [HttpPut("series_mapping/{mappingId}")]
+    [HttpPut("series_mappings/{mappingId}")]
     public async Task<SeriesMapping> UpdateSeriesMappingAsync([FromBody] SeriesMapping dto, long mappingId)
     {
         return await _settingsService.UpdateSeriesMapping(dto);
     }
 
-    [HttpDelete("series_mapping/{mappingId}")]
+    [HttpDelete("series_mappings/{mappingId}")]
     public async Task DeleteSeriesMappingAsync(long mappingId)
     {
         await _settingsService.DeleteSeriesMapping(mappingId);

@@ -59,7 +59,7 @@ const emit = defineEmits<{
 }>();
 
 onMounted(() => {
-  input.value = Object.assign({ id: -1, regex: "", mapped_series: "", warn_about_part: false }, props.mapping)
+  input.value = Object.assign({ regex: "", mapped_series: "", warn_about_part: false }, props.mapping)
 });
 
 const deleteMapping = async () => {

@@ -9,6 +9,7 @@ public static class DependencyInjection
             .AddDbContext<DatabaseContext>()
             .AddScoped<IAudiobookRepository, AudiobookRepository>()
             .AddScoped<IPersonRepository, PersonRepository>()
-            .AddScoped<IGenreRepository, GenreRepository>();
+            .AddScoped<IGenreRepository, GenreRepository>()
+            .AddScoped<ISeriesMappingRepository, SeriesMappingRepository>();
 
 }
