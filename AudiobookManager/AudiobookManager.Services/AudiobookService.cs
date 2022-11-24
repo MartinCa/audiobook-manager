@@ -31,19 +31,19 @@ public class AudiobookService : IAudiobookService
         return _tagHandler.ParseAudiobook(fileInfo);
     }
 
+    public string GenerateLibraryPath(Audiobook audiobook)
+    {
+        var newRelativePath = _tagHandler.GenerateRelativeAudiobookPath(audiobook);
+        return Path.Join(_settings.AudiobookLibraryPath, newRelativePath);
+    }
+
     public Audiobook OrganizeAudiobook(Audiobook audiobook)
     {
-        if (string.IsNullOrEmpty(audiobook.FileInfo?.FullPath))
-        {
-            throw new Exception("No full path for audiobook");
-        }
-
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
 
-        var newRelativePath = _tagHandler.GenerateRelativeAudiobookPath(audiobook);
-        var newFullPath = Path.Join(_settings.AudiobookLibraryPath, newRelativePath);
+        var newFullPath = GenerateLibraryPath(audiobook);
 
         if (File.Exists(newFullPath))
         {
@@ -110,7 +110,8 @@ public class AudiobookService : IAudiobookService
         return new Audiobook(
             audiobookDb.Authors.Select(FromDbPerson).ToList(),
             audiobookDb.BookName,
-            audiobookDb.Year)
+            audiobookDb.Year,
+            new AudiobookFileInfo(audiobookDb.FileInfoFullPath, audiobookDb.FileInfoFileName, audiobookDb.FileInfoSizeInBytes))
         {
             Narrators = audiobookDb.Narrators.Select(FromDbPerson).ToList(),
             BookName = audiobookDb.BookName,
@@ -125,8 +126,7 @@ public class AudiobookService : IAudiobookService
             Asin = audiobookDb.Asin,
             Www = audiobookDb.Www,
             CoverFilePath = audiobookDb.CoverFilePath,
-            DurationInSeconds = audiobookDb.DurationInSeconds,
-            FileInfo = new AudiobookFileInfo(audiobookDb.FileInfoFullPath, audiobookDb.FileInfoFileName, audiobookDb.FileInfoSizeInBytes)
+            DurationInSeconds = audiobookDb.DurationInSeconds
         };
     }
 

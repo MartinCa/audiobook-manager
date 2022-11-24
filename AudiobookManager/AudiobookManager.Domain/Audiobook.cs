@@ -22,13 +22,14 @@ public class Audiobook
 
     public int? DurationInSeconds { get; set; }
 
-    public AudiobookFileInfo? FileInfo { get; set; }
+    public AudiobookFileInfo FileInfo { get; set; }
 
-    public Audiobook(List<Person> authors, string? bookName, int? year)
+    public Audiobook(List<Person> authors, string? bookName, int? year, AudiobookFileInfo fileInfo)
     {
         Authors = authors;
         BookName = bookName;
         Year = year;
+        FileInfo= fileInfo;
 
         Narrators = new List<Person>();
         Genres = new List<string>();

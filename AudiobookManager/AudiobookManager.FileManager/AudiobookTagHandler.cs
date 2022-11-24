@@ -46,7 +46,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
                 embeddedPicture.MimeType);
         }
 
-        return new Audiobook(authors, track.Album, track.Year)
+        return new Audiobook(authors, track.Album, track.Year, new AudiobookFileInfo(fileInfo))
         {
             Narrators = narrators,
             Subtitle = track.ReadSpecialTag(SpecialTagField.Subtitle),
@@ -60,8 +60,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             Asin = track.ReadSpecialTag(SpecialTagField.ASIN),
             Www = track.ReadSpecialTag(SpecialTagField.Www),
             Cover = cover,
-            DurationInSeconds = track.Duration,
-            FileInfo = new AudiobookFileInfo(fileInfo)
+            DurationInSeconds = track.Duration
         };
     }
 

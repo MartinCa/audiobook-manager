@@ -9,6 +9,7 @@
   "dependencies": {
     "@mdi/font": "7.0.96",
     "axios": "1.1.3",
+    "lodash": "^4.17.21",
     "roboto-fontface": "0.10.0",
     "vue": "3.2.45",
     "vue-router": "^4.1.6",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "@babel/types": "^7.20.2",
+    "@types/lodash": "^4.14.190",
     "@types/node": "^18.11.9",
     "@types/webfontloader": "^1.6.35",
     "@vitejs/plugin-vue": "3.2.0",

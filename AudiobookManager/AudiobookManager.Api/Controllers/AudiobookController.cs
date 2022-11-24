@@ -30,4 +30,10 @@ public class AudiobookController : ControllerBase
 
         return result;
     }
+
+    [HttpPost("generate_path")]
+    public string GeneratePath([FromBody] Audiobook book)
+    {
+        return _audiobookService.GenerateLibraryPath(book);
+    }
 }

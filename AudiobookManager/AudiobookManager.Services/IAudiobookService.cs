@@ -8,4 +8,6 @@ public interface IAudiobookService
     Audiobook OrganizeAudiobook(Audiobook audiobook);
 
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
+
+    string GenerateLibraryPath(Audiobook audiobook);
 }

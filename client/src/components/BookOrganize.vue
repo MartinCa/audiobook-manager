@@ -40,6 +40,11 @@
         Current path: {{ bookPath }}
       </v-col>
     </v-row>
+    <v-row>
+      <v-col class="text-left">
+        Organized path: {{ newPath }}
+      </v-col>
+    </v-row>
     <v-form ref="form">
       <v-row>
         <v-col cols="12"
@@ -255,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, Ref, ref } from 'vue'
+import { computed, onMounted, Ref, ref, watch } from 'vue'
 import { Audiobook, AudiobookImage } from '../types/Audiobook';
 import OrganizeAudiobookInput from '../types/OrganizeAudiobookInput';
 import BookSearchDialog from './BookSearchDialog.vue';
@@ -267,6 +272,7 @@ import { useDialogWidth } from './dialog';
 import { useErrors } from './errors';
 import AudiobookService from '../services/AudiobookService';
 import { joinPersons } from '../helpers/bookDetailsHelpers';
+import { debounce, update } from "lodash";
 
 const props = defineProps<{
   bookPath: string
@@ -283,6 +289,7 @@ const imgUrl = ref("");
 const showSearchDialog = ref(false);
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
+const newPath = ref("");
 
 const goodreadsQuery = computed((): string => {
   let rawQuery = `${input.value.bookName}`;
@@ -299,7 +306,16 @@ const seriesMappedNamed = computed((): string => {
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
-// TODO: Handle if bookdetails stuff is missing
+watch(input, async (newValue, oldValue) => {
+  await updateNewBookPath();
+}, { deep: true });
+
+const updateNewBookPath = debounce(async () => {
+  var book = convertInputToAudiobook();
+  if (book) {
+    newPath.value = await AudiobookService.generateNewPath(book);
+  }
+}, 300);
 
 const resetInput = () => {
   const book = bookDetails.value;
