@@ -104,13 +104,16 @@ public partial class GoodreadsScraper : IScraper
 
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
     {
+        var termTokens = searchTerm.Split(" ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
         Dictionary<string, string> queryParameters = new()
         {
             ["utf8"] = "✓",
-            ["query"] = searchTerm
+            ["search_type"] = "books"
         };
 
         var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/search", queryParameters);
+        uri += $"&search[query]={string.Join("+", termTokens)}";
         var httpClient = _httpClientFactory.CreateClient();
 
         return await _retryPolicy.ExecuteAsync(async () =>

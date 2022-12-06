@@ -292,9 +292,15 @@ const showDeleteDialog = ref(false);
 const newPath = ref("");
 
 const goodreadsQuery = computed((): string => {
-  let rawQuery = `${input.value.bookName}`;
-  const query = rawQuery.split(" ").join("+");
-  return `https://www.goodreads.com/search?utf8=%E2%9C%93&query=${query}`;
+  let queryTokens: string[] = [];
+  if (input.value.authors) {
+    queryTokens = queryTokens.concat(input.value.authors?.split(" "));
+  }
+  if (input.value.bookName) {
+    queryTokens = queryTokens.concat(input.value.bookName?.split(" "));
+  }
+  const query = queryTokens.join("+");
+  return `https://www.goodreads.com/search?utf8=%E2%9C%93&search_type=books&search[query]=${query}`;
 });
 
 const seriesMappedNamed = computed((): string => {
