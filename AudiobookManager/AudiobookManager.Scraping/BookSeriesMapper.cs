@@ -11,8 +11,11 @@ public interface IBookSeriesMapper
     public Task<IList<BookSeriesSearchResult>> MapBookSeries(IList<BookSeriesSearchResult> results);
 }
 
-public class BookSeriesMapper : IBookSeriesMapper
+public partial class BookSeriesMapper : IBookSeriesMapper
 {
+    [GeneratedRegex(@"Series$")]
+    private static partial Regex ReSeriesEnd();
+
     private readonly DatabaseContext _db;
 
     public BookSeriesMapper(DatabaseContext db)
@@ -35,18 +38,30 @@ public class BookSeriesMapper : IBookSeriesMapper
     {
         var allMappings = mappings ?? await GetRegexMappings();
 
-        var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(result.SeriesName));
+        var cleanedResult = CleanSeriesName(result);
+
+        var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(cleanedResult.SeriesName));
         if (matchingMapping != default)
         {
             return new BookSeriesSearchResult(matchingMapping.Mapping.MappedSeries)
             {
-                OriginalSeriesName = result.SeriesName,
-                SeriesPart = result.SeriesPart,
+                OriginalSeriesName = cleanedResult.SeriesName,
+                SeriesPart = cleanedResult.SeriesPart,
                 PartWarning = matchingMapping.Mapping.WarnAboutPart
             };
         }
 
         return result;
+    }
+
+    private BookSeriesSearchResult CleanSeriesName(BookSeriesSearchResult result)
+    {
+        return new BookSeriesSearchResult(ReSeriesEnd().Replace(result.SeriesName, "").Trim())
+        {
+            OriginalSeriesName = result.OriginalSeriesName,
+            SeriesPart = result.SeriesPart,
+            PartWarning = result.PartWarning
+        };
     }
 
     private async Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>> GetRegexMappings()
