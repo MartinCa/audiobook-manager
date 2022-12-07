@@ -1,7 +1,9 @@
-﻿using AudiobookManager.Database.Repositories;
+﻿using System.Diagnostics;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
 using AudiobookManager.Settings;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AudiobookDb = AudiobookManager.Database.Models.Audiobook;
 
@@ -10,18 +12,20 @@ public class AudiobookService : IAudiobookService
 {
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly AudiobookManagerSettings _settings;
+    private readonly ILogger<AudiobookService> _logger;
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPersonRepository _personRepository;
     private readonly IGenreRepository _genreRepository;
 
-    public AudiobookService(IAudiobookTagHandler tagHandler, IOptions<AudiobookManagerSettings> settings, IAudiobookRepository audiobookRepository, IPersonRepository personRepository, IGenreRepository genreRepository)
+    public AudiobookService(IAudiobookTagHandler tagHandler, IOptions<AudiobookManagerSettings> settings, IAudiobookRepository audiobookRepository, IPersonRepository personRepository, IGenreRepository genreRepository, ILogger<AudiobookService> logger)
     {
         _tagHandler = tagHandler;
         _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _personRepository = personRepository;
         _genreRepository = genreRepository;
+        _logger = logger;
     }
 
     public Audiobook ParseAudiobook(string filePath)
@@ -41,7 +45,12 @@ public class AudiobookService : IAudiobookService
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
+        var sw = new Stopwatch();
+        sw.Start();
+
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
+
+        _logger.LogInformation("Saving tags to file took {timeTakenInMs}", sw.ElapsedMilliseconds);
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
@@ -50,12 +59,20 @@ public class AudiobookService : IAudiobookService
             throw new Exception($"File '{newFullPath}' already exists");
         }
 
+        sw.Restart();
+
         AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+
+        _logger.LogInformation("Relocating file took {timeTakenInMs}", sw.ElapsedMilliseconds);
+        sw.Restart();
+
         var newParsed = ParseAudiobook(newFullPath);
 
         AudiobookFileHandler.WriteMetadata(newParsed);
 
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
+
+        _logger.LogInformation("Writing metadata files took {timeTakenInMs}", sw.ElapsedMilliseconds);
 
         AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
 
