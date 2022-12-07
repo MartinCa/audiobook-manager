@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
@@ -17,6 +18,7 @@ public partial class GoodreadsScraper : IScraper
     private const string _goodreadsDomain = "goodreads.com";
     private const string _goodreadsBaseUrl = $"https://www.{_goodreadsDomain}";
     private const string _sourceName = "Goodreads";
+    private const int _maxNumGenresToGet = 5;
 
     private static readonly IList<string> _ignoredAuthorRoles = new List<string> { "illustrator" };
     private static readonly IList<string> _ignoredGenres = new List<string> { "Fiction" };
@@ -37,8 +39,6 @@ public partial class GoodreadsScraper : IScraper
     private static partial Regex RePublisher();
     [GeneratedRegex(@"([^#]+)#?(.*)")]
     private static partial Regex ReSeries();
-    [GeneratedRegex(@"\(#([^\)]+)\)")]
-    private static partial Regex ReNewDetailsSeriesPart();
 
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -89,13 +89,20 @@ public partial class GoodreadsScraper : IScraper
             var mainElementOld = doc.QuerySelector("div#topcol");
             if (mainElementOld is not null)
             {
-                return await ParseBookDetails(doc, bookUrl);
+                _logger.LogInformation("{BookUrl} is in old format", bookUrl);
+                return await ParseLegacyBookDetails(doc, bookUrl);
             }
 
-            var mainElemenNew = doc.QuerySelector("main.BookPage");
-            if (mainElemenNew is not null)
+            var scriptElementNew = doc.QuerySelector("script[id=__NEXT_DATA__]");
+            if (scriptElementNew is not null)
             {
-                return await ParseNewBookDetails(mainElemenNew, bookUrl);
+                _logger.LogInformation("{BookUrl} is in new 2022 format", bookUrl);
+                var result = ParseNewBookJson(scriptElementNew.Text(), bookUrl);
+                if (result is null)
+                {
+                    throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+                }
+                //return await ParseNewBookDetails(scriptElementNew.Text, bookUrl);
             }
 
             throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
@@ -154,17 +161,20 @@ public partial class GoodreadsScraper : IScraper
 
     public string SourceName => _sourceName;
 
-    private async Task<BookSearchResult> ParseNewBookDetails(IElement mainElem, string bookUrl)
+    public BookSearchResult ParseNewBookJson(string newBookJson, string bookUrl)
     {
-        var allPersons = ParseNewDetailsPersons(mainElem);
+        (var bookElement, var workElement, var contributorElements, var seriesElements) = GetBookJsonElements(newBookJson);
+
+        var allPersons = ParseJsonPersons(bookElement, contributorElements);
         var narrators = allPersons.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
         var authors = FilterAuthors(allPersons.Except(narrators));
 
         string? bookName = null;
         string? subtitle = null;
-        if (mainElem.TryGetTextFromQuerySelector("div.BookPageTitleSection h1", out var rawBookTitle))
+        var bookTitle = bookElement.GetPropertyValueOrNull("title");
+        if (bookTitle is not null)
         {
-            var splitTitle = rawBookTitle.Split(":");
+            var splitTitle = bookTitle.Split(":");
             bookName = splitTitle[0].Trim();
             if (splitTitle.Length > 1)
             {
@@ -172,31 +182,20 @@ public partial class GoodreadsScraper : IScraper
             }
         }
 
-        string? imgUrl = null;
-        var imgTag = mainElem.QuerySelector("div.BookCover img");
-        if (imgTag is not null)
-        {
-            imgUrl = imgTag.Attributes["src"]?.Value;
-        }
+        string? imgUrl = bookElement.GetPropertyValueOrNull("imageUrl");
 
-        int? year = null;
-        var publicationDetailsTag = mainElem.QuerySelector("p[data-testid='publicationInfo']");
-        if (publicationDetailsTag is not null && ReDetailsYear().TryMatch(publicationDetailsTag.Text(), out var match))
-        {
-            year = int.Parse(match.Value);
-        }
+        var publicationTimeElement = workElement.GetNestedProperty("details", "publicationTime");
+        var publishUnixMsTimestamp = publicationTimeElement.GetInt64();
+        var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
+        var year = publicationDateTime.Year;
 
-        string? description = null;
-        if (mainElem.TryGetTextFromQuerySelector("div.BookPageMetadataSection__description", out var descriptionText))
-        {
-            description = descriptionText;
-        }
+        var description = bookElement.GetPropertyValueOrNull("description");
 
-        var genres = ParseNewDetailsGenres(mainElem);
+        var genres = ParseGenres(bookElement);
 
-        ParsedRating? ratingResult = ParseNewDetailsRating(mainElem);
+        var ratingResult = ParseRating(workElement);
 
-        var series = await ParseNewDetailsSeries(mainElem);
+        var series = ParseSeries(bookElement, seriesElements);
 
         return new BookSearchResult(bookUrl, bookName)
         {
@@ -218,7 +217,110 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private async Task<BookSearchResult> ParseBookDetails(IHtmlDocument doc, string bookUrl)
+    private static (JsonElement BookElement, JsonElement WorkElement, List<JsonElement> ContributorElements, List<JsonElement> SeriesElements) GetBookJsonElements(string jsonText) {
+
+        var jsonObject = JsonSerializer.Deserialize<JsonElement>(jsonText);
+
+        var apolloStateElement = jsonObject.GetNestedProperty("props", "pageProps", "apolloState");
+
+        var contributorElements = new List<JsonElement>();
+        var seriesElements = new List<JsonElement>();
+        JsonElement? maybeBookElement = null;
+        JsonElement? workElement = null;
+
+
+        foreach (var jsonProperty in apolloStateElement.EnumerateObject())
+        {
+            if (jsonProperty.Name.StartsWith("Contributor"))
+            {
+                contributorElements.Add(jsonProperty.Value);
+            }
+
+            if (jsonProperty.Name.StartsWith("Series"))
+            {
+                seriesElements.Add(jsonProperty.Value);
+            }
+
+            if (jsonProperty.Name.StartsWith("Book") && jsonProperty.Value.TryGetProperty("title", out var _))
+            {
+                maybeBookElement = jsonProperty.Value;
+            }
+
+            if (jsonProperty.Name.StartsWith("Work"))
+            {
+                workElement = jsonProperty.Value;
+            }
+        }
+
+        if (maybeBookElement is null)
+        {
+            throw new Exception("Missing book element in JSON");
+        }
+
+        if (workElement is null)
+        {
+            throw new Exception("Missing work element in JSON");
+        }
+
+        return (BookElement: maybeBookElement.Value, WorkElement: workElement.Value, ContributorElements: contributorElements, SeriesElements: seriesElements);
+    }
+
+    private IList<string> ParseGenres(JsonElement bookElement)
+    {
+        if (bookElement.TryGetProperty("bookGenres", out var bookGenresElement))
+        {
+            return FilterGenres(bookGenresElement.EnumerateArray().Select(e => e.GetNestedProperty("genre", "name").GetString())
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Cast<string>()
+                .ToList());
+        }
+
+        return new List<string>();
+    }
+
+    private static ParsedRating ParseRating(JsonElement workElement)
+    {
+        return new ParsedRating
+        {
+            Rating = workElement.GetNestedProperty("stats", "averageRating").GetSingle(),
+            NumberOfRatings = workElement.GetNestedProperty("stats", "ratingsCount").GetInt32()
+        };
+    }
+
+    private IList<BookSeriesSearchResult> ParseSeries(JsonElement bookElement, IList<JsonElement> seriesElements)
+    {
+        var seriesPositions = bookElement
+            .GetProperty("bookSeries")
+            .EnumerateArray()
+            .Select(e => (Position: e.GetPropertyValueOrNull("userPosition"), Ref: e.GetNestedProperty("series", "__ref").GetString()?.Substring(7)))
+            .Where(x => x.Ref is not null)
+            .Cast<(string? Position, string Ref)>();
+
+        var seriesTitles = seriesElements
+            .Select(x => ( Id: x.GetPropertyValueOrNull("id"), Title: x.GetPropertyValueOrNull("title") ))
+            .Where(x => x.Id is not null && x.Title is not null)
+            .Cast<(string Id, string Title)>();
+
+        var seriesMap = seriesTitles.ToDictionary(x => x.Id, x => x.Title);
+
+        return seriesPositions.Select(x =>
+        {
+            if (seriesMap.TryGetValue(x.Ref, out var result))
+            {
+                return new BookSeriesSearchResult(result)
+                {
+                    SeriesPart = x.Position
+                };
+            }
+
+            return null;
+        })
+            .Where(x => x is not null)
+            .Cast<BookSeriesSearchResult>()
+            .ToList();
+    }
+
+    private async Task<BookSearchResult> ParseLegacyBookDetails(IHtmlDocument doc, string bookUrl)
     {
         var mainElem = doc.QuerySelector("div#topcol");
         var allAuthors = ParseAuthors(mainElem);
@@ -342,49 +444,6 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private async Task<IList<BookSeriesSearchResult>> ParseNewDetailsSeries(IElement mainElem)
-    {
-        var resultingSeries = new List<BookSeriesSearchResult>();
-
-        foreach (var workDetailsTag in mainElem.QuerySelectorAll("div.WorkDetails div.DescListItem").ToList())
-        {
-            var dtTagText = workDetailsTag.QuerySelector("dt")?.Text().Trim();
-            if (dtTagText is null || dtTagText != "Series")
-            {
-                continue;
-            }
-
-            foreach (var aTag in workDetailsTag.QuerySelectorAll("a").ToList())
-            {
-                var series = new BookSeriesSearchResult(aTag.Text().Trim());
-                var seriesPart = aTag.NextSibling?.Text().Trim();
-                if (seriesPart is not null && ReNewDetailsSeriesPart().TryMatch(seriesPart, out var seriesPartMatch))
-                {
-                    series.SeriesPart = seriesPartMatch.Groups[1].Value;
-                }
-                resultingSeries.Add(series);
-            }
-        }
-
-        return await _bookSeriesMapper.MapBookSeries(resultingSeries);
-    }
-
-    private static ParsedRating? ParseNewDetailsRating(IElement mainElem)
-    {
-        var parsedResult = new ParsedRating();
-        if (mainElem.TryGetTextFromQuerySelector("div.RatingStatistics__rating", out var ratingText))
-        {
-            parsedResult.Rating = float.Parse(ratingText, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
-        }
-
-        if (mainElem.TryGetTextFromQuerySelector("span[data-testid='ratingsCount']", out var ratingsCountText) && ReNumRatings().TryMatch(ratingsCountText, out var ratingsCountMatch))
-        {
-            parsedResult.NumberOfRatings = int.Parse(ratingsCountMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
-        }
-
-        return parsedResult;
-    }
-
     private static IList<Person> FilterAuthors(IEnumerable<Person> persons)
     {
         return persons
@@ -392,44 +451,45 @@ public partial class GoodreadsScraper : IScraper
             .ToList();
     }
 
-    private static IList<Person> ParseNewDetailsPersons(IElement mainElem)
+    private static IList<Person> ParseJsonPersons(JsonElement bookElement, IList<JsonElement> contributorElements)
     {
-        var persons = new List<Person>();
+        var contributorEdges = new List<JsonElement>();
 
-        var contributorLinks = mainElem.QuerySelectorAll("div.ContributorLinksList a.ContributorLink");
-
-        foreach (var contributorLink in contributorLinks.ToList())
+        if (bookElement.TryGetProperty("primaryContributorEdge", out var primContributorElement))
         {
-            if (contributorLink.TryGetTextFromQuerySelector("span.ContributorLink__name", out var personName))
-            {
-                var person = new Person(personName);
-
-                if (contributorLink.TryGetTextFromQuerySelector("span.ContributorLink__role", out var roleName))
-                {
-                    person.Role = roleName;
-                }
-
-                persons.Add(person);
-            }
+            contributorEdges.Add(primContributorElement);
         }
 
-        return persons;
+        if (bookElement.TryGetProperty("secondaryContributorEdges", out var secondaryContributorElement))
+        {
+            contributorEdges.AddRange(secondaryContributorElement.EnumerateArray());
+        }
+
+        var contributorRoleMap = contributorEdges.Select(x => new { Ref = x.GetNestedProperty("node", "__ref").GetString().Substring(12), Role = x.GetProperty("role").GetString() });
+
+        var contributorNameMap = contributorElements.ToDictionary(x => x.GetProperty("id").GetString(), x => x.GetPropertyValueOrNull("name"));
+
+        return contributorRoleMap.Select(x =>
+        {
+            if (contributorNameMap.TryGetValue(x.Ref, out var result))
+            {
+                return new Person(result)
+                {
+                    Role = x.Role
+                };
+            }
+
+            return null;
+        })
+            .ToList();
     }
 
     private static IList<string> FilterGenres(IEnumerable<string> genres)
     {
         return genres
             .Where(genreText => _ignoredGenres.All(ignoredGenre => !string.Equals(ignoredGenre, genreText, StringComparison.InvariantCultureIgnoreCase)))
-            .Take(5)
+            .Take(_maxNumGenresToGet)
             .ToList();
-    }
-
-    private static IList<string> ParseNewDetailsGenres(IElement mainElem)
-    {
-        var genreTags = mainElem.QuerySelectorAll("div.BookPageMetadataSection__genres span.BookPageMetadataSection__genreButton");
-        return FilterGenres(genreTags
-            .ToList()
-            .Select(genreElement => genreElement.Text().Trim()));
     }
 
     private static IList<string> ParseGenres(IHtmlDocument doc)

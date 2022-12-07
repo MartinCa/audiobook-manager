@@ -15,7 +15,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.Settings",
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.Scraping", "AudiobookManager.Scraping\AudiobookManager.Scraping.csproj", "{90D29C30-3F2D-4D59-B1DF-34B89B73614C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudiobookManager.Database", "AudiobookManager.Database\AudiobookManager.Database.csproj", "{08C87EEF-6AF0-46DB-A90F-3CDAC8F3FB76}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AudiobookManager.Database", "AudiobookManager.Database\AudiobookManager.Database.csproj", "{08C87EEF-6AF0-46DB-A90F-3CDAC8F3FB76}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudiobookManager.Test", "AudiobookManager.Test\AudiobookManager.Test.csproj", "{72B64950-3213-46BB-9388-FB268A369CF6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -51,6 +53,10 @@ Global
 		{08C87EEF-6AF0-46DB-A90F-3CDAC8F3FB76}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{08C87EEF-6AF0-46DB-A90F-3CDAC8F3FB76}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{08C87EEF-6AF0-46DB-A90F-3CDAC8F3FB76}.Release|Any CPU.Build.0 = Release|Any CPU
+		{72B64950-3213-46BB-9388-FB268A369CF6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{72B64950-3213-46BB-9388-FB268A369CF6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{72B64950-3213-46BB-9388-FB268A369CF6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{72B64950-3213-46BB-9388-FB268A369CF6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
