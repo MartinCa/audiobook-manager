@@ -97,12 +97,7 @@ public partial class GoodreadsScraper : IScraper
             if (scriptElementNew is not null)
             {
                 _logger.LogInformation("{BookUrl} is in new 2022 format", bookUrl);
-                var result = ParseNewBookJson(scriptElementNew.Text(), bookUrl);
-                if (result is null)
-                {
-                    throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-                }
-                //return await ParseNewBookDetails(scriptElementNew.Text, bookUrl);
+                return await ParseNewBookJson(scriptElementNew.Text(), bookUrl);
             }
 
             throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
@@ -161,7 +156,7 @@ public partial class GoodreadsScraper : IScraper
 
     public string SourceName => _sourceName;
 
-    public BookSearchResult ParseNewBookJson(string newBookJson, string bookUrl)
+    public async Task<BookSearchResult> ParseNewBookJson(string newBookJson, string bookUrl)
     {
         (var bookElement, var workElement, var contributorElements, var seriesElements) = GetBookJsonElements(newBookJson);
 
@@ -195,7 +190,7 @@ public partial class GoodreadsScraper : IScraper
 
         var ratingResult = ParseRating(workElement);
 
-        var series = ParseSeries(bookElement, seriesElements);
+        var series = await ParseSeries(bookElement, seriesElements);
 
         return new BookSearchResult(bookUrl, bookName)
         {
@@ -287,7 +282,7 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private IList<BookSeriesSearchResult> ParseSeries(JsonElement bookElement, IList<JsonElement> seriesElements)
+    private async Task<IList<BookSeriesSearchResult>> ParseSeries(JsonElement bookElement, IList<JsonElement> seriesElements)
     {
         var seriesPositions = bookElement
             .GetProperty("bookSeries")
@@ -303,7 +298,7 @@ public partial class GoodreadsScraper : IScraper
 
         var seriesMap = seriesTitles.ToDictionary(x => x.Id, x => x.Title);
 
-        return seriesPositions.Select(x =>
+        var series = seriesPositions.Select(x =>
         {
             if (seriesMap.TryGetValue(x.Ref, out var result))
             {
@@ -318,6 +313,8 @@ public partial class GoodreadsScraper : IScraper
             .Where(x => x is not null)
             .Cast<BookSeriesSearchResult>()
             .ToList();
+
+        return await _bookSeriesMapper.MapBookSeries(series);
     }
 
     private async Task<BookSearchResult> ParseLegacyBookDetails(IHtmlDocument doc, string bookUrl)

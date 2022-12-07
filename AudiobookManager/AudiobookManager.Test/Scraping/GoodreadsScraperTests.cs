@@ -10,10 +10,11 @@ namespace AudiobookManager.Test.Scraping;
 public class GoodreadsScraperTests
 {
     [TestMethod]
-    public void ParseNewBookJson()
+    public async Task ParseNewBookJson()
     {
         var httpClientFactory = new Mock<IHttpClientFactory>();
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
+        bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<BookSeriesSearchResult>>())).Returns< IList<BookSeriesSearchResult>>(x => Task.FromResult(x));
         var logger = new Mock<ILogger<GoodreadsScraper>>();
 
         var target = new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object);
@@ -22,7 +23,7 @@ public class GoodreadsScraperTests
 
         var bookUrl = "https://www.goodreads.com/book/show/3111609-pigen-der-legede-med-ilden";
 
-        var parseResult = target.ParseNewBookJson(jsonText, bookUrl);
+        var parseResult = await target.ParseNewBookJson(jsonText, bookUrl);
 
         Assert.IsNotNull(parseResult);
 
