@@ -51,7 +51,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
             };
         }
 
-        return result;
+        return cleanedResult;
     }
 
     private BookSeriesSearchResult CleanSeriesName(BookSeriesSearchResult result)
