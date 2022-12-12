@@ -50,7 +50,7 @@ public class AudiobookService : IAudiobookService
 
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
 
-        _logger.LogInformation("Saving tags to file took {timeTakenInMs}", sw.ElapsedMilliseconds);
+        _logger.LogInformation("Saving tags to file took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
@@ -63,7 +63,7 @@ public class AudiobookService : IAudiobookService
 
         AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
 
-        _logger.LogInformation("Relocating file took {timeTakenInMs}", sw.ElapsedMilliseconds);
+        _logger.LogInformation("Relocating file took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
         sw.Restart();
 
         var newParsed = ParseAudiobook(newFullPath);
@@ -72,7 +72,7 @@ public class AudiobookService : IAudiobookService
 
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
 
-        _logger.LogInformation("Writing metadata files took {timeTakenInMs}", sw.ElapsedMilliseconds);
+        _logger.LogInformation("Writing metadata files took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
 
         AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
 
