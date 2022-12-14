@@ -13,7 +13,7 @@ public interface IBookSeriesMapper
 
 public partial class BookSeriesMapper : IBookSeriesMapper
 {
-    [GeneratedRegex(@"Series$")]
+    [GeneratedRegex(@"Series$", RegexOptions.IgnoreCase)]
     private static partial Regex ReSeriesEnd();
 
     private readonly DatabaseContext _db;
