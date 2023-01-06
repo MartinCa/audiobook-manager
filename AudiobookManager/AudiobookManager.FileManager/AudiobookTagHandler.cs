@@ -135,43 +135,17 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         _logger.LogInformation("Audiobook tags saved to {filePath}", audiobook.FileInfo.FullPath);
     }
 
-    public string GenerateRelativeAudiobookPath(Audiobook audiobook)
-    {
-        if (audiobook.FileInfo is null)
-        {
-            throw new ArgumentNullException(nameof(audiobook), "FileInfo is null");
-        }
-
-        var filename = $"{audiobook.Year} - {audiobook.BookName}";
-
-        var subtitle = string.IsNullOrEmpty(audiobook.Subtitle) ? "" : $" - {audiobook.Subtitle}";
-        string? fileDirectory;
-        if (!string.IsNullOrEmpty(audiobook.Series))
-        {
-            var seriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $" {PadSeriesPart(audiobook.SeriesPart)}" : "";
-            filename = $"{audiobook.Series}{seriesPart} - {filename}";
-            var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book{seriesPart} - " : "";
-            fileDirectory = $"{GetStringFromListOfPersons(audiobook.Authors)}/{audiobook.Series}/{seriesDirectory}{audiobook.Year} - {audiobook.BookName}{subtitle}";
-        }
-        else
-        {
-            fileDirectory = $"{GetStringFromListOfPersons(audiobook.Authors)}/{audiobook.Year} - {audiobook.BookName}{subtitle}";
-        }
-
-        return $"{fileDirectory}/{filename}{Path.GetExtension(audiobook.FileInfo.FullPath)}";
-    }
-
     private static List<Person> ParsePersonsFromString(string str)
     {
         return str.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(x => new Person(x.Trim())).ToList();
     }
 
-    private static string GetStringFromListOfPersons(IEnumerable<Person> persons)
+    public static string GetStringFromListOfPersons(IEnumerable<Person> persons)
     {
         return string.Join(", ", persons.Select(x => x.Name));
     }
 
-    private static string? PadSeriesPart(string? seriesPart)
+    public static string? PadSeriesPart(string? seriesPart)
     {
         if (seriesPart is null)
         {

@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
+﻿using System.Text.Json;
 
 namespace AudiobookManager.Scraping.Extensions;
 public static class JsonElementExtensions
@@ -29,8 +24,9 @@ public static class JsonElementExtensions
         return null;
     }
 
-    public static JsonElement? GetMatchingJsonElementOrNull(this List<JsonElement> jsonElements, Func<JsonElement, bool> predicate) {
-        if(!jsonElements.Any(predicate))
+    public static JsonElement? GetMatchingJsonElementOrNull(this List<JsonElement> jsonElements, Func<JsonElement, bool> predicate)
+    {
+        if (!jsonElements.Any(predicate))
         {
             return null;
         }

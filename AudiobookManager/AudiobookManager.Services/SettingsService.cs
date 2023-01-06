@@ -9,7 +9,7 @@ public class SettingsService : ISettingsService
 
     public SettingsService(ISeriesMappingRepository seriesMappingRepository)
     {
-        _seriesMappingRepository= seriesMappingRepository;
+        _seriesMappingRepository = seriesMappingRepository;
     }
 
     public async Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping)

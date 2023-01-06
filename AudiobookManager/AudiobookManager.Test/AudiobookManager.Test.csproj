@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AudiobookManager.FileManager\AudiobookManager.FileManager.csproj" />
     <ProjectReference Include="..\AudiobookManager.Scraping\AudiobookManager.Scraping.csproj" />
   </ItemGroup>
 

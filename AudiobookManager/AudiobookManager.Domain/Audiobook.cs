@@ -29,7 +29,7 @@ public class Audiobook
         Authors = authors;
         BookName = bookName;
         Year = year;
-        FileInfo= fileInfo;
+        FileInfo = fileInfo;
 
         Narrators = new List<Person>();
         Genres = new List<string>();

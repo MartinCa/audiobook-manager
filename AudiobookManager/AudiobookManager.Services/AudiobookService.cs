@@ -37,8 +37,8 @@ public class AudiobookService : IAudiobookService
 
     public string GenerateLibraryPath(Audiobook audiobook)
     {
-        var newRelativePath = _tagHandler.GenerateRelativeAudiobookPath(audiobook);
-        return Path.Join(_settings.AudiobookLibraryPath, newRelativePath);
+        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        return AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, newRelativePath);
     }
 
     public Audiobook OrganizeAudiobook(Audiobook audiobook)

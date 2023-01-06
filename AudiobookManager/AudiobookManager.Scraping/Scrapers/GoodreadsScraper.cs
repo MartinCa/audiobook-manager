@@ -212,7 +212,8 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private static (JsonElement BookElement, JsonElement WorkElement, List<JsonElement> ContributorElements, List<JsonElement> SeriesElements) GetBookJsonElements(string jsonText) {
+    private static (JsonElement BookElement, JsonElement WorkElement, List<JsonElement> ContributorElements, List<JsonElement> SeriesElements) GetBookJsonElements(string jsonText)
+    {
 
         var jsonObject = JsonSerializer.Deserialize<JsonElement>(jsonText);
 
@@ -292,7 +293,7 @@ public partial class GoodreadsScraper : IScraper
             .Cast<(string? Position, string Ref)>();
 
         var seriesTitles = seriesElements
-            .Select(x => ( Id: x.GetPropertyValueOrNull("id"), Title: x.GetPropertyValueOrNull("title") ))
+            .Select(x => (Id: x.GetPropertyValueOrNull("id"), Title: x.GetPropertyValueOrNull("title")))
             .Where(x => x.Id is not null && x.Title is not null)
             .Cast<(string Id, string Title)>();
 
