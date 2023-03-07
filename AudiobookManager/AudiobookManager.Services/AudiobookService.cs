@@ -50,20 +50,20 @@ public class AudiobookService : IAudiobookService
 
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
 
-        _logger.LogInformation("Saving tags to file took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
+        _logger.LogInformation("({audiobookFile}) Saving tags to file took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
         if (File.Exists(newFullPath))
         {
-            throw new Exception($"File '{newFullPath}' already exists");
+            throw new Exception($"({audiobook.FileInfo.FullPath}) File '{newFullPath}' already exists");
         }
 
         sw.Restart();
 
         AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
 
-        _logger.LogInformation("Relocating file took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
+        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
         sw.Restart();
 
         var newParsed = ParseAudiobook(newFullPath);
@@ -72,7 +72,7 @@ public class AudiobookService : IAudiobookService
 
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
 
-        _logger.LogInformation("Writing metadata files took {timeTakenInMs} ms", sw.ElapsedMilliseconds);
+        _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
         AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
 
