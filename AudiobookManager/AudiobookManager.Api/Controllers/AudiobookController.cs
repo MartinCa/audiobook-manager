@@ -9,10 +9,12 @@ namespace AudiobookManager.Api.Controllers;
 public class AudiobookController : ControllerBase
 {
     private readonly IAudiobookService _audiobookService;
+    private readonly IQueuedOrganizeTaskService _organizeTaskService;
 
-    public AudiobookController(IAudiobookService audiobookService)
+    public AudiobookController(IAudiobookService audiobookService, IQueuedOrganizeTaskService organizeTaskService)
     {
         _audiobookService = audiobookService;
+        _organizeTaskService = organizeTaskService;
     }
 
     [HttpPost("details")]
@@ -22,13 +24,11 @@ public class AudiobookController : ControllerBase
     }
 
     [HttpPost("organize")]
-    public async Task<Audiobook> OrganizeAudiobook([FromBody] Audiobook book)
+    public async Task<string> OrganizeAudiobook([FromBody] Audiobook book)
     {
-        var result = _audiobookService.OrganizeAudiobook(book);
+        var task = await _organizeTaskService.QueueOrganizeTask(book);
 
-        await _audiobookService.InsertAudiobook(result);
-
-        return result;
+        return task.OriginalFileLocation;
     }
 
     [HttpPost("generate_path")]

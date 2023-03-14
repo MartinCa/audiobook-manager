@@ -10,6 +10,7 @@ public static class DependencyInjection
             .AddScoped<IAudiobookRepository, AudiobookRepository>()
             .AddScoped<IPersonRepository, PersonRepository>()
             .AddScoped<IGenreRepository, GenreRepository>()
-            .AddScoped<ISeriesMappingRepository, SeriesMappingRepository>();
+            .AddScoped<ISeriesMappingRepository, SeriesMappingRepository>()
+            .AddScoped<IQueuedOrganizeTaskRepository, QueuedOrganizeTaskRepository>();
 
 }

@@ -5,7 +5,7 @@ public interface IAudiobookService
 {
     Audiobook ParseAudiobook(string filePath);
 
-    Audiobook OrganizeAudiobook(Audiobook audiobook);
+    Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction);
 
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
 

@@ -25,13 +25,22 @@
                     {{ book.fileName }}
                   </v-col>
                   <v-col>
+                    <div v-if="book.queueId">
+                      {{ book.queueMessage ?? "Queued" }}
+                      <v-progress-circular :model-value="book.queueProgress ?? 0"
+                                           size="23"
+                                           :width="2" />
+                    </div>
+                  </v-col>
+                  <v-col>
                     {{ formatFileSize(book.sizeInBytes) }}
                   </v-col>
                 </v-row>
               </v-expansion-panel-title>
               <v-expansion-panel-text>
                 <BookOrganize :book-path="book.fullPath"
-                              @book-organized="removeBook(book)" />
+                              @book-queued="(id) => markBookAsQueued(book, id)"
+                              @book-deleted="() => removeBook(book)" />
               </v-expansion-panel-text>
             </v-expansion-panel>
           </v-expansion-panels>
@@ -41,8 +50,7 @@
         </template>
         <template v-else>
           <v-row>
-            <v-col cols="
-                        12">
+            <v-col cols="12">
               No books
             </v-col>
             <v-col cols="12">
@@ -62,6 +70,30 @@ import { computed, Ref, ref, watch } from 'vue'
 import BookOrganize from './BookOrganize.vue';
 import UntaggedService from '../services/UntaggedService';
 import BookFileInfo from '../types/BookFileInfo';
+import { useSignalR, HubEventToken } from '@quangdao/vue-signalr';
+import { remove } from '@vue/shared';
+
+interface ProgressUpdateObject {
+  originalFileLocation: string,
+  progressMessage: string,
+  progress: number
+}
+
+const UpdateProgress: HubEventToken<ProgressUpdateObject> = 'UpdateProgress'
+
+const signalR = useSignalR();
+
+signalR.on(UpdateProgress, (arg) => {
+  const book = books.value.find(x => x.queueId === arg.originalFileLocation);
+  if (book) {
+    book.queueMessage = arg.progressMessage;
+    book.queueProgress = arg.progress;
+
+    if (arg.progress >= 100) {
+      removeBook(book);
+    }
+  }
+})
 
 const limit = 50;
 
@@ -82,10 +114,23 @@ const loadBooks = async () => {
   books.value = result.items;
 };
 
+const markBookAsQueued = (book: BookFileInfo, queueId: string) => {
+  var bookIdx = books.value.indexOf(book);
+  book.queueId = queueId;
+  if (bookIdx === activePanel.value) {
+    activePanel.value = null;
+  }
+}
 
 const removeBook = (book: BookFileInfo) => {
+  var bookIdx = books.value.indexOf(book);
+  var currentlyOpen = bookIdx === activePanel.value;
+
   books.value = books.value.filter(b => b != book);
-  activePanel.value = null
+
+  if (currentlyOpen) {
+    activePanel.value = null
+  }
 }
 
 const formatFileSize = (size: number) => {

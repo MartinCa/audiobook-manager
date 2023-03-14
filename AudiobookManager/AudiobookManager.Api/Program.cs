@@ -1,3 +1,5 @@
+using AudiobookManager.Api.Async;
+using AudiobookManager.Api.Workers;
 using AudiobookManager.Database;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
@@ -35,12 +37,16 @@ internal class Program
 
         // Add services to the container.
 
+        builder.Services.AddSignalR();
+
         builder.Services.AddControllers();
         // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
         builder.Services.SetupServiceLayer();
+
+        builder.Services.AddHostedService<OrganizeWorker>();
 
         var app = builder.Build();
 
@@ -65,6 +71,8 @@ internal class Program
         app.UseAuthorization();
 
         app.MapControllers();
+
+        app.MapHub<OrganizeHub>("/hubs/organize");
 
         using (var scope = builder.Services.BuildServiceProvider().CreateScope())
         {
