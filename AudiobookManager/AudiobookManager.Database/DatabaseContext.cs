@@ -36,4 +36,5 @@ public class DatabaseContext : DbContext
     public DbSet<Audiobook> Audiobooks { get; set; }
     public DbSet<Genre> Genres { get; set; }
     public DbSet<Person> Persons { get; set; }
+    public DbSet<QueuedOrganizeTask> QueuedOrganizeTasks { get; set; }
 }

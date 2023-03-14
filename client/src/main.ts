@@ -17,6 +17,7 @@ import { createApp } from 'vue'
 import { registerPlugins } from '@/plugins'
 import vuetify from './plugins/vuetify'
 import { createRouter, createWebHashHistory } from 'vue-router';
+import { VueSignalR } from '@quangdao/vue-signalr';
 
 
 const app = createApp(App)
@@ -37,4 +38,5 @@ const router = createRouter({
 app
   .use(router)
   .use(vuetify)
+  .use(VueSignalR, { url: `${import.meta.env.VITE_BASE_URL}hubs/organize` })
   .mount('#app')

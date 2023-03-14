@@ -7,7 +7,7 @@ class AudiobookService extends BaseHttpService {
     return this.postData("/audiobook/details", { path: bookPath });
   }
 
-  organizeBook(data: Audiobook): Promise<Audiobook> {
+  organizeBook(data: Audiobook): Promise<string> {
     return this.postData("/audiobook/organize", data);
   }
 

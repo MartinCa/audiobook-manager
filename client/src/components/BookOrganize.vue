@@ -279,7 +279,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "bookOrganized"): void
+  (e: "bookDeleted"): void,
+  (e: "bookQueued", id: string): void
 }>()
 
 const bookDetails: Ref<Audiobook | null> = ref(null);
@@ -409,11 +410,8 @@ const organizeBook = async (relocate = false) => {
 
   organizing.value = true;
 
-  const newBookDetails = await AudiobookService.organizeBook(data);
-  bookDetails.value = newBookDetails;
-  resetInput();
-  organizing.value = false;
-  emit("bookOrganized");
+  const organizeId = await AudiobookService.organizeBook(data);
+  emit("bookQueued", organizeId);
 };
 const getBookDetails = async () => {
   const book = await AudiobookService.parseBookDetails(props.bookPath);
@@ -464,7 +462,7 @@ const readSearchResult = (searchData: BookSearchResult | undefined) => {
 };
 const removeBook = (remove: boolean) => {
   if (remove) {
-    emit("bookOrganized");
+    emit("bookDeleted");
   }
 
   showDeleteDialog.value = false;

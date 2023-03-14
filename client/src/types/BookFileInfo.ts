@@ -1,5 +1,8 @@
 export default interface BookFileInfo {
   fullPath: string,
   fileName: string,
-  sizeInBytes: number
+  sizeInBytes: number,
+  queueId?: string,
+  queueProgress?: number,
+  queueMessage?: string
 }

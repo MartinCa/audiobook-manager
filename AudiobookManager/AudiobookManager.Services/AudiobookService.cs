@@ -41,16 +41,20 @@ public class AudiobookService : IAudiobookService
         return AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, newRelativePath);
     }
 
-    public Audiobook OrganizeAudiobook(Audiobook audiobook)
+    public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction)
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
         var sw = new Stopwatch();
         sw.Start();
 
+        await progressAction("Started", 0);
+
         _tagHandler.SaveAudiobookTagsToFile(audiobook);
 
         _logger.LogInformation("({audiobookFile}) Saving tags to file took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
+
+        await progressAction("Saved tags", 10);
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
@@ -59,6 +63,8 @@ public class AudiobookService : IAudiobookService
             throw new Exception($"({audiobook.FileInfo.FullPath}) File '{newFullPath}' already exists");
         }
 
+        await progressAction("Generated new path, relocating", 20);
+
         sw.Restart();
 
         AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
@@ -66,15 +72,27 @@ public class AudiobookService : IAudiobookService
         _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
         sw.Restart();
 
+        await progressAction("Relocated", 70);
+
         var newParsed = ParseAudiobook(newFullPath);
+
+        await progressAction("Reparsed", 80);
 
         AudiobookFileHandler.WriteMetadata(newParsed);
 
+        await progressAction("Written metadata files", 85);
+
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
+
+        await progressAction("Written cover", 90);
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
         AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+
+        await InsertAudiobook(newParsed);
+
+        await progressAction("Done", 100);
 
         return newParsed;
     }
