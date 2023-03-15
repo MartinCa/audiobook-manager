@@ -49,12 +49,25 @@ public class AudiobookService : IAudiobookService
         sw.Start();
 
         await progressAction("Started", 0);
+        const int afterTagsProgress = 70;
+        int lastProgressNotified = 0;
 
-        _tagHandler.SaveAudiobookTagsToFile(audiobook);
+        Action<float> saveTagsProgressAction = (float progress) =>
+        {
+            var modifiedProgress = (int)(afterTagsProgress * progress);
+            if (modifiedProgress - lastProgressNotified >= 10)
+            {
+                lastProgressNotified = modifiedProgress;
+                _logger.LogInformation("({audiobookFile}) saving tags progress {progress}, full progress {modifiedProgress}", audiobook.FileInfo.FullPath, progress, modifiedProgress);
+                progressAction("Saving tags", modifiedProgress);
+            }
+        };
+
+        _tagHandler.SaveAudiobookTagsToFile(audiobook, saveTagsProgressAction);
 
         _logger.LogInformation("({audiobookFile}) Saving tags to file took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
-        await progressAction("Saved tags", 10);
+        await progressAction("Saved tags", afterTagsProgress);
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
@@ -63,7 +76,7 @@ public class AudiobookService : IAudiobookService
             throw new Exception($"'{newFullPath}' already exists");
         }
 
-        await progressAction("Generated new path, relocating", 20);
+        await progressAction("Generated new path, relocating", 75);
 
         sw.Restart();
 
@@ -72,19 +85,19 @@ public class AudiobookService : IAudiobookService
         _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
         sw.Restart();
 
-        await progressAction("Relocated", 70);
+        await progressAction("Relocated", 80);
 
         var newParsed = ParseAudiobook(newFullPath);
 
-        await progressAction("Reparsed", 80);
+        await progressAction("Reparsed", 85);
 
         AudiobookFileHandler.WriteMetadata(newParsed);
 
-        await progressAction("Written metadata files", 85);
+        await progressAction("Written metadata files", 90);
 
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
 
-        await progressAction("Written cover", 90);
+        await progressAction("Written cover", 95);
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
