@@ -64,14 +64,18 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         };
     }
 
-    public void SaveAudiobookTagsToFile(Audiobook audiobook)
+    public void SaveAudiobookTagsToFile(Audiobook audiobook, Action<float>? progressAction = null)
     {
         if (audiobook.FileInfo is null)
         {
             throw new ArgumentNullException(nameof(audiobook), "FileInfo is null");
         }
 
+        _logger.LogInformation("({audiobookFile}) Starting saving tracks", audiobook.FileInfo.FullPath);
+
         var track = new Track(audiobook.FileInfo.FullPath);
+
+        _logger.LogInformation("({audiobookFile}) Loaded track", audiobook.FileInfo.FullPath);
 
         if (!track.AudioFormat.Readable || track.AudioFormat.ID == -1)
         {
@@ -125,14 +129,26 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             track.EmbeddedPictures.Add(picture);
         }
 
-        var saveResult = track.Save();
+        _logger.LogInformation("({audiobookFile}) prepared tags", audiobook.FileInfo.FullPath);
+
+        float currentProgress = (float)0.1;
+
+        progressAction?.Invoke(currentProgress);
+
+        Action<float>? modifiedProgressAction = (float progress) =>
+        {
+            float modifiedProgress = ((1 - currentProgress) * progress) + currentProgress;
+            progressAction?.Invoke(modifiedProgress);
+        };
+
+        var saveResult = track.Save(modifiedProgressAction);
 
         if (!saveResult)
         {
             throw new Exception("Tags could not be saved");
         }
 
-        _logger.LogInformation("Audiobook tags saved to {filePath}", audiobook.FileInfo.FullPath);
+        _logger.LogInformation("({audiobookFile}) tags saved", audiobook.FileInfo.FullPath);
     }
 
     private static List<Person> ParsePersonsFromString(string str)
