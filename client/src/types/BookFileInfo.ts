@@ -4,5 +4,6 @@ export default interface BookFileInfo {
   sizeInBytes: number,
   queueId?: string,
   queueProgress?: number,
-  queueMessage?: string
+  queueMessage?: string,
+  error?: string,
 }

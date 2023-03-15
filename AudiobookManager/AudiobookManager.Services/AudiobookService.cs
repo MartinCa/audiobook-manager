@@ -60,7 +60,7 @@ public class AudiobookService : IAudiobookService
 
         if (File.Exists(newFullPath))
         {
-            throw new Exception($"({audiobook.FileInfo.FullPath}) File '{newFullPath}' already exists");
+            throw new Exception($"'{newFullPath}' already exists");
         }
 
         await progressAction("Generated new path, relocating", 20);
