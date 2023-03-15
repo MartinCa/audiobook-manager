@@ -25,12 +25,16 @@
                     {{ book.fileName }}
                   </v-col>
                   <v-col>
-                    <div v-if="book.queueId">
+                    <template v-if="book.error">
+                      <span class="text-red">{{ book.error }}</span>
+                      <v-icon>mdi-alert</v-icon>
+                    </template>
+                    <template v-else-if="book.queueId">
                       {{ book.queueMessage ?? "Queued" }}
                       <v-progress-circular :model-value="book.queueProgress ?? 0"
                                            size="23"
                                            :width="2" />
-                    </div>
+                    </template>
                   </v-col>
                   <v-col>
                     {{ formatFileSize(book.sizeInBytes) }}
@@ -71,15 +75,11 @@ import BookOrganize from './BookOrganize.vue';
 import UntaggedService from '../services/UntaggedService';
 import BookFileInfo from '../types/BookFileInfo';
 import { useSignalR, HubEventToken } from '@quangdao/vue-signalr';
-import { remove } from '@vue/shared';
+import { ProgressUpdate } from '../signalr/ProgressUpdate';
+import { QueueError } from '../signalr/QueueError';
 
-interface ProgressUpdateObject {
-  originalFileLocation: string,
-  progressMessage: string,
-  progress: number
-}
-
-const UpdateProgress: HubEventToken<ProgressUpdateObject> = 'UpdateProgress'
+const UpdateProgress: HubEventToken<ProgressUpdate> = 'UpdateProgress';
+const QueueErrorToken: HubEventToken<QueueError> = 'QueueError';
 
 const signalR = useSignalR();
 
@@ -94,6 +94,13 @@ signalR.on(UpdateProgress, (arg) => {
     }
   }
 })
+
+signalR.on(QueueErrorToken, (arg) => {
+  const book = books.value.find(x => x.queueId === arg.originalFileLocation);
+  if (book) {
+    book.error = arg.error;
+  }
+});
 
 const limit = 50;
 
