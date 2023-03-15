@@ -88,10 +88,6 @@ signalR.on(UpdateProgress, (arg) => {
   if (book) {
     book.queueMessage = arg.progressMessage;
     book.queueProgress = arg.progress;
-
-    if (arg.progress >= 100) {
-      removeBook(book);
-    }
   }
 })
 
