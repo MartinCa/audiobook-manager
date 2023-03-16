@@ -13,6 +13,10 @@
       <v-col class="mb-5"
              cols="12">
 
+        <v-progress-circular v-if="loadingBooks"
+                             indeterminate
+                             size="23"
+                             :width="2" />
 
         <template v-if="books.length">
           <v-expansion-panels v-model="activePanel">
@@ -52,16 +56,16 @@
                         :length="totalPages"
                         @update:model-value=""></v-pagination>
         </template>
-        <template v-else>
-          <v-row>
-            <v-col cols="12">
-              No books
-            </v-col>
-            <v-col cols="12">
-              <v-btn @click="loadBooks()">Load books</v-btn>
-            </v-col>
-          </v-row>
-        </template>
+
+        <v-row>
+          <v-col cols="12"
+                 v-if="!books.length">
+            No books
+          </v-col>
+          <v-col cols="12">
+            <v-btn @click="loadBooks()">Load books</v-btn>
+          </v-col>
+        </v-row>
 
       </v-col>
     </v-row>
@@ -73,6 +77,7 @@
 import { computed, Ref, ref, watch } from 'vue'
 import BookOrganize from './BookOrganize.vue';
 import UntaggedService from '../services/UntaggedService';
+import QueueService from '../services/QueueService';
 import BookFileInfo from '../types/BookFileInfo';
 import { useSignalR, HubEventToken } from '@quangdao/vue-signalr';
 import { ProgressUpdate } from '../signalr/ProgressUpdate';
@@ -104,6 +109,7 @@ const books: Ref<BookFileInfo[]> = ref([]);
 const activePanel: Ref<any> = ref(null);
 const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
+const loadingBooks: Ref<boolean> = ref(false);
 
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit))
 
@@ -112,10 +118,26 @@ watch(currentPage, (oldPage, newPage) => {
 });
 
 const loadBooks = async () => {
+  loadingBooks.value = true;
+  books.value = [];
+
   const result = await UntaggedService.getUntagged(limit, (currentPage.value - 1) * limit);
+  const queuedBooks = await QueueService.getQueuedBooks();
   totalItems.value = result.total;
-  books.value = result.items;
+  books.value = enhanceBooksWithQueueInfo(result.items, queuedBooks);
+
+  loadingBooks.value = false;
 };
+
+const enhanceBooksWithQueueInfo = (books: BookFileInfo[], queuedBooks: string[]) => {
+  return books.map(b => {
+    if (queuedBooks.indexOf(b.fullPath) !== -1) {
+      b.queueId = b.fullPath;
+    }
+
+    return b;
+  })
+}
 
 const markBookAsQueued = (book: BookFileInfo, queueId: string) => {
   var bookIdx = books.value.indexOf(book);
