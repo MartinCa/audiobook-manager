@@ -1,5 +1,5 @@
 export interface ProgressUpdate {
-  originalFileLocation: string,
-  progressMessage: string,
-  progress: number
+  originalFileLocation: string;
+  progressMessage: string;
+  progress: number;
 }

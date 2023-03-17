@@ -1,4 +1,4 @@
 export interface QueueError {
-  originalFileLocation: string,
-  error: string
+  originalFileLocation: string;
+  error: string;
 }

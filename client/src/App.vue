@@ -10,14 +10,16 @@
   import HelloWorld from '@/components/HelloWorld.vue'
 </script> -->
 
-
 <template>
   <v-app>
-    <v-navigation-drawer expand-on-hover
-                         rail>
-
-      <v-list density="compact"
-              nav>
+    <v-navigation-drawer
+      expand-on-hover
+      rail
+    >
+      <v-list
+        density="compact"
+        nav
+      >
         <!-- <v-list-item prepend-icon="mdi-book"
                      title="Organize audiobooks"
                      :to="{ path: '/' }"
@@ -27,11 +29,15 @@
                      title="Settings"
                      value="shared"></v-list-item> -->
 
-        <template v-for="(link, i) in links"
-                  :key="i">
-          <v-list-item v-if="!link.subLinks"
-                       :to="link.to"
-                       :prepend-icon="link.icon">
+        <template
+          v-for="(link, i) in links"
+          :key="i"
+        >
+          <v-list-item
+            v-if="!link.subLinks"
+            :to="link.to"
+            :prepend-icon="link.icon"
+          >
             <v-list-item-title v-text="link.text" />
           </v-list-item>
           <!-- <v-list-group v-else
@@ -59,8 +65,10 @@
       </v-list>
     </v-navigation-drawer>
     <v-main>
-      <ErrorNotifications :errors="errors"
-                          @error-dismissed="onErrorDismissed" />
+      <ErrorNotifications
+        :errors="errors"
+        @error-dismissed="onErrorDismissed"
+      />
       <router-view></router-view>
       <!-- <BookList /> -->
     </v-main>
@@ -68,9 +76,9 @@
 </template>
 
 <script setup lang="ts">
-import ErrorNotifications from './components/ErrorNotifications.vue';
-import { MenuLink } from './types/MenuLink';
-import { useErrors } from './components/errors';
+import ErrorNotifications from "./components/ErrorNotifications.vue";
+import { MenuLink } from "./types/MenuLink";
+import { useErrors } from "./components/errors";
 
 const { errors, onErrorDismissed } = useErrors();
 
@@ -78,17 +86,17 @@ const links: MenuLink[] = [
   {
     to: "/",
     icon: "mdi-book",
-    text: "Organize audiobooks"
+    text: "Organize audiobooks",
   },
   {
     to: "/library",
     icon: "mdi-library",
-    text: "Library"
+    text: "Library",
   },
   {
     icon: "mdi-cog",
     text: "Settings",
-    to: "/settings"
+    to: "/settings",
     // subLinks: [
     //   {
     //     icon: "mdi-cog",
@@ -96,7 +104,6 @@ const links: MenuLink[] = [
     //     to: "/settings"
     //   }
     // ]
-  }
-]
-
+  },
+];
 </script>
