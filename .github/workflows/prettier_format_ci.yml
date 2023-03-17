@@ -1,0 +1,27 @@
+name: CI Formatting
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "19.x"
+
+      - name: Install
+        working-directory: ./client
+        run: npm ci
+
+      - name: Prettier Formatting
+        working-directory: ./client
+        run: npm run format-check
