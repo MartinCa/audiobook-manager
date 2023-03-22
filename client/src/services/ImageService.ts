@@ -1,6 +1,8 @@
 import axios from "axios";
 import { AudiobookImage } from "../types/Audiobook";
 
+const base64Regex = new RegExp(/^data.*,/);
+
 class ImageService {
   downloadImageFromUrl(imageUrl: string): Promise<AudiobookImage> {
     return new Promise<AudiobookImage>((resolve, reject) => {
@@ -14,14 +16,24 @@ class ImageService {
             reject("Invalid image response");
             return;
           }
-          // const base64 = response.data.toString("base64");
-          const base64 = btoa(
-            String.fromCharCode.apply(null, [...new Uint8Array(response.data)])
-          );
-          resolve({
-            base64Data: base64,
-            mimeType: contentType,
-          });
+          let blob = new Blob([response.data]);
+          let reader = new FileReader();
+          reader.onload = (event) => {
+            if (typeof event.target?.result === "string") {
+              resolve({
+                base64Data: event.target?.result.replace(base64Regex, ""),
+                mimeType: contentType,
+              });
+            } else {
+              reject("Could not read image");
+            }
+          }
+
+          reader.onerror = (ev) => {
+            reject(ev);
+          }
+
+          reader.readAsDataURL(blob);
         })
         .catch((reason) => {
           reject(reason);
