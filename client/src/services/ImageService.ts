@@ -27,11 +27,11 @@ class ImageService {
             } else {
               reject("Could not read image");
             }
-          }
+          };
 
           reader.onerror = (ev) => {
             reject(ev);
-          }
+          };
 
           reader.readAsDataURL(blob);
         })
