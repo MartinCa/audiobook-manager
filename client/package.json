@@ -5,7 +5,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "format-check": "prettier --check ."
+    "format-check": "prettier --check .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@mdi/font": "7.2.96",
