@@ -13,6 +13,8 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "lib": ["esnext", "dom"],
+    "isolatedModules": true,
+    "skipLibCheck": true,
     "types": ["vuetify", "vite/client"],
     "paths": {
       "@/*": ["src/*"]
