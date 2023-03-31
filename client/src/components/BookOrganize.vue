@@ -70,28 +70,61 @@
           <template v-else> No cover </template>
         </v-col>
         <v-col
-          sm="12"
-          md="5"
-          lg="8"
-        >
-          <v-text-field
-            label="Image url"
-            hide-details="auto"
-            v-model="imgUrl"
-          ></v-text-field>
-        </v-col>
-        <v-col
           cols="12"
-          md="1"
+          md="6"
+          lg="9"
         >
-          <v-btn
-            color="primary"
-            class="mr-4"
-            size="large"
-            @click="loadImgFromUrl(imgUrl)"
-          >
-            Fetch
-          </v-btn>
+          <v-row>
+            <v-col
+              cols="12"
+              md="10"
+            >
+              <v-text-field
+                label="Image url"
+                hide-details="auto"
+                v-model="imgUrl"
+              ></v-text-field>
+            </v-col>
+            <v-col
+              cols="12"
+              md="2"
+            >
+              <v-btn
+                color="primary"
+                class="mr-4"
+                size="large"
+                @click="loadImgFromUrl(imgUrl)"
+              >
+                Fetch
+              </v-btn>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col
+              cols="12"
+              md="10"
+            >
+              <v-file-input
+                label="Cover image upload"
+                hide-details="auto"
+                accept="image/*"
+                v-model="uploadedImg"
+              ></v-file-input>
+            </v-col>
+            <v-col
+              cols="12"
+              md="2"
+            >
+              <v-btn
+                color="primary"
+                class="mr-4"
+                size="large"
+                @click="loadUploadedImg(uploadedImg)"
+              >
+                Upload
+              </v-btn>
+            </v-col>
+          </v-row>
         </v-col>
       </v-row>
       <v-row>
@@ -377,6 +410,7 @@ const showSearchDialog = ref(false);
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
 const newPath = ref("");
+const uploadedImg = ref([]);
 
 const goodreadsQuery = computed((): string => {
   let queryTokens: string[] = [];
@@ -510,6 +544,13 @@ const getBookDetails = async () => {
   bookDetails.value = book;
   resetInput();
 };
+
+const loadUploadedImg = async (uploaded: File[]) => {
+  var cover = await ImageService.readBase64ImageFromBlob(uploaded[0]);
+  input.value.cover_base64 = cover.base64Data;
+  input.value.cover_mime = cover.mimeType;
+};
+
 const loadImgFromUrl = async (overwriteUrl: string | undefined) => {
   if (!overwriteUrl) {
     input.value.cover_base64 = undefined;
