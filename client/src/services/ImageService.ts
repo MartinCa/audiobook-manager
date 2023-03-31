@@ -4,25 +4,34 @@ import { AudiobookImage } from "../types/Audiobook";
 const base64Regex = new RegExp(/^data[^,]+,/);
 
 class ImageService {
-  downloadImageFromUrl(imageUrl: string): Promise<AudiobookImage> {
-    return new Promise<AudiobookImage>((resolve, reject) => {
-      axios
-        .get(imageUrl, {
-          responseType: "arraybuffer",
-        })
-        .then((response) => {
-          const contentType = response.headers["content-type"];
-          if (contentType == undefined) {
-            reject("Invalid image response");
-            return;
-          }
-          let blob = new Blob([response.data]);
-          resolve(this.readBase64ImageFromBlob(blob, contentType));
-        })
-        .catch((reason) => {
-          reject(reason);
-        });
-    });
+  private downloadImageBlob(
+    imageUrl: string
+  ): Promise<{ blob: Blob; contentType: string }> {
+    return new Promise<{ blob: Blob; contentType: string }>(
+      (resolve, reject) => {
+        axios
+          .get(imageUrl, {
+            responseType: "arraybuffer",
+          })
+          .then((response) => {
+            const contentType = response.headers["content-type"];
+            if (contentType == undefined) {
+              reject("Invalid image response");
+              return;
+            }
+            let blob = new Blob([response.data]);
+            resolve({ blob, contentType });
+          })
+          .catch((reason) => {
+            reject(reason);
+          });
+      }
+    );
+  }
+
+  async downloadImageFromUrl(imageUrl: string): Promise<AudiobookImage> {
+    var imageBlob = await this.downloadImageBlob(imageUrl);
+    return this.readBase64ImageFromBlob(imageBlob.blob, imageBlob.contentType);
   }
 
   readBase64ImageFromBlob(
