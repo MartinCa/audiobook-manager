@@ -1,7 +1,7 @@
 import axios from "axios";
 import { AudiobookImage } from "../types/Audiobook";
 
-const base64Regex = new RegExp(/^data.*,/);
+const base64Regex = new RegExp(/^data[^,]+,/);
 
 class ImageService {
   downloadImageFromUrl(imageUrl: string): Promise<AudiobookImage> {
@@ -17,7 +17,7 @@ class ImageService {
             return;
           }
           let blob = new Blob([response.data]);
-          return this.readBase64ImageFromBlob(blob);
+          resolve(this.readBase64ImageFromBlob(blob, contentType));
         })
         .catch((reason) => {
           reject(reason);
