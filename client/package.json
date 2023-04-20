@@ -11,7 +11,7 @@
   "dependencies": {
     "@mdi/font": "7.2.96",
     "@quangdao/vue-signalr": "1.0.1",
-    "axios": "1.3.5",
+    "axios": "1.3.6",
     "lodash": "4.17.21",
     "roboto-fontface": "0.10.0",
     "vue": "3.2.47",
