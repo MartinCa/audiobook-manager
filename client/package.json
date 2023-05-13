@@ -29,6 +29,6 @@
     "typescript": "5.0.4",
     "vite": "4.3.5",
     "vite-plugin-vuetify": "1.0.2",
-    "vue-tsc": "1.6.4"
+    "vue-tsc": "1.6.5"
   }
 }
