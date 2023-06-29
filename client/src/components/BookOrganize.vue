@@ -77,7 +77,7 @@
           <v-row>
             <v-col
               cols="12"
-              md="10"
+              md="9"
             >
               <v-text-field
                 label="Image url"
@@ -87,12 +87,12 @@
             </v-col>
             <v-col
               cols="12"
-              md="2"
+              md="3"
             >
               <v-btn
                 color="primary"
-                class="mr-4"
                 size="large"
+                block
                 @click="loadImgFromUrl(imgUrl)"
               >
                 Fetch
@@ -102,7 +102,7 @@
           <v-row>
             <v-col
               cols="12"
-              md="10"
+              md="9"
             >
               <v-file-input
                 label="Cover image upload"
@@ -113,12 +113,12 @@
             </v-col>
             <v-col
               cols="12"
-              md="2"
+              md="3"
             >
               <v-btn
                 color="primary"
-                class="mr-4"
                 size="large"
+                block
                 @click="loadUploadedImg(uploadedImg)"
               >
                 Upload
@@ -304,12 +304,10 @@
       <v-row>
         <v-col
           cols="12"
-          sm="6"
-          lg="3"
+          sm="4"
         >
           <v-btn
             color="warning"
-            class="mr-4"
             @click="resetInput()"
           >
             Reset input
@@ -317,12 +315,10 @@
         </v-col>
         <v-col
           cols="12"
-          sm="6"
-          lg="3"
+          sm="4"
         >
           <v-btn
             color="primary"
-            class="mr-4"
             :disabled="organizing"
             @click="organizeBook(true)"
           >
@@ -338,12 +334,10 @@
         </v-col>
         <v-col
           cols="12"
-          sm="6"
-          lg="3"
+          sm="4"
         >
           <v-btn
             color="error"
-            class="mr-4"
             @click="showDeleteDialog = true"
           >
             Delete
