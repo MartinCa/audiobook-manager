@@ -224,7 +224,12 @@
             v-model="input.year"
           ></v-text-field>
         </v-col>
-        <v-col cols="12">
+        <v-col
+          cols="12"
+          sm="8"
+          md="9"
+          lg="10"
+        >
           <v-text-field
             label="Genres"
             hint="Separated by '/'"
@@ -233,6 +238,22 @@
             v-model="input.genres"
           >
           </v-text-field>
+        </v-col>
+        <v-col
+          cols="12"
+          sm="4"
+          md="3"
+          lg="2"
+        >
+          <v-btn
+            color="primary"
+            size="large"
+            :disabled="isNonfiction"
+            block
+            @click="addNonfictionGenre"
+          >
+            Add Nonfiction
+          </v-btn>
         </v-col>
         <v-col cols="12">
           <v-textarea
@@ -406,6 +427,8 @@ const showDeleteDialog = ref(false);
 const newPath = ref("");
 const uploadedImg = ref([]);
 
+const nonfictionGenre = "Nonfiction";
+
 const goodreadsQuery = computed((): string => {
   let queryTokens: string[] = [];
   if (input.value.authors) {
@@ -417,6 +440,14 @@ const goodreadsQuery = computed((): string => {
   const query = queryTokens.join("+");
   return `https://www.goodreads.com/search?utf8=%E2%9C%93&search_type=books&search[query]=${query}`;
 });
+
+const genresSplit = computed(
+  (): string[] => input.value.genres?.split("/") ?? []
+);
+
+const isNonfiction = computed((): boolean =>
+  genresSplit.value.some((genre) => genre === nonfictionGenre)
+);
 
 const seriesMappedNamed = computed((): string => {
   if (
@@ -543,6 +574,14 @@ const loadUploadedImg = async (uploaded: File[]) => {
   var cover = await ImageService.readBase64ImageFromBlob(uploaded[0]);
   input.value.cover_base64 = cover.base64Data;
   input.value.cover_mime = cover.mimeType;
+};
+
+const addNonfictionGenre = () => {
+  if (isNonfiction.value) {
+    return;
+  }
+
+  input.value.genres = [...genresSplit.value, nonfictionGenre].join("/");
 };
 
 const loadImgFromUrl = async (overwriteUrl: string | undefined) => {
