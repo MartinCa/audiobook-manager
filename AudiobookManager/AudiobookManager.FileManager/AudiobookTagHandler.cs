@@ -158,7 +158,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
 
     public static string GetStringFromListOfPersons(IEnumerable<Person> persons)
     {
-        return string.Join(", ", persons.Select(x => x.Name));
+        return string.Join(", ", persons.Select(x => x.Name).Distinct());
     }
 
     public static string? PadSeriesPart(string? seriesPart)
