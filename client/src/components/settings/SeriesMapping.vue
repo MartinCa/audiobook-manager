@@ -78,7 +78,7 @@ const { dialogWidth, mdAndDown } = useDialogWidth();
 
 function OrderByArray<T, K extends keyof T>(values: T[], orderType: K) {
   return values.sort((a, b) =>
-    a[orderType] > b[orderType] ? 1 : a[orderType] < b[orderType] ? -1 : 0
+    a[orderType] > b[orderType] ? 1 : a[orderType] < b[orderType] ? -1 : 0,
   );
 }
 
@@ -87,7 +87,7 @@ const groupedSeriesMappings = computed((): GroupMapping[] => {
     [m: string]: SeriesMapping[];
   }>(
     (r, v, i, a, k = v.mappedSeries) => ((r[k] || (r[k] = [])).push(v), r),
-    {}
+    {},
   );
 
   return OrderByArray(
@@ -95,14 +95,14 @@ const groupedSeriesMappings = computed((): GroupMapping[] => {
       mappedSeries: v[0],
       mappings: v[1],
     })),
-    "mappedSeries"
+    "mappedSeries",
   );
 });
 
 const mappingDeleted = (mapping: SeriesMapping | undefined) => {
   if (mapping) {
     seriesMappings.value = seriesMappings.value.filter(
-      (sm) => sm.id != mapping.id
+      (sm) => sm.id != mapping.id,
     );
   }
 };

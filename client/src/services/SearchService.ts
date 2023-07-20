@@ -4,10 +4,10 @@ import BaseHttpService from "./BaseHttpService";
 class SearchService extends BaseHttpService {
   searchSource(
     source: string,
-    searchTerm: string
+    searchTerm: string,
   ): Promise<BookSearchResult[]> {
     return this.getData(
-      `/search/${source}?q=${encodeURIComponent(searchTerm)}`
+      `/search/${source}?q=${encodeURIComponent(searchTerm)}`,
     );
   }
 

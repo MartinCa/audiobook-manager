@@ -5,7 +5,7 @@ const base64Regex = new RegExp(/^data[^,]+,/);
 
 class ImageService {
   private downloadImageBlob(
-    imageUrl: string
+    imageUrl: string,
   ): Promise<{ blob: Blob; contentType: string }> {
     return new Promise<{ blob: Blob; contentType: string }>(
       (resolve, reject) => {
@@ -25,7 +25,7 @@ class ImageService {
           .catch((reason) => {
             reject(reason);
           });
-      }
+      },
     );
   }
 
@@ -36,7 +36,7 @@ class ImageService {
 
   readBase64ImageFromBlob(
     imageBlob: Blob,
-    mimeType?: string
+    mimeType?: string,
   ): Promise<AudiobookImage> {
     return new Promise((resolve, reject) => {
       const contentType = mimeType ?? imageBlob.type;

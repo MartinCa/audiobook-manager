@@ -78,7 +78,7 @@ const directoryContents: Ref<BookFileInfo[]> = ref([]);
 onMounted(async () => {
   if (props.bookDetails.fileInfo) {
     directoryContents.value = await FilesService.getDirectoryContents(
-      props.bookDetails.fileInfo.fullPath
+      props.bookDetails.fileInfo.fullPath,
     );
   } else {
     closeDialog();

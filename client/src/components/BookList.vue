@@ -129,7 +129,7 @@ const loadBooks = async () => {
 
   const result = await UntaggedService.getUntagged(
     limit,
-    (currentPage.value - 1) * limit
+    (currentPage.value - 1) * limit,
   );
   const queuedBooks = await QueueService.getQueuedBooks();
   totalItems.value = result.total;
@@ -140,7 +140,7 @@ const loadBooks = async () => {
 
 const enhanceBooksWithQueueInfo = (
   books: BookFileInfo[],
-  queuedBooks: string[]
+  queuedBooks: string[],
 ) => {
   return books.map((b) => {
     if (queuedBooks.indexOf(b.fullPath) !== -1) {
