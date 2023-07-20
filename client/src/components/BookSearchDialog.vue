@@ -247,7 +247,7 @@ const getFileNameExclExt = (fileName: string): string => {
 const addExstingTagIfExists = (
   tagList: { name: string; value: any }[],
   tag: any,
-  name: string
+  name: string,
 ) => {
   if (tag) {
     tagList.push({ name, value: tag });
@@ -309,7 +309,7 @@ const search = async (source: string) => {
   try {
     searchResults.value = await SearchService.searchSource(
       source,
-      searchTerm.value
+      searchTerm.value,
     );
   } finally {
     searching.value = false;

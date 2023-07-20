@@ -71,7 +71,7 @@ const emit = defineEmits<{
 onMounted(() => {
   input.value = Object.assign(
     { regex: "", mapped_series: "", warn_about_part: false },
-    props.mapping
+    props.mapping,
   );
 });
 

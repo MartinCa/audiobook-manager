@@ -442,11 +442,11 @@ const goodreadsQuery = computed((): string => {
 });
 
 const genresSplit = computed(
-  (): string[] => input.value.genres?.split("/") ?? []
+  (): string[] => input.value.genres?.split("/") ?? [],
 );
 
 const isNonfiction = computed((): boolean =>
-  genresSplit.value.some((genre) => genre === nonfictionGenre)
+  genresSplit.value.some((genre) => genre === nonfictionGenre),
 );
 
 const seriesMappedNamed = computed((): string => {
@@ -466,7 +466,7 @@ watch(
   async (newValue, oldValue) => {
     await updateNewBookPath();
   },
-  { deep: true }
+  { deep: true },
 );
 
 const updateNewBookPath = debounce(async () => {

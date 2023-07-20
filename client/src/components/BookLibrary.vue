@@ -70,7 +70,7 @@ watch(currentPage, (oldPage, newPage) => {
 const loadBooks = async () => {
   const result = await LibraryService.getBooks(
     limit,
-    (currentPage.value - 1) * limit
+    (currentPage.value - 1) * limit,
   );
   totalItems.value = result.total;
   books.value = result.items;

@@ -6,7 +6,7 @@ import BaseHttpService from "./BaseHttpService";
 class UntaggedService extends BaseHttpService {
   getUntagged(
     limit: number,
-    offset: number
+    offset: number,
   ): Promise<PaginatedResult<BookFileInfo>> {
     return this.getData(`/untagged?limit=${limit}&offset=${offset}`);
   }
