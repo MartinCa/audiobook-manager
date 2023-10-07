@@ -9,7 +9,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@mdi/font": "7.2.96",
+    "@mdi/font": "7.3.67",
     "@quangdao/vue-signalr": "1.0.1",
     "axios": "1.5.1",
     "lodash": "4.17.21",
