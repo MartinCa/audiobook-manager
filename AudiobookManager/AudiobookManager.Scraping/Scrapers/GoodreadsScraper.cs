@@ -40,7 +40,7 @@ public partial class GoodreadsScraper : IScraper
     [GeneratedRegex(@"([^#]+)#?(.*)")]
     private static partial Regex ReSeries();
 
-    private readonly AsyncRetryPolicy _retryPolicy;
+    private readonly ResiliencePipeline _resiliencePipeline;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBookSeriesMapper _bookSeriesMapper;
     private readonly ILogger<GoodreadsScraper> _logger;
@@ -53,13 +53,18 @@ public partial class GoodreadsScraper : IScraper
 
         int maxRetries = 5;
 
-        _retryPolicy = Policy.Handle<Exception>().WaitAndRetryAsync(
-            retryCount: maxRetries,
-            sleepDurationProvider: (int retryNum) => TimeSpan.FromSeconds(3),
-            onRetry: (exception, sleepDuration, attemptNumber, context) =>
+        _resiliencePipeline = new ResiliencePipelineBuilder()
+        .AddRetry(new RetryStrategyOptions {
+            MaxRetryAttempts = maxRetries,
+            Delay = TimeSpan.FromSeconds(3),
+            BackoffType = DelayBackoffType.Constant,
+            OnRetry = (args) =>
             {
-                _logger.LogWarning("Exception: {exceptionMessage}, Retrying in {sleepDuration}. {attemptNumber}/{maxRetries}", exception.Message, sleepDuration, attemptNumber, maxRetries);
-            });
+                _logger.LogWarning("Exception: {exceptionMessage}, Retrying in {sleepDuration}. {attemptNumber}/{maxRetries}", args.Outcome.Exception?.Message, args.RetryDelay, args.AttemptNumber, maxRetries);
+                return ValueTask.CompletedTask;
+            }
+        })
+        .Build();
     }
 
     public async Task<BookSearchResult> GetBookDetails(string bookUrl)
@@ -72,16 +77,16 @@ public partial class GoodreadsScraper : IScraper
         var uri = QueryHelpers.AddQueryString(bookUrl, queryParameters);
         var httpClient = _httpClientFactory.CreateClient();
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            var response = await httpClient.GetAsync(uri);
+            var response = await httpClient.GetAsync(uri, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
             }
 
-            var responseStream = await response.Content.ReadAsStreamAsync();
+            var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
 
             HtmlParser parser = new();
             var doc = parser.ParseDocument(responseStream);
@@ -101,7 +106,7 @@ public partial class GoodreadsScraper : IScraper
             }
 
             throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-        });
+        }, new CancellationToken());
     }
 
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
@@ -118,16 +123,16 @@ public partial class GoodreadsScraper : IScraper
         uri += $"&search[query]={string.Join("+", termTokens)}";
         var httpClient = _httpClientFactory.CreateClient();
 
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
-            var response = await httpClient.GetAsync(uri);
+            var response = await httpClient.GetAsync(uri, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
             }
 
-            var responseStream = await response.Content.ReadAsStreamAsync();
+            var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
 
             HtmlParser parser = new();
             var doc = parser.ParseDocument(responseStream);
@@ -145,7 +150,7 @@ public partial class GoodreadsScraper : IScraper
             }
 
             throw new Exception("Invalid response from Goodreads");
-        });
+        }, new CancellationToken());
     }
 
 
