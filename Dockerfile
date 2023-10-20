@@ -9,7 +9,7 @@ RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
 # Build client app
-FROM node:20-alpine as build-node
+FROM node:21-alpine as build-node
 WORKDIR /app
 COPY /client/package*.json ./
 
