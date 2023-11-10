@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine@sha256:4c2ed06d729b26c96c3b0e64c98356058c1ad342c54b08238434f0ef05d70bfa AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:7.0-alpine@sha256:4c2ed06d729b26c96c3b0e64c98356058c1ad342c54b08238434f0ef05d70bfa AS build-env
 WORKDIR /app
 
 # Copy everything
@@ -20,7 +20,7 @@ COPY /client ./
 RUN npm run build
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine@sha256:cfb5c365b3dc1a6d6b2635507817025f739748c84b31c81734c148b6cac04100
+FROM mcr.microsoft.com/dotnet/aspnet:7.0-alpine@sha256:cfb5c365b3dc1a6d6b2635507817025f739748c84b31c81734c148b6cac04100
 
 # User manipulation tools
 RUN apk add --no-cache --update --upgrade shadow
