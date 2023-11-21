@@ -23,7 +23,7 @@
     "@babel/types": "7.23.4",
     "@types/lodash": "4.14.202",
     "@types/node": "20.9.3",
-    "@types/webfontloader": "1.6.37",
+    "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "4.4.1",
     "prettier": "3.1.0",
     "typescript": "5.2.2",
