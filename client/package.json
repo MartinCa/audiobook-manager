@@ -15,20 +15,20 @@
     "lodash": "4.17.21",
     "roboto-fontface": "0.10.0",
     "vue": "3.4.21",
-    "vue-router": "4.2.5",
-    "vuetify": "3.4.9",
+    "vue-router": "4.3.0",
+    "vuetify": "3.5.6",
     "webfontloader": "1.6.28"
   },
   "devDependencies": {
-    "@babel/types": "7.23.9",
+    "@babel/types": "7.24.0",
     "@types/lodash": "4.14.202",
     "@types/node": "20.11.21",
     "@types/webfontloader": "1.6.38",
-    "@vitejs/plugin-vue": "4.4.1",
+    "@vitejs/plugin-vue": "5.0.4",
     "prettier": "3.2.5",
     "typescript": "5.3.3",
-    "vite": "4.5.2",
-    "vite-plugin-vuetify": "1.0.2",
+    "vite": "5.1.4",
+    "vite-plugin-vuetify": "2.0.2",
     "vue-tsc": "1.8.27"
   }
 }
