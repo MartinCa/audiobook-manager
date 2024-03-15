@@ -15,6 +15,15 @@
     {
       "automerge": true,
       "extends": ["packages:linters", "packages:test"]
+    },
+    {
+      "matchPackagePrefixes": [
+        "@types"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": true
     }
   ]
 }
