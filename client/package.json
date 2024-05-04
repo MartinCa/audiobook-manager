@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@babel/types": "7.24.5",
-    "@types/lodash": "4.17.0",
+    "@types/lodash": "4.17.1",
     "@types/node": "20.12.8",
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "5.0.4",
