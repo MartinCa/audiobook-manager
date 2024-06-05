@@ -20,7 +20,7 @@
     "webfontloader": "1.6.28"
   },
   "devDependencies": {
-    "@babel/types": "7.24.6",
+    "@babel/types": "7.24.7",
     "@types/lodash": "4.17.4",
     "@types/node": "20.14.2",
     "@types/webfontloader": "1.6.38",
