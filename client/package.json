@@ -15,7 +15,7 @@
     "lodash": "4.17.21",
     "roboto-fontface": "0.10.0",
     "vue": "3.4.31",
-    "vue-router": "4.3.3",
+    "vue-router": "4.4.0",
     "vuetify": "3.6.10",
     "webfontloader": "1.6.28"
   },
