@@ -8,7 +8,7 @@
         <v-text-field
           density="comfortable"
           v-model="input.mappedSeries"
-          :rules="[(v) => !!v || 'Mapped series is required']"
+          :rules="[(v: any) => !!v || 'Mapped series is required']"
           label="Mapped series"
           hide-details="auto"
         >
@@ -18,7 +18,7 @@
         <v-text-field
           density="comfortable"
           v-model="input.regex"
-          :rules="[(v) => !!v || 'Regex is required']"
+          :rules="[(v: any) => !!v || 'Regex is required']"
           label="Regex"
           hide-details="auto"
         >

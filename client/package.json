@@ -1,6 +1,7 @@
 {
   "name": "audiobook-manager-client",
   "version": "0.0.1",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
@@ -29,6 +30,6 @@
     "typescript": "5.5.3",
     "vite": "5.3.3",
     "vite-plugin-vuetify": "2.0.3",
-    "vue-tsc": "2.0.21"
+    "vue-tsc": "2.0.26"
   }
 }
