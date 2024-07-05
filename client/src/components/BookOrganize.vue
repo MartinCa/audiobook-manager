@@ -137,7 +137,7 @@
             hide-details="auto"
             hint="Separated by ','"
             density="comfortable"
-            :rules="[(v) => !!v || 'Authors is required']"
+            :rules="[(v: any) => !!v || 'Authors is required']"
             v-model="input.authors"
           ></v-text-field>
         </v-col>
@@ -161,7 +161,7 @@
             label="Book name"
             hide-details="auto"
             density="comfortable"
-            :rules="[(v) => !!v || 'Book name is required']"
+            :rules="[(v: any) => !!v || 'Book name is required']"
             v-model="input.bookName"
           ></v-text-field>
         </v-col>
@@ -220,7 +220,7 @@
             type="number"
             hide-details="auto"
             density="comfortable"
-            :rules="[(v) => !!v || 'Year is required']"
+            :rules="[(v: any) => !!v || 'Year is required']"
             v-model="input.year"
           ></v-text-field>
         </v-col>
