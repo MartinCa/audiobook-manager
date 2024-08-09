@@ -23,7 +23,7 @@
   "devDependencies": {
     "@babel/types": "7.24.9",
     "@types/lodash": "4.17.7",
-    "@types/node": "20.14.14",
+    "@types/node": "20.14.15",
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "5.0.5",
     "prettier": "3.3.3",
