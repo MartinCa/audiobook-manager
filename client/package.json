@@ -21,7 +21,7 @@
     "webfontloader": "1.6.28"
   },
   "devDependencies": {
-    "@babel/types": "7.25.8",
+    "@babel/types": "7.25.9",
     "@types/lodash": "4.17.12",
     "@types/node": "20.17.0",
     "@types/webfontloader": "1.6.38",
