@@ -9,7 +9,7 @@ RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
 # Build client app
-FROM node:22-alpine as build-node
+FROM node:22-alpine AS build-node
 WORKDIR /app
 COPY /client/package*.json ./
 
@@ -29,7 +29,7 @@ RUN apk add --no-cache --update --upgrade shadow
 ENV PUID=""
 ENV PGID=""
 ENV AudiobookImportPath="/input"
-ENV AudiobookLibraryPath ="/library"
+ENV AudiobookLibraryPath="/library"
 ENV DbLocation="/config/audiobookmanager.db"
 
 WORKDIR /app
