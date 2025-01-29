@@ -18,6 +18,13 @@
         <v-icon>mdi-magnify</v-icon>
         Search
       </v-btn>
+      <v-btn
+        color="primary"
+        @click="showManualGoodreadsUrlDialog = true"
+      >
+        <v-icon>mdi-magnify</v-icon>
+        Manual Goodreads
+      </v-btn>
 
       <v-spacer></v-spacer>
 
@@ -379,6 +386,17 @@
       />
     </v-dialog>
     <v-dialog
+      v-model="showManualGoodreadsUrlDialog"
+      :width="dialogWidth"
+      :fullscreen="mdAndDown"
+    >
+      <ManualGoodreadsUrlDialog
+        v-if="showManualGoodreadsUrlDialog"
+        :dialog-width="dialogWidth"
+        @result-chosen="readSearchResult"
+      />
+    </v-dialog>
+    <v-dialog
       v-model="showDeleteDialog"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
@@ -407,6 +425,7 @@ import { useErrors } from "./errors";
 import AudiobookService from "../services/AudiobookService";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
 import { debounce, update } from "lodash";
+import ManualGoodreadsUrlDialog from "./ManualGoodreadsUrlDialog.vue";
 
 const props = defineProps<{
   bookPath: string;
@@ -422,6 +441,7 @@ const form: Ref<any | null> = ref(null);
 const input: Ref<OrganizeAudiobookInput> = ref({});
 const imgUrl = ref("");
 const showSearchDialog = ref(false);
+const showManualGoodreadsUrlDialog = ref(false);
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
 const newPath = ref("");
@@ -595,6 +615,7 @@ const loadImgFromUrl = async (overwriteUrl: string | undefined) => {
   input.value.cover_base64 = cover.base64Data;
   input.value.cover_mime = cover.mimeType;
 };
+
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
   if (searchData) {
     input.value.authors = joinPersons(searchData.authors);
@@ -625,7 +646,9 @@ const readSearchResult = (searchData: BookSearchResult | undefined) => {
   }
 
   showSearchDialog.value = false;
+  showManualGoodreadsUrlDialog.value = false;
 };
+
 const removeBook = (remove: boolean) => {
   if (remove) {
     emit("bookDeleted");
