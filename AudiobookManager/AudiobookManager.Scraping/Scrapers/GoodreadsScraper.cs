@@ -184,11 +184,17 @@ public partial class GoodreadsScraper : IScraper
 
         string? imgUrl = bookElement.GetPropertyValueOrNull("imageUrl");
 
-        var publicationTimeElement = workElement.GetNestedProperty("details", "publicationTime");
+        var publicationTimeElementWork = workElement.GetNestedProperty("details", "publicationTime");
+        var publicationTimeElementBook = bookElement.GetNestedProperty("details", "publicationTime");
         int? year = null;
-        if (publicationTimeElement.ValueKind == JsonValueKind.Number)
+        if (publicationTimeElementWork.ValueKind == JsonValueKind.Number)
         {
-            var publishUnixMsTimestamp = publicationTimeElement.GetInt64();
+            var publishUnixMsTimestamp = publicationTimeElementWork.GetInt64();
+            var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
+            year = publicationDateTime.Year;
+        } else if (publicationTimeElementBook.ValueKind == JsonValueKind.Number)
+        {
+            var publishUnixMsTimestamp = publicationTimeElementBook.GetInt64();
             var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
             year = publicationDateTime.Year;
         }
