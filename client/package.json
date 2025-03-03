@@ -26,7 +26,7 @@
     "@types/node": "22.13.8",
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "5.2.1",
-    "prettier": "3.5.2",
+    "prettier": "3.5.3",
     "typescript": "5.8.2",
     "vite": "6.2.0",
     "vite-plugin-vuetify": "2.1.0",
