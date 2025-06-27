@@ -25,7 +25,7 @@
     "@types/lodash": "4.17.19",
     "@types/node": "22.15.33",
     "@types/webfontloader": "1.6.38",
-    "@vitejs/plugin-vue": "5.2.4",
+    "@vitejs/plugin-vue": "6.0.0",
     "prettier": "3.6.2",
     "typescript": "5.8.3",
     "vite": "6.3.5",
