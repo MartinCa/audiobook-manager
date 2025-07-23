@@ -15,7 +15,7 @@
     "axios": "1.10.0",
     "lodash": "4.17.21",
     "roboto-fontface": "0.10.0",
-    "vue": "3.5.17",
+    "vue": "3.5.18",
     "vue-router": "4.5.1",
     "vuetify": "3.9.2",
     "webfontloader": "1.6.28"
