@@ -30,6 +30,6 @@
     "typescript": "5.9.2",
     "vite": "6.3.6",
     "vite-plugin-vuetify": "2.1.2",
-    "vue-tsc": "2.2.12"
+    "vue-tsc": "3.0.7"
   }
 }
