@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/AudiobookManager/AudiobookManager.Api/bin/Debug/net6.0/AudiobookManager.Api.dll",
+            "program": "${workspaceFolder}/AudiobookManager/AudiobookManager.Api/bin/Debug/net10.0/AudiobookManager.Api.dll",
             "args": [],
             "cwd": "${workspaceFolder}/AudiobookManager/AudiobookManager.Api",
             "stopAtEntry": false,
