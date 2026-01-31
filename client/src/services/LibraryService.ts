@@ -9,6 +9,10 @@ class LibraryService extends BaseHttpService {
   ): Promise<PaginatedResult<ManagedAudiobook>> {
     return this.getData(`/library/audiobooks?limit=${limit}&offset=${offset}`);
   }
+
+  startLibraryScan(): Promise<void> {
+    return this.postData("/library/scan");
+  }
 }
 
 export default new LibraryService();

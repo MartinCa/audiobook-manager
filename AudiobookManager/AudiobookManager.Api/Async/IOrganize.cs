@@ -4,4 +4,6 @@ public interface IOrganize
 {
     Task UpdateProgress(ProgressUpdate progressUpdate);
     Task QueueError(QueueError queueError);
+    Task LibraryScanProgress(LibraryScanProgress progress);
+    Task LibraryScanComplete(LibraryScanComplete result);
 }

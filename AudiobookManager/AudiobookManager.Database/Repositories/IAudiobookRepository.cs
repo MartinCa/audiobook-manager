@@ -4,4 +4,5 @@ namespace AudiobookManager.Database.Repositories;
 public interface IAudiobookRepository
 {
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
+    Task<HashSet<string>> GetAllFilePathsAsync();
 }

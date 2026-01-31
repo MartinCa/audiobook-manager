@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
 public class AudiobookRepository : IAudiobookRepository
@@ -15,5 +16,11 @@ public class AudiobookRepository : IAudiobookRepository
         _db.Add(audiobook);
         await _db.SaveChangesAsync();
         return audiobook;
+    }
+
+    public async Task<HashSet<string>> GetAllFilePathsAsync()
+    {
+        var paths = await _db.Audiobooks.Select(a => a.FileInfoFullPath).ToListAsync();
+        return paths.ToHashSet();
     }
 }

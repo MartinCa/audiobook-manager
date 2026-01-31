@@ -29,4 +29,16 @@ public class Client : IOrganize
         Console.WriteLine($"{progressUpdate.OriginalFileLocation}, {progressUpdate.ProgressMessage}, {progressUpdate.Progress}");
         return Task.CompletedTask;
     }
+
+    public Task LibraryScanProgress(LibraryScanProgress progress)
+    {
+        Console.WriteLine($"Library scan: {progress.Message} ({progress.FilesScanned}/{progress.TotalFiles})");
+        return Task.CompletedTask;
+    }
+
+    public Task LibraryScanComplete(LibraryScanComplete result)
+    {
+        Console.WriteLine($"Library scan complete: {result.TotalFilesScanned} total, {result.NewFilesDiscovered} new, {result.AlreadyTracked} tracked");
+        return Task.CompletedTask;
+    }
 }
