@@ -33,6 +33,16 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         }
     }
 
+    public async Task DeleteByPathAsync(string fullPath)
+    {
+        var entity = await _db.DiscoveredAudiobooks.FirstOrDefaultAsync(d => d.FileInfoFullPath == fullPath);
+        if (entity != null)
+        {
+            _db.DiscoveredAudiobooks.Remove(entity);
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task ClearAllAsync()
     {
         _db.DiscoveredAudiobooks.RemoveRange(_db.DiscoveredAudiobooks);

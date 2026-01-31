@@ -42,11 +42,71 @@
         </v-alert>
       </v-col>
     </v-row>
+    <v-row>
+      <v-col cols="12">
+        <h3 class="text-h6 mb-3">Discovered Audiobooks</h3>
+        <template v-if="discoveredBooks.length">
+          <v-expansion-panels v-model="discoveredActivePanel">
+            <v-expansion-panel
+              v-for="(book, i) in discoveredBooks"
+              :key="i"
+            >
+              <v-expansion-panel-title>
+                <v-row>
+                  <v-col>
+                    {{ book.fileName }}
+                  </v-col>
+                  <v-col>
+                    <template v-if="book.error">
+                      <span class="text-red">{{ book.error }}</span>
+                      <v-icon>mdi-alert</v-icon>
+                    </template>
+                    <template v-else-if="book.queueId">
+                      {{ book.queueMessage ?? "Queued" }}
+                      <v-progress-circular
+                        :model-value="book.queueProgress ?? 0"
+                        size="23"
+                        :width="2"
+                      />
+                    </template>
+                  </v-col>
+                  <v-col>
+                    {{ formatFileSize(book.sizeInBytes) }}
+                  </v-col>
+                </v-row>
+              </v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <BookOrganize
+                  :book-path="book.fullPath"
+                  @book-queued="(id) => markDiscoveredAsQueued(book, id)"
+                  @book-deleted="() => removeDiscoveredBook(book)"
+                />
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
+          <v-pagination
+            v-model="discoveredCurrentPage"
+            :length="discoveredTotalPages"
+            @update:model-value=""
+          ></v-pagination>
+        </template>
+        <template v-else>
+          <div class="text-center">No discovered audiobooks</div>
+          <v-btn
+            class="mt-2"
+            @click="loadDiscoveredBooks()"
+          >
+            Load discovered
+          </v-btn>
+        </template>
+      </v-col>
+    </v-row>
     <v-row class="text-center">
       <v-col
         class="mb-5"
         cols="12"
       >
+        <h3 class="text-h6 mb-3">Managed Audiobooks</h3>
         <template v-if="books.length">
           <v-expansion-panels v-model="activePanel">
             <v-expansion-panel
@@ -90,14 +150,19 @@ import { computed, Ref, ref, watch } from "vue";
 import BookOrganize from "./BookOrganize.vue";
 import LibraryService from "../services/LibraryService";
 import ManagedAudiobook from "../types/ManagedAudiobook";
+import BookFileInfo from "../types/BookFileInfo";
 import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
 import { LibraryScanProgress } from "../signalr/LibraryScanProgress";
 import { LibraryScanComplete } from "../signalr/LibraryScanComplete";
+import { ProgressUpdate } from "../signalr/ProgressUpdate";
+import { QueueError } from "../signalr/QueueError";
 
 const LibraryScanProgressToken: HubEventToken<LibraryScanProgress> =
   "LibraryScanProgress";
 const LibraryScanCompleteToken: HubEventToken<LibraryScanComplete> =
   "LibraryScanComplete";
+const UpdateProgress: HubEventToken<ProgressUpdate> = "UpdateProgress";
+const QueueErrorToken: HubEventToken<QueueError> = "QueueError";
 
 const signalR = useSignalR();
 
@@ -107,6 +172,11 @@ const books: Ref<ManagedAudiobook[]> = ref([]);
 const activePanel: Ref<any> = ref(null);
 const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
+
+const discoveredBooks: Ref<BookFileInfo[]> = ref([]);
+const discoveredActivePanel: Ref<any> = ref(null);
+const discoveredCurrentPage: Ref<number> = ref(1);
+const discoveredTotalItems: Ref<number> = ref(0);
 
 const scanning: Ref<boolean> = ref(false);
 const scanMessage: Ref<string> = ref("");
@@ -127,12 +197,39 @@ signalR.on(LibraryScanCompleteToken, (arg) => {
   scanComplete.value = true;
   scanNewFiles.value = arg.newFilesDiscovered;
   scanTrackedFiles.value = arg.alreadyTracked;
+  loadDiscoveredBooks();
+});
+
+signalR.on(UpdateProgress, (arg) => {
+  const book = discoveredBooks.value.find(
+    (x) => x.queueId === arg.originalFileLocation,
+  );
+  if (book) {
+    book.queueMessage = arg.progressMessage;
+    book.queueProgress = arg.progress;
+  }
+});
+
+signalR.on(QueueErrorToken, (arg) => {
+  const book = discoveredBooks.value.find(
+    (x) => x.queueId === arg.originalFileLocation,
+  );
+  if (book) {
+    book.error = arg.error;
+  }
 });
 
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
+const discoveredTotalPages = computed((): number =>
+  Math.ceil(discoveredTotalItems.value / limit),
+);
 
-watch(currentPage, (oldPage, newPage) => {
+watch(currentPage, () => {
   loadBooks();
+});
+
+watch(discoveredCurrentPage, () => {
+  loadDiscoveredBooks();
 });
 
 const startScan = async () => {
@@ -153,8 +250,42 @@ const loadBooks = async () => {
   books.value = result.items;
 };
 
+const loadDiscoveredBooks = async () => {
+  const result = await LibraryService.getDiscoveredBooks(
+    limit,
+    (discoveredCurrentPage.value - 1) * limit,
+  );
+  discoveredTotalItems.value = result.total;
+  discoveredBooks.value = result.items;
+};
+
+const markDiscoveredAsQueued = async (book: BookFileInfo, queueId: string) => {
+  book.queueId = queueId;
+  var bookIdx = discoveredBooks.value.indexOf(book);
+  if (bookIdx === discoveredActivePanel.value) {
+    discoveredActivePanel.value = null;
+  }
+  await LibraryService.deleteDiscoveredBook(book.fullPath);
+};
+
+const removeDiscoveredBook = (book: BookFileInfo) => {
+  var bookIdx = discoveredBooks.value.indexOf(book);
+  var currentlyOpen = bookIdx === discoveredActivePanel.value;
+
+  discoveredBooks.value = discoveredBooks.value.filter((b) => b != book);
+
+  if (currentlyOpen) {
+    discoveredActivePanel.value = null;
+  }
+};
+
 const removeBook = (book: ManagedAudiobook) => {
   books.value = books.value.filter((b) => b != book);
   activePanel.value = null;
+};
+
+const formatFileSize = (size: number) => {
+  const sizeInMb = size / 1000000;
+  return `${sizeInMb.toFixed(1)} MB`;
 };
 </script>

@@ -1,4 +1,7 @@
 using AudiobookManager.Api.Async;
+using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -11,15 +14,18 @@ public class LibraryController : ControllerBase
 {
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IDiscoveredAudiobookRepository _discoveredRepo;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IDiscoveredAudiobookRepository discoveredRepo,
         ILogger<LibraryController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _discoveredRepo = discoveredRepo;
         _logger = logger;
     }
 
@@ -59,5 +65,26 @@ public class LibraryController : ControllerBase
         });
 
         return Ok();
+    }
+
+    [HttpGet("discovered")]
+    public async Task<PaginatedResult<AudiobookFileInfo>> GetDiscovered(int limit = 20, int offset = 0)
+    {
+        var all = await _discoveredRepo.GetAllAsync();
+        var ordered = all.OrderBy(d => d.FileInfoFullPath).ToList();
+        var items = ordered
+            .Skip(offset)
+            .Take(limit)
+            .Select(d => new AudiobookFileInfo(d.FileInfoFullPath, d.FileInfoFileName, d.FileInfoSizeInBytes))
+            .ToList();
+
+        return new PaginatedResult<AudiobookFileInfo>(items.Count, ordered.Count, items);
+    }
+
+    [HttpDelete("discovered")]
+    public async Task<IActionResult> DeleteDiscovered([FromQuery] string path)
+    {
+        await _discoveredRepo.DeleteByPathAsync(path);
+        return NoContent();
     }
 }

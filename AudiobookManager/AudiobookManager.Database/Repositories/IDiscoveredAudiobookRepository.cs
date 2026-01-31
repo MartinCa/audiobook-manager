@@ -7,5 +7,6 @@ public interface IDiscoveredAudiobookRepository
     Task InsertAsync(DiscoveredAudiobook discovered);
     Task<List<DiscoveredAudiobook>> GetAllAsync();
     Task DeleteAsync(long id);
+    Task DeleteByPathAsync(string fullPath);
     Task ClearAllAsync();
 }
