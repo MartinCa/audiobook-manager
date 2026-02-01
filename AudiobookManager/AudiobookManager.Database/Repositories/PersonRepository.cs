@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
 public class PersonRepository : IPersonRepository
@@ -22,5 +23,26 @@ public class PersonRepository : IPersonRepository
         }
 
         return dbPerson;
+    }
+
+    public async Task<List<Person>> GetAllAuthorsAsync()
+    {
+        return await _db.Persons
+            .Include(p => p.BooksAuthored)
+            .Where(p => p.BooksAuthored.Any())
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+    }
+
+    public async Task<Person?> GetAuthorWithBooksAsync(long authorId)
+    {
+        return await _db.Persons
+            .Include(p => p.BooksAuthored)
+                .ThenInclude(a => a.Authors)
+            .Include(p => p.BooksAuthored)
+                .ThenInclude(a => a.Narrators)
+            .Include(p => p.BooksAuthored)
+                .ThenInclude(a => a.Genres)
+            .FirstOrDefaultAsync(p => p.Id == authorId);
     }
 }

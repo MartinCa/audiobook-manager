@@ -66,7 +66,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import LibraryService from "../../services/LibraryService";
+import BrowseService from "../../services/BrowseService";
+import { formatDuration } from "../../helpers/formatHelpers";
 import ManagedAudiobook from "../../types/ManagedAudiobook";
 
 const route = useRoute();
@@ -74,13 +75,6 @@ const router = useRouter();
 const books = ref<ManagedAudiobook[]>([]);
 const loading = ref(false);
 const seriesName = ref("");
-
-const formatDuration = (seconds: number): string => {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-};
 
 const goBack = () => {
   const authorId = route.query.authorId;
@@ -98,7 +92,7 @@ onMounted(async () => {
     const authorId = route.query.authorId
       ? Number(route.query.authorId)
       : undefined;
-    books.value = await LibraryService.getSeriesBooks(
+    books.value = await BrowseService.getSeriesBooks(
       seriesName.value,
       authorId,
     );

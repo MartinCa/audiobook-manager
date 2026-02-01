@@ -39,45 +39,24 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset)
     {
-        var lowerQuery = query.ToLower();
+        var pattern = $"%{query}%";
 
         var dbQuery = _db.Audiobooks
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
             .Where(a =>
-                (a.BookName != null && a.BookName.ToLower().Contains(lowerQuery)) ||
-                (a.Subtitle != null && a.Subtitle.ToLower().Contains(lowerQuery)) ||
-                (a.Description != null && a.Description.ToLower().Contains(lowerQuery)) ||
-                (a.Series != null && a.Series.ToLower().Contains(lowerQuery)) ||
-                a.Authors.Any(p => p.Name.ToLower().Contains(lowerQuery))
+                (a.BookName != null && EF.Functions.Like(a.BookName, pattern)) ||
+                (a.Subtitle != null && EF.Functions.Like(a.Subtitle, pattern)) ||
+                (a.Description != null && EF.Functions.Like(a.Description, pattern)) ||
+                (a.Series != null && EF.Functions.Like(a.Series, pattern)) ||
+                a.Authors.Any(p => EF.Functions.Like(p.Name, pattern))
             )
             .OrderBy(a => a.BookName);
 
         var total = await dbQuery.CountAsync();
         var items = await dbQuery.Skip(offset).Take(limit).ToListAsync();
         return (items, total);
-    }
-
-    public async Task<List<Person>> GetAllAuthorsAsync()
-    {
-        return await _db.Persons
-            .Include(p => p.BooksAuthored)
-            .Where(p => p.BooksAuthored.Any())
-            .OrderBy(p => p.Name)
-            .ToListAsync();
-    }
-
-    public async Task<Person?> GetAuthorWithBooksAsync(long authorId)
-    {
-        return await _db.Persons
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Authors)
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Narrators)
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Genres)
-            .FirstOrDefaultAsync(p => p.Id == authorId);
     }
 
     public async Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId)

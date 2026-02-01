@@ -233,17 +233,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         AudiobookFileHandler.WriteMetadata(parsed);
 
         // Delete all desc/reader issues for this book since WriteMetadata writes both
-        var allIssues = await _issueRepository.GetAllWithAudiobookAsync();
-        var metadataIssues = allIssues.Where(i => i.AudiobookId == audiobook.Id &&
-            (i.IssueType == ConsistencyIssueType.MissingDescTxt ||
-             i.IssueType == ConsistencyIssueType.IncorrectDescTxt ||
-             i.IssueType == ConsistencyIssueType.MissingReaderTxt ||
-             i.IssueType == ConsistencyIssueType.IncorrectReaderTxt));
-
-        foreach (var metadataIssue in metadataIssues)
+        await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, new[]
         {
-            await _issueRepository.DeleteAsync(metadataIssue.Id);
-        }
+            ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
+            ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt
+        });
     }
 
     private async Task ResolveMissingCover(ConsistencyIssue issue)

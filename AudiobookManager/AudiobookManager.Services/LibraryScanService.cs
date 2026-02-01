@@ -29,7 +29,7 @@ public class LibraryScanService : ILibraryScanService
         _logger = logger;
     }
 
-    public async Task ScanLibrary(Func<string, int, int, Task> progressAction)
+    public async Task<(int TotalFiles, int NewFiles, int TrackedFiles)> ScanLibrary(Func<string, int, int, Task> progressAction)
     {
         _logger.LogInformation("Starting library scan of {LibraryPath}", _settings.AudiobookLibraryPath);
 
@@ -97,5 +97,7 @@ public class LibraryScanService : ILibraryScanService
 
         _logger.LogInformation("Library scan complete. Total: {Total}, New: {New}, Tracked: {Tracked}",
             totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
+
+        return (totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
     }
 }

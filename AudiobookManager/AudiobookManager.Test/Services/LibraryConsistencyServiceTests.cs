@@ -209,9 +209,6 @@ public class LibraryConsistencyServiceTests
 
             _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
 
-            _issueRepository.Setup(r => r.GetAllWithAudiobookAsync())
-                .ReturnsAsync(new List<ConsistencyIssue> { issue });
-
             await _service.ResolveIssue(20);
 
             // WriteMetadata is static, so we verify it was called indirectly by checking desc.txt was created
@@ -219,7 +216,13 @@ public class LibraryConsistencyServiceTests
             Assert.IsTrue(File.Exists(descPath));
             Assert.AreEqual("A description", await File.ReadAllTextAsync(descPath));
 
-            _issueRepository.Verify(r => r.DeleteAsync(20), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1,
+                It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                    types.Contains(ConsistencyIssueType.MissingDescTxt) &&
+                    types.Contains(ConsistencyIssueType.IncorrectDescTxt) &&
+                    types.Contains(ConsistencyIssueType.MissingReaderTxt) &&
+                    types.Contains(ConsistencyIssueType.IncorrectReaderTxt)
+                )), Times.Once);
         }
         finally
         {

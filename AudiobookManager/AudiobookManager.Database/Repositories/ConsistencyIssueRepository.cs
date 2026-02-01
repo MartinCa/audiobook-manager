@@ -60,4 +60,13 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
         _db.ConsistencyIssues.RemoveRange(issues);
         await _db.SaveChangesAsync();
     }
+
+    public async Task DeleteByAudiobookIdAndTypesAsync(long audiobookId, IEnumerable<ConsistencyIssueType> types)
+    {
+        var issues = await _db.ConsistencyIssues
+            .Where(ci => ci.AudiobookId == audiobookId && types.Contains(ci.IssueType))
+            .ToListAsync();
+        _db.ConsistencyIssues.RemoveRange(issues);
+        await _db.SaveChangesAsync();
+    }
 }

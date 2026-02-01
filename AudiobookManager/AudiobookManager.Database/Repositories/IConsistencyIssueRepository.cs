@@ -10,4 +10,5 @@ public interface IConsistencyIssueRepository
     Task ClearAllAsync();
     Task DeleteAsync(long id);
     Task DeleteByAudiobookIdAsync(long audiobookId);
+    Task DeleteByAudiobookIdAndTypesAsync(long audiobookId, IEnumerable<ConsistencyIssueType> types);
 }

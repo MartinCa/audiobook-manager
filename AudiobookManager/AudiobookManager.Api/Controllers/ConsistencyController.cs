@@ -55,8 +55,15 @@ public class ConsistencyController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during consistency check");
-                await _organizeHub.Clients.All.ConsistencyCheckComplete(
-                    new ConsistencyCheckComplete(0, 0));
+                try
+                {
+                    await _organizeHub.Clients.All.ConsistencyCheckComplete(
+                        new ConsistencyCheckComplete(0, 0));
+                }
+                catch (Exception hubEx)
+                {
+                    _logger.LogError(hubEx, "Failed to send ConsistencyCheckComplete over SignalR");
+                }
             }
         });
 

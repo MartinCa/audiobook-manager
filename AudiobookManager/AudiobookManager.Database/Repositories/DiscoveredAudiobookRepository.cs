@@ -23,6 +23,14 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         return await _db.DiscoveredAudiobooks.ToListAsync();
     }
 
+    public async Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset)
+    {
+        var query = _db.DiscoveredAudiobooks.OrderBy(d => d.FileInfoFullPath);
+        var total = await query.CountAsync();
+        var items = await query.Skip(offset).Take(limit).ToListAsync();
+        return (items, total);
+    }
+
     public async Task DeleteAsync(long id)
     {
         var entity = await _db.DiscoveredAudiobooks.FindAsync(id);

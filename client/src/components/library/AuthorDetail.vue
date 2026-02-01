@@ -83,25 +83,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import LibraryService from "../../services/LibraryService";
+import BrowseService from "../../services/BrowseService";
+import { formatDuration } from "../../helpers/formatHelpers";
 import AuthorDetailType from "../../types/AuthorDetail";
 
 const route = useRoute();
 const detail = ref<AuthorDetailType | null>(null);
 const loading = ref(false);
 
-const formatDuration = (seconds: number): string => {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-};
-
 onMounted(async () => {
   loading.value = true;
   try {
     const authorId = Number(route.params.authorId);
-    detail.value = await LibraryService.getAuthorDetail(authorId);
+    detail.value = await BrowseService.getAuthorDetail(authorId);
   } finally {
     loading.value = false;
   }

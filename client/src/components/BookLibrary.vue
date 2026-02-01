@@ -180,6 +180,8 @@ import { computed, Ref, ref, watch } from "vue";
 import { debounce } from "lodash";
 import BookOrganize from "./BookOrganize.vue";
 import LibraryService from "../services/LibraryService";
+import BrowseService from "../services/BrowseService";
+import { formatDuration } from "../helpers/formatHelpers";
 import ManagedAudiobook from "../types/ManagedAudiobook";
 import BookFileInfo from "../types/BookFileInfo";
 import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
@@ -276,8 +278,8 @@ const startScan = async () => {
 const loadBooks = async () => {
   const offset = (currentPage.value - 1) * limit;
   const result = searchQuery.value
-    ? await LibraryService.searchBooks(searchQuery.value, limit, offset)
-    : await LibraryService.getBooks(limit, offset);
+    ? await BrowseService.searchBooks(searchQuery.value, limit, offset)
+    : await BrowseService.getBooks(limit, offset);
   totalItems.value = result.total;
   books.value = result.items;
 };
@@ -290,13 +292,6 @@ const debouncedSearch = debounce(() => {
 watch(searchQuery, () => {
   debouncedSearch();
 });
-
-const formatDuration = (seconds: number): string => {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-};
 
 const loadDiscoveredBooks = async () => {
   const result = await LibraryService.getDiscoveredBooks(

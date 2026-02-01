@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import LibraryService from "../../services/LibraryService";
+import BrowseService from "../../services/BrowseService";
 import AuthorSummary from "../../types/AuthorSummary";
 
 const authors = ref<AuthorSummary[]>([]);
@@ -84,7 +84,7 @@ const filteredAuthors = computed(() => {
 onMounted(async () => {
   loading.value = true;
   try {
-    authors.value = await LibraryService.getAuthors();
+    authors.value = await BrowseService.getAuthors();
   } finally {
     loading.value = false;
   }
