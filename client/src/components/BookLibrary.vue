@@ -101,31 +101,61 @@
         </template>
       </v-col>
     </v-row>
-    <v-row class="text-center">
-      <v-col
-        class="mb-5"
-        cols="12"
-      >
+    <v-row>
+      <v-col cols="12">
         <h3 class="text-h6 mb-3">Managed Audiobooks</h3>
-        <template v-if="books.length">
-          <v-expansion-panels v-model="activePanel">
-            <v-expansion-panel
-              v-for="(book, i) in books"
-              :key="i"
+        <v-row class="mb-3">
+          <v-col
+            cols="12"
+            md="6"
+          >
+            <v-text-field
+              v-model="searchQuery"
+              label="Search library"
+              prepend-inner-icon="mdi-magnify"
+              clearable
+              hide-details
+              density="compact"
+            />
+          </v-col>
+          <v-col
+            cols="12"
+            md="6"
+            class="d-flex align-center"
+          >
+            <v-btn
+              prepend-icon="mdi-account-group"
+              to="/library/authors"
             >
-              <v-expansion-panel-title>
-                <v-row>
-                  <v-col> {{ book.author }} - {{ book.book_name }} </v-col>
-                </v-row>
-              </v-expansion-panel-title>
-              <v-expansion-panel-text>
-                <BookOrganize
-                  :book-path="book.path"
-                  @book-organized="removeBook(book)"
-                />
-              </v-expansion-panel-text>
-            </v-expansion-panel>
-          </v-expansion-panels>
+              Browse by Author
+            </v-btn>
+          </v-col>
+        </v-row>
+        <template v-if="books.length">
+          <v-list>
+            <v-list-item
+              v-for="book in books"
+              :key="book.id"
+            >
+              <v-list-item-title>
+                {{ book.authors.join(", ") }} &mdash; {{ book.bookName }}
+              </v-list-item-title>
+              <v-list-item-subtitle>
+                <span v-if="book.series">
+                  {{ book.series }}
+                  <span v-if="book.seriesPart">#{{ book.seriesPart }}</span>
+                  &middot;
+                </span>
+                <span v-if="book.year">{{ book.year }}</span>
+                <span v-if="book.narrators.length">
+                  &middot; Narrated by {{ book.narrators.join(", ") }}
+                </span>
+                <span v-if="book.durationInSeconds">
+                  &middot; {{ formatDuration(book.durationInSeconds) }}
+                </span>
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
           <v-pagination
             v-model="currentPage"
             :length="totalPages"
@@ -147,6 +177,7 @@
 
 <script setup lang="ts">
 import { computed, Ref, ref, watch } from "vue";
+import { debounce } from "lodash";
 import BookOrganize from "./BookOrganize.vue";
 import LibraryService from "../services/LibraryService";
 import ManagedAudiobook from "../types/ManagedAudiobook";
@@ -168,8 +199,9 @@ const signalR = useSignalR();
 
 const limit = 50;
 
+const searchQuery: Ref<string> = ref("");
+
 const books: Ref<ManagedAudiobook[]> = ref([]);
-const activePanel: Ref<any> = ref(null);
 const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
 
@@ -242,12 +274,28 @@ const startScan = async () => {
 };
 
 const loadBooks = async () => {
-  const result = await LibraryService.getBooks(
-    limit,
-    (currentPage.value - 1) * limit,
-  );
+  const offset = (currentPage.value - 1) * limit;
+  const result = searchQuery.value
+    ? await LibraryService.searchBooks(searchQuery.value, limit, offset)
+    : await LibraryService.getBooks(limit, offset);
   totalItems.value = result.total;
   books.value = result.items;
+};
+
+const debouncedSearch = debounce(() => {
+  currentPage.value = 1;
+  loadBooks();
+}, 300);
+
+watch(searchQuery, () => {
+  debouncedSearch();
+});
+
+const formatDuration = (seconds: number): string => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 };
 
 const loadDiscoveredBooks = async () => {
@@ -277,11 +325,6 @@ const removeDiscoveredBook = (book: BookFileInfo) => {
   if (currentlyOpen) {
     discoveredActivePanel.value = null;
   }
-};
-
-const removeBook = (book: ManagedAudiobook) => {
-  books.value = books.value.filter((b) => b != book);
-  activePanel.value = null;
 };
 
 const formatFileSize = (size: number) => {

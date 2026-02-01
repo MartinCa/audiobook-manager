@@ -9,6 +9,10 @@ import App from "./App.vue";
 const BookList = () => import("./components/BookList.vue");
 const Settings = () => import("./components/settings/Settings.vue");
 const BookLibrary = () => import("./components/BookLibrary.vue");
+const AuthorsList = () => import("./components/library/AuthorsList.vue");
+const AuthorDetail = () => import("./components/library/AuthorDetail.vue");
+const SeriesDetail = () => import("./components/library/SeriesDetail.vue");
+const LibraryConsistency = () => import("./components/LibraryConsistency.vue");
 
 // Composables
 import { createApp } from "vue";
@@ -26,6 +30,10 @@ registerPlugins();
 const routes = [
   { path: "/", component: BookList },
   { path: "/library", component: BookLibrary },
+  { path: "/library/authors", component: AuthorsList },
+  { path: "/library/authors/:authorId", component: AuthorDetail },
+  { path: "/library/series/:seriesName", component: SeriesDetail },
+  { path: "/library/consistency", component: LibraryConsistency },
   { path: "/settings", component: Settings },
 ];
 

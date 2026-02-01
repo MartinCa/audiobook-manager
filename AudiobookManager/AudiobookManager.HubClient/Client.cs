@@ -41,4 +41,16 @@ public class Client : IOrganize
         Console.WriteLine($"Library scan complete: {result.TotalFilesScanned} total, {result.NewFilesDiscovered} new, {result.AlreadyTracked} tracked");
         return Task.CompletedTask;
     }
+
+    public Task ConsistencyCheckProgress(ConsistencyCheckProgress progress)
+    {
+        Console.WriteLine($"Consistency check: {progress.Message} ({progress.BooksChecked}/{progress.TotalBooks}), issues: {progress.IssuesFound}");
+        return Task.CompletedTask;
+    }
+
+    public Task ConsistencyCheckComplete(ConsistencyCheckComplete result)
+    {
+        Console.WriteLine($"Consistency check complete: {result.TotalBooksChecked} books, {result.TotalIssuesFound} issues");
+        return Task.CompletedTask;
+    }
 }

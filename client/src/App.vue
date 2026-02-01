@@ -94,6 +94,11 @@ const links: MenuLink[] = [
     text: "Library",
   },
   {
+    to: "/library/consistency",
+    icon: "mdi-check-decagram",
+    text: "Consistency",
+  },
+  {
     icon: "mdi-cog",
     text: "Settings",
     to: "/settings",

@@ -14,6 +14,7 @@ public static class DependencyInjection
         .AddScoped<ISettingsService, SettingsService>()
         .AddScoped<IQueuedOrganizeTaskService, QueuedOrganizeTaskService>()
         .AddScoped<ILibraryScanService, LibraryScanService>()
+        .AddScoped<ILibraryConsistencyService, LibraryConsistencyService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

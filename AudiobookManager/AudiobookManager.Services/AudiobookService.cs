@@ -112,17 +112,17 @@ public class AudiobookService : IAudiobookService
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
     {
-        var authorsTasks = audiobook.Authors.Select(x => _personRepository.GetOrCreatePerson(x.Name));
-        await Task.WhenAll(authorsTasks);
-        var authors = authorsTasks.Select(x => x.Result).ToList();
+        var authors = new List<Database.Models.Person>();
+        foreach (var author in audiobook.Authors)
+            authors.Add(await _personRepository.GetOrCreatePerson(author.Name));
 
-        var narratorsTasks = audiobook.Narrators.Select(x => _personRepository.GetOrCreatePerson(x.Name));
-        await Task.WhenAll(narratorsTasks);
-        var narrators = narratorsTasks.Select(x => x.Result).ToList();
+        var narrators = new List<Database.Models.Person>();
+        foreach (var narrator in audiobook.Narrators)
+            narrators.Add(await _personRepository.GetOrCreatePerson(narrator.Name));
 
-        var genresTask = audiobook.Genres.Select(x => _genreRepository.GetOrCreateGenre(x));
-        await Task.WhenAll(genresTask);
-        var genres = genresTask.Select(x => x.Result).ToList();
+        var genres = new List<Database.Models.Genre>();
+        foreach (var genre in audiobook.Genres)
+            genres.Add(await _genreRepository.GetOrCreateGenre(genre));
 
         AudiobookDb dbAudiobook = new AudiobookDb(
             audiobook.Id ?? default,

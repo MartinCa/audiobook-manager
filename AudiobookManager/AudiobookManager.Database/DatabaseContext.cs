@@ -38,4 +38,5 @@ public class DatabaseContext : DbContext
     public DbSet<Person> Persons { get; set; }
     public DbSet<QueuedOrganizeTask> QueuedOrganizeTasks { get; set; }
     public DbSet<DiscoveredAudiobook> DiscoveredAudiobooks { get; set; }
+    public DbSet<ConsistencyIssue> ConsistencyIssues { get; set; }
 }
