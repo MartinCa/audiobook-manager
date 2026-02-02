@@ -153,6 +153,86 @@ public class AudiobookService : IAudiobookService
         return FromDb(result);
     }
 
+    public async Task<Audiobook?> GetAudiobookById(long id)
+    {
+        var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(id);
+        if (dbAudiobook == null) return null;
+
+        var domain = FromDb(dbAudiobook);
+        domain.Id = dbAudiobook.Id;
+        return domain;
+    }
+
+    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook)
+    {
+        var existing = await _audiobookRepository.GetByIdWithIncludesAsync(id);
+        if (existing == null)
+            throw new Exception($"Audiobook with id {id} not found");
+
+        var oldFilePath = existing.FileInfoFullPath;
+        var oldDirectory = Path.GetDirectoryName(oldFilePath);
+
+        // Save tags to the m4b file
+        audiobook.FileInfo = new AudiobookFileInfo(existing.FileInfoFullPath, existing.FileInfoFileName, existing.FileInfoSizeInBytes);
+        _tagHandler.SaveAudiobookTagsToFile(audiobook, _ => { });
+
+        // Check if the file needs to be relocated
+        var newFullPath = GenerateLibraryPath(audiobook);
+        if (newFullPath != oldFilePath)
+        {
+            if (File.Exists(newFullPath))
+                throw new Exception($"'{newFullPath}' already exists");
+
+            AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+        }
+
+        // Re-parse from current location to get updated metadata
+        var currentPath = audiobook.FileInfo.FullPath;
+        var newParsed = ParseAudiobook(currentPath);
+
+        // Write sidecar files
+        AudiobookFileHandler.WriteMetadata(newParsed);
+        newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
+
+        // Update DB record
+        var authors = new List<Database.Models.Person>();
+        foreach (var author in audiobook.Authors)
+            authors.Add(await _personRepository.GetOrCreatePerson(author.Name));
+
+        var narrators = new List<Database.Models.Person>();
+        foreach (var narrator in audiobook.Narrators)
+            narrators.Add(await _personRepository.GetOrCreatePerson(narrator.Name));
+
+        var genres = new List<Database.Models.Genre>();
+        foreach (var genre in audiobook.Genres)
+            genres.Add(await _genreRepository.GetOrCreateGenre(genre));
+
+        existing.BookName = audiobook.BookName;
+        existing.Subtitle = audiobook.Subtitle;
+        existing.Series = audiobook.Series;
+        existing.SeriesPart = audiobook.SeriesPart;
+        existing.Year = audiobook.Year ?? existing.Year;
+        existing.Description = audiobook.Description;
+        existing.Copyright = audiobook.Copyright;
+        existing.Publisher = audiobook.Publisher;
+        existing.Rating = audiobook.Rating;
+        existing.Asin = audiobook.Asin;
+        existing.Www = audiobook.Www;
+        existing.CoverFilePath = newParsed.CoverFilePath;
+        existing.DurationInSeconds = newParsed.DurationInSeconds;
+        existing.FileInfoFullPath = audiobook.FileInfo.FullPath;
+        existing.FileInfoFileName = audiobook.FileInfo.FileName;
+        existing.FileInfoSizeInBytes = audiobook.FileInfo.SizeInBytes;
+        existing.Authors = authors;
+        existing.Narrators = narrators;
+        existing.Genres = genres;
+
+        await _audiobookRepository.UpdateAudiobookAsync(existing);
+
+        return FromDb(existing);
+    }
+
     public static Audiobook FromDb(AudiobookDb audiobookDb)
     {
         return new Audiobook(

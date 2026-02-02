@@ -124,4 +124,10 @@ public class AudiobookRepository : IAudiobookRepository
             await _db.SaveChangesAsync();
         }
     }
+
+    public async Task UpdateAudiobookAsync(Audiobook audiobook)
+    {
+        _db.Audiobooks.Update(audiobook);
+        await _db.SaveChangesAsync();
+    }
 }

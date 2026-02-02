@@ -87,6 +87,29 @@ public class ConsistencyController : ControllerBase
         )).ToList();
     }
 
+    [HttpGet("issues/summary")]
+    public async Task<Dictionary<long, int>> GetIssueSummary()
+    {
+        return await _issueRepository.GetIssueSummaryAsync();
+    }
+
+    [HttpGet("issues/by-audiobook/{audiobookId}")]
+    public async Task<List<ConsistencyIssueDto>> GetIssuesByAudiobook(long audiobookId)
+    {
+        var issues = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
+        return issues.Select(i => new ConsistencyIssueDto(
+            i.Id,
+            i.AudiobookId,
+            i.Audiobook.BookName,
+            i.Audiobook.Authors.Select(a => a.Name).ToList(),
+            i.IssueType.ToString(),
+            i.Description,
+            i.ExpectedValue,
+            i.ActualValue,
+            i.DetectedAt
+        )).ToList();
+    }
+
     [HttpPost("issues/resolve-by-type/{issueType}")]
     public async Task<IActionResult> ResolveIssuesByType(string issueType)
     {

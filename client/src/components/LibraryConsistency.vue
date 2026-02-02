@@ -107,8 +107,13 @@
                     <v-icon :icon="getIssueIcon(issue.issueType)" />
                   </template>
                   <v-list-item-title class="text-wrap">
-                    {{ issue.authors.join(", ") }} &mdash;
-                    {{ issue.bookName }}
+                    <router-link
+                      :to="`/library/book/${issue.audiobookId}`"
+                      class="text-decoration-none"
+                    >
+                      {{ issue.authors.join(", ") }} &mdash;
+                      {{ issue.bookName }}
+                    </router-link>
                   </v-list-item-title>
                   <v-list-item-subtitle class="issue-subtitle text-wrap">
                     <div>{{ issue.description }}</div>

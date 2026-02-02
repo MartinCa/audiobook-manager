@@ -39,6 +39,21 @@ public class AudiobookController : ControllerBase
         return _audiobookService.GenerateLibraryPath(book);
     }
 
+    [HttpPut("{id}")]
+    public async Task<ActionResult> UpdateAudiobook(long id, [FromBody] OrganizeAudiobookDto dto)
+    {
+        try
+        {
+            var book = MapToDomain(dto);
+            await _audiobookService.UpdateAudiobook(id, book);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
     private static Audiobook MapToDomain(OrganizeAudiobookDto dto)
     {
         var authors = dto.Authors.Select(a => new Person(a)).ToList();

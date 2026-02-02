@@ -74,6 +74,39 @@ public class BrowseController : ControllerBase
         return new AuthorDetailDto(summary, series, standaloneBooks);
     }
 
+    [HttpGet("audiobooks/{id}")]
+    public async Task<ActionResult<AudiobookDetailDto>> GetAudiobookDetail(long id)
+    {
+        var audiobook = await _audiobookRepo.GetByIdWithIncludesAsync(id);
+        if (audiobook == null)
+        {
+            return NotFound();
+        }
+
+        return new AudiobookDetailDto(
+            audiobook.Id,
+            audiobook.BookName,
+            audiobook.Subtitle,
+            audiobook.Series,
+            audiobook.SeriesPart,
+            audiobook.Year,
+            audiobook.Authors.Select(p => p.Name).ToList(),
+            audiobook.Narrators.Select(p => p.Name).ToList(),
+            audiobook.Genres.Select(g => g.Name).ToList(),
+            audiobook.Description,
+            audiobook.Copyright,
+            audiobook.Publisher,
+            audiobook.Rating,
+            audiobook.Asin,
+            audiobook.Www,
+            audiobook.CoverFilePath,
+            audiobook.DurationInSeconds,
+            audiobook.FileInfoFullPath,
+            audiobook.FileInfoFileName,
+            audiobook.FileInfoSizeInBytes
+        );
+    }
+
     [HttpGet("series/{seriesName}")]
     public async Task<List<AudiobookSummaryDto>> GetSeriesBooks(string seriesName, [FromQuery] long? authorId)
     {
