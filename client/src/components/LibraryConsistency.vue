@@ -63,13 +63,17 @@
         <h3 class="text-h6 mb-3">Issues ({{ issues.length }})</h3>
         <v-expansion-panels>
           <v-expansion-panel
-            v-for="group in groupedIssues"
-            :key="group.audiobookId"
+            v-for="group in groupedByType"
+            :key="group.issueType"
           >
             <v-expansion-panel-title>
               <v-row align="center">
-                <v-col>
-                  {{ group.authors.join(", ") }} &mdash; {{ group.bookName }}
+                <v-col class="d-flex align-center">
+                  <v-icon
+                    :icon="getIssueIcon(group.issueType)"
+                    class="mr-2"
+                  />
+                  {{ getIssueTypeLabel(group.issueType) }}
                 </v-col>
                 <v-col cols="auto">
                   <v-chip
@@ -82,27 +86,44 @@
               </v-row>
             </v-expansion-panel-title>
             <v-expansion-panel-text>
+              <div class="d-flex justify-end mb-2">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  :loading="resolvingTypes.has(group.issueType)"
+                  :disabled="resolvingTypes.has(group.issueType)"
+                  @click.stop="onBulkResolveClick(group.issueType)"
+                >
+                  Resolve All {{ group.issues.length }}
+                </v-btn>
+              </div>
               <v-list density="compact">
                 <v-list-item
-                  v-for="issue in group.issues"
+                  v-for="issue in group.visibleIssues"
                   :key="issue.id"
+                  class="issue-item"
                 >
                   <template v-slot:prepend>
                     <v-icon :icon="getIssueIcon(issue.issueType)" />
                   </template>
-                  <v-list-item-title>{{ issue.description }}</v-list-item-title>
-                  <v-list-item-subtitle
-                    v-if="issue.expectedValue || issue.actualValue"
-                  >
-                    <span v-if="issue.expectedValue"
-                      >Expected: {{ truncate(issue.expectedValue, 120) }}</span
+                  <v-list-item-title class="text-wrap">
+                    {{ issue.authors.join(", ") }} &mdash;
+                    {{ issue.bookName }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="issue-subtitle text-wrap">
+                    <div>{{ issue.description }}</div>
+                    <div
+                      v-if="issue.expectedValue"
+                      class="text-wrap"
                     >
-                    <span v-if="issue.expectedValue && issue.actualValue">
-                      |
-                    </span>
-                    <span v-if="issue.actualValue"
-                      >Actual: {{ truncate(issue.actualValue, 120) }}</span
+                      Expected: {{ issue.expectedValue }}
+                    </div>
+                    <div
+                      v-if="issue.actualValue"
+                      class="text-wrap"
                     >
+                      Actual: {{ issue.actualValue }}
+                    </div>
                   </v-list-item-subtitle>
                   <template v-slot:append>
                     <v-btn
@@ -116,6 +137,19 @@
                   </template>
                 </v-list-item>
               </v-list>
+              <div
+                v-if="group.issues.length > group.displayCount"
+                class="text-center mt-2"
+              >
+                <v-btn
+                  variant="text"
+                  size="small"
+                  @click="showMore(group.issueType)"
+                >
+                  Show more ({{ group.issues.length - group.displayCount }}
+                  remaining)
+                </v-btn>
+              </div>
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
@@ -136,17 +170,30 @@
       <v-card>
         <v-card-title>Confirm Resolution</v-card-title>
         <v-card-text>
-          This will remove the audiobook from the database and clean up empty
-          directories. This action cannot be undone.
+          <template v-if="pendingBulkType === 'MissingMediaFile'">
+            This will remove
+            <strong>all {{ pendingBulkCount }} audiobooks</strong> with missing
+            media files from the database and clean up empty directories. This
+            action cannot be undone.
+          </template>
+          <template v-else-if="pendingBulkType">
+            This will resolve all
+            <strong>{{ pendingBulkCount }}</strong>
+            {{ getIssueTypeLabel(pendingBulkType) }} issues. Continue?
+          </template>
+          <template v-else>
+            This will remove the audiobook from the database and clean up empty
+            directories. This action cannot be undone.
+          </template>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="confirmDialog = false">Cancel</v-btn>
+          <v-btn @click="cancelConfirm()">Cancel</v-btn>
           <v-btn
             color="error"
             @click="confirmResolve()"
           >
-            Remove
+            {{ pendingBulkType ? "Resolve All" : "Remove" }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -162,12 +209,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, onMounted } from "vue";
+import { computed, Ref, ref, onMounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
 import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
 import { ConsistencyCheckComplete } from "../signalr/ConsistencyCheckComplete";
+
+const PAGE_SIZE = 50;
 
 const ConsistencyCheckProgressToken: HubEventToken<ConsistencyCheckProgress> =
   "ConsistencyCheckProgress";
@@ -186,33 +235,66 @@ const checkComplete: Ref<boolean> = ref(false);
 const completeTotalBooks: Ref<number> = ref(0);
 const completeTotalIssues: Ref<number> = ref(0);
 const resolvingIds: Ref<Set<number>> = ref(new Set());
+const resolvingTypes: Ref<Set<string>> = ref(new Set());
 const confirmDialog: Ref<boolean> = ref(false);
 const pendingResolveIssue: Ref<ConsistencyIssue | null> = ref(null);
+const pendingBulkType: Ref<string | null> = ref(null);
+const pendingBulkCount: Ref<number> = ref(0);
 const snackbar: Ref<boolean> = ref(false);
 const snackbarText: Ref<string> = ref("");
+const displayCounts: Record<string, number> = reactive({});
 
-interface IssueGroup {
-  audiobookId: number;
-  bookName: string;
-  authors: string[];
+interface TypeGroup {
+  issueType: string;
   issues: ConsistencyIssue[];
+  displayCount: number;
+  visibleIssues: ConsistencyIssue[];
 }
 
-const groupedIssues = computed((): IssueGroup[] => {
-  const groups = new Map<number, IssueGroup>();
+const groupedByType = computed((): TypeGroup[] => {
+  const groups = new Map<string, ConsistencyIssue[]>();
   for (const issue of issues.value) {
-    if (!groups.has(issue.audiobookId)) {
-      groups.set(issue.audiobookId, {
-        audiobookId: issue.audiobookId,
-        bookName: issue.bookName,
-        authors: issue.authors,
-        issues: [],
-      });
+    if (!groups.has(issue.issueType)) {
+      groups.set(issue.issueType, []);
     }
-    groups.get(issue.audiobookId)!.issues.push(issue);
+    groups.get(issue.issueType)!.push(issue);
   }
-  return Array.from(groups.values());
+  return Array.from(groups.entries()).map(([issueType, typeIssues]) => {
+    const displayCount = displayCounts[issueType] || PAGE_SIZE;
+    return {
+      issueType,
+      issues: typeIssues,
+      displayCount,
+      visibleIssues: typeIssues.slice(0, displayCount),
+    };
+  });
 });
+
+const showMore = (issueType: string) => {
+  const current = displayCounts[issueType] || PAGE_SIZE;
+  displayCounts[issueType] = current + PAGE_SIZE;
+};
+
+const getIssueTypeLabel = (issueType: string): string => {
+  switch (issueType) {
+    case "MissingMediaFile":
+      return "Missing Media Files";
+    case "WrongFilePath":
+      return "Wrong File Paths";
+    case "MissingDescTxt":
+      return "Missing Description Files";
+    case "IncorrectDescTxt":
+      return "Incorrect Description Files";
+    case "MissingReaderTxt":
+      return "Missing Reader Files";
+    case "IncorrectReaderTxt":
+      return "Incorrect Reader Files";
+    case "MissingCoverFile":
+      return "Missing Cover Files";
+    default:
+      return issueType;
+  }
+};
 
 signalR.on(ConsistencyCheckProgressToken, (arg) => {
   checkMessage.value = arg.message;
@@ -262,26 +344,92 @@ const getIssueIcon = (issueType: string): string => {
   }
 };
 
-const truncate = (text: string, maxLength: number): string => {
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength) + "...";
-};
-
 const onResolveClick = (issue: ConsistencyIssue) => {
   if (issue.issueType === "MissingMediaFile") {
     pendingResolveIssue.value = issue;
+    pendingBulkType.value = null;
     confirmDialog.value = true;
   } else {
     resolveIssue(issue);
   }
 };
 
+const onBulkResolveClick = (issueType: string) => {
+  const group = groupedByType.value.find((g) => g.issueType === issueType);
+  if (!group) return;
+
+  pendingBulkType.value = issueType;
+  pendingBulkCount.value = group.issues.length;
+  pendingResolveIssue.value = null;
+  confirmDialog.value = true;
+};
+
+const cancelConfirm = () => {
+  confirmDialog.value = false;
+  pendingResolveIssue.value = null;
+  pendingBulkType.value = null;
+};
+
 const confirmResolve = () => {
-  if (pendingResolveIssue.value) {
+  if (pendingBulkType.value) {
+    bulkResolve(pendingBulkType.value);
+  } else if (pendingResolveIssue.value) {
     resolveIssue(pendingResolveIssue.value);
   }
   confirmDialog.value = false;
   pendingResolveIssue.value = null;
+  pendingBulkType.value = null;
+};
+
+const bulkResolve = async (issueType: string) => {
+  resolvingTypes.value.add(issueType);
+  try {
+    const result = await ConsistencyService.resolveByType(issueType);
+    issues.value = issues.value.filter((i) => {
+      if (issueType === "MissingMediaFile" || issueType === "WrongFilePath") {
+        const resolvedAudiobookIds = new Set(
+          issues.value
+            .filter((x) => x.issueType === issueType)
+            .map((x) => x.audiobookId),
+        );
+        return !resolvedAudiobookIds.has(i.audiobookId);
+      }
+      if (
+        issueType === "MissingDescTxt" ||
+        issueType === "IncorrectDescTxt" ||
+        issueType === "MissingReaderTxt" ||
+        issueType === "IncorrectReaderTxt"
+      ) {
+        const metadataTypes = [
+          "MissingDescTxt",
+          "IncorrectDescTxt",
+          "MissingReaderTxt",
+          "IncorrectReaderTxt",
+        ];
+        const resolvedAudiobookIds = new Set(
+          issues.value
+            .filter((x) => x.issueType === issueType)
+            .map((x) => x.audiobookId),
+        );
+        if (resolvedAudiobookIds.has(i.audiobookId)) {
+          return !metadataTypes.includes(i.issueType);
+        }
+        return true;
+      }
+      return i.issueType !== issueType;
+    });
+    let msg = `Resolved ${result.resolved} issues`;
+    if (result.failed > 0) {
+      msg += ` (${result.failed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+  } catch {
+    snackbarText.value = "Failed to bulk resolve issues";
+    snackbar.value = true;
+  } finally {
+    resolvingTypes.value.delete(issueType);
+  }
 };
 
 const resolveIssue = async (issue: ConsistencyIssue) => {
@@ -325,3 +473,17 @@ onMounted(() => {
   loadIssues();
 });
 </script>
+
+<style scoped>
+.issue-subtitle {
+  white-space: normal !important;
+  -webkit-line-clamp: unset !important;
+  overflow: visible !important;
+}
+
+.issue-item :deep(.v-list-item-subtitle) {
+  white-space: normal !important;
+  -webkit-line-clamp: unset !important;
+  overflow: visible !important;
+}
+</style>

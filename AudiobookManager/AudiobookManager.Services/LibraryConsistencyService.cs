@@ -252,6 +252,32 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _issueRepository.DeleteAsync(issue.Id);
     }
 
+    public async Task<(int resolved, int failed)> ResolveIssuesByType(string issueType)
+    {
+        if (!Enum.TryParse<ConsistencyIssueType>(issueType, out var parsedType))
+            throw new ArgumentException($"Unknown issue type: {issueType}");
+
+        var issues = await _issueRepository.GetByTypeAsync(parsedType);
+        var resolved = 0;
+        var failed = 0;
+
+        foreach (var issue in issues)
+        {
+            try
+            {
+                await ResolveIssue(issue.Id);
+                resolved++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during bulk resolve", issue.Id);
+                failed++;
+            }
+        }
+
+        return (resolved, failed);
+    }
+
     private async Task InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
     {
         var issue = new ConsistencyIssue
