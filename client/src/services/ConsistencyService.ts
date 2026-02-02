@@ -13,6 +13,12 @@ class ConsistencyService extends BaseHttpService {
   resolveIssue(id: number): Promise<void> {
     return this.postData(`/consistency/issues/${id}/resolve`);
   }
+
+  resolveByType(
+    issueType: string,
+  ): Promise<{ resolved: number; failed: number }> {
+    return this.postData(`/consistency/issues/resolve-by-type/${issueType}`);
+  }
 }
 
 export default new ConsistencyService();

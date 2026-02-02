@@ -87,6 +87,27 @@ public class ConsistencyController : ControllerBase
         )).ToList();
     }
 
+    [HttpPost("issues/resolve-by-type/{issueType}")]
+    public async Task<IActionResult> ResolveIssuesByType(string issueType)
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            var (resolved, failed) = await consistencyService.ResolveIssuesByType(issueType);
+            return Ok(new { resolved, failed });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error bulk resolving consistency issues of type {IssueType}", issueType);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("issues/{id}/resolve")]
     public async Task<IActionResult> ResolveIssue(long id)
     {

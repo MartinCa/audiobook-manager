@@ -69,4 +69,14 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
         _db.ConsistencyIssues.RemoveRange(issues);
         await _db.SaveChangesAsync();
     }
+
+    public async Task<List<ConsistencyIssue>> GetByTypeAsync(ConsistencyIssueType issueType)
+    {
+        return await _db.ConsistencyIssues
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Authors)
+            .Where(ci => ci.IssueType == issueType)
+            .OrderBy(ci => ci.AudiobookId)
+            .ToListAsync();
+    }
 }
