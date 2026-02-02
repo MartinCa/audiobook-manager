@@ -1,31 +1,14 @@
 <template>
   <div class="diff-display">
-    <div class="diff-label">Expected:</div>
-    <div class="diff-content">
-      <template
-        v-for="(part, i) in diffParts"
-        :key="i"
-      >
-        <span
-          v-if="!part.removed"
-          :class="{ 'diff-highlight': part.added }"
-          >{{ part.value }}</span
-        >
-      </template>
-    </div>
-    <div class="diff-label">Actual:</div>
-    <div class="diff-content">
-      <template
-        v-for="(part, i) in diffParts"
-        :key="i"
-      >
-        <span
-          v-if="!part.added"
-          :class="{ 'diff-highlight': part.removed }"
-          >{{ part.value }}</span
-        >
-      </template>
-    </div>
+    <span
+      v-for="(part, i) in diffParts"
+      :key="i"
+      :class="{
+        'diff-added': part.added,
+        'diff-removed': part.removed,
+      }"
+      >{{ part.value }}</span
+    >
   </div>
 </template>
 
@@ -45,24 +28,19 @@ const diffParts = computed((): Change[] => {
 
 <style scoped>
 .diff-display {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0 0.5em;
   font-family: monospace;
   font-size: 0.85em;
-}
-
-.diff-label {
-  font-weight: bold;
-  white-space: nowrap;
-}
-
-.diff-content {
   word-break: break-all;
 }
 
-.diff-highlight {
-  background-color: rgba(255, 193, 7, 0.4);
+.diff-added {
+  background-color: rgba(76, 175, 80, 0.3);
+  border-radius: 2px;
+}
+
+.diff-removed {
+  background-color: rgba(244, 67, 54, 0.3);
+  text-decoration: line-through;
   border-radius: 2px;
 }
 </style>
