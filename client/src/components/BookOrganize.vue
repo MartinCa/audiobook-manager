@@ -61,79 +61,12 @@
       <v-col class="text-left"> Organized path: {{ newPath }} </v-col>
     </v-row>
     <v-form ref="form">
-      <v-row>
-        <v-col
-          cols="12"
-          md="6"
-          lg="3"
-        >
-          <v-img
-            v-if="input.cover_base64"
-            max-height="200"
-            class="bg-grey-darken-2"
-            transition="false"
-            :src="`data:${input.cover_mime};base64,${input.cover_base64}`"
-          ></v-img>
-          <template v-else> No cover </template>
-        </v-col>
-        <v-col
-          cols="12"
-          md="6"
-          lg="9"
-        >
-          <v-row>
-            <v-col
-              cols="12"
-              md="9"
-            >
-              <v-text-field
-                label="Image url"
-                hide-details="auto"
-                v-model="imgUrl"
-              ></v-text-field>
-            </v-col>
-            <v-col
-              cols="12"
-              md="3"
-            >
-              <v-btn
-                color="primary"
-                size="large"
-                block
-                @click="loadImgFromUrl(imgUrl)"
-              >
-                Fetch
-              </v-btn>
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col
-              cols="12"
-              md="9"
-            >
-              <v-file-input
-                label="Cover image upload"
-                hide-details="auto"
-                accept="image/*"
-                v-model="uploadedImg"
-              ></v-file-input>
-            </v-col>
-            <v-col
-              cols="12"
-              md="3"
-            >
-              <v-btn
-                color="primary"
-                size="large"
-                block
-                @click="loadUploadedImg(uploadedImg)"
-              >
-                Upload
-              </v-btn>
-            </v-col>
-          </v-row>
-        </v-col>
-      </v-row>
+      <CoverEditor
+        ref="coverEditor"
+        :base64-data="input.cover_base64"
+        :mime-type="input.cover_mime"
+        @update:cover="onCoverUpdate"
+      />
       <v-row>
         <v-col
           cols="12"
@@ -418,8 +351,8 @@ import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookSearchDialog from "./BookSearchDialog.vue";
 import BookDeleteDialog from "./BookDeleteDialog.vue";
 import { BookSearchResult } from "../types/BookSearchResult";
-import ImageService from "../services/ImageService";
 import ErrorNotifications from "./ErrorNotifications.vue";
+import CoverEditor from "./CoverEditor.vue";
 import { useDialogWidth } from "./dialog";
 import { useErrors } from "./errors";
 import AudiobookService from "../services/AudiobookService";
@@ -439,13 +372,12 @@ const emit = defineEmits<{
 const bookDetails: Ref<Audiobook | null> = ref(null);
 const form: Ref<any | null> = ref(null);
 const input: Ref<OrganizeAudiobookInput> = ref({});
-const imgUrl = ref("");
+const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
 const showSearchDialog = ref(false);
 const showManualGoodreadsUrlDialog = ref(false);
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
 const newPath = ref("");
-const uploadedImg = ref([]);
 
 const nonfictionGenre = "Nonfiction";
 
@@ -590,10 +522,12 @@ const getBookDetails = async () => {
   resetInput();
 };
 
-const loadUploadedImg = async (uploaded: File[]) => {
-  var cover = await ImageService.readBase64ImageFromBlob(uploaded[0]);
-  input.value.cover_base64 = cover.base64Data;
-  input.value.cover_mime = cover.mimeType;
+const onCoverUpdate = (
+  base64Data: string | undefined,
+  mimeType: string | undefined,
+) => {
+  input.value.cover_base64 = base64Data;
+  input.value.cover_mime = mimeType;
 };
 
 const addNonfictionGenre = () => {
@@ -602,18 +536,6 @@ const addNonfictionGenre = () => {
   }
 
   input.value.genres = [...genresSplit.value, nonfictionGenre].join("/");
-};
-
-const loadImgFromUrl = async (overwriteUrl: string | undefined) => {
-  if (!overwriteUrl) {
-    input.value.cover_base64 = undefined;
-    input.value.cover_mime = undefined;
-    return;
-  }
-  const coverUrl = overwriteUrl;
-  const cover = await ImageService.downloadImageFromUrl(coverUrl);
-  input.value.cover_base64 = cover.base64Data;
-  input.value.cover_mime = cover.mimeType;
 };
 
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
@@ -642,7 +564,7 @@ const readSearchResult = (searchData: BookSearchResult | undefined) => {
     input.value.publisher = searchData.publisher;
     input.value.copyright = searchData.copyright;
     input.value.asin = searchData.asin;
-    loadImgFromUrl(searchData.imageUrl);
+    coverEditor.value?.loadImgFromUrl(searchData.imageUrl);
   }
 
   showSearchDialog.value = false;

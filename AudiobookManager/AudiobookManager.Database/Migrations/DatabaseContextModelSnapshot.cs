@@ -15,7 +15,7 @@ namespace AudiobookManager.Database.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "7.0.3");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.2");
 
             modelBuilder.Entity("AudiobookGenre", b =>
                 {
@@ -114,6 +114,139 @@ namespace AudiobookManager.Database.Migrations
                         .HasName("pk_audiobooks");
 
                     b.ToTable("audiobooks", (string)null);
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.ConsistencyIssue", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActualValue")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actual_value");
+
+                    b.Property<long>("AudiobookId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("audiobook_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("detected_at");
+
+                    b.Property<string>("ExpectedValue")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expected_value");
+
+                    b.Property<int>("IssueType")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("issue_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_consistency_issues");
+
+                    b.HasIndex("AudiobookId")
+                        .HasDatabaseName("ix_consistency_issues_audiobook_id");
+
+                    b.ToTable("consistency_issues", (string)null);
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.DiscoveredAudiobook", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Asin")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("asin");
+
+                    b.Property<string>("Authors")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("authors");
+
+                    b.Property<string>("BookName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("book_name");
+
+                    b.Property<string>("Copyright")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("copyright");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime>("DiscoveredAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("discovered_at");
+
+                    b.Property<int?>("DurationInSeconds")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("duration_in_seconds");
+
+                    b.Property<string>("FileInfoFileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_info_file_name");
+
+                    b.Property<string>("FileInfoFullPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_info_full_path");
+
+                    b.Property<long>("FileInfoSizeInBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("file_info_size_in_bytes");
+
+                    b.Property<string>("Genres")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("genres");
+
+                    b.Property<string>("Narrators")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("narrators");
+
+                    b.Property<string>("Publisher")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("publisher");
+
+                    b.Property<string>("Rating")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rating");
+
+                    b.Property<string>("Series")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("series");
+
+                    b.Property<string>("SeriesPart")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("series_part");
+
+                    b.Property<string>("Subtitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("subtitle");
+
+                    b.Property<string>("Www")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("www");
+
+                    b.Property<int?>("Year")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("year");
+
+                    b.HasKey("Id")
+                        .HasName("pk_discovered_audiobooks");
+
+                    b.ToTable("discovered_audiobooks", (string)null);
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.Genre", b =>
@@ -261,6 +394,18 @@ namespace AudiobookManager.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_audiobook_genre_genres_genres_id");
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.ConsistencyIssue", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.Audiobook", "Audiobook")
+                        .WithMany()
+                        .HasForeignKey("AudiobookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_consistency_issues_audiobooks_audiobook_id");
+
+                    b.Navigation("Audiobook");
                 });
 
             modelBuilder.Entity("audiobooks_authors_persons", b =>

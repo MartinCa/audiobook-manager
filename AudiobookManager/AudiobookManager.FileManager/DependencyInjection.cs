@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.FileManager;
-public static class DepedencyInjection
+public static class DependencyInjection
 {
     public static IServiceCollection SetupFileManager(this IServiceCollection services)
     {
