@@ -73,6 +73,117 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithSeriesAndPart_FullPathCorrect()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Brandon Sanderson") },
+            "The Dark Talent",
+            2016,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "Alcatraz vs. the Evil Librarians",
+            SeriesPart = "5"
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        var expected = string.Join(sep.ToString(), new[]
+        {
+            "Brandon Sanderson",
+            "Alcatraz vs. the Evil Librarians",
+            "Book 05 - 2016 - The Dark Talent",
+            "Alcatraz vs. the Evil Librarians 05 - 2016 - The Dark Talent.m4b"
+        });
+        Assert.AreEqual(expected, result);
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithSeriesNoSeriesPart_OmitsBookPrefix()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Brandon Sanderson") },
+            "The Dark Talent",
+            2016,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "Alcatraz vs. the Evil Librarians",
+            SeriesPart = null
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        var expected = string.Join(sep.ToString(), new[]
+        {
+            "Brandon Sanderson",
+            "Alcatraz vs. the Evil Librarians",
+            "2016 - The Dark Talent",
+            "Alcatraz vs. the Evil Librarians - 2016 - The Dark Talent.m4b"
+        });
+        Assert.AreEqual(expected, result);
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithSeriesAndSubtitle_IncludesSubtitleInDirectory()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author Name") },
+            "Book Title",
+            2020,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "My Series",
+            SeriesPart = "2",
+            Subtitle = "A Subtitle"
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        // Directory should include subtitle, filename should not
+        Assert.IsTrue(result.Contains($"Book 02 - 2020 - Book Title - A Subtitle{sep}"));
+        Assert.IsTrue(result.EndsWith("My Series 02 - 2020 - Book Title.m4b"));
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithDecimalSeriesPart_PadsCorrectly()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author") },
+            "Side Story",
+            2021,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "Main Series",
+            SeriesPart = "1.5"
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        Assert.IsTrue(result.Contains("Book 01.5 - "));
+        Assert.IsTrue(result.Contains("Main Series 01.5 - "));
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithMultipleAuthors_JoinsAuthors()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author One"), new Person("Author Two") },
+            "Collab Book",
+            2022,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "Shared Series",
+            SeriesPart = "1"
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        Assert.IsTrue(result.StartsWith("Author One, Author Two"));
+    }
+
+    [TestMethod]
     public void WriteMetadata_WritesDescAndReaderFiles()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
