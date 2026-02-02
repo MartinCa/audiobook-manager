@@ -112,18 +112,25 @@
                   </v-list-item-title>
                   <v-list-item-subtitle class="issue-subtitle text-wrap">
                     <div>{{ issue.description }}</div>
-                    <div
-                      v-if="issue.expectedValue"
-                      class="text-wrap"
-                    >
-                      Expected: {{ issue.expectedValue }}
-                    </div>
-                    <div
-                      v-if="issue.actualValue"
-                      class="text-wrap"
-                    >
-                      Actual: {{ issue.actualValue }}
-                    </div>
+                    <DiffDisplay
+                      v-if="issue.expectedValue && issue.actualValue"
+                      :expected="issue.expectedValue"
+                      :actual="issue.actualValue"
+                    />
+                    <template v-else>
+                      <div
+                        v-if="issue.expectedValue"
+                        class="text-wrap"
+                      >
+                        Expected: {{ issue.expectedValue }}
+                      </div>
+                      <div
+                        v-if="issue.actualValue"
+                        class="text-wrap"
+                      >
+                        Actual: {{ issue.actualValue }}
+                      </div>
+                    </template>
                   </v-list-item-subtitle>
                   <template v-slot:append>
                     <v-btn
@@ -212,6 +219,7 @@
 import { computed, Ref, ref, onMounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
+import DiffDisplay from "./DiffDisplay.vue";
 import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
 import { ConsistencyCheckComplete } from "../signalr/ConsistencyCheckComplete";

@@ -61,7 +61,6 @@ public static class AudiobookFileHandler
 
         var fileName = $"{audiobook.Year} - {audiobook.BookName}";
 
-        var subtitle = string.IsNullOrEmpty(audiobook.Subtitle) ? "" : $" - {audiobook.Subtitle}";
         var pathParts = new List<string>();
         pathParts.Add(AudiobookTagHandler.GetStringFromListOfPersons(audiobook.Authors));
         if (!string.IsNullOrEmpty(audiobook.Series))
@@ -69,13 +68,13 @@ public static class AudiobookFileHandler
             pathParts.Add(audiobook.Series);
             var seriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $" {AudiobookTagHandler.PadSeriesPart(audiobook.SeriesPart)}" : "";
             var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book{seriesPart} - " : "";
-            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {audiobook.BookName}{subtitle}");
+            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {audiobook.BookName}");
 
             fileName = $"{audiobook.Series}{seriesPart} - {fileName}";
         }
         else
         {
-            pathParts.Add($"{audiobook.Year} - {audiobook.BookName}{subtitle}");
+            pathParts.Add($"{audiobook.Year} - {audiobook.BookName}");
         }
 
         return CombinePathAndFilename(pathParts, fileName, Path.GetExtension(audiobook.FileInfo.FullPath));

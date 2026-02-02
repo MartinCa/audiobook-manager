@@ -125,7 +125,7 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
-    public void GenerateRelativeAudiobookPath_WithSeriesAndSubtitle_IncludesSubtitleInDirectory()
+    public void GenerateRelativeAudiobookPath_WithSeriesAndSubtitle_ExcludesSubtitleFromDirectory()
     {
         var audiobook = new Audiobook(
             new List<Person> { new Person("Author Name") },
@@ -141,8 +141,8 @@ public class AudiobookFileHandlerTests
         var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
-        // Directory should include subtitle, filename should not
-        Assert.IsTrue(result.Contains($"Book 02 - 2020 - Book Title - A Subtitle{sep}"));
+        Assert.IsTrue(result.Contains($"Book 02 - 2020 - Book Title{sep}"));
+        Assert.IsFalse(result.Contains("A Subtitle"));
         Assert.IsTrue(result.EndsWith("My Series 02 - 2020 - Book Title.m4b"));
     }
 

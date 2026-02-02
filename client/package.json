@@ -13,6 +13,7 @@
     "@mdi/font": "7.4.47",
     "@quangdao/vue-signalr": "1.0.1",
     "axios": "^1.13.4",
+    "diff": "^8.0.3",
     "lodash": "4.17.23",
     "roboto-fontface": "0.10.0",
     "vue": "^3.5.27",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@babel/types": "^7.28.6",
+    "@types/diff": "^7.0.2",
     "@types/lodash": "4.17.23",
     "@types/node": "^25.1.0",
     "@types/webfontloader": "1.6.38",
