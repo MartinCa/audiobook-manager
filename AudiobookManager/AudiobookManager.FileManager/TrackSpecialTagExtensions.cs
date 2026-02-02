@@ -84,7 +84,10 @@ public static class TrackSpecialTagExtensions
     {
         if (track.AudioFormat.Name == mp4Name)
         {
-            return track.ReadSpecialTag(SpecialTagField.Mp4SeriesPart);
+            // Prefer the custom iTunes SERIES-PART tag, but fall back to the standard
+            // Movement Part field (©mvi) for files tagged by external tools like Audiobookshelf
+            return track.ReadSpecialTag(SpecialTagField.Mp4SeriesPart)
+                ?? GetNullStringIfEmpty(track.SeriesPart);
         }
 
         return track.SeriesPart;
