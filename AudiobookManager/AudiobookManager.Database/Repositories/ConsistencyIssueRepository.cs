@@ -79,4 +79,21 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .OrderBy(ci => ci.AudiobookId)
             .ToListAsync();
     }
+
+    public async Task<Dictionary<long, int>> GetIssueSummaryAsync()
+    {
+        return await _db.ConsistencyIssues
+            .GroupBy(ci => ci.AudiobookId)
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
+    }
+
+    public async Task<List<ConsistencyIssue>> GetByAudiobookIdAsync(long audiobookId)
+    {
+        return await _db.ConsistencyIssues
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Authors)
+            .Where(ci => ci.AudiobookId == audiobookId)
+            .OrderBy(ci => ci.IssueType)
+            .ToListAsync();
+    }
 }

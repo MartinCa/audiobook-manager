@@ -13,4 +13,5 @@ public interface IAudiobookRepository
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);
     Task DeleteAudiobookAsync(long id);
+    Task UpdateAudiobookAsync(Audiobook audiobook);
 }

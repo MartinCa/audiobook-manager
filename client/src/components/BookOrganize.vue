@@ -341,6 +341,20 @@
         @delete-book="removeBook"
       />
     </v-dialog>
+    <v-dialog
+      v-model="showTagPreview"
+      :width="dialogWidth"
+      :fullscreen="mdAndDown"
+    >
+      <TagPreviewDialog
+        v-if="showTagPreview && pendingSearchResult"
+        :dialog-width="dialogWidth"
+        :current-input="input"
+        :search-result="pendingSearchResult"
+        @apply="applyPreviewedTags"
+        @cancel="showTagPreview = false"
+      />
+    </v-dialog>
   </template>
 </template>
 
@@ -350,6 +364,7 @@ import { Audiobook, AudiobookImage } from "../types/Audiobook";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookSearchDialog from "./BookSearchDialog.vue";
 import BookDeleteDialog from "./BookDeleteDialog.vue";
+import TagPreviewDialog from "./TagPreviewDialog.vue";
 import { BookSearchResult } from "../types/BookSearchResult";
 import ErrorNotifications from "./ErrorNotifications.vue";
 import CoverEditor from "./CoverEditor.vue";
@@ -375,6 +390,8 @@ const input: Ref<OrganizeAudiobookInput> = ref({});
 const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
 const showSearchDialog = ref(false);
 const showManualGoodreadsUrlDialog = ref(false);
+const showTagPreview = ref(false);
+const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
 const newPath = ref("");
@@ -539,14 +556,36 @@ const addNonfictionGenre = () => {
 };
 
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
+  showSearchDialog.value = false;
+  showManualGoodreadsUrlDialog.value = false;
+
   if (searchData) {
-    input.value.authors = joinPersons(searchData.authors);
-    input.value.narrators = joinPersons(searchData.narrators) ?? null;
-    input.value.www = searchData.url;
-    input.value.bookName = searchData.bookName;
-    input.value.subtitle = searchData.subtitle;
-    if (searchData.series?.length) {
-      const seriesData = searchData.series[0];
+    pendingSearchResult.value = searchData;
+    showTagPreview.value = true;
+  }
+};
+
+const applyPreviewedTags = (
+  result: BookSearchResult,
+  selectedFields: Set<string>,
+) => {
+  showTagPreview.value = false;
+
+  if (selectedFields.has("authors")) {
+    input.value.authors = joinPersons(result.authors);
+  }
+  if (selectedFields.has("narrators")) {
+    input.value.narrators = joinPersons(result.narrators) ?? null;
+  }
+  if (selectedFields.has("bookName")) {
+    input.value.bookName = result.bookName;
+  }
+  if (selectedFields.has("subtitle")) {
+    input.value.subtitle = result.subtitle;
+  }
+  if (selectedFields.has("series")) {
+    if (result.series?.length) {
+      const seriesData = result.series[0];
       input.value.series = seriesData.seriesName;
       input.value.seriesOriginal = seriesData.originalSeriesName;
       input.value.seriesPart = seriesData.seriesPart;
@@ -557,18 +596,34 @@ const readSearchResult = (searchData: BookSearchResult | undefined) => {
       input.value.seriesPart = "";
       input.value.seriesPartWarning = false;
     }
-    input.value.year = searchData.year;
-    input.value.genres = searchData.genres?.join("/");
-    input.value.description = searchData.description;
-    input.value.rating = searchData.rating;
-    input.value.publisher = searchData.publisher;
-    input.value.copyright = searchData.copyright;
-    input.value.asin = searchData.asin;
-    coverEditor.value?.loadImgFromUrl(searchData.imageUrl);
   }
-
-  showSearchDialog.value = false;
-  showManualGoodreadsUrlDialog.value = false;
+  if (selectedFields.has("year")) {
+    input.value.year = result.year;
+  }
+  if (selectedFields.has("genres")) {
+    input.value.genres = result.genres?.join("/");
+  }
+  if (selectedFields.has("description")) {
+    input.value.description = result.description;
+  }
+  if (selectedFields.has("rating")) {
+    input.value.rating = result.rating;
+  }
+  if (selectedFields.has("publisher")) {
+    input.value.publisher = result.publisher;
+  }
+  if (selectedFields.has("copyright")) {
+    input.value.copyright = result.copyright;
+  }
+  if (selectedFields.has("asin")) {
+    input.value.asin = result.asin;
+  }
+  if (selectedFields.has("www")) {
+    input.value.www = result.url;
+  }
+  if (selectedFields.has("cover") && result.imageUrl) {
+    coverEditor.value?.loadImgFromUrl(result.imageUrl);
+  }
 };
 
 const removeBook = (remove: boolean) => {

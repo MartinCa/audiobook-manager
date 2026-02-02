@@ -13,6 +13,7 @@ const AuthorsList = () => import("./components/library/AuthorsList.vue");
 const AuthorDetail = () => import("./components/library/AuthorDetail.vue");
 const SeriesDetail = () => import("./components/library/SeriesDetail.vue");
 const LibraryConsistency = () => import("./components/LibraryConsistency.vue");
+const BookDetail = () => import("./components/library/BookDetail.vue");
 
 // Composables
 import { createApp } from "vue";
@@ -33,6 +34,7 @@ const routes = [
   { path: "/library/authors", component: AuthorsList },
   { path: "/library/authors/:authorId", component: AuthorDetail },
   { path: "/library/series/:seriesName", component: SeriesDetail },
+  { path: "/library/book/:bookId", component: BookDetail },
   { path: "/library/consistency", component: LibraryConsistency },
   { path: "/settings", component: Settings },
 ];

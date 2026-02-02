@@ -136,7 +136,20 @@
             <v-list-item
               v-for="book in books"
               :key="book.id"
+              :to="`/library/book/${book.id}`"
+              class="cursor-pointer"
             >
+              <template v-slot:prepend>
+                <v-icon
+                  v-if="issueSummary[book.id]"
+                  color="warning"
+                  size="small"
+                  class="mr-2"
+                  :title="`${issueSummary[book.id]} issue(s)`"
+                >
+                  mdi-alert
+                </v-icon>
+              </template>
               <v-list-item-title>
                 {{ book.authors.join(", ") }} &mdash; {{ book.bookName }}
               </v-list-item-title>
@@ -154,6 +167,16 @@
                   &middot; {{ formatDuration(book.durationInSeconds) }}
                 </span>
               </v-list-item-subtitle>
+              <template v-slot:append>
+                <v-chip
+                  v-if="issueSummary[book.id]"
+                  size="x-small"
+                  color="warning"
+                >
+                  {{ issueSummary[book.id] }}
+                  {{ issueSummary[book.id] === 1 ? "issue" : "issues" }}
+                </v-chip>
+              </template>
             </v-list-item>
           </v-list>
           <v-pagination
@@ -176,11 +199,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, watch } from "vue";
+import { computed, onMounted, Ref, ref, watch } from "vue";
 import { debounce } from "lodash";
 import BookOrganize from "./BookOrganize.vue";
 import LibraryService from "../services/LibraryService";
 import BrowseService from "../services/BrowseService";
+import ConsistencyService from "../services/ConsistencyService";
 import { formatDuration } from "../helpers/formatHelpers";
 import ManagedAudiobook from "../types/ManagedAudiobook";
 import BookFileInfo from "../types/BookFileInfo";
@@ -211,6 +235,8 @@ const discoveredBooks: Ref<BookFileInfo[]> = ref([]);
 const discoveredActivePanel: Ref<any> = ref(null);
 const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
+
+const issueSummary: Ref<Record<number, number>> = ref({});
 
 const scanning: Ref<boolean> = ref(false);
 const scanMessage: Ref<string> = ref("");
@@ -322,8 +348,20 @@ const removeDiscoveredBook = (book: BookFileInfo) => {
   }
 };
 
+const loadIssueSummary = async () => {
+  try {
+    issueSummary.value = await ConsistencyService.getIssueSummary();
+  } catch {
+    issueSummary.value = {};
+  }
+};
+
 const formatFileSize = (size: number) => {
   const sizeInMb = size / 1000000;
   return `${sizeInMb.toFixed(1)} MB`;
 };
+
+onMounted(() => {
+  loadIssueSummary();
+});
 </script>

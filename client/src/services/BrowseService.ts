@@ -1,3 +1,4 @@
+import AudiobookDetail from "../types/AudiobookDetail";
 import AuthorDetail from "../types/AuthorDetail";
 import AuthorSummary from "../types/AuthorSummary";
 import { PaginatedResult } from "../types/Common";
@@ -28,6 +29,10 @@ class BrowseService extends BaseHttpService {
 
   getAuthorDetail(authorId: number): Promise<AuthorDetail> {
     return this.getData(`/browse/authors/${authorId}`);
+  }
+
+  getBookDetail(id: number): Promise<AudiobookDetail> {
+    return this.getData(`/browse/audiobooks/${id}`);
   }
 
   getSeriesBooks(
