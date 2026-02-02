@@ -80,6 +80,19 @@ public static class TrackSpecialTagExtensions
         }
     }
 
+    public static string? GetSeries(this Track track)
+    {
+        if (track.AudioFormat.Name == mp4Name)
+        {
+            // Prefer the custom iTunes SERIES tag, but fall back to the standard
+            // SeriesTitle field (©mvn) for files tagged by external tools like Audiobookshelf
+            return track.ReadSpecialTag(SpecialTagField.Mp4Series)
+                ?? GetNullStringIfEmpty(track.SeriesTitle);
+        }
+
+        return track.SeriesTitle;
+    }
+
     public static string? GetSeriesPart(this Track track)
     {
         if (track.AudioFormat.Name == mp4Name)

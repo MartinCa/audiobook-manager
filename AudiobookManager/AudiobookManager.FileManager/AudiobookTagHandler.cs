@@ -50,7 +50,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         {
             Narrators = narrators,
             Subtitle = track.ReadSpecialTag(SpecialTagField.Subtitle),
-            Series = track.SeriesTitle,
+            Series = track.GetSeries(),
             SeriesPart = track.GetSeriesPart(),
             Genres = track.Genre.Split("/").ToList(),
             Description = track.Description,
