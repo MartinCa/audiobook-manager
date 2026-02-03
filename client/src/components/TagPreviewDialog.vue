@@ -280,5 +280,4 @@ const applyAll = () => {
   const allKeys = new Set(fields.value.map((f) => f.key));
   emit("apply", props.searchResult, allKeys);
 };
-
 </script>
