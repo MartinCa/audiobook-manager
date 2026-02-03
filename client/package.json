@@ -23,7 +23,6 @@
   },
   "devDependencies": {
     "@babel/types": "^7.28.6",
-    "@types/diff": "^8.0.0",
     "@types/lodash": "4.17.23",
     "@types/node": "^25.1.0",
     "@types/webfontloader": "1.6.38",

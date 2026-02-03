@@ -75,10 +75,15 @@
       </v-toolbar>
 
       <v-row>
-        <v-col class="text-left"> File path: {{ bookDetail.filePath }} </v-col>
-      </v-row>
-      <v-row>
-        <v-col class="text-left"> Organized path: {{ newPath }} </v-col>
+        <v-col class="text-left">
+          <div class="text-subtitle-2 mb-1">Path:</div>
+          <DiffDisplay
+            v-if="newPath"
+            :actual="bookDetail.filePath"
+            :expected="newPath"
+          />
+          <span v-else>{{ bookDetail.filePath }}</span>
+        </v-col>
       </v-row>
 
       <v-form ref="form">
@@ -304,35 +309,37 @@
       </v-form>
 
       <v-dialog
+        v-if="showSearchDialog"
         v-model="showSearchDialog"
         :width="dialogWidth"
         :fullscreen="mdAndDown"
       >
         <BookSearchDialog
-          v-if="showSearchDialog && searchBookDetails"
+          v-if="searchBookDetails"
           :dialog-width="dialogWidth"
           :book-details="searchBookDetails"
           @result-chosen="onSearchResultChosen"
         />
       </v-dialog>
       <v-dialog
+        v-if="showManualGoodreadsUrlDialog"
         v-model="showManualGoodreadsUrlDialog"
         :width="dialogWidth"
         :fullscreen="mdAndDown"
       >
         <ManualGoodreadsUrlDialog
-          v-if="showManualGoodreadsUrlDialog"
           :dialog-width="dialogWidth"
           @result-chosen="onSearchResultChosen"
         />
       </v-dialog>
       <v-dialog
+        v-if="showTagPreview"
         v-model="showTagPreview"
         :width="dialogWidth"
         :fullscreen="mdAndDown"
       >
         <TagPreviewDialog
-          v-if="showTagPreview && pendingSearchResult"
+          v-if="pendingSearchResult"
           :dialog-width="dialogWidth"
           :current-input="input"
           :search-result="pendingSearchResult"

@@ -115,6 +115,11 @@ interface FieldDiff {
   changed: boolean;
 }
 
+const truncate = (str: string, length: number): string => {
+  if (str.length <= length) return str;
+  return str.substring(0, length) + "...";
+};
+
 const fields = computed((): FieldDiff[] => {
   const cur = props.currentInput;
   const res = props.searchResult;
@@ -276,8 +281,4 @@ const applyAll = () => {
   emit("apply", props.searchResult, allKeys);
 };
 
-const truncate = (str: string, length: number): string => {
-  if (str.length <= length) return str;
-  return str.substring(0, length) + "...";
-};
 </script>

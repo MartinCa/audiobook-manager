@@ -25,6 +25,7 @@
           <v-list-item
             v-for="book in books"
             :key="book.id"
+            :to="`/library/book/${book.id}`"
           >
             <v-list-item-title>
               <span v-if="book.seriesPart"
@@ -44,6 +45,9 @@
                 &middot; {{ formatDuration(book.durationInSeconds) }}
               </span>
             </v-list-item-subtitle>
+            <template v-slot:append>
+              <v-icon>mdi-chevron-right</v-icon>
+            </template>
           </v-list-item>
         </v-list>
         <div

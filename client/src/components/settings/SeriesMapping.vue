@@ -39,6 +39,7 @@
   </v-row>
 
   <v-dialog
+    v-if="showCreateDialog"
     v-model="showCreateDialog"
     :width="dialogWidth"
     :fullscreen="mdAndDown"

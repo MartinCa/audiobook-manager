@@ -49,6 +49,7 @@
             <v-list-item
               v-for="book in detail.standaloneBooks"
               :key="book.id"
+              :to="`/library/book/${book.id}`"
             >
               <v-list-item-title>{{ book.bookName }}</v-list-item-title>
               <v-list-item-subtitle>
@@ -60,6 +61,9 @@
                   &middot; {{ formatDuration(book.durationInSeconds) }}
                 </span>
               </v-list-item-subtitle>
+              <template v-slot:append>
+                <v-icon>mdi-chevron-right</v-icon>
+              </template>
             </v-list-item>
           </v-list>
         </v-col>

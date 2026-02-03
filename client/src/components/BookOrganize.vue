@@ -307,47 +307,48 @@
       </v-row>
     </v-form>
     <v-dialog
+      v-if="showSearchDialog"
       v-model="showSearchDialog"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
     >
       <BookSearchDialog
-        v-if="showSearchDialog"
         :dialog-width="dialogWidth"
         :book-details="bookDetails"
         @result-chosen="readSearchResult"
       />
     </v-dialog>
     <v-dialog
+      v-if="showManualGoodreadsUrlDialog"
       v-model="showManualGoodreadsUrlDialog"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
     >
       <ManualGoodreadsUrlDialog
-        v-if="showManualGoodreadsUrlDialog"
         :dialog-width="dialogWidth"
         @result-chosen="readSearchResult"
       />
     </v-dialog>
     <v-dialog
+      v-if="showDeleteDialog"
       v-model="showDeleteDialog"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
     >
       <BookDeleteDialog
-        v-if="showDeleteDialog"
         :dialog-width="dialogWidth"
         :book-details="bookDetails"
         @delete-book="removeBook"
       />
     </v-dialog>
     <v-dialog
+      v-if="showTagPreview"
       v-model="showTagPreview"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
     >
       <TagPreviewDialog
-        v-if="showTagPreview && pendingSearchResult"
+        v-if="pendingSearchResult"
         :dialog-width="dialogWidth"
         :current-input="input"
         :search-result="pendingSearchResult"
