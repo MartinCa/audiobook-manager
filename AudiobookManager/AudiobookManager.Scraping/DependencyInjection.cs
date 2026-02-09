@@ -6,9 +6,13 @@ public static class DependencyInjection
 {
     public static IServiceCollection SetupScraping(this IServiceCollection services)
     {
-        services
-                .AddHttpClient()
-                .AddScoped<IBookSeriesMapper, BookSeriesMapper>();
+        services.AddHttpClient();
+        services.AddHttpClient("goodreads", client =>
+        {
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+        });
+        services.AddScoped<IBookSeriesMapper, BookSeriesMapper>();
 
         var scraperInterface = typeof(IScraper);
         typeof(IScraper).Assembly.GetTypes()

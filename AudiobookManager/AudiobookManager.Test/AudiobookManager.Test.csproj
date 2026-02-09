@@ -26,4 +26,10 @@
     <ProjectReference Include="..\AudiobookManager.Services\AudiobookManager.Services.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Scraping\TestData\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

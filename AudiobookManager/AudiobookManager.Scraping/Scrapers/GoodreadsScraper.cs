@@ -39,6 +39,8 @@ public partial class GoodreadsScraper : IScraper
     private static partial Regex RePublisher();
     [GeneratedRegex(@"([^#]+)#?(.*)")]
     private static partial Regex ReSeries();
+    [GeneratedRegex(@"<[^>]+>")]
+    private static partial Regex ReHtmlTags();
 
     private readonly ResiliencePipeline _resiliencePipeline;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -75,7 +77,7 @@ public partial class GoodreadsScraper : IScraper
         };
 
         var uri = QueryHelpers.AddQueryString(bookUrl, queryParameters);
-        var httpClient = _httpClientFactory.CreateClient();
+        var httpClient = _httpClientFactory.CreateClient("goodreads");
 
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -111,6 +113,95 @@ public partial class GoodreadsScraper : IScraper
 
     public async Task<IList<BookSearchResult>> Search(string searchTerm)
     {
+        var httpClient = _httpClientFactory.CreateClient("goodreads");
+
+        // Try autocomplete API first
+        try
+        {
+            var autocompleteResults = await SearchViaAutocomplete(httpClient, searchTerm);
+            if (autocompleteResults.Count > 0)
+            {
+                return autocompleteResults;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Autocomplete API failed, falling back to HTML search");
+        }
+
+        // Fall back to HTML table parsing
+        return await SearchViaHtml(httpClient, searchTerm);
+    }
+
+    private async Task<IList<BookSearchResult>> SearchViaAutocomplete(HttpClient httpClient, string searchTerm)
+    {
+        var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/book/auto_complete", new Dictionary<string, string>
+        {
+            ["format"] = "json",
+            ["q"] = searchTerm
+        });
+
+        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        {
+            var response = await httpClient.GetAsync(uri, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Autocomplete API returned status {response.StatusCode}");
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var results = JsonSerializer.Deserialize<List<JsonElement>>(json);
+
+            if (results is null || results.Count == 0)
+            {
+                return new List<BookSearchResult>();
+            }
+
+            return results
+                .Select(r =>
+                {
+                    var bookId = r.GetPropertyValueOrNull("bookId");
+                    var title = r.GetPropertyValueOrNull("title");
+                    var imageUrl = r.GetPropertyValueOrNull("imageUrl");
+
+                    if (bookId is null || title is null)
+                    {
+                        return null;
+                    }
+
+                    var url = $"{_goodreadsBaseUrl}/book/show/{bookId}";
+
+                    string? authorName = null;
+                    if (r.TryGetProperty("author", out var authorElement))
+                    {
+                        authorName = authorElement.GetPropertyValueOrNull("name");
+                    }
+
+                    var authors = new List<Person>();
+                    if (!string.IsNullOrEmpty(authorName))
+                    {
+                        authors.Add(new Person(authorName));
+                    }
+
+                    return new BookSearchResult(url, title)
+                    {
+                        Authors = authors,
+                        Narrators = new List<Person>(),
+                        ImageUrl = ConvertImgUrl(imageUrl),
+                        Genres = new List<string>(),
+                        Series = new List<BookSeriesSearchResult>(),
+                    };
+                })
+                .Where(r => r is not null)
+                .Cast<BookSearchResult>()
+                .Where(r => !r.BookName.Contains("Large Print", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }, new CancellationToken());
+    }
+
+    private async Task<IList<BookSearchResult>> SearchViaHtml(HttpClient httpClient, string searchTerm)
+    {
         var termTokens = searchTerm.Split(" ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         Dictionary<string, string> queryParameters = new()
@@ -121,7 +212,6 @@ public partial class GoodreadsScraper : IScraper
 
         var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/search", queryParameters);
         uri += $"&search[query]={string.Join("+", termTokens)}";
-        var httpClient = _httpClientFactory.CreateClient();
 
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
@@ -165,47 +255,135 @@ public partial class GoodreadsScraper : IScraper
     {
         (var bookElement, var workElement, var contributorElements, var seriesElements) = GetBookJsonElements(newBookJson);
 
-        var allPersons = ParseJsonPersons(bookElement, contributorElements);
-        var narrators = allPersons.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
-        var authors = FilterAuthors(allPersons.Except(narrators));
+        IList<Person> authors = new List<Person>();
+        IList<Person> narrators = new List<Person>();
+        try
+        {
+            var allPersons = ParseJsonPersons(bookElement, contributorElements);
+            narrators = allPersons.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
+            authors = FilterAuthors(allPersons.Except(narrators));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse contributors for {BookUrl}", bookUrl);
+        }
 
         string? bookName = null;
         string? subtitle = null;
-        var bookTitle = bookElement.GetPropertyValueOrNull("title");
-        if (bookTitle is not null)
+        try
         {
-            var splitTitle = bookTitle.Split(":");
-            bookName = splitTitle[0].Trim();
-            if (splitTitle.Length > 1)
+            var bookTitle = bookElement.GetPropertyValueOrNull("title");
+            if (bookTitle is not null)
             {
-                subtitle = splitTitle[1].Trim();
+                var splitTitle = bookTitle.Split(":");
+                bookName = splitTitle[0].Trim();
+                if (splitTitle.Length > 1)
+                {
+                    subtitle = splitTitle[1].Trim();
+                }
             }
         }
-
-        string? imgUrl = bookElement.GetPropertyValueOrNull("imageUrl");
-
-        var publicationTimeElementWork = workElement.GetNestedProperty("details", "publicationTime");
-        var publicationTimeElementBook = bookElement.GetNestedProperty("details", "publicationTime");
-        int? year = null;
-        if (publicationTimeElementWork.ValueKind == JsonValueKind.Number)
+        catch (Exception ex)
         {
-            var publishUnixMsTimestamp = publicationTimeElementWork.GetInt64();
-            var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
-            year = publicationDateTime.Year;
-        } else if (publicationTimeElementBook.ValueKind == JsonValueKind.Number)
-        {
-            var publishUnixMsTimestamp = publicationTimeElementBook.GetInt64();
-            var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
-            year = publicationDateTime.Year;
+            _logger.LogWarning(ex, "Failed to parse title for {BookUrl}", bookUrl);
         }
 
-        var description = bookElement.GetPropertyValueOrNull("description");
+        string? imgUrl = null;
+        try
+        {
+            imgUrl = bookElement.GetPropertyValueOrNull("imageUrl");
+            imgUrl = await ValidateCoverUrl(imgUrl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse image URL for {BookUrl}", bookUrl);
+        }
 
-        var genres = ParseGenres(bookElement);
+        int? year = null;
+        try
+        {
+            var publicationTimeElementWork = workElement.GetNestedProperty("details", "publicationTime");
+            var publicationTimeElementBook = bookElement.GetNestedProperty("details", "publicationTime");
+            if (publicationTimeElementWork.ValueKind == JsonValueKind.Number)
+            {
+                var publishUnixMsTimestamp = publicationTimeElementWork.GetInt64();
+                var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
+                year = publicationDateTime.Year;
+            } else if (publicationTimeElementBook.ValueKind == JsonValueKind.Number)
+            {
+                var publishUnixMsTimestamp = publicationTimeElementBook.GetInt64();
+                var publicationDateTime = DateTime.UnixEpoch.AddMilliseconds(publishUnixMsTimestamp);
+                year = publicationDateTime.Year;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse publication year for {BookUrl}", bookUrl);
+        }
 
-        var ratingResult = ParseRating(workElement);
+        string? description = null;
+        try
+        {
+            description = SanitizeHtml(bookElement.GetPropertyValueOrNull("description"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse description for {BookUrl}", bookUrl);
+        }
 
-        var series = await ParseSeries(bookElement, seriesElements);
+        IList<string> genres = new List<string>();
+        try
+        {
+            genres = ParseGenres(bookElement);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse genres for {BookUrl}", bookUrl);
+        }
+
+        ParsedRating? ratingResult = null;
+        try
+        {
+            ratingResult = ParseRating(workElement);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse rating for {BookUrl}", bookUrl);
+        }
+
+        IList<BookSeriesSearchResult> series = new List<BookSeriesSearchResult>();
+        try
+        {
+            series = await ParseSeries(bookElement, seriesElements);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse series for {BookUrl}", bookUrl);
+        }
+
+        string? publisher = null;
+        string? language = null;
+        string? isbn = null;
+        string? asin = null;
+        try
+        {
+            publisher = bookElement.GetNestedProperty("details").GetPropertyValueOrNull("publisher");
+
+            if (bookElement.TryGetProperty("details", out var detailsElement) &&
+                detailsElement.TryGetProperty("language", out var languageElement))
+            {
+                language = languageElement.GetPropertyValueOrNull("name");
+            }
+
+            isbn = bookElement.GetNestedProperty("details").GetPropertyValueOrNull("isbn13")
+                ?? bookElement.GetNestedProperty("details").GetPropertyValueOrNull("isbn");
+
+            asin = bookElement.GetNestedProperty("details").GetPropertyValueOrNull("asin");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse publisher/language/isbn/asin for {BookUrl}", bookUrl);
+        }
 
         return new BookSearchResult(bookUrl, bookName)
         {
@@ -214,7 +392,7 @@ public partial class GoodreadsScraper : IScraper
             Subtitle = subtitle,
             Duration = null,
             Year = year,
-            Language = null,
+            Language = language,
             ImageUrl = imgUrl,
             Series = series,
             Description = description,
@@ -222,8 +400,9 @@ public partial class GoodreadsScraper : IScraper
             Rating = ratingResult?.Rating,
             NumberOfRatings = ratingResult?.NumberOfRatings,
             Copyright = null,
-            Publisher = null,
-            Asin = null,
+            Publisher = publisher,
+            Asin = asin,
+            Isbn = isbn,
         };
     }
 
@@ -358,6 +537,7 @@ public partial class GoodreadsScraper : IScraper
         {
             imgUrl = ConvertImgUrl(imgTag.Attributes["src"]?.Value);
         }
+        imgUrl = await ValidateCoverUrl(imgUrl);
 
         var (year, publisher) = ParsePublisherTag(mainElem);
 
@@ -685,6 +865,60 @@ public partial class GoodreadsScraper : IScraper
         }
 
         return authors;
+    }
+
+    private async Task<string?> ValidateCoverUrl(string? imgUrl)
+    {
+        if (string.IsNullOrEmpty(imgUrl))
+        {
+            return imgUrl;
+        }
+
+        try
+        {
+            var httpClient = _httpClientFactory.CreateClient("goodreads");
+            httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+            var request = new HttpRequestMessage(HttpMethod.Head, imgUrl);
+            var response = await httpClient.SendAsync(request);
+
+            if (response.IsSuccessStatusCode &&
+                response.Content.Headers.ContentLength is long contentLength &&
+                contentLength <= 1000)
+            {
+                _logger.LogInformation("Cover URL {ImgUrl} appears to be a placeholder image ({ContentLength} bytes), ignoring", imgUrl, contentLength);
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to validate cover URL {ImgUrl}, keeping as-is", imgUrl);
+        }
+
+        return imgUrl;
+    }
+
+    private static string? SanitizeHtml(string? html)
+    {
+        if (string.IsNullOrEmpty(html))
+        {
+            return html;
+        }
+
+        var result = html
+            .Replace("<br />", "\n")
+            .Replace("<br>", "\n")
+            .Replace("<br/>", "\n");
+
+        result = ReHtmlTags().Replace(result, "");
+
+        result = result
+            .Replace("&amp;", "&")
+            .Replace("&lt;", "<")
+            .Replace("&gt;", ">")
+            .Replace("&quot;", "\"");
+
+        return result.Trim();
     }
 
     private class PublisherParseResult

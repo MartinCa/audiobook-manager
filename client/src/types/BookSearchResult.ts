@@ -25,4 +25,5 @@ export interface BookSearchResult {
   copyright?: string;
   publisher?: string;
   asin?: string;
+  isbn?: string;
 }

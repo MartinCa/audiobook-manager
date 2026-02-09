@@ -20,6 +20,7 @@ public class BookSearchResult
     public string? Copyright { get; set; }
     public string? Publisher { get; set; }
     public string? Asin { get; set; }
+    public string? Isbn { get; set; }
 
     public BookSearchResult(string url, string bookName)
     {
