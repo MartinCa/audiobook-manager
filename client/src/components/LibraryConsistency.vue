@@ -94,7 +94,13 @@
                   :disabled="resolvingTypes.has(group.issueType)"
                   @click.stop="onBulkResolveClick(group.issueType)"
                 >
-                  Resolve All {{ group.issues.length }}
+                  {{
+                    group.issueType === "SimilarAuthorNames" ||
+                    group.issueType === "SimilarSeriesNames"
+                      ? "Dismiss All"
+                      : "Resolve All"
+                  }}
+                  {{ group.issues.length }}
                 </v-btn>
               </div>
               <v-list density="compact">
@@ -144,7 +150,12 @@
                       :loading="resolvingIds.has(issue.id)"
                       @click.stop="onResolveClick(issue)"
                     >
-                      Resolve
+                      {{
+                        issue.issueType === "SimilarAuthorNames" ||
+                        issue.issueType === "SimilarSeriesNames"
+                          ? "Dismiss"
+                          : "Resolve"
+                      }}
                     </v-btn>
                   </template>
                 </v-list-item>
@@ -188,6 +199,13 @@
             media files from the database and clean up empty directories. This
             action cannot be undone.
           </template>
+          <template
+            v-else-if="pendingBulkType && isDismissType(pendingBulkType)"
+          >
+            This will dismiss all
+            <strong>{{ pendingBulkCount }}</strong>
+            {{ getIssueTypeLabel(pendingBulkType) }} issues. Continue?
+          </template>
           <template v-else-if="pendingBulkType">
             This will resolve all
             <strong>{{ pendingBulkCount }}</strong>
@@ -205,7 +223,13 @@
             color="error"
             @click="confirmResolve()"
           >
-            {{ pendingBulkType ? "Resolve All" : "Remove" }}
+            {{
+              pendingBulkType
+                ? isDismissType(pendingBulkType)
+                  ? "Dismiss All"
+                  : "Resolve All"
+                : "Remove"
+            }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -304,6 +328,10 @@ const getIssueTypeLabel = (issueType: string): string => {
       return "Incorrect Reader Files";
     case "MissingCoverFile":
       return "Missing Cover Files";
+    case "SimilarAuthorNames":
+      return "Similar Author Names";
+    case "SimilarSeriesNames":
+      return "Similar Series Names";
     default:
       return issueType;
   }
@@ -352,6 +380,10 @@ const getIssueIcon = (issueType: string): string => {
       return "mdi-text-box-remove";
     case "MissingCoverFile":
       return "mdi-image-remove";
+    case "SimilarAuthorNames":
+      return "mdi-account-question";
+    case "SimilarSeriesNames":
+      return "mdi-bookshelf";
     default:
       return "mdi-alert";
   }
@@ -365,6 +397,12 @@ const onResolveClick = (issue: ConsistencyIssue) => {
   } else {
     resolveIssue(issue);
   }
+};
+
+const isDismissType = (issueType: string): boolean => {
+  return (
+    issueType === "SimilarAuthorNames" || issueType === "SimilarSeriesNames"
+  );
 };
 
 const onBulkResolveClick = (issueType: string) => {
@@ -450,6 +488,9 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
   try {
     await ConsistencyService.resolveIssue(issue.id);
     issues.value = issues.value.filter((i) => {
+      if (isDismissType(issue.issueType)) {
+        return i.id !== issue.id;
+      }
       if (
         issue.issueType === "MissingMediaFile" ||
         issue.issueType === "WrongFilePath"
@@ -472,10 +513,14 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
       }
       return i.id !== issue.id;
     });
-    snackbarText.value = "Issue resolved successfully";
+    snackbarText.value = isDismissType(issue.issueType)
+      ? "Issue dismissed"
+      : "Issue resolved successfully";
     snackbar.value = true;
   } catch {
-    snackbarText.value = "Failed to resolve issue";
+    snackbarText.value = isDismissType(issue.issueType)
+      ? "Failed to dismiss issue"
+      : "Failed to resolve issue";
     snackbar.value = true;
   } finally {
     resolvingIds.value.delete(issue.id);

@@ -8,5 +8,7 @@ public enum ConsistencyIssueType
     IncorrectDescTxt = 3,
     MissingReaderTxt = 4,
     IncorrectReaderTxt = 5,
-    MissingCoverFile = 6
+    MissingCoverFile = 6,
+    SimilarAuthorNames = 7,
+    SimilarSeriesNames = 8
 }

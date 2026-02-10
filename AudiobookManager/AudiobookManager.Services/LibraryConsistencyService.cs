@@ -145,6 +145,34 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             }
         }
 
+        // Fuzzy check: similar author names
+        await progressAction("Checking for similar author names...", booksChecked, totalBooks, issuesFound);
+        var authorNameToBooks = new Dictionary<string, List<long>>();
+        foreach (var audiobook in audiobooks)
+        {
+            foreach (var author in audiobook.Authors)
+            {
+                if (!authorNameToBooks.ContainsKey(author.Name))
+                    authorNameToBooks[author.Name] = new List<long>();
+                authorNameToBooks[author.Name].Add(audiobook.Id);
+            }
+        }
+        issuesFound += await FindSimilarNames(authorNameToBooks, ConsistencyIssueType.SimilarAuthorNames, "Author");
+
+        // Fuzzy check: similar series names
+        await progressAction("Checking for similar series names...", booksChecked, totalBooks, issuesFound);
+        var seriesNameToBooks = new Dictionary<string, List<long>>();
+        foreach (var audiobook in audiobooks)
+        {
+            if (!string.IsNullOrEmpty(audiobook.Series))
+            {
+                if (!seriesNameToBooks.ContainsKey(audiobook.Series))
+                    seriesNameToBooks[audiobook.Series] = new List<long>();
+                seriesNameToBooks[audiobook.Series].Add(audiobook.Id);
+            }
+        }
+        issuesFound += await FindSimilarNames(seriesNameToBooks, ConsistencyIssueType.SimilarSeriesNames, "Series");
+
         _logger.LogInformation("Consistency check complete. Books: {Total}, Issues: {Issues}", totalBooks, issuesFound);
     }
 
@@ -173,6 +201,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
             case ConsistencyIssueType.MissingCoverFile:
                 await ResolveMissingCover(issue);
+                break;
+
+            case ConsistencyIssueType.SimilarAuthorNames:
+            case ConsistencyIssueType.SimilarSeriesNames:
+                await _issueRepository.DeleteAsync(issue.Id);
                 break;
         }
     }
@@ -276,6 +309,87 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         }
 
         return (resolved, failed);
+    }
+
+    private async Task<int> FindSimilarNames(
+        Dictionary<string, List<long>> nameToBooks,
+        ConsistencyIssueType issueType,
+        string label)
+    {
+        var names = nameToBooks.Keys.ToList();
+        var issuesFound = 0;
+        var reportedPairs = new HashSet<(string, string)>();
+
+        for (var i = 0; i < names.Count; i++)
+        {
+            for (var j = i + 1; j < names.Count; j++)
+            {
+                var name1 = names[i];
+                var name2 = names[j];
+
+                if (string.Equals(name1, name2, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var similarity = GetNormalizedSimilarity(name1, name2);
+                if (similarity < 0.85)
+                    continue;
+
+                var pairKey = string.CompareOrdinal(name1, name2) < 0 ? (name1, name2) : (name2, name1);
+                if (!reportedPairs.Add(pairKey))
+                    continue;
+
+                // Attach issue to the first audiobook of the less common name
+                var count1 = nameToBooks[name1].Count;
+                var count2 = nameToBooks[name2].Count;
+                var (common, variant) = count1 >= count2 ? (name1, name2) : (name2, name1);
+                var variantBookId = nameToBooks[variant].First();
+                var commonCount = nameToBooks[common].Count;
+                var variantCount = nameToBooks[variant].Count;
+
+                var description = $"{label} name \"{variant}\" ({variantCount} book{(variantCount == 1 ? "" : "s")}) is similar to \"{common}\" ({commonCount} book{(commonCount == 1 ? "" : "s")})";
+
+                await InsertIssue(variantBookId, issueType, description, common, variant);
+                issuesFound++;
+            }
+        }
+
+        return issuesFound;
+    }
+
+    internal static double GetNormalizedSimilarity(string a, string b)
+    {
+        if (string.Equals(a, b, StringComparison.Ordinal))
+            return 1.0;
+
+        var maxLen = Math.Max(a.Length, b.Length);
+        if (maxLen == 0)
+            return 1.0;
+
+        var distance = GetLevenshteinDistance(a.ToLowerInvariant(), b.ToLowerInvariant());
+        return 1.0 - (double)distance / maxLen;
+    }
+
+    internal static int GetLevenshteinDistance(string a, string b)
+    {
+        var m = a.Length;
+        var n = b.Length;
+
+        var dp = new int[m + 1, n + 1];
+        for (var i = 0; i <= m; i++) dp[i, 0] = i;
+        for (var j = 0; j <= n; j++) dp[0, j] = j;
+
+        for (var i = 1; i <= m; i++)
+        {
+            for (var j = 1; j <= n; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                dp[i, j] = Math.Min(
+                    Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                    dp[i - 1, j - 1] + cost);
+            }
+        }
+
+        return dp[m, n];
     }
 
     private async Task InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)

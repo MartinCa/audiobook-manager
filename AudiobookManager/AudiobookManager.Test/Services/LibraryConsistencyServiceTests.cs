@@ -68,7 +68,8 @@ public class LibraryConsistencyServiceTests
             i.AudiobookId == 1
         )), Times.Once);
 
-        Assert.AreEqual(1, progressCalls.Count);
+        // 1 per-book progress + 2 fuzzy check phases (authors, series)
+        Assert.AreEqual(3, progressCalls.Count);
         Assert.AreEqual(1, progressCalls[0].issues);
     }
 
@@ -135,7 +136,8 @@ public class LibraryConsistencyServiceTests
                 i.IssueType == ConsistencyIssueType.MissingMediaFile
             )), Times.Never);
 
-            Assert.AreEqual(1, progressCalls.Count);
+            // 1 per-book progress + 2 fuzzy check phases (authors, series)
+            Assert.AreEqual(3, progressCalls.Count);
             Assert.IsTrue(progressCalls[0].message.StartsWith("Checked:"));
         }
         finally
@@ -238,5 +240,186 @@ public class LibraryConsistencyServiceTests
         var exception = await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _service.ResolveIssue(999));
         Assert.IsNotNull(exception);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_SimilarAuthorNames_DismissesIssue()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/some/path/test.m4b", "test.m4b", 1000);
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 30,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.SimilarAuthorNames,
+            Description = "Author name \"J.R.R. Tolkein\" is similar to \"J.R.R. Tolkien\"",
+            ExpectedValue = "J.R.R. Tolkien",
+            ActualValue = "J.R.R. Tolkein",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(30)).ReturnsAsync(issue);
+
+        await _service.ResolveIssue(30);
+
+        _issueRepository.Verify(r => r.DeleteAsync(30), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RunConsistencyCheck_SimilarAuthors_ReportsIssue()
+    {
+        var book1 = new DbAudiobook(
+            1, "Book One", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path1/book1.m4b", "book1.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "J.R.R. Tolkien") }
+        };
+
+        var book2 = new DbAudiobook(
+            2, "Book Two", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path2/book2.m4b", "book2.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(2, "J.R.R. Tolkein") }
+        };
+
+        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+
+        var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+        Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+        {
+            progressCalls.Add((msg, bc, t, i));
+            return Task.CompletedTask;
+        };
+
+        await _service.RunConsistencyCheck(progressAction);
+
+        _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+            i.IssueType == ConsistencyIssueType.SimilarAuthorNames
+        )), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RunConsistencyCheck_SimilarSeries_ReportsIssue()
+    {
+        var book1 = new DbAudiobook(
+            1, "Book One", null, "The Lord of the Rings", "1", 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path1/book1.m4b", "book1.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+        };
+
+        var book2 = new DbAudiobook(
+            2, "Book Two", null, "The Lord of the Ring", "2", 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path2/book2.m4b", "book2.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+        };
+
+        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+
+        var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+        Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+        {
+            progressCalls.Add((msg, bc, t, i));
+            return Task.CompletedTask;
+        };
+
+        await _service.RunConsistencyCheck(progressAction);
+
+        _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+            i.IssueType == ConsistencyIssueType.SimilarSeriesNames
+        )), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RunConsistencyCheck_DifferentAuthors_NoFuzzyIssue()
+    {
+        var book1 = new DbAudiobook(
+            1, "Book One", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path1/book1.m4b", "book1.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Stephen King") }
+        };
+
+        var book2 = new DbAudiobook(
+            2, "Book Two", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path2/book2.m4b", "book2.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(2, "Dean Koontz") }
+        };
+
+        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+
+        var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+        Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+        {
+            progressCalls.Add((msg, bc, t, i));
+            return Task.CompletedTask;
+        };
+
+        await _service.RunConsistencyCheck(progressAction);
+
+        _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+            i.IssueType == ConsistencyIssueType.SimilarAuthorNames
+        )), Times.Never);
+    }
+
+    [TestMethod]
+    public void GetLevenshteinDistance_IdenticalStrings_ReturnsZero()
+    {
+        Assert.AreEqual(0, LibraryConsistencyService.GetLevenshteinDistance("hello", "hello"));
+    }
+
+    [TestMethod]
+    public void GetLevenshteinDistance_OneCharDiff_ReturnsOne()
+    {
+        Assert.AreEqual(1, LibraryConsistencyService.GetLevenshteinDistance("tolkien", "tolkein"));
+    }
+
+    [TestMethod]
+    public void GetLevenshteinDistance_EmptyString_ReturnsLength()
+    {
+        Assert.AreEqual(5, LibraryConsistencyService.GetLevenshteinDistance("hello", ""));
+        Assert.AreEqual(5, LibraryConsistencyService.GetLevenshteinDistance("", "hello"));
+    }
+
+    [TestMethod]
+    public void GetNormalizedSimilarity_IdenticalStrings_ReturnsOne()
+    {
+        Assert.AreEqual(1.0, LibraryConsistencyService.GetNormalizedSimilarity("hello", "hello"));
+    }
+
+    [TestMethod]
+    public void GetNormalizedSimilarity_SimilarStrings_ReturnsHighValue()
+    {
+        var similarity = LibraryConsistencyService.GetNormalizedSimilarity("J.R.R. Tolkien", "J.R.R. Tolkein");
+        Assert.IsTrue(similarity > 0.85, $"Expected > 0.85, got {similarity}");
+    }
+
+    [TestMethod]
+    public void GetNormalizedSimilarity_DifferentStrings_ReturnsLowValue()
+    {
+        var similarity = LibraryConsistencyService.GetNormalizedSimilarity("Stephen King", "Dean Koontz");
+        Assert.IsTrue(similarity < 0.5, $"Expected < 0.5, got {similarity}");
+    }
+
+    [TestMethod]
+    public void GetNormalizedSimilarity_CaseInsensitive()
+    {
+        var similarity = LibraryConsistencyService.GetNormalizedSimilarity("Stephen King", "stephen king");
+        Assert.AreEqual(1.0, similarity);
     }
 }
