@@ -39,4 +39,14 @@ public class ScrapingService : IScrapingService
     {
         return _scrapers.Select(x => x.SourceName).ToList();
     }
+
+    public IList<SearchServiceInfo> GetSearchServiceInfo()
+    {
+        return _scrapers.Select(s =>
+        {
+            var enabled = !s.RequiresApiKey || s.IsApiKeyConfigured;
+            string? disabledReason = !enabled ? "API key not configured" : null;
+            return new SearchServiceInfo(s.SourceName, enabled, disabledReason);
+        }).ToList();
+    }
 }

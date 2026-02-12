@@ -5,6 +5,10 @@ public interface IScraper
 {
     string SourceName { get; }
 
+    bool RequiresApiKey => false;
+
+    bool IsApiKeyConfigured => true;
+
     bool IsSource(string sourceName);
 
     bool SupportsUrl(string url);
