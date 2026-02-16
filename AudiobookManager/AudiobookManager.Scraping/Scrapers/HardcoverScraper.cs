@@ -59,13 +59,24 @@ public class HardcoverScraper : IScraper
 
         var resultsJson = responseElement.GetNestedProperty("data", "search", "results");
 
-        if (resultsJson.ValueKind != JsonValueKind.Array)
+        JsonElement hitsArray;
+        if (resultsJson.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = resultsJson;
+        }
+        else if (resultsJson.ValueKind == JsonValueKind.Object &&
+                 resultsJson.TryGetProperty("hits", out var hitsElement) &&
+                 hitsElement.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = hitsElement;
+        }
+        else
         {
             return new List<BookSearchResult>();
         }
 
         var results = new List<BookSearchResult>();
-        foreach (var hit in resultsJson.EnumerateArray())
+        foreach (var hit in hitsArray.EnumerateArray())
         {
             try
             {
@@ -153,7 +164,12 @@ public class HardcoverScraper : IScraper
 
     private BookSearchResult? ParseSearchHit(JsonElement hit)
     {
-        var document = hit;
+        // Each hit may contain a nested "document" property (Typesense format)
+        // or be the document itself (direct array format)
+        var document = hit.TryGetProperty("document", out var docElement) &&
+                       docElement.ValueKind == JsonValueKind.Object
+            ? docElement
+            : hit;
 
         var idStr = document.GetPropertyValueOrNull("id");
         if (idStr is null)
