@@ -20,20 +20,33 @@
         v-model="searchTerm"
       ></v-text-field>
 
-      <v-btn
-        color="primary"
-        @click="search('audible')"
-      >
-        <v-icon>mdi-magnify</v-icon>
-        Audible
-      </v-btn>
-      <v-btn
-        color="primary"
-        @click="search('goodreads')"
-      >
-        <v-icon>mdi-magnify</v-icon>
-        Goodreads
-      </v-btn>
+      <template v-for="service in services">
+        <v-tooltip
+          v-if="!service.enabled"
+          :text="service.disabledReason || 'Unavailable'"
+          location="bottom"
+        >
+          <template v-slot:activator="{ props: tooltipProps }">
+            <span v-bind="tooltipProps">
+              <v-btn
+                color="primary"
+                disabled
+              >
+                <v-icon>mdi-magnify</v-icon>
+                {{ service.name }}
+              </v-btn>
+            </span>
+          </template>
+        </v-tooltip>
+        <v-btn
+          v-else
+          color="primary"
+          @click="search(service.name)"
+        >
+          <v-icon>mdi-magnify</v-icon>
+          {{ service.name }}
+        </v-btn>
+      </template>
     </v-toolbar>
 
     <ErrorNotifications
@@ -217,6 +230,7 @@
 <script setup lang="ts">
 import { computed, onMounted, Ref, ref } from "vue";
 import { BookSearchResult } from "../types/BookSearchResult";
+import { SearchServiceInfo } from "../types/SearchServiceInfo";
 import SearchService from "../services/SearchService";
 import { Audiobook } from "../types/Audiobook";
 import ErrorNotifications from "./ErrorNotifications.vue";
@@ -234,6 +248,7 @@ const searchResults: Ref<BookSearchResult[]> = ref([]);
 const selectedResult: Ref<BookSearchResult | undefined> = ref(undefined);
 const searching = ref(false);
 const gettingDetails = ref(false);
+const services: Ref<SearchServiceInfo[]> = ref([]);
 
 const getFileNameExclExt = (fileName: string): string => {
   const regexMatch = fileExtRegex.exec(fileName);
@@ -343,7 +358,7 @@ const chooseSeries = (seriesIdx: number) => {
   emit("resultChosen", selectedResult.value);
 };
 
-onMounted(() => {
+onMounted(async () => {
   if (props.bookDetails.bookName) {
     let artistPart = "";
     if (props.bookDetails.authors) {
@@ -357,6 +372,21 @@ onMounted(() => {
     }`;
   } else if (props.bookDetails.fileInfo?.fileName) {
     searchTerm.value = getFileNameExclExt(props.bookDetails.fileInfo.fileName);
+  }
+
+  try {
+    services.value = await SearchService.getServices();
+  } catch {
+    // Fall back to hardcoded services if the endpoint fails
+    services.value = [
+      { name: "Audible", enabled: true },
+      { name: "Goodreads", enabled: true },
+      {
+        name: "Hardcover",
+        enabled: false,
+        disabledReason: "API key not configured",
+      },
+    ];
   }
 });
 

@@ -28,8 +28,8 @@ public class SearchController : ControllerBase
     }
 
     [HttpGet("services")]
-    public IList<string> GetSearchServices()
+    public IList<SearchServiceInfo> GetSearchServices()
     {
-        return _scrapingService.GetListOfScrapingServices();
+        return _scrapingService.GetSearchServiceInfo();
     }
 }
