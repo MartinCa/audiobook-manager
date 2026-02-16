@@ -97,70 +97,94 @@ public class HardcoverScraper : IScraper
 
     public async Task<BookSearchResult> GetBookDetails(string bookUrl)
     {
-        var bookId = ParseBookIdFromUrl(bookUrl);
+        var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
 
-        var query = """
-            query GetBook($id: Int!) {
-              books_by_pk(id: $id) {
-                id
-                title
-                subtitle
-                description
-                slug
-                release_date
-                rating
-                ratings_count
-                cached_image
-                cached_tags
-                contributions {
-                  contribution
-                  author {
-                    name
-                  }
-                }
-                book_series {
-                  position
-                  series {
-                    name
-                  }
-                }
-                default_audio_edition {
-                  isbn_13
-                  asin
-                  audio_seconds
-                  publisher {
-                    name
-                  }
-                  language {
-                    language
-                  }
-                }
-                default_physical_edition {
-                  isbn_13
-                  asin
-                  publisher {
-                    name
-                  }
-                  language {
-                    language
-                  }
-                }
-              }
-            }
-            """;
+        var bookElement = bookIdentifier.Id is not null
+            ? await GetBookById(bookIdentifier.Id.Value)
+            : await GetBookBySlug(bookIdentifier.Slug!);
 
-        var variables = new { id = bookId };
-        var responseElement = await ExecuteGraphqlQuery(query, variables);
-
-        var bookElement = responseElement.GetNestedProperty("data", "books_by_pk");
-
-        if (bookElement.ValueKind == JsonValueKind.Null)
+        if (bookElement.ValueKind == JsonValueKind.Null || bookElement.ValueKind == JsonValueKind.Undefined)
         {
             throw new Exception($"Book not found on Hardcover: {bookUrl}");
         }
 
         return await ParseBookDetails(bookElement, bookUrl);
     }
+
+    private async Task<JsonElement> GetBookById(int bookId)
+    {
+        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$id: Int!")
+                                     .Replace("BOOK_QUERY_FILTER", "books_by_pk(id: $id)");
+
+        var responseElement = await ExecuteGraphqlQuery(query, new { id = bookId });
+        return responseElement.GetNestedProperty("data", "books_by_pk");
+    }
+
+    private async Task<JsonElement> GetBookBySlug(string slug)
+    {
+        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$slug: String!")
+                                     .Replace("BOOK_QUERY_FILTER", "books(where: {slug: {_eq: $slug}}, limit: 1)");
+
+        var responseElement = await ExecuteGraphqlQuery(query, new { slug });
+        var booksArray = responseElement.GetNestedProperty("data", "books");
+
+        if (booksArray.ValueKind == JsonValueKind.Array && booksArray.GetArrayLength() > 0)
+        {
+            return booksArray[0];
+        }
+
+        return default;
+    }
+
+    private const string _bookDetailsQuery = """
+        query GetBook(BOOK_QUERY_PARAM) {
+          BOOK_QUERY_FILTER {
+            id
+            title
+            subtitle
+            description
+            slug
+            release_date
+            rating
+            ratings_count
+            cached_image
+            cached_tags
+            contributions {
+              contribution
+              author {
+                name
+              }
+            }
+            book_series {
+              position
+              series {
+                name
+              }
+            }
+            default_audio_edition {
+              isbn_13
+              asin
+              audio_seconds
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+            default_physical_edition {
+              isbn_13
+              asin
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+          }
+        }
+        """;
 
     private BookSearchResult? ParseSearchHit(JsonElement hit)
     {
@@ -629,37 +653,32 @@ public class HardcoverScraper : IScraper
         return null;
     }
 
-    private static int ParseBookIdFromUrl(string url)
+    private static (int? Id, string? Slug) ParseBookIdentifierFromUrl(string url)
     {
-        // URL formats: https://hardcover.app/books/{slug} or just a numeric ID
+        // Direct numeric ID
         if (int.TryParse(url, out var directId))
         {
-            return directId;
+            return (directId, null);
         }
 
-        // Try to extract from URL path - the slug isn't numeric, so we need to handle this
-        // The URL might contain the book ID as a query parameter or we may need to look it up
         var uri = new Uri(url);
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
-        // Check if the last segment is numeric
-        if (segments.Length > 0 && int.TryParse(segments.Last(), out var pathId))
+        if (segments.Length == 0)
         {
-            return pathId;
+            throw new Exception($"Could not extract book identifier from Hardcover URL: {url}");
         }
 
-        // Try slug-based: slugs on hardcover often start with the ID like "12345-book-title"
-        if (segments.Length > 0)
+        var lastSegment = segments.Last();
+
+        // Check if the last segment is a numeric ID
+        if (int.TryParse(lastSegment, out var pathId))
         {
-            var lastSegment = segments.Last();
-            var dashIndex = lastSegment.IndexOf('-');
-            if (dashIndex > 0 && int.TryParse(lastSegment.Substring(0, dashIndex), out var slugId))
-            {
-                return slugId;
-            }
+            return (pathId, null);
         }
 
-        throw new Exception($"Could not extract book ID from Hardcover URL: {url}");
+        // Otherwise treat the last segment as a slug
+        return (null, lastSegment);
     }
 
     private async Task<JsonElement> ExecuteGraphqlQuery(string query, object variables)
