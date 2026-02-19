@@ -19,6 +19,12 @@
       "extends": ["packages:linters", "packages:test"]
     },
     {
+      "matchPackageNames": [
+        "coverlet.collector"
+      ],
+      "automerge": true
+    },
+    {
       "matchPackagePrefixes": [
         "@types"
       ],
