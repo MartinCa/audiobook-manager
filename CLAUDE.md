@@ -75,6 +75,12 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 - **HubClient** — SignalR client library. Implements `IOrganize` interface — must be updated when new SignalR events are added.
 - **Test** — MSTest unit tests with Moq for mocking.
 
+### Vuetify MCP
+
+When working on frontend Vuetify components, use the [Vuetify MCP server](https://github.com/vuetifyjs/mcp/) whenever possible. It provides direct access to Vuetify component APIs (props, events, slots, methods) and documentation, enabling accurate AI-assisted development.
+
+Connect via the hosted server at `https://mcp.vuetifyjs.com/mcp` or run locally with `npx -y @vuetify/mcp`.
+
 ### Frontend (`client/`)
 
 - **Framework**: Vue 3 + Vuetify 3 + Vue Router + TypeScript
