@@ -13,7 +13,7 @@
     "@mdi/font": "7.4.47",
     "@quangdao/vue-signalr": "1.0.1",
     "axios": "^1.13.4",
-    "diff": "^8.0.3",
+    "diff": "^9.0.0",
     "lodash": "4.18.1",
     "roboto-fontface": "0.10.0",
     "vue": "^3.5.27",
