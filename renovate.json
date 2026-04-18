@@ -5,6 +5,7 @@
     ":prHourlyLimitNone",
     ":enableVulnerabilityAlerts"
   ],
+  "minimumReleaseAge": "4 days",
   "packageRules": [
     {
       "matchUpdateTypes": [
