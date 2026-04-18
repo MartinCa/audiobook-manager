@@ -26,14 +26,14 @@
       "automerge": true
     },
     {
-      "matchPackagePrefixes": [
-        "@types"
-      ],
       "matchUpdateTypes": [
         "minor",
         "patch"
       ],
-      "automerge": true
+      "automerge": true,
+      "matchPackageNames": [
+        "@types{/,}**"
+      ]
     }
   ]
 }
