@@ -50,9 +50,9 @@
       <v-col cols="12">
         <h3 class="text-h6 mb-1">Discovered Audiobooks</h3>
         <p class="text-body-2 text-medium-emphasis mb-3">
-          Audiobook files found in the import directory that haven't been added
-          to the library yet. Expand a book to review its metadata and organize
-          it into the library.
+          Unorganized audiobook files sitting in the import directory. Expand a
+          book to review its metadata, then organize it to move it into the
+          library.
         </p>
         <template v-if="discoveredBooks.length">
           <v-expansion-panels v-model="discoveredActivePanel">
