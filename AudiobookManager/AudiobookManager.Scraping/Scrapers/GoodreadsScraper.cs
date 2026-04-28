@@ -184,6 +184,19 @@ public partial class GoodreadsScraper : IScraper
                         authors.Add(new Person(authorName));
                     }
 
+                    float? rating = null;
+                    var avgRatingStr = r.GetPropertyValueOrNull("avgRating");
+                    if (avgRatingStr is not null && float.TryParse(avgRatingStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsedRating))
+                    {
+                        rating = parsedRating;
+                    }
+
+                    int? numberOfRatings = null;
+                    if (r.TryGetProperty("ratingsCount", out var ratingsCountElement) && ratingsCountElement.TryGetInt32(out var parsedCount))
+                    {
+                        numberOfRatings = parsedCount;
+                    }
+
                     return new BookSearchResult(url, title)
                     {
                         Authors = authors,
@@ -191,6 +204,8 @@ public partial class GoodreadsScraper : IScraper
                         ImageUrl = ConvertImgUrl(imageUrl),
                         Genres = new List<string>(),
                         Series = new List<BookSeriesSearchResult>(),
+                        Rating = rating,
+                        NumberOfRatings = numberOfRatings,
                     };
                 })
                 .Where(r => r is not null)
