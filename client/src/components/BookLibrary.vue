@@ -53,7 +53,7 @@
           Audiobook files found in the library directory that aren't yet tracked
           in the database. Expand a book to review its metadata and add it.
         </p>
-        <template v-if="discoveredBooks.length">
+        <template v-if="discoveredBooks.length || discoveredSearchQuery">
           <v-text-field
             v-model="discoveredSearchQuery"
             label="Filter by filename"
@@ -63,9 +63,12 @@
             density="compact"
             class="mb-3"
           />
-          <v-expansion-panels v-model="discoveredActivePanel">
+          <v-expansion-panels
+            v-if="discoveredBooks.length"
+            v-model="discoveredActivePanel"
+          >
             <v-expansion-panel
-              v-for="(book, i) in filteredDiscoveredBooks"
+              v-for="(book, i) in discoveredBooks"
               :key="i"
             >
               <v-expansion-panel-title>
@@ -102,13 +105,12 @@
             </v-expansion-panel>
           </v-expansion-panels>
           <div
-            v-if="filteredDiscoveredBooks.length === 0"
+            v-else
             class="text-center mt-2"
           >
             No discovered audiobooks match your filter.
           </div>
           <v-pagination
-            v-if="!discoveredSearchQuery"
             v-model="discoveredCurrentPage"
             :length="discoveredTotalPages"
             @update:model-value=""
@@ -317,15 +319,6 @@ const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
 const discoveredTotalPages = computed((): number =>
   Math.ceil(discoveredTotalItems.value / limit),
 );
-const filteredDiscoveredBooks = computed(() =>
-  discoveredSearchQuery.value
-    ? discoveredBooks.value.filter((b) =>
-        b.fileName
-          .toLowerCase()
-          .includes(discoveredSearchQuery.value.toLowerCase()),
-      )
-    : discoveredBooks.value,
-);
 
 watch(currentPage, () => {
   loadBooks();
@@ -366,10 +359,20 @@ const loadDiscoveredBooks = async () => {
   const result = await LibraryService.getDiscoveredBooks(
     limit,
     (discoveredCurrentPage.value - 1) * limit,
+    discoveredSearchQuery.value || undefined,
   );
   discoveredTotalItems.value = result.total;
   discoveredBooks.value = result.items;
 };
+
+const debouncedDiscoveredSearch = debounce(() => {
+  discoveredCurrentPage.value = 1;
+  loadDiscoveredBooks();
+}, 300);
+
+watch(discoveredSearchQuery, () => {
+  debouncedDiscoveredSearch();
+});
 
 const markDiscoveredAsQueued = async (book: BookFileInfo, queueId: string) => {
   book.queueId = queueId;

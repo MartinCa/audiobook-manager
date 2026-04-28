@@ -67,9 +67,9 @@ public class LibraryController : ControllerBase
     }
 
     [HttpGet("discovered")]
-    public async Task<PaginatedResult<AudiobookFileInfo>> GetDiscovered(int limit = 20, int offset = 0)
+    public async Task<PaginatedResult<AudiobookFileInfo>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
-        var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset);
+        var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
         var mapped = items
             .Select(d => new AudiobookFileInfo(d.FileInfoFullPath, d.FileInfoFileName, d.FileInfoSizeInBytes))
             .ToList();

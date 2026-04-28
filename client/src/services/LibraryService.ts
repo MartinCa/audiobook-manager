@@ -10,8 +10,14 @@ class LibraryService extends BaseHttpService {
   getDiscoveredBooks(
     limit: number,
     offset: number,
+    search?: string,
   ): Promise<PaginatedResult<BookFileInfo>> {
-    return this.getData(`/library/discovered?limit=${limit}&offset=${offset}`);
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (search) params.set("search", search);
+    return this.getData(`/library/discovered?${params}`);
   }
 
   deleteDiscoveredBook(path: string): Promise<void> {

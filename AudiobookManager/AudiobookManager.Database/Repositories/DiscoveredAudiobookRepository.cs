@@ -23,9 +23,13 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         return await _db.DiscoveredAudiobooks.ToListAsync();
     }
 
-    public async Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset)
+    public async Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset, string? search = null)
     {
-        var query = _db.DiscoveredAudiobooks.OrderBy(d => d.FileInfoFullPath);
+        var query = _db.DiscoveredAudiobooks.OrderBy(d => d.FileInfoFullPath).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(d => d.FileInfoFileName.Contains(search));
+        }
         var total = await query.CountAsync();
         var items = await query.Skip(offset).Take(limit).ToListAsync();
         return (items, total);
