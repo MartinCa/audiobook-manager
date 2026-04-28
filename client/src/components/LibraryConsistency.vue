@@ -22,6 +22,10 @@
         >
           Run Check
         </v-btn>
+        <div class="text-caption text-medium-emphasis mt-2">
+          Verifies that every book in the library has the correct file path,
+          sidecar metadata files (desc.txt, reader.txt), and a cover image.
+        </div>
       </v-col>
     </v-row>
     <v-row v-if="checking">
@@ -191,7 +195,8 @@
           <template v-else-if="pendingBulkType">
             This will resolve all
             <strong>{{ pendingBulkCount }}</strong>
-            {{ getIssueTypeLabel(pendingBulkType) }} issues. Continue?
+            {{ getIssueTypeLabel(pendingBulkType) }} issues.
+            {{ getBulkResolveDescription(pendingBulkType) }}
           </template>
           <template v-else>
             This will remove the audiobook from the database and clean up empty
@@ -337,6 +342,23 @@ const startCheck = async () => {
 
 const loadIssues = async () => {
   issues.value = await ConsistencyService.getIssues();
+};
+
+const getBulkResolveDescription = (issueType: string): string => {
+  switch (issueType) {
+    case "WrongFilePath":
+      return "Each audiobook file will be moved to its correct location based on library metadata.";
+    case "MissingDescTxt":
+    case "IncorrectDescTxt":
+      return "A desc.txt sidecar file containing the book description will be created or updated for each affected book.";
+    case "MissingReaderTxt":
+    case "IncorrectReaderTxt":
+      return "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.";
+    case "MissingCoverFile":
+      return "The cover image will be extracted from each affected audiobook file.";
+    default:
+      return "Continue?";
+  }
 };
 
 const getIssueIcon = (issueType: string): string => {

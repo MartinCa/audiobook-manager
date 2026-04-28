@@ -6,7 +6,7 @@ public interface IDiscoveredAudiobookRepository
 {
     Task InsertAsync(DiscoveredAudiobook discovered);
     Task<List<DiscoveredAudiobook>> GetAllAsync();
-    Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset);
+    Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset, string? search = null);
     Task DeleteAsync(long id);
     Task DeleteByPathAsync(string fullPath);
     Task ClearAllAsync();

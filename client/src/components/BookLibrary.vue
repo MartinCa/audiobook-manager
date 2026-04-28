@@ -14,6 +14,10 @@
         >
           Scan Library
         </v-btn>
+        <div class="text-caption text-medium-emphasis mt-1">
+          Scans the library directory for audiobook files that aren't yet
+          tracked in the database.
+        </div>
         <template v-if="scanning">
           <v-progress-linear
             class="mt-3"
@@ -44,9 +48,25 @@
     </v-row>
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">Discovered Audiobooks</h3>
-        <template v-if="discoveredBooks.length">
-          <v-expansion-panels v-model="discoveredActivePanel">
+        <h3 class="text-h6 mb-1">Discovered Audiobooks</h3>
+        <p class="text-body-2 text-medium-emphasis mb-3">
+          Audiobook files found in the library directory that aren't yet tracked
+          in the database. Expand a book to review its metadata and add it.
+        </p>
+        <template v-if="discoveredBooks.length || discoveredSearchQuery">
+          <v-text-field
+            v-model="discoveredSearchQuery"
+            label="Filter by filename"
+            prepend-inner-icon="mdi-magnify"
+            clearable
+            hide-details
+            density="compact"
+            class="mb-3"
+          />
+          <v-expansion-panels
+            v-if="discoveredBooks.length"
+            v-model="discoveredActivePanel"
+          >
             <v-expansion-panel
               v-for="(book, i) in discoveredBooks"
               :key="i"
@@ -84,6 +104,12 @@
               </v-expansion-panel-text>
             </v-expansion-panel>
           </v-expansion-panels>
+          <div
+            v-else
+            class="text-center mt-2"
+          >
+            No discovered audiobooks match your filter.
+          </div>
           <v-pagination
             v-model="discoveredCurrentPage"
             :length="discoveredTotalPages"
@@ -103,7 +129,15 @@
     </v-row>
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">Managed Audiobooks</h3>
+        <h3 class="text-h6 mb-1">Managed Audiobooks</h3>
+        <p class="text-body-2 text-medium-emphasis mb-3">
+          All audiobooks tracked in the library. Books flagged with a warning
+          have consistency issues — visit
+          <router-link to="/library/consistency"
+            >Library Consistency</router-link
+          >
+          to review and resolve them.
+        </p>
         <v-row class="mb-3">
           <v-col
             cols="12"
@@ -232,6 +266,7 @@ const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
 
 const discoveredBooks: Ref<BookFileInfo[]> = ref([]);
+const discoveredSearchQuery: Ref<string> = ref("");
 const discoveredActivePanel: Ref<any> = ref(null);
 const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
@@ -247,6 +282,7 @@ const scanNewFiles: Ref<number> = ref(0);
 const scanTrackedFiles: Ref<number> = ref(0);
 
 signalR.on(LibraryScanProgressToken, (arg) => {
+  scanning.value = true;
   scanMessage.value = arg.message;
   scanFilesScanned.value = arg.filesScanned;
   scanTotalFiles.value = arg.totalFiles;
@@ -323,10 +359,20 @@ const loadDiscoveredBooks = async () => {
   const result = await LibraryService.getDiscoveredBooks(
     limit,
     (discoveredCurrentPage.value - 1) * limit,
+    discoveredSearchQuery.value || undefined,
   );
   discoveredTotalItems.value = result.total;
   discoveredBooks.value = result.items;
 };
+
+const debouncedDiscoveredSearch = debounce(() => {
+  discoveredCurrentPage.value = 1;
+  loadDiscoveredBooks();
+}, 300);
+
+watch(discoveredSearchQuery, () => {
+  debouncedDiscoveredSearch();
+});
 
 const markDiscoveredAsQueued = async (book: BookFileInfo, queueId: string) => {
   book.queueId = queueId;
