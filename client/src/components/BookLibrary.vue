@@ -54,9 +54,18 @@
           in the database. Expand a book to review its metadata and add it.
         </p>
         <template v-if="discoveredBooks.length">
+          <v-text-field
+            v-model="discoveredSearchQuery"
+            label="Filter by filename"
+            prepend-inner-icon="mdi-magnify"
+            clearable
+            hide-details
+            density="compact"
+            class="mb-3"
+          />
           <v-expansion-panels v-model="discoveredActivePanel">
             <v-expansion-panel
-              v-for="(book, i) in discoveredBooks"
+              v-for="(book, i) in filteredDiscoveredBooks"
               :key="i"
             >
               <v-expansion-panel-title>
@@ -92,7 +101,14 @@
               </v-expansion-panel-text>
             </v-expansion-panel>
           </v-expansion-panels>
+          <div
+            v-if="filteredDiscoveredBooks.length === 0"
+            class="text-center mt-2"
+          >
+            No discovered audiobooks match your filter.
+          </div>
           <v-pagination
+            v-if="!discoveredSearchQuery"
             v-model="discoveredCurrentPage"
             :length="discoveredTotalPages"
             @update:model-value=""
@@ -248,6 +264,7 @@ const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
 
 const discoveredBooks: Ref<BookFileInfo[]> = ref([]);
+const discoveredSearchQuery: Ref<string> = ref("");
 const discoveredActivePanel: Ref<any> = ref(null);
 const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
@@ -263,6 +280,7 @@ const scanNewFiles: Ref<number> = ref(0);
 const scanTrackedFiles: Ref<number> = ref(0);
 
 signalR.on(LibraryScanProgressToken, (arg) => {
+  scanning.value = true;
   scanMessage.value = arg.message;
   scanFilesScanned.value = arg.filesScanned;
   scanTotalFiles.value = arg.totalFiles;
@@ -298,6 +316,15 @@ signalR.on(QueueErrorToken, (arg) => {
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
 const discoveredTotalPages = computed((): number =>
   Math.ceil(discoveredTotalItems.value / limit),
+);
+const filteredDiscoveredBooks = computed(() =>
+  discoveredSearchQuery.value
+    ? discoveredBooks.value.filter((b) =>
+        b.fileName
+          .toLowerCase()
+          .includes(discoveredSearchQuery.value.toLowerCase()),
+      )
+    : discoveredBooks.value,
 );
 
 watch(currentPage, () => {
