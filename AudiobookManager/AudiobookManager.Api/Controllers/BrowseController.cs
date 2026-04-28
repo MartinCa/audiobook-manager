@@ -107,6 +107,23 @@ public class BrowseController : ControllerBase
         );
     }
 
+    [HttpGet("audiobooks/{id}/cover")]
+    public async Task<IActionResult> GetAudiobookCover(long id)
+    {
+        var audiobook = await _audiobookRepo.GetByIdWithIncludesAsync(id);
+        if (audiobook == null || string.IsNullOrEmpty(audiobook.CoverFilePath))
+            return NotFound();
+
+        if (!System.IO.File.Exists(audiobook.CoverFilePath))
+            return NotFound();
+
+        var mimeType = audiobook.CoverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            ? "image/png"
+            : "image/jpeg";
+        var bytes = await System.IO.File.ReadAllBytesAsync(audiobook.CoverFilePath);
+        return File(bytes, mimeType);
+    }
+
     [HttpGet("series/{seriesName}")]
     public async Task<List<AudiobookSummaryDto>> GetSeriesBooks(string seriesName, [FromQuery] long? authorId)
     {

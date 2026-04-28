@@ -6,11 +6,11 @@
       lg="3"
     >
       <v-img
-        v-if="base64Data"
+        v-if="base64Data || coverUrl"
         max-height="200"
         class="bg-grey-darken-2"
         transition="false"
-        :src="`data:${mimeType};base64,${base64Data}`"
+        :src="base64Data ? `data:${mimeType};base64,${base64Data}` : coverUrl"
       ></v-img>
       <template v-else> No cover </template>
     </v-col>
@@ -81,6 +81,7 @@ import ImageService from "../services/ImageService";
 defineProps<{
   base64Data: string | undefined;
   mimeType: string | undefined;
+  coverUrl?: string;
 }>();
 
 const emit = defineEmits<{
