@@ -122,9 +122,9 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.WriteSpecialTag(SpecialTagField.ItunesGapless, "1");
         track.WriteSpecialTag(SpecialTagField.ItunesMediaType, "2");
 
-        track.EmbeddedPictures.Clear();
         if (audiobook.Cover is not null)
         {
+            track.EmbeddedPictures.Clear();
             var picture = PictureInfo.fromBinaryData(Convert.FromBase64String(audiobook.Cover.Base64Data), PictureInfo.PIC_TYPE.Front);
             track.EmbeddedPictures.Add(picture);
         }

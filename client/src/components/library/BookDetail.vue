@@ -91,6 +91,11 @@
           ref="coverEditor"
           :base64-data="input.cover_base64"
           :mime-type="input.cover_mime"
+          :cover-url="
+            !input.cover_base64 && bookDetail?.coverFilePath
+              ? `${apiBaseUrl}/browse/audiobooks/${bookDetail.id}/cover`
+              : undefined
+          "
           @update:cover="onCoverUpdate"
         />
         <v-row>
@@ -438,6 +443,8 @@ import CoverEditor from "../CoverEditor.vue";
 import DiffDisplay from "../DiffDisplay.vue";
 import { useDialogWidth } from "../dialog";
 import { joinPersons } from "../../helpers/bookDetailsHelpers";
+
+const apiBaseUrl = import.meta.env.VITE_BASE_API_URL as string;
 
 const route = useRoute();
 const bookId = computed(() => Number(route.params.bookId));
