@@ -15,7 +15,7 @@ class ImageService {
           })
           .then((response) => {
             const contentType = response.headers["content-type"];
-            if (contentType == undefined) {
+            if (typeof contentType !== "string") {
               reject("Invalid image response");
               return;
             }
