@@ -12,9 +12,16 @@
 
 <template>
   <v-app>
+    <v-app-bar v-if="mobile">
+      <v-app-bar-nav-icon @click="drawerOpen = !drawerOpen" />
+      <v-app-bar-title>Audiobook Manager</v-app-bar-title>
+    </v-app-bar>
+
     <v-navigation-drawer
-      expand-on-hover
-      rail
+      v-model="drawerOpen"
+      :rail="!mobile"
+      :expand-on-hover="!mobile"
+      :temporary="mobile"
     >
       <v-list
         density="compact"
@@ -76,9 +83,14 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
+import { useDisplay } from "vuetify";
 import ErrorNotifications from "./components/ErrorNotifications.vue";
 import { MenuLink } from "./types/MenuLink";
 import { useErrors } from "./components/errors";
+
+const { mobile } = useDisplay();
+const drawerOpen = ref(false);
 
 const { errors, onErrorDismissed } = useErrors();
 
