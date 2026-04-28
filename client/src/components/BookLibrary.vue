@@ -15,8 +15,8 @@
           Scan Library
         </v-btn>
         <div class="text-caption text-medium-emphasis mt-1">
-          Scans the import directory for new .m4b audiobook files and adds them
-          to the discovered list below.
+          Scans the library directory for audiobook files that aren't yet
+          tracked in the database.
         </div>
         <template v-if="scanning">
           <v-progress-linear
@@ -50,9 +50,8 @@
       <v-col cols="12">
         <h3 class="text-h6 mb-1">Discovered Audiobooks</h3>
         <p class="text-body-2 text-medium-emphasis mb-3">
-          Unorganized audiobook files sitting in the import directory. Expand a
-          book to review its metadata, then organize it to move it into the
-          library.
+          Audiobook files found in the library directory that aren't yet tracked
+          in the database. Expand a book to review its metadata and add it.
         </p>
         <template v-if="discoveredBooks.length">
           <v-expansion-panels v-model="discoveredActivePanel">
