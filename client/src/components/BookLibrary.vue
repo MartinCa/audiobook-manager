@@ -14,6 +14,10 @@
         >
           Scan Library
         </v-btn>
+        <div class="text-caption text-medium-emphasis mt-1">
+          Scans the import directory for new .m4b audiobook files and adds them
+          to the discovered list below.
+        </div>
         <template v-if="scanning">
           <v-progress-linear
             class="mt-3"
@@ -44,7 +48,12 @@
     </v-row>
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">Discovered Audiobooks</h3>
+        <h3 class="text-h6 mb-1">Discovered Audiobooks</h3>
+        <p class="text-body-2 text-medium-emphasis mb-3">
+          Audiobook files found in the import directory that haven't been added
+          to the library yet. Expand a book to review its metadata and organize
+          it into the library.
+        </p>
         <template v-if="discoveredBooks.length">
           <v-expansion-panels v-model="discoveredActivePanel">
             <v-expansion-panel
@@ -103,7 +112,15 @@
     </v-row>
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">Managed Audiobooks</h3>
+        <h3 class="text-h6 mb-1">Managed Audiobooks</h3>
+        <p class="text-body-2 text-medium-emphasis mb-3">
+          All audiobooks tracked in the library. Books flagged with a warning
+          have consistency issues — visit
+          <router-link to="/library/consistency"
+            >Library Consistency</router-link
+          >
+          to review and resolve them.
+        </p>
         <v-row class="mb-3">
           <v-col
             cols="12"
