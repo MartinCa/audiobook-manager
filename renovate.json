@@ -6,6 +6,7 @@
     ":enableVulnerabilityAlerts"
   ],
   "minimumReleaseAge": "4 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
   "packageRules": [
     {
       "matchUpdateTypes": [
