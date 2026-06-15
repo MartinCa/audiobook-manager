@@ -442,7 +442,11 @@ watch(
 const updateNewBookPath = debounce(async () => {
   var book = convertInputToAudiobook();
   if (book) {
-    newPath.value = await AudiobookService.generateNewPath(book);
+    try {
+      newPath.value = await AudiobookService.generateNewPath(book);
+    } catch {
+      newPath.value = "";
+    }
   }
 }, 300);
 
