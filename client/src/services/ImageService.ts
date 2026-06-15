@@ -1,4 +1,4 @@
-import axios from "axios";
+import apiClient from "../http-common";
 import { AudiobookImage } from "../types/Audiobook";
 
 const base64Regex = new RegExp(/^data[^,]+,/);
@@ -9,8 +9,9 @@ class ImageService {
   ): Promise<{ blob: Blob; contentType: string }> {
     return new Promise<{ blob: Blob; contentType: string }>(
       (resolve, reject) => {
-        axios
-          .get(imageUrl, {
+        apiClient
+          .get("/search/proxy-image", {
+            params: { url: imageUrl },
             responseType: "arraybuffer",
           })
           .then((response) => {
