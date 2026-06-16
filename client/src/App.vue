@@ -19,6 +19,7 @@
 
     <v-navigation-drawer
       v-model="drawerOpen"
+      :permanent="!mobile"
       :rail="!mobile"
       :expand-on-hover="!mobile"
       :temporary="mobile"
