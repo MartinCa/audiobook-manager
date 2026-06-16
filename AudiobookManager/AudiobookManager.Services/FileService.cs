@@ -23,6 +23,7 @@ public class FileService : IFileService
             throw new ArgumentException(nameof(directoryPath), "Could not get directory");
         }
 
+        ValidatePathWithinAllowedBases(dir);
         Directory.Delete(dir, true);
     }
     public IList<AudiobookFileInfo> GetDirectoryContents(string directoryPath)
@@ -34,7 +35,21 @@ public class FileService : IFileService
             throw new ArgumentException(nameof(directoryPath), "Could not get directory");
         }
 
+        ValidatePathWithinAllowedBases(dir);
         return FileScanner.ScanDirectoryForFiles(dir);
+    }
+
+    private void ValidatePathWithinAllowedBases(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var importBase = Path.GetFullPath(_settings.AudiobookImportPath);
+        var libraryBase = Path.GetFullPath(_settings.AudiobookLibraryPath);
+
+        if (!fullPath.StartsWith(importBase, StringComparison.Ordinal) &&
+            !fullPath.StartsWith(libraryBase, StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException($"Access to path '{path}' is not allowed");
+        }
     }
 
     public IEnumerable<AudiobookFileInfo> ScanInputDirectoryForAudiobookFiles()

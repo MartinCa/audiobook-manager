@@ -226,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, onMounted, reactive } from "vue";
+import { computed, Ref, ref, onMounted, onUnmounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
 import DiffDisplay from "./DiffDisplay.vue";
@@ -314,19 +314,27 @@ const getIssueTypeLabel = (issueType: string): string => {
   }
 };
 
-signalR.on(ConsistencyCheckProgressToken, (arg) => {
+const onConsistencyCheckProgress = (arg: ConsistencyCheckProgress) => {
   checkMessage.value = arg.message;
   checkBooksChecked.value = arg.booksChecked;
   checkTotalBooks.value = arg.totalBooks;
   checkIssuesFound.value = arg.issuesFound;
-});
+};
 
-signalR.on(ConsistencyCheckCompleteToken, (arg) => {
+const onConsistencyCheckComplete = (arg: ConsistencyCheckComplete) => {
   checking.value = false;
   checkComplete.value = true;
   completeTotalBooks.value = arg.totalBooksChecked;
   completeTotalIssues.value = arg.totalIssuesFound;
   loadIssues();
+};
+
+signalR.on(ConsistencyCheckProgressToken, onConsistencyCheckProgress);
+signalR.on(ConsistencyCheckCompleteToken, onConsistencyCheckComplete);
+
+onUnmounted(() => {
+  signalR.off(ConsistencyCheckProgressToken, onConsistencyCheckProgress);
+  signalR.off(ConsistencyCheckCompleteToken, onConsistencyCheckComplete);
 });
 
 const startCheck = async () => {

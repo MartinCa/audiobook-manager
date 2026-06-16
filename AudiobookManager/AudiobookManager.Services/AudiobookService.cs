@@ -130,7 +130,7 @@ public class AudiobookService : IAudiobookService
             audiobook.Subtitle,
             audiobook.Series,
             audiobook.SeriesPart,
-            audiobook.Year.Value,
+            audiobook.Year ?? 0,
             audiobook.Description,
             audiobook.Copyright,
             audiobook.Publisher,
@@ -184,6 +184,7 @@ public class AudiobookService : IAudiobookService
                 throw new Exception($"'{newFullPath}' already exists");
 
             AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+            audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
 

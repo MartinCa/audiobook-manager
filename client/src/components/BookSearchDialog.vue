@@ -138,7 +138,6 @@
                   <td>
                     <v-btn
                       color="primary"
-                      v-bind="props"
                       @click="chooseSeries(idx)"
                     >
                       <v-icon>mdi-check</v-icon>
@@ -213,7 +212,6 @@
                 <v-btn
                   color="primary"
                   size="small"
-                  v-bind="props"
                   @click="chooseResult(result)"
                 >
                   <v-icon>mdi-check</v-icon>
@@ -398,7 +396,7 @@ const addSearchTerm = (term: string) => {
 const { errors, onErrorDismissed } = useErrors();
 </script>
 
-<style scope>
+<style scoped>
 a {
   color: #bb86fc;
 }

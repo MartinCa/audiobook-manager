@@ -33,6 +33,7 @@ public class SettingsController : ControllerBase
     [HttpPut("series_mappings/{mappingId}")]
     public async Task<SeriesMapping> UpdateSeriesMappingAsync([FromBody] SeriesMapping dto, long mappingId)
     {
+        dto.Id = mappingId;
         return await _settingsService.UpdateSeriesMapping(dto);
     }
 

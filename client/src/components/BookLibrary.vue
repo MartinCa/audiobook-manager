@@ -113,7 +113,6 @@
           <v-pagination
             v-model="discoveredCurrentPage"
             :length="discoveredTotalPages"
-            @update:model-value=""
           ></v-pagination>
         </template>
         <template v-else>
@@ -216,7 +215,6 @@
           <v-pagination
             v-model="currentPage"
             :length="totalPages"
-            @update:model-value=""
           ></v-pagination>
         </template>
         <template v-else>
@@ -233,7 +231,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, Ref, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import { debounce } from "lodash";
 import BookOrganize from "./BookOrganize.vue";
 import LibraryService from "../services/LibraryService";
@@ -281,22 +279,22 @@ const scanComplete: Ref<boolean> = ref(false);
 const scanNewFiles: Ref<number> = ref(0);
 const scanTrackedFiles: Ref<number> = ref(0);
 
-signalR.on(LibraryScanProgressToken, (arg) => {
+const onLibraryScanProgress = (arg: LibraryScanProgress) => {
   scanning.value = true;
   scanMessage.value = arg.message;
   scanFilesScanned.value = arg.filesScanned;
   scanTotalFiles.value = arg.totalFiles;
-});
+};
 
-signalR.on(LibraryScanCompleteToken, (arg) => {
+const onLibraryScanComplete = (arg: LibraryScanComplete) => {
   scanning.value = false;
   scanComplete.value = true;
   scanNewFiles.value = arg.newFilesDiscovered;
   scanTrackedFiles.value = arg.alreadyTracked;
   loadDiscoveredBooks();
-});
+};
 
-signalR.on(UpdateProgress, (arg) => {
+const onUpdateProgress = (arg: ProgressUpdate) => {
   const book = discoveredBooks.value.find(
     (x) => x.queueId === arg.originalFileLocation,
   );
@@ -304,15 +302,27 @@ signalR.on(UpdateProgress, (arg) => {
     book.queueMessage = arg.progressMessage;
     book.queueProgress = arg.progress;
   }
-});
+};
 
-signalR.on(QueueErrorToken, (arg) => {
+const onQueueError = (arg: QueueError) => {
   const book = discoveredBooks.value.find(
     (x) => x.queueId === arg.originalFileLocation,
   );
   if (book) {
     book.error = arg.error;
   }
+};
+
+signalR.on(LibraryScanProgressToken, onLibraryScanProgress);
+signalR.on(LibraryScanCompleteToken, onLibraryScanComplete);
+signalR.on(UpdateProgress, onUpdateProgress);
+signalR.on(QueueErrorToken, onQueueError);
+
+onUnmounted(() => {
+  signalR.off(LibraryScanProgressToken, onLibraryScanProgress);
+  signalR.off(LibraryScanCompleteToken, onLibraryScanComplete);
+  signalR.off(UpdateProgress, onUpdateProgress);
+  signalR.off(QueueErrorToken, onQueueError);
 });
 
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit));

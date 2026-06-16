@@ -11,6 +11,8 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class ConsistencyController : ControllerBase
 {
+    private static readonly SemaphoreSlim _checkLock = new(1, 1);
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IConsistencyIssueRepository _issueRepository;
@@ -31,13 +33,16 @@ public class ConsistencyController : ControllerBase
     [HttpPost("check")]
     public IActionResult StartConsistencyCheck()
     {
+        if (!_checkLock.Wait(0))
+            return Conflict("A consistency check is already in progress");
+
         Task.Run(async () =>
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+
                 var totalBooksChecked = 0;
                 var totalIssuesFound = 0;
 
@@ -64,6 +69,10 @@ public class ConsistencyController : ControllerBase
                 {
                     _logger.LogError(hubEx, "Failed to send ConsistencyCheckComplete over SignalR");
                 }
+            }
+            finally
+            {
+                _checkLock.Release();
             }
         });
 

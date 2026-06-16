@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
 public class GenreRepository : IGenreRepository
@@ -12,7 +13,7 @@ public class GenreRepository : IGenreRepository
 
     public async Task<Genre> GetOrCreateGenre(string name)
     {
-        var dbGenre = _db.Genres.SingleOrDefault(x => x.Name == name)
+        var dbGenre = await _db.Genres.SingleOrDefaultAsync(x => x.Name == name)
             ?? new Genre(default, name);
 
         if (dbGenre.Id == default)

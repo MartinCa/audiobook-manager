@@ -46,7 +46,7 @@ public static class AudiobookFileHandler
 
     public static void RemoveDirIfEmpty(string directoryPath)
     {
-        if (Directory.Exists(directoryPath) && !Directory.GetFiles(directoryPath).Any())
+        if (Directory.Exists(directoryPath) && !Directory.GetFiles(directoryPath).Any() && !Directory.GetDirectories(directoryPath).Any())
         {
             Directory.Delete(directoryPath);
         }

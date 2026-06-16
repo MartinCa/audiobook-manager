@@ -79,7 +79,6 @@
                   <td>
                     <v-btn
                       color="primary"
-                      v-bind="props"
                       @click="chooseSeries(idx)"
                     >
                       <v-icon>mdi-check</v-icon>
@@ -153,7 +152,7 @@ const chooseSeries = (seriesIdx: number) => {
 const { errors, onErrorDismissed } = useErrors();
 </script>
 
-<style scope>
+<style scoped>
 a {
   color: #bb86fc;
 }

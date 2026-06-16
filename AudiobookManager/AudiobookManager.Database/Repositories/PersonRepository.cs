@@ -13,7 +13,7 @@ public class PersonRepository : IPersonRepository
 
     public async Task<Person> GetOrCreatePerson(string name)
     {
-        var dbPerson = _db.Persons.SingleOrDefault(p => p.Name == name)
+        var dbPerson = await _db.Persons.SingleOrDefaultAsync(p => p.Name == name)
             ?? new Person(default, name);
 
         if (dbPerson.Id == default)
