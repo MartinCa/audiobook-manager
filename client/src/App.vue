@@ -90,7 +90,7 @@ import { MenuLink } from "./types/MenuLink";
 import { useErrors } from "./components/errors";
 
 const { mobile } = useDisplay();
-const drawerOpen = ref(false);
+const drawerOpen = ref(!mobile.value);
 
 const { errors, onErrorDismissed } = useErrors();
 
