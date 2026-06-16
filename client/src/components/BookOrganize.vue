@@ -511,7 +511,7 @@ const convertInputToAudiobook = (): Audiobook | null => {
 };
 
 const validateForm = async (): Promise<boolean> => {
-  if (!form) {
+  if (!form.value) {
     return false;
   }
 
@@ -535,8 +535,12 @@ const organizeBook = async (relocate = false) => {
 
   organizing.value = true;
 
-  const organizeId = await AudiobookService.organizeBook(data);
-  emit("bookQueued", organizeId);
+  try {
+    const organizeId = await AudiobookService.organizeBook(data);
+    emit("bookQueued", organizeId);
+  } finally {
+    organizing.value = false;
+  }
 };
 const getBookDetails = async () => {
   const book = await AudiobookService.parseBookDetails(props.bookPath);

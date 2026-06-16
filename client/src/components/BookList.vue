@@ -59,7 +59,6 @@
           <v-pagination
             v-model="currentPage"
             :length="totalPages"
-            @update:model-value=""
           ></v-pagination>
         </template>
 
@@ -80,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, watch } from "vue";
+import { computed, onUnmounted, Ref, ref, watch } from "vue";
 import BookOrganize from "./BookOrganize.vue";
 import UntaggedService from "../services/UntaggedService";
 import QueueService from "../services/QueueService";
@@ -94,19 +93,27 @@ const QueueErrorToken: HubEventToken<QueueError> = "QueueError";
 
 const signalR = useSignalR();
 
-signalR.on(UpdateProgress, (arg) => {
+const onUpdateProgress = (arg: ProgressUpdate) => {
   const book = books.value.find((x) => x.queueId === arg.originalFileLocation);
   if (book) {
     book.queueMessage = arg.progressMessage;
     book.queueProgress = arg.progress;
   }
-});
+};
 
-signalR.on(QueueErrorToken, (arg) => {
+const onQueueError = (arg: QueueError) => {
   const book = books.value.find((x) => x.queueId === arg.originalFileLocation);
   if (book) {
     book.error = arg.error;
   }
+};
+
+signalR.on(UpdateProgress, onUpdateProgress);
+signalR.on(QueueErrorToken, onQueueError);
+
+onUnmounted(() => {
+  signalR.off(UpdateProgress, onUpdateProgress);
+  signalR.off(QueueErrorToken, onQueueError);
 });
 
 const limit = 50;
@@ -119,7 +126,7 @@ const loadingBooks: Ref<boolean> = ref(false);
 
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
 
-watch(currentPage, (oldPage, newPage) => {
+watch(currentPage, (newPage, oldPage) => {
   loadBooks();
 });
 

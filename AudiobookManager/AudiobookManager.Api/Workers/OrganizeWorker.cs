@@ -33,7 +33,7 @@ public class OrganizeWorker : BackgroundService
                     task = await organizeTaskService.GetNextQueuedOrganizeTask();
                     if (task == null)
                     {
-                        Thread.Sleep(5000);
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                         continue;
                     }
 

@@ -70,7 +70,7 @@ const emit = defineEmits<{
 
 onMounted(() => {
   input.value = Object.assign(
-    { regex: "", mapped_series: "", warn_about_part: false },
+    { regex: "", mappedSeries: "", warnAboutPart: false },
     props.mapping,
   );
 });
@@ -84,7 +84,7 @@ const deleteMapping = async () => {
 };
 
 const validateForm = async (): Promise<boolean> => {
-  if (!form) {
+  if (!form.value) {
     return false;
   }
 

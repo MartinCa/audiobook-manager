@@ -12,6 +12,8 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class LibraryController : ControllerBase
 {
+    private static readonly SemaphoreSlim _scanLock = new(1, 1);
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IDiscoveredAudiobookRepository _discoveredRepo;
@@ -32,13 +34,16 @@ public class LibraryController : ControllerBase
     [HttpPost("scan")]
     public IActionResult StartLibraryScan()
     {
+        if (!_scanLock.Wait(0))
+            return Conflict("A library scan is already in progress");
+
         Task.Run(async () =>
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var scanService = scope.ServiceProvider.GetRequiredService<ILibraryScanService>();
-
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var scanService = scope.ServiceProvider.GetRequiredService<ILibraryScanService>();
+
                 var (totalFiles, newFilesDiscovered, trackedFiles) = await scanService.ScanLibrary(async (message, filesScanned, total) =>
                 {
                     await _organizeHub.Clients.All.LibraryScanProgress(
@@ -60,6 +65,10 @@ public class LibraryController : ControllerBase
                 {
                     _logger.LogError(hubEx, "Failed to send LibraryScanComplete over SignalR");
                 }
+            }
+            finally
+            {
+                _scanLock.Release();
             }
         });
 
