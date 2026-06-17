@@ -84,7 +84,7 @@ import BookOrganize from "./BookOrganize.vue";
 import UntaggedService from "../services/UntaggedService";
 import QueueService from "../services/QueueService";
 import BookFileInfo from "../types/BookFileInfo";
-import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
+import { useSignalR, HubEventToken } from "@/signalr/hub";
 import { ProgressUpdate } from "../signalr/ProgressUpdate";
 import { QueueError } from "../signalr/QueueError";
 

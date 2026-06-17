@@ -230,7 +230,7 @@ import { computed, Ref, ref, onMounted, onUnmounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
 import DiffDisplay from "./DiffDisplay.vue";
-import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
+import { useSignalR, HubEventToken } from "@/signalr/hub";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
 import { ConsistencyCheckComplete } from "../signalr/ConsistencyCheckComplete";
 
