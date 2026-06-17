@@ -8,6 +8,16 @@ import { fileURLToPath, URL } from "node:url";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // @microsoft/signalr uses /*#__PURE__*/ before function declarations,
+        // which Rolldown doesn't support — safe to suppress for third-party code.
+        if (warning.code === "INVALID_ANNOTATION" && warning.id?.includes("@microsoft/signalr")) return;
+        warn(warning);
+      },
+    },
+  },
   plugins: [
     vue(),
     // https://github.com/vuetifyjs/vuetify-loader/tree/next/packages/vite-plugin
