@@ -9,7 +9,7 @@ on:
 permissions: {}
 
 jobs:
-  dotnet:
+  test-dotnet:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,7 +29,7 @@ jobs:
         working-directory: ./AudiobookManager
         run: dotnet test
 
-  frontend:
+  test-frontend:
     runs-on: ubuntu-latest
     permissions:
       contents: read
