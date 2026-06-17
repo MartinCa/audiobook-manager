@@ -6,12 +6,13 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "format-check": "prettier --check .",
     "format": "prettier --write ."
   },
   "dependencies": {
     "@mdi/font": "7.4.47",
-    "@quangdao/vue-signalr": "1.0.1",
+    "@microsoft/signalr": "^10.0.0",
     "axios": "^1.13.4",
     "diff": "^9.0.0",
     "lodash": "4.18.1",
@@ -27,10 +28,14 @@
     "@types/node": "^25.1.0",
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "^6.0.5",
+    "@vitest/ui": "^4.1.9",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
     "prettier": "^3.8.1",
     "typescript": "6.0.3",
     "vite": "^8.0.3",
     "vite-plugin-vuetify": "^2.1.3",
+    "vitest": "^4.1.9",
     "vue-tsc": "^3.2.4"
   }
 }

@@ -240,7 +240,7 @@ import ConsistencyService from "../services/ConsistencyService";
 import { formatDuration } from "../helpers/formatHelpers";
 import ManagedAudiobook from "../types/ManagedAudiobook";
 import BookFileInfo from "../types/BookFileInfo";
-import { useSignalR, HubEventToken } from "@quangdao/vue-signalr";
+import { useSignalR, HubEventToken } from "@/signalr/hub";
 import { LibraryScanProgress } from "../signalr/LibraryScanProgress";
 import { LibraryScanComplete } from "../signalr/LibraryScanComplete";
 import { ProgressUpdate } from "../signalr/ProgressUpdate";
