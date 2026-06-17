@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "format-check": "prettier --check .",
     "format": "prettier --write ."
   },
@@ -27,10 +28,14 @@
     "@types/node": "^25.1.0",
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "^6.0.5",
+    "@vitest/ui": "^4.1.9",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
     "prettier": "^3.8.1",
     "typescript": "6.0.3",
     "vite": "^8.0.3",
     "vite-plugin-vuetify": "^2.1.3",
+    "vitest": "^4.1.9",
     "vue-tsc": "^3.2.4"
   }
 }
