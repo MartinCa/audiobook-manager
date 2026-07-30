@@ -1,12 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    ":disableRateLimiting",
-    ":enableVulnerabilityAlerts"
-  ],
-  "minimumReleaseAge": "4 days",
-  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "extends": ["github>MartinCa/renovate-config"],
   "packageRules": [
     {
       "matchUpdateTypes": [
