@@ -134,6 +134,7 @@ Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description) and `read
 - Vite dev server on port 3000, API on port 5271
 - Audio metadata handled via `z440.atl.core` library (ATL)
 - HTTP resilience via Polly
+- **TypeScript pinned to 6.x** — do not upgrade to TypeScript 7 yet. TS 7.0 dropped the Compiler/AST API that `vue-tsc` relies on, so `vue-tsc` (and therefore `npm run build`) breaks on it. Official support is blocked on TS 7.1's plugin interface (see [vuejs/language-tools#5381](https://github.com/vuejs/language-tools/issues/5381)); an interim third-party shim (`typescript-native-bridge`) exists but isn't worth adopting for this project. Re-check once `vue-tsc` ships native TS 7.1 support.
 
 ## Verification Checklist
 
