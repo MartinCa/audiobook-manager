@@ -72,8 +72,16 @@ public class SimilarValueService : ISimilarValueService
         string targetName,
         Func<int, int, int, int, Task> progressAction)
     {
-        var sourceSet = new HashSet<string>(sourceNames, StringComparer.Ordinal);
-        var books = await _audiobookRepository.GetBooksByAuthorNamesAsync(sourceNames);
+        // sourceNames is the full candidate group, which includes targetName itself. Excluding it
+        // before querying avoids re-processing books that already only have the target author name.
+        var namesToAlign = sourceNames.Where(n => n != targetName).ToList();
+        if (namesToAlign.Count == 0)
+        {
+            return (0, 0, 0);
+        }
+
+        var sourceSet = new HashSet<string>(namesToAlign, StringComparer.Ordinal);
+        var books = await _audiobookRepository.GetBooksByAuthorNamesAsync(namesToAlign);
 
         var processed = 0;
         var succeeded = 0;
@@ -127,7 +135,15 @@ public class SimilarValueService : ISimilarValueService
         string targetValue,
         Func<int, int, int, int, Task> progressAction)
     {
-        var books = await _audiobookRepository.GetBooksBySeriesValuesAsync(sourceValues);
+        // sourceValues is the full candidate group, which includes targetValue itself. Excluding it
+        // before querying avoids re-processing books whose series already matches the target.
+        var valuesToAlign = sourceValues.Where(v => v != targetValue).ToList();
+        if (valuesToAlign.Count == 0)
+        {
+            return (0, 0, 0);
+        }
+
+        var books = await _audiobookRepository.GetBooksBySeriesValuesAsync(valuesToAlign);
 
         var processed = 0;
         var succeeded = 0;
