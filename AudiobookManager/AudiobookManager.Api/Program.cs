@@ -1,9 +1,27 @@
+using System.Text.RegularExpressions;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Workers;
 using AudiobookManager.Database;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.EntityFrameworkCore;
+
+internal partial class SlugifyParameterTransformer : IOutboundParameterTransformer
+{
+    public string? TransformOutbound(object? value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+
+        return KebabCaseRegex().Replace(value.ToString()!, "$1-$2").ToLowerInvariant();
+    }
+
+    [GeneratedRegex("([a-z0-9])([A-Z])")]
+    private static partial Regex KebabCaseRegex();
+}
 
 internal class Program
 {
@@ -39,7 +57,10 @@ internal class Program
 
         builder.Services.AddSignalR();
 
-        builder.Services.AddControllers();
+        builder.Services.AddControllers(options =>
+        {
+            options.Conventions.Add(new RouteTokenTransformerConvention(new SlugifyParameterTransformer()));
+        });
         // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
