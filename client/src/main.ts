@@ -12,6 +12,8 @@ const BookLibrary = () => import("./components/BookLibrary.vue");
 const AuthorsList = () => import("./components/library/AuthorsList.vue");
 const AuthorDetail = () => import("./components/library/AuthorDetail.vue");
 const SeriesDetail = () => import("./components/library/SeriesDetail.vue");
+const DiscoveredAudiobooks = () =>
+  import("./components/library/DiscoveredAudiobooks.vue");
 const LibraryConsistency = () => import("./components/LibraryConsistency.vue");
 const BookDetail = () => import("./components/library/BookDetail.vue");
 
@@ -35,6 +37,7 @@ const routes = [
   { path: "/library/authors/:authorId", component: AuthorDetail },
   { path: "/library/series/:seriesName", component: SeriesDetail },
   { path: "/library/book/:bookId", component: BookDetail },
+  { path: "/library/discovered", component: DiscoveredAudiobooks },
   { path: "/library/consistency", component: LibraryConsistency },
   { path: "/settings", component: Settings },
 ];
