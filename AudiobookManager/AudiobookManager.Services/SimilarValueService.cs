@@ -67,7 +67,7 @@ public class SimilarValueService : ISimilarValueService
         }).ToList();
     }
 
-    public async Task AlignAuthorsAsync(
+    public async Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
         string targetName,
         Func<int, int, int, int, Task> progressAction)
@@ -118,9 +118,11 @@ public class SimilarValueService : ISimilarValueService
 
             await progressAction(processed, total, succeeded, failed);
         }
+
+        return (processed, succeeded, failed);
     }
 
-    public async Task AlignSeriesAsync(
+    public async Task<(int Processed, int Succeeded, int Failed)> AlignSeriesAsync(
         List<string> sourceValues,
         string targetValue,
         Func<int, int, int, int, Task> progressAction)
@@ -152,5 +154,7 @@ public class SimilarValueService : ISimilarValueService
 
             await progressAction(processed, total, succeeded, failed);
         }
+
+        return (processed, succeeded, failed);
     }
 }

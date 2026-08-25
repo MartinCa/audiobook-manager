@@ -32,7 +32,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _logger = logger;
     }
 
-    public async Task RunConsistencyCheck(Func<string, int, int, int, Task> progressAction)
+    public async Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction)
     {
         _logger.LogInformation("Starting library consistency check");
 
@@ -152,6 +152,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         issuesFound = await CheckForOrphanDirectories(progressAction, totalBooks, issuesFound);
 
         _logger.LogInformation("Consistency check complete. Books: {Total}, Issues: {Issues}", totalBooks, issuesFound);
+
+        return (totalBooks, issuesFound);
     }
 
     private async Task<int> CheckForOrphanDirectories(Func<string, int, int, int, Task> progressAction, int totalBooks, int issuesFound)

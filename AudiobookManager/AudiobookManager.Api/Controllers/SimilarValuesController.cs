@@ -74,61 +74,26 @@ public class SimilarValuesController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.TargetValue))
             return BadRequest("TargetValue is required");
 
-        if (!_alignLock.Wait(0))
-            return Conflict("An alignment operation is already in progress");
-
-        Task.Run(async () =>
-        {
-            try
+        return BackgroundOperationRunner.Start(
+            _alignLock,
+            _serviceScopeFactory,
+            _logger,
+            async sp =>
             {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var similarValueService = scope.ServiceProvider.GetRequiredService<ISimilarValueService>();
+                var similarValueService = sp.GetRequiredService<ISimilarValueService>();
 
-                var totalProcessed = 0;
-                var totalSucceeded = 0;
-                var totalFailed = 0;
-
-                Func<int, int, int, int, Task> progressAction = async (processed, total, succeeded, failed) =>
-                {
-                    totalProcessed = processed;
-                    totalSucceeded = succeeded;
-                    totalFailed = failed;
-                    await _organizeHub.Clients.All.SimilarValueAlignProgress(
+                Task ProgressAction(int processed, int total, int succeeded, int failed) =>
+                    _organizeHub.Clients.All.SimilarValueAlignProgress(
                         new SimilarValueAlignProgress(processed, total, succeeded, failed));
-                };
 
-                if (dto.ValueType == "author")
-                {
-                    await similarValueService.AlignAuthorsAsync(dto.SourceValues, dto.TargetValue, progressAction);
-                }
-                else
-                {
-                    await similarValueService.AlignSeriesAsync(dto.SourceValues, dto.TargetValue, progressAction);
-                }
+                var (processed, succeeded, failed) = dto.ValueType == "author"
+                    ? await similarValueService.AlignAuthorsAsync(dto.SourceValues, dto.TargetValue, ProgressAction)
+                    : await similarValueService.AlignSeriesAsync(dto.SourceValues, dto.TargetValue, ProgressAction);
 
                 await _organizeHub.Clients.All.SimilarValueAlignComplete(
-                    new SimilarValueAlignComplete(totalProcessed, totalSucceeded, totalFailed));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during similar value alignment");
-                try
-                {
-                    await _organizeHub.Clients.All.SimilarValueAlignComplete(
-                        new SimilarValueAlignComplete(0, 0, 0));
-                }
-                catch (Exception hubEx)
-                {
-                    _logger.LogError(hubEx, "Failed to send SimilarValueAlignComplete over SignalR");
-                }
-            }
-            finally
-            {
-                _alignLock.Release();
-            }
-        });
-
-        return Ok();
+                    new SimilarValueAlignComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.SimilarValueAlignComplete(new SimilarValueAlignComplete(0, 0, 0)));
     }
 
     private static List<SimilarValueGroupDto> ToDto(List<Domain.SimilarValueGroup> groups)

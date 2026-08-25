@@ -7,12 +7,12 @@ public interface ISimilarValueService
     Task<List<SimilarValueGroup>> DetectSimilarAuthorsAsync();
     Task<List<SimilarValueGroup>> DetectSimilarSeriesAsync();
 
-    Task AlignAuthorsAsync(
+    Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
         string targetName,
         Func<int, int, int, int, Task> progressAction);
 
-    Task AlignSeriesAsync(
+    Task<(int Processed, int Succeeded, int Failed)> AlignSeriesAsync(
         List<string> sourceValues,
         string targetValue,
         Func<int, int, int, int, Task> progressAction);
