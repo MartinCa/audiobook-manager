@@ -46,6 +46,17 @@ public static class TrackSpecialTagExtensions
             return;
         }
 
+        // A previous save (or another tool) may have written this field code with different
+        // casing. AdditionalFields matches field codes case-insensitively when saving, but keeps
+        // whichever casing was already present, so remove any stale-cased entry first to avoid
+        // the casing drifting away from our canonical key forever.
+        var existingKey = track.AdditionalFields.Keys.FirstOrDefault(
+            k => !k.Equals(key, StringComparison.Ordinal) && k.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (existingKey is not null)
+        {
+            track.AdditionalFields.Remove(existingKey);
+        }
+
         if (value is null)
         {
             track.AdditionalFields.Remove(key);
