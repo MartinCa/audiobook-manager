@@ -53,127 +53,227 @@
 
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">
-          Similar Authors ({{ authorGroups.length }})
-        </h3>
+        <div class="d-flex align-center mb-3">
+          <v-btn
+            icon
+            variant="text"
+            density="comfortable"
+            :aria-label="
+              authorsCollapsed
+                ? 'Expand similar authors'
+                : 'Collapse similar authors'
+            "
+            @click="authorsCollapsed = !authorsCollapsed"
+          >
+            <v-icon>{{
+              authorsCollapsed ? "mdi-chevron-right" : "mdi-chevron-down"
+            }}</v-icon>
+          </v-btn>
+          <h3 class="text-h6">Similar Authors ({{ authorGroups.length }})</h3>
+        </div>
         <div
           v-if="!loading && authorGroups.length === 0"
           class="text-caption text-medium-emphasis mb-5"
         >
           No similar author groups found.
         </div>
-        <v-card
-          v-for="(group, index) in authorGroups"
-          :key="`author-${index}`"
-          class="mb-4"
-          variant="outlined"
-        >
-          <v-card-text>
-            <v-radio-group
-              v-model="authorSelections[index].target"
-              hide-details
-            >
-              <v-radio
-                v-for="candidate in group.candidates"
-                :key="candidate.value"
-                :value="candidate.value"
+        <div v-show="!authorsCollapsed">
+          <v-card
+            v-for="(group, index) in authorGroups"
+            :key="`author-${index}`"
+            class="mb-4"
+            variant="outlined"
+          >
+            <v-card-text>
+              <v-radio-group
+                v-model="authorSelections[index].target"
+                hide-details
               >
-                <template v-slot:label>
-                  {{ candidate.value }}
-                  <v-chip
-                    size="small"
-                    class="ml-2"
-                    >{{ candidate.bookCount }} book{{
-                      candidate.bookCount === 1 ? "" : "s"
-                    }}</v-chip
+                <v-radio
+                  v-for="candidate in group.candidates"
+                  :key="candidate.value"
+                  :value="candidate.value"
+                >
+                  <template v-slot:label>
+                    {{ candidate.value }}
+                    <v-chip
+                      size="small"
+                      class="ml-2"
+                      >{{ candidate.bookCount }} book{{
+                        candidate.bookCount === 1 ? "" : "s"
+                      }}</v-chip
+                    >
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      class="ml-1"
+                      @click.stop.prevent="
+                        toggleCandidateBooks('author', index, candidate.value)
+                      "
+                    >
+                      {{
+                        isCandidateExpanded("author", index, candidate.value)
+                          ? "hide books"
+                          : "show books"
+                      }}
+                    </v-btn>
+                  </template>
+                </v-radio>
+              </v-radio-group>
+              <div
+                v-for="candidate in group.candidates"
+                :key="`${candidate.value}-books`"
+              >
+                <v-expand-transition>
+                  <ul
+                    v-if="isCandidateExpanded('author', index, candidate.value)"
+                    class="text-caption text-medium-emphasis mb-2"
                   >
-                </template>
-              </v-radio>
-            </v-radio-group>
-            <v-text-field
-              v-model="authorSelections[index].customValue"
-              label="Or enter a different value"
-              density="compact"
-              hide-details
-              class="mt-2"
-              @update:model-value="
-                onCustomValueEntered(authorSelections[index])
-              "
-            />
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn
-              color="primary"
-              :disabled="!authorSelections[index].target || aligning"
-              @click="onApplyClick('author', group, authorSelections[index])"
-            >
-              Apply
-            </v-btn>
-          </v-card-actions>
-        </v-card>
+                    <li
+                      v-for="book in candidate.books"
+                      :key="book.id"
+                    >
+                      {{ book.bookName }}
+                    </li>
+                  </ul>
+                </v-expand-transition>
+              </div>
+              <v-text-field
+                v-model="authorSelections[index].customValue"
+                label="Or enter a different value"
+                density="compact"
+                hide-details
+                class="mt-2"
+                @update:model-value="
+                  onCustomValueEntered(authorSelections[index])
+                "
+              />
+            </v-card-text>
+            <v-card-actions>
+              <v-spacer />
+              <v-btn
+                color="primary"
+                :disabled="!authorSelections[index].target || aligning"
+                @click="onApplyClick('author', group, authorSelections[index])"
+              >
+                Apply
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </div>
       </v-col>
     </v-row>
 
     <v-row>
       <v-col cols="12">
-        <h3 class="text-h6 mb-3">Similar Series ({{ seriesGroups.length }})</h3>
+        <div class="d-flex align-center mb-3">
+          <v-btn
+            icon
+            variant="text"
+            density="comfortable"
+            :aria-label="
+              seriesCollapsed
+                ? 'Expand similar series'
+                : 'Collapse similar series'
+            "
+            @click="seriesCollapsed = !seriesCollapsed"
+          >
+            <v-icon>{{
+              seriesCollapsed ? "mdi-chevron-right" : "mdi-chevron-down"
+            }}</v-icon>
+          </v-btn>
+          <h3 class="text-h6">Similar Series ({{ seriesGroups.length }})</h3>
+        </div>
         <div
           v-if="!loading && seriesGroups.length === 0"
           class="text-caption text-medium-emphasis mb-5"
         >
           No similar series groups found.
         </div>
-        <v-card
-          v-for="(group, index) in seriesGroups"
-          :key="`series-${index}`"
-          class="mb-4"
-          variant="outlined"
-        >
-          <v-card-text>
-            <v-radio-group
-              v-model="seriesSelections[index].target"
-              hide-details
-            >
-              <v-radio
-                v-for="candidate in group.candidates"
-                :key="candidate.value"
-                :value="candidate.value"
+        <div v-show="!seriesCollapsed">
+          <v-card
+            v-for="(group, index) in seriesGroups"
+            :key="`series-${index}`"
+            class="mb-4"
+            variant="outlined"
+          >
+            <v-card-text>
+              <v-radio-group
+                v-model="seriesSelections[index].target"
+                hide-details
               >
-                <template v-slot:label>
-                  {{ candidate.value }}
-                  <v-chip
-                    size="small"
-                    class="ml-2"
-                    >{{ candidate.bookCount }} book{{
-                      candidate.bookCount === 1 ? "" : "s"
-                    }}</v-chip
+                <v-radio
+                  v-for="candidate in group.candidates"
+                  :key="candidate.value"
+                  :value="candidate.value"
+                >
+                  <template v-slot:label>
+                    {{ candidate.value }}
+                    <v-chip
+                      size="small"
+                      class="ml-2"
+                      >{{ candidate.bookCount }} book{{
+                        candidate.bookCount === 1 ? "" : "s"
+                      }}</v-chip
+                    >
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      class="ml-1"
+                      @click.stop.prevent="
+                        toggleCandidateBooks('series', index, candidate.value)
+                      "
+                    >
+                      {{
+                        isCandidateExpanded("series", index, candidate.value)
+                          ? "hide books"
+                          : "show books"
+                      }}
+                    </v-btn>
+                  </template>
+                </v-radio>
+              </v-radio-group>
+              <div
+                v-for="candidate in group.candidates"
+                :key="`${candidate.value}-books`"
+              >
+                <v-expand-transition>
+                  <ul
+                    v-if="isCandidateExpanded('series', index, candidate.value)"
+                    class="text-caption text-medium-emphasis mb-2"
                   >
-                </template>
-              </v-radio>
-            </v-radio-group>
-            <v-text-field
-              v-model="seriesSelections[index].customValue"
-              label="Or enter a different value"
-              density="compact"
-              hide-details
-              class="mt-2"
-              @update:model-value="
-                onCustomValueEntered(seriesSelections[index])
-              "
-            />
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn
-              color="primary"
-              :disabled="!seriesSelections[index].target || aligning"
-              @click="onApplyClick('series', group, seriesSelections[index])"
-            >
-              Apply
-            </v-btn>
-          </v-card-actions>
-        </v-card>
+                    <li
+                      v-for="book in candidate.books"
+                      :key="book.id"
+                    >
+                      {{ book.bookName }}
+                    </li>
+                  </ul>
+                </v-expand-transition>
+              </div>
+              <v-text-field
+                v-model="seriesSelections[index].customValue"
+                label="Or enter a different value"
+                density="compact"
+                hide-details
+                class="mt-2"
+                @update:model-value="
+                  onCustomValueEntered(seriesSelections[index])
+                "
+              />
+            </v-card-text>
+            <v-card-actions>
+              <v-spacer />
+              <v-btn
+                color="primary"
+                :disabled="!seriesSelections[index].target || aligning"
+                @click="onApplyClick('series', group, seriesSelections[index])"
+              >
+                Apply
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </div>
       </v-col>
     </v-row>
 
@@ -243,6 +343,41 @@ const authorGroups: Ref<SimilarValueGroup[]> = ref([]);
 const seriesGroups: Ref<SimilarValueGroup[]> = ref([]);
 const authorSelections: Ref<Selection[]> = ref([]);
 const seriesSelections: Ref<Selection[]> = ref([]);
+
+const authorsCollapsed: Ref<boolean> = ref(false);
+const seriesCollapsed: Ref<boolean> = ref(false);
+
+const expandedCandidates: Ref<Set<string>> = ref(new Set());
+
+const candidateKey = (
+  valueType: "author" | "series",
+  groupIndex: number,
+  candidateValue: string,
+): string => `${valueType}-${groupIndex}-${candidateValue}`;
+
+const isCandidateExpanded = (
+  valueType: "author" | "series",
+  groupIndex: number,
+  candidateValue: string,
+): boolean =>
+  expandedCandidates.value.has(
+    candidateKey(valueType, groupIndex, candidateValue),
+  );
+
+const toggleCandidateBooks = (
+  valueType: "author" | "series",
+  groupIndex: number,
+  candidateValue: string,
+) => {
+  const key = candidateKey(valueType, groupIndex, candidateValue);
+  const next = new Set(expandedCandidates.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  expandedCandidates.value = next;
+};
 
 const aligning: Ref<boolean> = ref(false);
 const alignProcessed: Ref<number> = ref(0);

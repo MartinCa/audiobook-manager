@@ -8,5 +8,11 @@ public class SimilarValueGroup
 public class SimilarValueCandidate
 {
     public string Value { get; set; } = string.Empty;
-    public List<long> AudiobookIds { get; set; } = new();
+    public List<SimilarValueBook> Books { get; set; } = new();
+}
+
+public class SimilarValueBook
+{
+    public long Id { get; set; }
+    public string BookName { get; set; } = string.Empty;
 }

@@ -134,6 +134,7 @@
           density="comfortable"
           :items="seriesNames"
           v-model="input.series"
+          @blur="checkSeriesHint"
         >
           <template
             v-slot:prepend
@@ -403,6 +404,7 @@ const onAuthorFieldBlur = () => {
   setTimeout(() => {
     authorFieldFocused.value = false;
   }, 150);
+  checkAuthorHint();
 };
 
 const applyAuthorSuggestion = (suggestion: string) => {
@@ -426,9 +428,8 @@ const applySeriesHint = () => {
   }
 };
 
-const checkSimilarHints = () => {
+const checkAuthorHint = () => {
   authorHint.value = null;
-  seriesHint.value = null;
 
   const primaryAuthor = (input.value.authors ?? "").split(",")[0]?.trim();
   if (primaryAuthor) {
@@ -437,6 +438,10 @@ const checkSimilarHints = () => {
       authorHint.value = matches[0];
     }
   }
+};
+
+const checkSeriesHint = () => {
+  seriesHint.value = null;
 
   if (input.value.series) {
     const matches = findSimilarExisting(input.value.series, seriesNames.value);
@@ -444,6 +449,11 @@ const checkSimilarHints = () => {
       seriesHint.value = matches[0];
     }
   }
+};
+
+const checkSimilarHints = () => {
+  checkAuthorHint();
+  checkSeriesHint();
 };
 
 const loadNameLists = async () => {

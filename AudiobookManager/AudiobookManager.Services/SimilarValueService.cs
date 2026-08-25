@@ -41,10 +41,10 @@ public class SimilarValueService : ISimilarValueService
             Candidates = cluster.Select(name => new SimilarValueCandidate
             {
                 Value = name,
-                AudiobookIds = authors
+                Books = authors
                     .Where(a => a.Name == name)
-                    .SelectMany(a => a.BooksAuthored.Select(b => b.Id))
-                    .Distinct()
+                    .SelectMany(a => a.BooksAuthored.Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }))
+                    .DistinctBy(b => b.Id)
                     .ToList()
             }).ToList()
         }).ToList();
@@ -62,7 +62,7 @@ public class SimilarValueService : ISimilarValueService
             Candidates = cluster.Select(value => new SimilarValueCandidate
             {
                 Value = value,
-                AudiobookIds = seriesMap[value]
+                Books = seriesMap[value].Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }).ToList()
             }).ToList()
         }).ToList();
     }

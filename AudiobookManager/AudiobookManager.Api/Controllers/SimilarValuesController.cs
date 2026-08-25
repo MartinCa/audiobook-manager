@@ -101,8 +101,7 @@ public class SimilarValuesController : ControllerBase
         return groups.Select(g => new SimilarValueGroupDto(
             g.Candidates.Select(c => new SimilarValueCandidateDto(
                 c.Value,
-                c.AudiobookIds.Count,
-                c.AudiobookIds
+                c.Books.Select(b => new SimilarValueBookDto(b.Id, b.BookName)).ToList()
             )).ToList()
         )).ToList();
     }

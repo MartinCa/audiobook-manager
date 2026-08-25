@@ -99,16 +99,16 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
     }
 
-    public async Task<Dictionary<string, List<long>>> GetDistinctSeriesAsync()
+    public async Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync()
     {
         var rows = await _db.Audiobooks
             .Where(a => a.Series != null && a.Series != "")
-            .Select(a => new { a.Id, Series = a.Series! })
+            .Select(a => new { a.Id, a.BookName, Series = a.Series! })
             .ToListAsync();
 
         return rows
             .GroupBy(r => r.Series)
-            .ToDictionary(g => g.Key, g => g.Select(r => r.Id).ToList());
+            .ToDictionary(g => g.Key, g => g.Select(r => (r.Id, r.BookName)).ToList());
     }
 
     public async Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames)

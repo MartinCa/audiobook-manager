@@ -1,16 +1,28 @@
 namespace AudiobookManager.Api.Dtos;
 
+public class SimilarValueBookDto
+{
+    public long Id { get; set; }
+    public string BookName { get; set; }
+
+    public SimilarValueBookDto(long id, string bookName)
+    {
+        Id = id;
+        BookName = bookName;
+    }
+}
+
 public class SimilarValueCandidateDto
 {
     public string Value { get; set; }
     public int BookCount { get; set; }
-    public List<long> AudiobookIds { get; set; }
+    public List<SimilarValueBookDto> Books { get; set; }
 
-    public SimilarValueCandidateDto(string value, int bookCount, List<long> audiobookIds)
+    public SimilarValueCandidateDto(string value, List<SimilarValueBookDto> books)
     {
         Value = value;
-        BookCount = bookCount;
-        AudiobookIds = audiobookIds;
+        BookCount = books.Count;
+        Books = books;
     }
 }
 
