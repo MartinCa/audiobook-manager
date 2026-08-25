@@ -753,28 +753,7 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
   resolvingIds.value.add(issue.id);
   try {
     await ConsistencyService.resolveIssue(issue.id);
-    bookIssues.value = bookIssues.value.filter((i) => {
-      if (
-        issue.issueType === "MissingMediaFile" ||
-        issue.issueType === "WrongFilePath"
-      ) {
-        return false;
-      }
-      if (
-        issue.issueType === "MissingDescTxt" ||
-        issue.issueType === "IncorrectDescTxt" ||
-        issue.issueType === "MissingReaderTxt" ||
-        issue.issueType === "IncorrectReaderTxt"
-      ) {
-        return !(
-          i.issueType === "MissingDescTxt" ||
-          i.issueType === "IncorrectDescTxt" ||
-          i.issueType === "MissingReaderTxt" ||
-          i.issueType === "IncorrectReaderTxt"
-        );
-      }
-      return i.id !== issue.id;
-    });
+    await Promise.all([loadBook(), loadIssues()]);
     snackbarText.value = "Issue resolved successfully";
     snackbar.value = true;
   } catch {

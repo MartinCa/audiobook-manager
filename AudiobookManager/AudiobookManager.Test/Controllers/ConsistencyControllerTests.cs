@@ -17,6 +17,7 @@ public class ConsistencyControllerTests
     private Mock<IHubContext<OrganizeHub, IOrganize>> _hubContext = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<ILogger<ConsistencyController>> _logger = null!;
     private ConsistencyController _controller = null!;
 
@@ -26,12 +27,14 @@ public class ConsistencyControllerTests
         _hubContext = new Mock<IHubContext<OrganizeHub, IOrganize>>();
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
         _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _logger = new Mock<ILogger<ConsistencyController>>();
 
         _controller = new ConsistencyController(
             _hubContext.Object,
             _serviceScopeFactory.Object,
             _issueRepository.Object,
+            _orphanDirectoryRepository.Object,
             _logger.Object);
     }
 
@@ -113,5 +116,64 @@ public class ConsistencyControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
         mockConsistencyService.Verify(s => s.ResolveIssue(1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetOrphanDirectories_ReturnsMappedDtoList()
+    {
+        var directories = new List<OrphanDirectory>
+        {
+            new OrphanDirectory
+            {
+                Id = 1,
+                DirectoryPath = "/library/Author/Book",
+                DetectedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            }
+        };
+
+        _orphanDirectoryRepository.Setup(r => r.GetAllAsync()).ReturnsAsync(directories);
+
+        var result = await _controller.GetOrphanDirectories();
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual(1, result[0].Id);
+        Assert.AreEqual("/library/Author/Book", result[0].DirectoryPath);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_Success_ReturnsOk()
+    {
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(mockConsistencyService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var result = await _controller.ResolveOrphanDirectory(1);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        mockConsistencyService.Verify(s => s.ResolveOrphanDirectory(1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_NotFound_Returns404()
+    {
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+
+        mockConsistencyService.Setup(s => s.ResolveOrphanDirectory(999))
+            .ThrowsAsync(new KeyNotFoundException());
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(mockConsistencyService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var result = await _controller.ResolveOrphanDirectory(999);
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
     }
 }

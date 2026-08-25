@@ -7,6 +7,7 @@ public static class AudiobookFileHandler
     private const string _replaceInvalidPathOrFileNameCharacter = "";
     private const char _preferredDirectorySeparatorChar = '/';
     private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+    private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png" };
 
     public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
     {
@@ -49,6 +50,23 @@ public static class AudiobookFileHandler
         if (Directory.Exists(directoryPath) && !Directory.GetFiles(directoryPath).Any() && !Directory.GetDirectories(directoryPath).Any())
         {
             Directory.Delete(directoryPath);
+        }
+    }
+
+    public static void RemoveSidecarFiles(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+        {
+            return;
+        }
+
+        foreach (var fileName in _sidecarFileNames)
+        {
+            var filePath = JoinPaths(directoryPath, fileName);
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
         }
     }
 

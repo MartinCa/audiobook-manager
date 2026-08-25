@@ -16,17 +16,20 @@ public class ConsistencyController : ControllerBase
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly ILogger<ConsistencyController> _logger;
 
     public ConsistencyController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IConsistencyIssueRepository issueRepository,
+        IOrphanDirectoryRepository orphanDirectoryRepository,
         ILogger<ConsistencyController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _issueRepository = issueRepository;
+        _orphanDirectoryRepository = orphanDirectoryRepository;
         _logger = logger;
     }
 
@@ -157,6 +160,51 @@ public class ConsistencyController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving consistency issue {IssueId}", id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpGet("orphan-directories")]
+    public async Task<List<OrphanDirectoryDto>> GetOrphanDirectories()
+    {
+        var directories = await _orphanDirectoryRepository.GetAllAsync();
+        return directories.Select(d => new OrphanDirectoryDto(d.Id, d.DirectoryPath, d.DetectedAt)).ToList();
+    }
+
+    [HttpPost("orphan-directories/{id}/resolve")]
+    public async Task<IActionResult> ResolveOrphanDirectory(long id)
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            await consistencyService.ResolveOrphanDirectory(id);
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving orphan directory {OrphanDirectoryId}", id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("orphan-directories/resolve-all")]
+    public async Task<IActionResult> ResolveAllOrphanDirectories()
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            var (resolved, failed) = await consistencyService.ResolveAllOrphanDirectories();
+            return Ok(new { resolved, failed });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error bulk resolving orphan directories");
             return StatusCode(500, ex.Message);
         }
     }

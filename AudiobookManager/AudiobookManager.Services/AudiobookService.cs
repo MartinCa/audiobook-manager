@@ -101,7 +101,11 @@ public class AudiobookService : IAudiobookService
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
-        AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+        if (oldDirectory != Path.GetDirectoryName(newFullPath))
+        {
+            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
+            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+        }
 
         await InsertAudiobook(newParsed);
 
@@ -185,7 +189,12 @@ public class AudiobookService : IAudiobookService
 
             AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
             audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
-            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+
+            if (oldDirectory != Path.GetDirectoryName(newFullPath))
+            {
+                AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
+                AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+            }
         }
 
         // Re-parse from current location to get updated metadata
