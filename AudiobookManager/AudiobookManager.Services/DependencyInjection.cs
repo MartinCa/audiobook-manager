@@ -15,6 +15,7 @@ public static class DependencyInjection
         .AddScoped<IQueuedOrganizeTaskService, QueuedOrganizeTaskService>()
         .AddScoped<ILibraryScanService, LibraryScanService>()
         .AddScoped<ILibraryConsistencyService, LibraryConsistencyService>()
+        .AddScoped<ISimilarValueService, SimilarValueService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

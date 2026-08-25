@@ -94,6 +94,40 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
     }
 
+    public async Task<Dictionary<string, List<long>>> GetDistinctSeriesAsync()
+    {
+        var rows = await _db.Audiobooks
+            .Where(a => a.Series != null && a.Series != "")
+            .Select(a => new { a.Id, Series = a.Series! })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.Series)
+            .ToDictionary(g => g.Key, g => g.Select(r => r.Id).ToList());
+    }
+
+    public async Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames)
+    {
+        var names = authorNames.ToList();
+        return await _db.Audiobooks
+            .Include(a => a.Authors)
+            .Include(a => a.Narrators)
+            .Include(a => a.Genres)
+            .Where(a => a.Authors.Any(p => names.Contains(p.Name)))
+            .ToListAsync();
+    }
+
+    public async Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues)
+    {
+        var values = seriesValues.ToList();
+        return await _db.Audiobooks
+            .Include(a => a.Authors)
+            .Include(a => a.Narrators)
+            .Include(a => a.Genres)
+            .Where(a => a.Series != null && values.Contains(a.Series))
+            .ToListAsync();
+    }
+
     public async Task UpdateFilePathAsync(long id, string newFullPath, string newFileName)
     {
         var audiobook = await _db.Audiobooks.FindAsync(id);

@@ -288,6 +288,7 @@ const saveBook = async () => {
     await AudiobookService.updateBook(bookId.value, data);
     snackbarText.value = "Book saved successfully";
     snackbar.value = true;
+    bookEditForm.value?.noteSavedNames();
     // Reload detail to reflect changes
     await loadBook();
   } catch (e: any) {

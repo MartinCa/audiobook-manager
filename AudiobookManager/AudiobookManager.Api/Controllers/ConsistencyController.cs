@@ -36,50 +36,24 @@ public class ConsistencyController : ControllerBase
     [HttpPost("check")]
     public IActionResult StartConsistencyCheck()
     {
-        if (!_checkLock.Wait(0))
-            return Conflict("A consistency check is already in progress");
-
-        Task.Run(async () =>
-        {
-            try
+        return BackgroundOperationRunner.Start(
+            _checkLock,
+            _serviceScopeFactory,
+            _logger,
+            async sp =>
             {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
 
-                var totalBooksChecked = 0;
-                var totalIssuesFound = 0;
-
-                await consistencyService.RunConsistencyCheck(async (message, booksChecked, totalBooks, issuesFound) =>
-                {
-                    totalBooksChecked = booksChecked;
-                    totalIssuesFound = issuesFound;
-                    await _organizeHub.Clients.All.ConsistencyCheckProgress(
+                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound) =>
+                    _organizeHub.Clients.All.ConsistencyCheckProgress(
                         new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound));
-                });
+
+                var (booksChecked, issuesFound) = await consistencyService.RunConsistencyCheck(ProgressAction);
 
                 await _organizeHub.Clients.All.ConsistencyCheckComplete(
-                    new ConsistencyCheckComplete(totalBooksChecked, totalIssuesFound));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during consistency check");
-                try
-                {
-                    await _organizeHub.Clients.All.ConsistencyCheckComplete(
-                        new ConsistencyCheckComplete(0, 0));
-                }
-                catch (Exception hubEx)
-                {
-                    _logger.LogError(hubEx, "Failed to send ConsistencyCheckComplete over SignalR");
-                }
-            }
-            finally
-            {
-                _checkLock.Release();
-            }
-        });
-
-        return Ok();
+                    new ConsistencyCheckComplete(booksChecked, issuesFound));
+            },
+            () => _organizeHub.Clients.All.ConsistencyCheckComplete(new ConsistencyCheckComplete(0, 0)));
     }
 
     [HttpGet("issues")]

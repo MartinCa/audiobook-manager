@@ -45,14 +45,49 @@
         cols="12"
         md="6"
       >
-        <v-text-field
-          label="Authors"
-          hide-details="auto"
-          hint="Separated by ','"
-          density="comfortable"
-          :rules="[(v: any) => !!v || 'Authors is required']"
-          v-model="input.authors"
-        ></v-text-field>
+        <div class="author-field-wrap">
+          <v-text-field
+            label="Authors"
+            hide-details="auto"
+            hint="Separated by ','"
+            density="comfortable"
+            :rules="[(v: any) => !!v || 'Authors is required']"
+            v-model="input.authors"
+            @focus="authorFieldFocused = true"
+            @blur="onAuthorFieldBlur"
+          ></v-text-field>
+          <v-card
+            v-if="authorFieldFocused && authorSuggestions.length > 0"
+            class="suggestion-menu"
+            elevation="4"
+          >
+            <v-list density="compact">
+              <v-list-item
+                v-for="suggestion in authorSuggestions"
+                :key="suggestion"
+                @mousedown.prevent="applyAuthorSuggestion(suggestion)"
+              >
+                {{ suggestion }}
+              </v-list-item>
+            </v-list>
+          </v-card>
+        </div>
+        <v-alert
+          v-if="authorHint"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mt-1"
+          closable
+          @click:close="authorHint = null"
+        >
+          Similar existing author:
+          <a
+            href="#"
+            @click.prevent="applyAuthorHint()"
+            >{{ authorHint }}</a
+          >
+        </v-alert>
       </v-col>
       <v-col
         cols="12"
@@ -93,10 +128,11 @@
         cols="12"
         sm="6"
       >
-        <v-text-field
+        <v-combobox
           label="Series name"
           hide-details="auto"
           density="comfortable"
+          :items="seriesNames"
           v-model="input.series"
         >
           <template
@@ -105,7 +141,23 @@
           >
             <v-icon :title="seriesMappedNamed"> mdi-information </v-icon>
           </template>
-        </v-text-field>
+        </v-combobox>
+        <v-alert
+          v-if="seriesHint"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mt-1"
+          closable
+          @click:close="seriesHint = null"
+        >
+          Similar existing series:
+          <a
+            href="#"
+            @click.prevent="applySeriesHint()"
+            >{{ seriesHint }}</a
+          >
+        </v-alert>
       </v-col>
       <v-col
         cols="12"
@@ -292,7 +344,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, Ref } from "vue";
+import { computed, onMounted, ref, Ref } from "vue";
 import { Audiobook } from "../types/Audiobook";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookSearchDialog from "./BookSearchDialog.vue";
@@ -303,6 +355,11 @@ import CoverEditor from "./CoverEditor.vue";
 import { BookSearchResult } from "../types/BookSearchResult";
 import { useDialogWidth } from "./dialog";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
+import SimilarValueService from "../services/SimilarValueService";
+import {
+  findSimilarExisting,
+  narrowByQuery,
+} from "../helpers/similarValueMatcher";
 
 const props = defineProps<{
   searchBookDetails: Audiobook;
@@ -327,6 +384,102 @@ const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
 const nonfictionGenre = "Nonfiction";
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
+
+// Entry-time duplicate prevention
+const authorNames: Ref<string[]> = ref([]);
+const seriesNames: Ref<string[]> = ref([]);
+const authorFieldFocused = ref(false);
+const authorHint: Ref<string | null> = ref(null);
+const seriesHint: Ref<string | null> = ref(null);
+
+const authorSuggestions = computed((): string[] => {
+  const parts = (input.value.authors ?? "").split(",");
+  const currentQuery = parts[parts.length - 1] ?? "";
+  return narrowByQuery(currentQuery, authorNames.value);
+});
+
+const onAuthorFieldBlur = () => {
+  // Delay so a suggestion click (@mousedown.prevent) registers before the menu closes.
+  setTimeout(() => {
+    authorFieldFocused.value = false;
+  }, 150);
+};
+
+const applyAuthorSuggestion = (suggestion: string) => {
+  const parts = (input.value.authors ?? "").split(",");
+  parts[parts.length - 1] = parts.length > 1 ? ` ${suggestion}` : suggestion;
+  input.value.authors = parts.join(",");
+  authorFieldFocused.value = false;
+};
+
+const applyAuthorHint = () => {
+  if (authorHint.value) {
+    input.value.authors = authorHint.value;
+    authorHint.value = null;
+  }
+};
+
+const applySeriesHint = () => {
+  if (seriesHint.value) {
+    input.value.series = seriesHint.value;
+    seriesHint.value = null;
+  }
+};
+
+const checkSimilarHints = () => {
+  authorHint.value = null;
+  seriesHint.value = null;
+
+  const primaryAuthor = (input.value.authors ?? "").split(",")[0]?.trim();
+  if (primaryAuthor) {
+    const matches = findSimilarExisting(primaryAuthor, authorNames.value);
+    if (matches.length > 0) {
+      authorHint.value = matches[0];
+    }
+  }
+
+  if (input.value.series) {
+    const matches = findSimilarExisting(input.value.series, seriesNames.value);
+    if (matches.length > 0) {
+      seriesHint.value = matches[0];
+    }
+  }
+};
+
+const loadNameLists = async () => {
+  try {
+    [authorNames.value, seriesNames.value] = await Promise.all([
+      SimilarValueService.getAuthorNames(),
+      SimilarValueService.getSeriesNames(),
+    ]);
+  } catch {
+    // Non-critical: autocomplete/hints simply won't be available.
+  }
+};
+
+const noteSavedNames = () => {
+  const authors = (input.value.authors ?? "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const series = input.value.series?.trim();
+
+  if (authors.length > 0) {
+    SimilarValueService.addKnownAuthorNames(authors);
+    for (const name of authors) {
+      if (!authorNames.value.includes(name)) {
+        authorNames.value.push(name);
+      }
+    }
+  }
+
+  if (series) {
+    SimilarValueService.addKnownSeriesNames([series]);
+    if (!seriesNames.value.includes(series)) {
+      seriesNames.value.push(series);
+    }
+  }
+};
 
 const genresSplit = computed(
   (): string[] => input.value.genres?.split("/") ?? [],
@@ -431,6 +584,10 @@ const applyPreviewedTags = (
   if (selectedFields.has("cover") && result.imageUrl) {
     coverEditor.value?.loadImgFromUrl(result.imageUrl);
   }
+
+  if (selectedFields.has("authors") || selectedFields.has("series")) {
+    checkSimilarHints();
+  }
 };
 
 const validate = async (): Promise<boolean> => {
@@ -443,7 +600,11 @@ const validate = async (): Promise<boolean> => {
   return formValidation.valid;
 };
 
-defineExpose({ validate });
+onMounted(async () => {
+  await loadNameLists();
+});
+
+defineExpose({ validate, noteSavedNames });
 </script>
 
 <style scoped>
@@ -452,5 +613,19 @@ defineExpose({ validate });
   height: auto;
   padding-top: 4px;
   padding-bottom: 4px;
+}
+
+.author-field-wrap {
+  position: relative;
+}
+
+.suggestion-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 220px;
+  overflow-y: auto;
 }
 </style>

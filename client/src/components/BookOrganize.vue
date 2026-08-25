@@ -211,6 +211,7 @@ const organizeBook = async () => {
 
   try {
     const organizeId = await AudiobookService.organizeBook(data);
+    bookEditForm.value?.noteSavedNames();
     emit("bookQueued", organizeId);
   } finally {
     organizing.value = false;

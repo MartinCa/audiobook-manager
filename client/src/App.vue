@@ -116,6 +116,11 @@ const links: MenuLink[] = [
         icon: "mdi-check-decagram",
         text: "Consistency",
       },
+      {
+        to: "/library/similar-values",
+        icon: "mdi-set-merge",
+        text: "Similar Values",
+      },
     ],
   },
   {

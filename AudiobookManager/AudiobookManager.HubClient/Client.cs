@@ -53,4 +53,16 @@ public class Client : IOrganize
         Console.WriteLine($"Consistency check complete: {result.TotalBooksChecked} books, {result.TotalIssuesFound} issues");
         return Task.CompletedTask;
     }
+
+    public Task SimilarValueAlignProgress(SimilarValueAlignProgress progress)
+    {
+        Console.WriteLine($"Similar value align: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task SimilarValueAlignComplete(SimilarValueAlignComplete result)
+    {
+        Console.WriteLine($"Similar value align complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
 }
