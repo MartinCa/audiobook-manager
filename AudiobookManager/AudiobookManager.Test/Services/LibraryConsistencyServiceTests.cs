@@ -174,6 +174,47 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveIssue_MissingMediaFile_FileReappeared_DoesNotDeleteAudiobook()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "the file is actually here now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 11,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "File missing",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(11)).ReturnsAsync(issue);
+
+            await _service.ResolveIssue(11);
+
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(r => r.DeleteAsync(11), Times.Once);
+            Assert.IsTrue(File.Exists(tempFile), "the reappeared file should not be touched");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_MetadataIssue_WritesMetadata()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -314,6 +355,95 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("New Narrator", await File.ReadAllTextAsync(Path.Combine(newDir, "reader.txt")));
 
             _audiobookRepository.Verify(r => r.UpdateFilePathAsync(1, expectedFullPath, Path.GetFileName(expectedFullPath)), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_WrongFilePath_FileMissing_ThrowsFileNotFoundException()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/nonexistent/path/test.m4b", "test.m4b", 1000);
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 31,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.WrongFilePath,
+            Description = "File path does not match expected path from tags",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(31)).ReturnsAsync(issue);
+
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => _service.ResolveIssue(31));
+
+        _audiobookRepository.Verify(r => r.UpdateFilePathAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_WrongFilePath_PathAlreadyCorrect_SkipsRelocateAndClearsIssue()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var libraryPath = Path.Combine(tempRoot, "library");
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _logger.Object);
+
+            var placeholderParsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed);
+            var currentFile = AudiobookFileHandler.JoinPaths(libraryPath, expectedRelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
+            await File.WriteAllTextAsync(currentFile, "fake audio content");
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null,
+                currentFile, Path.GetFileName(currentFile), 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 32,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.WrongFilePath,
+                Description = "File path does not match expected path from tags",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(32)).ReturnsAsync(issue);
+
+            await service.ResolveIssue(32);
+
+            Assert.IsTrue(File.Exists(currentFile), "file should remain untouched at its already-correct path");
+            _audiobookRepository.Verify(r => r.UpdateFilePathAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
         }
         finally

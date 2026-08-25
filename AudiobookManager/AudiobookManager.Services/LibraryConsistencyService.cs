@@ -215,6 +215,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private async Task ResolveMissingMediaFile(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
+
+        if (File.Exists(audiobook.FileInfoFullPath))
+        {
+            // The file has reappeared since the issue was detected; the audiobook is no longer missing.
+            await _issueRepository.DeleteAsync(issue.Id);
+            return;
+        }
+
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath);
 
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
@@ -229,11 +237,26 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private async Task ResolveWrongFilePath(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
+
+        if (!File.Exists(audiobook.FileInfoFullPath))
+        {
+            throw new FileNotFoundException(
+                $"Media file not found, cannot resolve wrong file path: {audiobook.FileInfoFullPath}",
+                audiobook.FileInfoFullPath);
+        }
+
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
         var parsed = _tagHandler.ParseAudiobook(fileInfo);
 
         var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
         var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
+
+        if (string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
+        {
+            // The path already matches; the issue is no longer valid.
+            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+            return;
+        }
 
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
 
