@@ -65,18 +65,18 @@ public class SimilarValueServiceTests
         Assert.AreEqual(1, groups.Count);
         Assert.AreEqual(2, groups[0].Candidates.Count);
         var rowlingCandidate = groups[0].Candidates.First(c => c.Value == "J.K. Rowling");
-        CollectionAssert.AreEquivalent(new List<long> { 1 }, rowlingCandidate.AudiobookIds);
+        CollectionAssert.AreEquivalent(new List<long> { 1 }, rowlingCandidate.Books.Select(b => b.Id).ToList());
     }
 
     [TestMethod]
     public async Task DetectSimilarSeriesAsync_GroupsNearDuplicateSeriesValues()
     {
         _audiobookRepository.Setup(r => r.GetDistinctSeriesAsync()).ReturnsAsync(
-            new Dictionary<string, List<long>>
+            new Dictionary<string, List<(long Id, string BookName)>>
             {
-                ["Fantasy & Adventure"] = new List<long> { 1, 2 },
-                ["Fantasy and Adventure"] = new List<long> { 3 },
-                ["Mystery"] = new List<long> { 4 }
+                ["Fantasy & Adventure"] = new() { (1, "Book One"), (2, "Book Two") },
+                ["Fantasy and Adventure"] = new() { (3, "Book Three") },
+                ["Mystery"] = new() { (4, "Book Four") }
             });
 
         var groups = await _service.DetectSimilarSeriesAsync();
