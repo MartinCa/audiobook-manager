@@ -31,7 +31,7 @@
       <v-btn
         color="primary"
         :disabled="organizing"
-        @click="organizeBook(true)"
+        @click="organizeBook()"
       >
         <template v-if="organizing">
           <v-progress-circular
@@ -281,7 +281,7 @@
           <v-btn
             color="primary"
             :disabled="organizing"
-            @click="organizeBook(true)"
+            @click="organizeBook()"
           >
             <template v-if="organizing">
               <v-progress-circular
@@ -520,7 +520,7 @@ const validateForm = async (): Promise<boolean> => {
   return formValidation.valid;
 };
 
-const organizeBook = async (relocate = false) => {
+const organizeBook = async () => {
   const formValid = await validateForm();
 
   if (!formValid) {
