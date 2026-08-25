@@ -8,4 +8,6 @@ public interface IOrganize
     Task LibraryScanComplete(LibraryScanComplete result);
     Task ConsistencyCheckProgress(ConsistencyCheckProgress progress);
     Task ConsistencyCheckComplete(ConsistencyCheckComplete result);
+    Task SimilarValueAlignProgress(SimilarValueAlignProgress progress);
+    Task SimilarValueAlignComplete(SimilarValueAlignComplete result);
 }

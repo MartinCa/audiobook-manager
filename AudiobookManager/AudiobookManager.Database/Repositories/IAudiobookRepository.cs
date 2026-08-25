@@ -10,6 +10,9 @@ public interface IAudiobookRepository
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
+    Task<Dictionary<string, List<long>>> GetDistinctSeriesAsync();
+    Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
+    Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);
     Task DeleteAudiobookAsync(long id);

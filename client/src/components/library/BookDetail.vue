@@ -103,14 +103,49 @@
             cols="12"
             md="6"
           >
-            <v-text-field
-              label="Authors"
-              hide-details="auto"
-              hint="Separated by ','"
-              density="comfortable"
-              :rules="[(v: any) => !!v || 'Authors is required']"
-              v-model="input.authors"
-            ></v-text-field>
+            <div class="author-field-wrap">
+              <v-text-field
+                label="Authors"
+                hide-details="auto"
+                hint="Separated by ','"
+                density="comfortable"
+                :rules="[(v: any) => !!v || 'Authors is required']"
+                v-model="input.authors"
+                @focus="authorFieldFocused = true"
+                @blur="onAuthorFieldBlur"
+              ></v-text-field>
+              <v-card
+                v-if="authorFieldFocused && authorSuggestions.length > 0"
+                class="suggestion-menu"
+                elevation="4"
+              >
+                <v-list density="compact">
+                  <v-list-item
+                    v-for="suggestion in authorSuggestions"
+                    :key="suggestion"
+                    @mousedown.prevent="applyAuthorSuggestion(suggestion)"
+                  >
+                    {{ suggestion }}
+                  </v-list-item>
+                </v-list>
+              </v-card>
+            </div>
+            <v-alert
+              v-if="authorHint"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-1"
+              closable
+              @click:close="authorHint = null"
+            >
+              Similar existing author:
+              <a
+                href="#"
+                @click.prevent="applyAuthorHint()"
+                >{{ authorHint }}</a
+              >
+            </v-alert>
           </v-col>
           <v-col
             cols="12"
@@ -151,13 +186,30 @@
             cols="12"
             sm="6"
           >
-            <v-text-field
+            <v-combobox
               label="Series name"
               hide-details="auto"
               density="comfortable"
+              :items="seriesNames"
               v-model="input.series"
             >
-            </v-text-field>
+            </v-combobox>
+            <v-alert
+              v-if="seriesHint"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-1"
+              closable
+              @click:close="seriesHint = null"
+            >
+              Similar existing series:
+              <a
+                href="#"
+                @click.prevent="applySeriesHint()"
+                >{{ seriesHint }}</a
+              >
+            </v-alert>
           </v-col>
           <v-col
             cols="12"
@@ -436,6 +488,11 @@ import ConsistencyIssue from "../../types/ConsistencyIssue";
 import BrowseService from "../../services/BrowseService";
 import AudiobookService from "../../services/AudiobookService";
 import ConsistencyService from "../../services/ConsistencyService";
+import SimilarValueService from "../../services/SimilarValueService";
+import {
+  findSimilarExisting,
+  narrowByQuery,
+} from "../../helpers/similarValueMatcher";
 import BookSearchDialog from "../BookSearchDialog.vue";
 import ManualUrlSearchDialog from "../ManualUrlSearchDialog.vue";
 import TagPreviewDialog from "../TagPreviewDialog.vue";
@@ -465,6 +522,78 @@ const bookIssues: Ref<ConsistencyIssue[]> = ref([]);
 const resolvingIds: Ref<Set<number>> = ref(new Set());
 const snackbar = ref(false);
 const snackbarText = ref("");
+
+// Entry-time duplicate prevention
+const authorNames: Ref<string[]> = ref([]);
+const seriesNames: Ref<string[]> = ref([]);
+const authorFieldFocused = ref(false);
+const authorHint: Ref<string | null> = ref(null);
+const seriesHint: Ref<string | null> = ref(null);
+
+const authorSuggestions = computed((): string[] => {
+  const parts = (input.value.authors ?? "").split(",");
+  const currentQuery = parts[parts.length - 1] ?? "";
+  return narrowByQuery(currentQuery, authorNames.value);
+});
+
+const onAuthorFieldBlur = () => {
+  // Delay so a suggestion click (@mousedown.prevent) registers before the menu closes.
+  setTimeout(() => {
+    authorFieldFocused.value = false;
+  }, 150);
+};
+
+const applyAuthorSuggestion = (suggestion: string) => {
+  const parts = (input.value.authors ?? "").split(",");
+  parts[parts.length - 1] = parts.length > 1 ? ` ${suggestion}` : suggestion;
+  input.value.authors = parts.join(",");
+  authorFieldFocused.value = false;
+};
+
+const applyAuthorHint = () => {
+  if (authorHint.value) {
+    input.value.authors = authorHint.value;
+    authorHint.value = null;
+  }
+};
+
+const applySeriesHint = () => {
+  if (seriesHint.value) {
+    input.value.series = seriesHint.value;
+    seriesHint.value = null;
+  }
+};
+
+const checkSimilarHints = () => {
+  authorHint.value = null;
+  seriesHint.value = null;
+
+  const primaryAuthor = (input.value.authors ?? "").split(",")[0]?.trim();
+  if (primaryAuthor) {
+    const matches = findSimilarExisting(primaryAuthor, authorNames.value);
+    if (matches.length > 0) {
+      authorHint.value = matches[0];
+    }
+  }
+
+  if (input.value.series) {
+    const matches = findSimilarExisting(input.value.series, seriesNames.value);
+    if (matches.length > 0) {
+      seriesHint.value = matches[0];
+    }
+  }
+};
+
+const loadNameLists = async () => {
+  try {
+    [authorNames.value, seriesNames.value] = await Promise.all([
+      SimilarValueService.getAuthorNames(),
+      SimilarValueService.getSeriesNames(),
+    ]);
+  } catch {
+    // Non-critical: autocomplete/hints simply won't be available.
+  }
+};
 
 const nonfictionGenre = "Nonfiction";
 
@@ -596,8 +725,10 @@ const saveBook = async () => {
     await AudiobookService.updateBook(bookId.value, data);
     snackbarText.value = "Book saved successfully";
     snackbar.value = true;
+    SimilarValueService.invalidateNameCaches();
     // Reload detail to reflect changes
     await loadBook();
+    await loadNameLists();
   } catch (e: any) {
     snackbarText.value = `Failed to save: ${e?.response?.data ?? e.message}`;
     snackbar.value = true;
@@ -707,6 +838,10 @@ const applyPreviewedTags = (
   if (selectedFields.has("cover") && result.imageUrl) {
     coverEditor.value?.loadImgFromUrl(result.imageUrl);
   }
+
+  if (selectedFields.has("authors") || selectedFields.has("series")) {
+    checkSimilarHints();
+  }
 };
 
 // Issue helpers
@@ -785,11 +920,25 @@ const loadIssues = async () => {
 };
 
 onMounted(async () => {
-  await Promise.all([loadBook(), loadIssues()]);
+  await Promise.all([loadBook(), loadIssues(), loadNameLists()]);
 });
 </script>
 
 <style scoped>
+.author-field-wrap {
+  position: relative;
+}
+
+.suggestion-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .issue-subtitle {
   white-space: normal !important;
   -webkit-line-clamp: unset !important;
