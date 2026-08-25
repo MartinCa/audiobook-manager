@@ -1,4 +1,5 @@
 import { BookSearchResult } from "../types/BookSearchResult";
+import { MultiSourceSearchResult } from "../types/MultiSourceSearchResult";
 import { SearchServiceInfo } from "../types/SearchServiceInfo";
 import BaseHttpService from "./BaseHttpService";
 
@@ -10,6 +11,13 @@ class SearchService extends BaseHttpService {
     return this.getData(
       `/search/${source}?q=${encodeURIComponent(searchTerm)}`,
     );
+  }
+
+  searchMultiple(
+    sources: string[],
+    searchTerm: string,
+  ): Promise<MultiSourceSearchResult> {
+    return this.postData("/search/multi", { sources, q: searchTerm });
   }
 
   getBookDetails(bookPath: string): Promise<BookSearchResult> {

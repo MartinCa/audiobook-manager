@@ -4,6 +4,7 @@ namespace AudiobookManager.Scraping.Models;
 public class BookSearchResult
 {
     public string Url { get; set; }
+    public string Source { get; set; } = "";
     public IList<Person> Authors { get; set; }
     public IList<Person> Narrators { get; set; }
     public string BookName { get; set; }

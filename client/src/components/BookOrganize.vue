@@ -20,10 +20,10 @@
       </v-btn>
       <v-btn
         color="primary"
-        @click="showManualGoodreadsUrlDialog = true"
+        @click="showManualUrlSearchDialog = true"
       >
         <v-icon>mdi-magnify</v-icon>
-        Manual Goodreads
+        Add by URL
       </v-btn>
 
       <v-spacer></v-spacer>
@@ -319,12 +319,12 @@
       />
     </v-dialog>
     <v-dialog
-      v-if="showManualGoodreadsUrlDialog"
-      v-model="showManualGoodreadsUrlDialog"
+      v-if="showManualUrlSearchDialog"
+      v-model="showManualUrlSearchDialog"
       :width="dialogWidth"
       :fullscreen="mdAndDown"
     >
-      <ManualGoodreadsUrlDialog
+      <ManualUrlSearchDialog
         :dialog-width="dialogWidth"
         @result-chosen="readSearchResult"
       />
@@ -374,7 +374,7 @@ import { useErrors } from "./errors";
 import AudiobookService from "../services/AudiobookService";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
 import { debounce, update } from "lodash";
-import ManualGoodreadsUrlDialog from "./ManualGoodreadsUrlDialog.vue";
+import ManualUrlSearchDialog from "./ManualUrlSearchDialog.vue";
 
 const props = defineProps<{
   bookPath: string;
@@ -390,7 +390,7 @@ const form: Ref<any | null> = ref(null);
 const input: Ref<OrganizeAudiobookInput> = ref({});
 const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
 const showSearchDialog = ref(false);
-const showManualGoodreadsUrlDialog = ref(false);
+const showManualUrlSearchDialog = ref(false);
 const showTagPreview = ref(false);
 const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
 const organizing = ref(false);
@@ -566,7 +566,7 @@ const addNonfictionGenre = () => {
 
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
   showSearchDialog.value = false;
-  showManualGoodreadsUrlDialog.value = false;
+  showManualUrlSearchDialog.value = false;
 
   if (searchData) {
     pendingSearchResult.value = searchData;

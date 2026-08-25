@@ -22,12 +22,13 @@
           <v-row>
             <v-col>
               <v-text-field
-                label="Goodreads url"
+                label="Book URL"
+                :hint="urlHint"
+                persistent-hint
                 single-line
-                hide-details
                 :rules="rules"
                 clearable
-                v-model="goodreadsUrl"
+                v-model="bookUrl"
               ></v-text-field>
             </v-col>
 
@@ -46,53 +47,10 @@
       </v-form>
 
       <template v-if="selectedResult">
-        <v-row>
-          <v-col
-            cols="12"
-            class="text-center"
-            >Select series</v-col
-          >
-          <v-col
-            cols="0"
-            lg="3"
-          ></v-col>
-          <v-col
-            cols="12"
-            lg="6"
-          >
-            <v-table>
-              <thead>
-                <tr>
-                  <th>Series</th>
-                  <th>Part</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(s, idx) in selectedResult.series">
-                  <td>
-                    {{ s.seriesName }}
-                  </td>
-                  <td>
-                    {{ s.seriesPart }}
-                  </td>
-                  <td>
-                    <v-btn
-                      color="primary"
-                      @click="chooseSeries(idx)"
-                    >
-                      <v-icon>mdi-check</v-icon>
-                    </v-btn>
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-col>
-          <v-col
-            cols="0"
-            lg="3"
-          ></v-col>
-        </v-row>
+        <SeriesSelectionTable
+          :series="selectedResult.series"
+          @series-chosen="chooseSeries"
+        />
       </template>
     </v-card-text>
 
@@ -104,31 +62,37 @@
 </template>
 
 <script setup lang="ts">
-import { Ref, ref } from "vue";
+import { computed, onMounted, Ref, ref } from "vue";
 import ErrorNotifications from "./ErrorNotifications.vue";
+import SeriesSelectionTable from "./SeriesSelectionTable.vue";
 import { useErrors } from "./errors";
 import { BookSearchResult } from "@/types/BookSearchResult";
+import { SearchServiceInfo } from "@/types/SearchServiceInfo";
 import SearchService from "@/services/SearchService";
 
 const validForm = ref(false);
-const goodreadsUrl = ref("");
+const bookUrl = ref("");
+const services: Ref<SearchServiceInfo[]> = ref([]);
 const props = defineProps<{ dialogWidth?: string }>();
 const selectedResult: Ref<BookSearchResult | undefined> = ref(undefined);
 const emit = defineEmits<{
   (e: "resultChosen", result: BookSearchResult | undefined): void;
 }>();
 
-const rules = [
-  (v: any) =>
-    (!!v && /^(https:\/\/)?(www\.)?goodreads\.com\/.+/.test(v)) ||
-    "Url is required",
-];
+const urlHint = computed((): string => {
+  if (!services.value.length) {
+    return "";
+  }
+  return `Supports: ${services.value.map((s) => s.name).join(", ")}`;
+});
+
+const rules = [(v: any) => !!v || "Url is required"];
 
 const submit = async () => {
   if (!validForm.value) {
     return;
   }
-  selectedResult.value = await SearchService.getBookDetails(goodreadsUrl.value);
+  selectedResult.value = await SearchService.getBookDetails(bookUrl.value);
 
   if (
     !selectedResult.value.series?.length ||
@@ -149,15 +113,19 @@ const chooseSeries = (seriesIdx: number) => {
   emit("resultChosen", selectedResult.value);
 };
 
+onMounted(async () => {
+  try {
+    services.value = await SearchService.getServices();
+  } catch {
+    // Hint just stays empty if this fails; not critical to the manual-add flow.
+  }
+});
+
 const { errors, onErrorDismissed } = useErrors();
 </script>
 
 <style scoped>
 a {
-  color: #bb86fc;
-}
-
-span.existing-name {
   color: #bb86fc;
 }
 </style>

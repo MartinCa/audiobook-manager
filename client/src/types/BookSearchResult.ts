@@ -9,6 +9,7 @@ export interface BookSeriesSearchResult {
 
 export interface BookSearchResult {
   url: string;
+  source: string;
   authors: AudiobookPerson[];
   narrators: AudiobookPerson[];
   bookName: string;
