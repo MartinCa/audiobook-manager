@@ -55,6 +55,38 @@ class SimilarValueService extends BaseHttpService {
     this.seriesNamesCache = null;
   }
 
+  /**
+   * Merges newly-saved names into the cached lists in place, without a server round-trip.
+   * Keeps autocomplete/hints up to date across a session of many saves; the cache still
+   * expires normally via its TTL, at which point it's refetched from the server as usual.
+   */
+  addKnownAuthorNames(names: string[]): void {
+    this.mergeIntoCache("authorNamesCache", names);
+  }
+
+  addKnownSeriesNames(names: string[]): void {
+    this.mergeIntoCache("seriesNamesCache", names);
+  }
+
+  private mergeIntoCache(
+    cacheField: "authorNamesCache" | "seriesNamesCache",
+    names: string[],
+  ): void {
+    const cache = this[cacheField];
+    if (!cache || names.length === 0) {
+      return;
+    }
+    cache.promise = cache.promise.then((existing) => {
+      const merged = new Set(existing);
+      for (const name of names) {
+        if (name) {
+          merged.add(name);
+        }
+      }
+      return Array.from(merged).sort((a, b) => a.localeCompare(b));
+    });
+  }
+
   private isCacheValid(entry: NameCacheEntry | null): boolean {
     return !!entry && Date.now() - entry.fetchedAt < NAME_CACHE_TTL_MS;
   }

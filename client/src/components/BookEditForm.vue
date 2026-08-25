@@ -457,9 +457,28 @@ const loadNameLists = async () => {
   }
 };
 
-const refreshNameLists = async () => {
-  SimilarValueService.invalidateNameCaches();
-  await loadNameLists();
+const noteSavedNames = () => {
+  const authors = (input.value.authors ?? "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const series = input.value.series?.trim();
+
+  if (authors.length > 0) {
+    SimilarValueService.addKnownAuthorNames(authors);
+    for (const name of authors) {
+      if (!authorNames.value.includes(name)) {
+        authorNames.value.push(name);
+      }
+    }
+  }
+
+  if (series) {
+    SimilarValueService.addKnownSeriesNames([series]);
+    if (!seriesNames.value.includes(series)) {
+      seriesNames.value.push(series);
+    }
+  }
 };
 
 const genresSplit = computed(
@@ -585,7 +604,7 @@ onMounted(async () => {
   await loadNameLists();
 });
 
-defineExpose({ validate, refreshNameLists });
+defineExpose({ validate, noteSavedNames });
 </script>
 
 <style scoped>
