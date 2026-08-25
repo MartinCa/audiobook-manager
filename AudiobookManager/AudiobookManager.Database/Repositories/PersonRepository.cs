@@ -43,6 +43,7 @@ public class PersonRepository : IPersonRepository
                 .ThenInclude(a => a.Narrators)
             .Include(p => p.BooksAuthored)
                 .ThenInclude(a => a.Genres)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(p => p.Id == authorId);
     }
 }

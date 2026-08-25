@@ -30,6 +30,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .OrderBy(a => a.BookName);
 
         var total = await query.CountAsync();
@@ -45,6 +46,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .Where(a =>
                 (a.BookName != null && EF.Functions.Like(a.BookName, pattern)) ||
                 (a.Subtitle != null && EF.Functions.Like(a.Subtitle, pattern)) ||
@@ -65,6 +67,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .Where(a => a.Series == seriesName);
 
         if (authorId.HasValue)
@@ -81,6 +84,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(a => a.Id == id);
     }
 
@@ -90,6 +94,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .OrderBy(a => a.BookName)
             .ToListAsync();
     }
@@ -113,6 +118,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .Where(a => a.Authors.Any(p => names.Contains(p.Name)))
             .ToListAsync();
     }
@@ -124,6 +130,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
+            .AsSplitQuery()
             .Where(a => a.Series != null && values.Contains(a.Series))
             .ToListAsync();
     }
