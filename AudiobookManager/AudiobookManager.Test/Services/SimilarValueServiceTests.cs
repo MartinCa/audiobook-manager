@@ -147,6 +147,89 @@ public class SimilarValueServiceTests
     }
 
     [TestMethod]
+    public async Task AlignAuthorsAsync_ExcludesTargetNameFromBookLookup()
+    {
+        var book = MakeDbAudiobook(1, "Book One");
+        book.Authors = new List<DbPerson> { new(2, "JK Rowling") };
+
+        IEnumerable<string>? queriedNames = null;
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .Callback<IEnumerable<string>>(names => queriedNames = names)
+            .ReturnsAsync(new List<DbAudiobook> { book });
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a) => a);
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        CollectionAssert.AreEquivalent(new List<string> { "JK Rowling" }, queriedNames!.ToList());
+    }
+
+    [TestMethod]
+    public async Task AlignAuthorsAsync_OnlyTargetNameInGroup_DoesNothing()
+    {
+        var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
+
+        var result = await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling" },
+            "J.K. Rowling",
+            (processed, total, succeeded, failed) =>
+            {
+                progressCalls.Add((processed, total, succeeded, failed));
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual((0, 0, 0), result);
+        Assert.AreEqual(0, progressCalls.Count);
+        _audiobookRepository.Verify(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task AlignSeriesAsync_ExcludesTargetValueFromBookLookup()
+    {
+        var book = MakeDbAudiobook(2, "Book Two", "Fantasy and Adventure");
+
+        IEnumerable<string>? queriedValues = null;
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .Callback<IEnumerable<string>>(values => queriedValues = values)
+            .ReturnsAsync(new List<DbAudiobook> { book });
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a) => a);
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Fantasy & Adventure", "Fantasy and Adventure" },
+            "Fantasy & Adventure",
+            (_, _, _, _) => Task.CompletedTask);
+
+        CollectionAssert.AreEquivalent(new List<string> { "Fantasy and Adventure" }, queriedValues!.ToList());
+    }
+
+    [TestMethod]
+    public async Task AlignSeriesAsync_OnlyTargetValueInGroup_DoesNothing()
+    {
+        var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
+
+        var result = await _service.AlignSeriesAsync(
+            new List<string> { "Fantasy & Adventure" },
+            "Fantasy & Adventure",
+            (processed, total, succeeded, failed) =>
+            {
+                progressCalls.Add((processed, total, succeeded, failed));
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual((0, 0, 0), result);
+        Assert.AreEqual(0, progressCalls.Count);
+        _audiobookRepository.Verify(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task AlignSeriesAsync_UpdatesSeriesForAllAffectedBooks()
     {
         var book1 = MakeDbAudiobook(1, "Book One", "Fantasy & Adventure");
