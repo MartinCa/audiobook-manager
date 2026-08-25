@@ -215,8 +215,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _audiobookRepository.UpdateFilePathAsync(audiobook.Id, expectedFullPath, newFileName);
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
-        if (oldDirectory != null)
+        if (oldDirectory != null && oldDirectory != Path.GetDirectoryName(expectedFullPath))
         {
+            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
 

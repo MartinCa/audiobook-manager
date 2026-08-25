@@ -258,4 +258,38 @@ public class AudiobookFileHandlerTests
             Directory.Delete(tempDir, true);
         }
     }
+
+    [TestMethod]
+    public void RemoveSidecarFiles_RemovesKnownSidecarFiles_LeavesOthersAlone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "desc.txt"), "desc");
+            File.WriteAllText(Path.Combine(tempDir, "reader.txt"), "reader");
+            File.WriteAllBytes(Path.Combine(tempDir, "cover.jpg"), new byte[] { 0xFF, 0xD8 });
+            File.WriteAllText(Path.Combine(tempDir, "keep.me"), "unrelated file");
+
+            AudiobookFileHandler.RemoveSidecarFiles(tempDir);
+
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "reader.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "cover.jpg")));
+            Assert.IsTrue(File.Exists(Path.Combine(tempDir, "keep.me")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public void RemoveSidecarFiles_NonExistentDirectory_DoesNotThrow()
+    {
+        var missingDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+
+        AudiobookFileHandler.RemoveSidecarFiles(missingDir);
+    }
 }

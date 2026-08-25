@@ -231,6 +231,94 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveIssue_WrongFilePath_MovesFileAndCleansUpOldDirectory()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var libraryPath = Path.Combine(tempRoot, "library");
+        var oldDir = Path.Combine(tempRoot, "oldauthor", "oldbook");
+        Directory.CreateDirectory(oldDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _tagHandler.Object,
+                _logger.Object);
+
+            var oldFile = Path.Combine(oldDir, "test.m4b");
+            await File.WriteAllTextAsync(oldFile, "fake audio content");
+            await File.WriteAllTextAsync(Path.Combine(oldDir, "desc.txt"), "old description");
+            await File.WriteAllTextAsync(Path.Combine(oldDir, "reader.txt"), "Old Narrator");
+            await File.WriteAllBytesAsync(Path.Combine(oldDir, "cover.jpg"), new byte[] { 0xFF, 0xD8 });
+
+            var parsedOld = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(oldFile, "test.m4b", 1000));
+
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsedOld);
+            var expectedFullPath = AudiobookFileHandler.JoinPaths(libraryPath, expectedRelativePath);
+
+            var parsedNew = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(expectedFullPath, Path.GetFileName(expectedFullPath), 1000))
+            {
+                Description = "New description",
+                Narrators = new List<Domain.Person> { new Domain.Person("New Narrator") }
+            };
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == oldFile)))
+                .Returns(parsedOld);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == expectedFullPath)))
+                .Returns(parsedNew);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null,
+                oldFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 30,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.WrongFilePath,
+                Description = "File path does not match expected path from tags",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(30)).ReturnsAsync(issue);
+
+            await service.ResolveIssue(30);
+
+            Assert.IsTrue(File.Exists(expectedFullPath), "m4b should have been moved to the expected path");
+            Assert.IsFalse(File.Exists(oldFile), "old m4b location should no longer exist");
+
+            Assert.IsFalse(File.Exists(Path.Combine(oldDir, "desc.txt")), "leftover desc.txt should be removed from old dir");
+            Assert.IsFalse(File.Exists(Path.Combine(oldDir, "reader.txt")), "leftover reader.txt should be removed from old dir");
+            Assert.IsFalse(File.Exists(Path.Combine(oldDir, "cover.jpg")), "leftover cover.jpg should be removed from old dir");
+            Assert.IsFalse(Directory.Exists(oldDir), "old directory should be removed once it is empty");
+
+            var newDir = Path.GetDirectoryName(expectedFullPath)!;
+            Assert.AreEqual("New description", await File.ReadAllTextAsync(Path.Combine(newDir, "desc.txt")));
+            Assert.AreEqual("New Narrator", await File.ReadAllTextAsync(Path.Combine(newDir, "reader.txt")));
+
+            _audiobookRepository.Verify(r => r.UpdateFilePathAsync(1, expectedFullPath, Path.GetFileName(expectedFullPath)), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_NotFound_ThrowsKeyNotFound()
     {
         _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
