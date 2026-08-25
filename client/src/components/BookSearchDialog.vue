@@ -18,35 +18,17 @@
         hide-details
         clearable
         v-model="searchTerm"
+        @keyup.enter="runSearch"
       ></v-text-field>
 
-      <template v-for="service in services">
-        <v-tooltip
-          v-if="!service.enabled"
-          :text="service.disabledReason || 'Unavailable'"
-          location="bottom"
-        >
-          <template v-slot:activator="{ props: tooltipProps }">
-            <span v-bind="tooltipProps">
-              <v-btn
-                color="primary"
-                disabled
-              >
-                <v-icon>mdi-magnify</v-icon>
-                {{ service.name }}
-              </v-btn>
-            </span>
-          </template>
-        </v-tooltip>
-        <v-btn
-          v-else
-          color="primary"
-          @click="search(service.name)"
-        >
-          <v-icon>mdi-magnify</v-icon>
-          {{ service.name }}
-        </v-btn>
-      </template>
+      <v-btn
+        icon
+        dark
+        :disabled="!searchTerm || !selectedSources.length"
+        @click="runSearch"
+      >
+        <v-icon>mdi-magnify</v-icon>
+      </v-btn>
     </v-toolbar>
 
     <ErrorNotifications
@@ -78,6 +60,51 @@
         </v-col>
       </v-row>
 
+      <v-row>
+        <v-col>
+          <div class="text-caption text-medium-emphasis mb-1">
+            Sources to search
+          </div>
+          <v-chip-group
+            v-model="selectedSources"
+            multiple
+            column
+          >
+            <template v-for="service in services">
+              <v-tooltip
+                v-if="!service.enabled"
+                :text="service.disabledReason || 'Unavailable'"
+                location="bottom"
+              >
+                <template v-slot:activator="{ props: tooltipProps }">
+                  <v-chip
+                    v-bind="tooltipProps"
+                    :value="service.name"
+                    disabled
+                  >
+                    {{ service.name }}
+                  </v-chip>
+                </template>
+              </v-tooltip>
+              <v-chip
+                v-else
+                :value="service.name"
+                filter
+                color="primary"
+              >
+                {{ service.name }}
+              </v-chip>
+            </template>
+          </v-chip-group>
+          <div class="text-caption text-medium-emphasis mt-1">
+            <template v-if="selectedSources.length">
+              Searching: {{ selectedSources.join(", ") }}
+            </template>
+            <template v-else> No sources selected. </template>
+          </div>
+        </v-col>
+      </v-row>
+
       <v-divider></v-divider>
       <template v-if="searching">
         Searching
@@ -105,61 +132,107 @@
         </v-row>
       </template>
       <template v-else-if="selectedResult">
-        <v-row>
-          <v-col
-            cols="12"
-            class="text-center"
-            >Select series</v-col
-          >
-          <v-col
-            cols="0"
-            lg="3"
-          ></v-col>
-          <v-col
-            cols="12"
-            lg="6"
-          >
-            <v-table>
-              <thead>
-                <tr>
-                  <th>Series</th>
-                  <th>Part</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(s, idx) in selectedResult.series">
-                  <td>
-                    {{ s.seriesName }}
-                  </td>
-                  <td>
-                    {{ s.seriesPart }}
-                  </td>
-                  <td>
-                    <v-btn
-                      color="primary"
-                      @click="chooseSeries(idx)"
-                    >
-                      <v-icon>mdi-check</v-icon>
-                    </v-btn>
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-col>
-          <v-col
-            cols="0"
-            lg="3"
-          ></v-col>
-        </v-row>
+        <SeriesSelectionTable
+          :series="selectedResult.series"
+          @series-chosen="chooseSeries"
+        />
       </template>
-      <template v-else-if="!searchResults?.length">
+      <template v-else-if="!searchResults?.length && !sourceStatuses?.length">
         Search using the above input.
       </template>
       <template v-else>
-        <v-table density="compact">
+        <v-row
+          v-if="sourceStatuses?.length"
+          class="mt-1"
+        >
+          <v-col>
+            <v-chip
+              v-for="status in sourceStatuses"
+              :key="status.source"
+              class="mr-2 mb-2"
+              size="small"
+              :color="statusColor(status)"
+              :title="status.error"
+            >
+              {{ status.source }}:
+              {{ statusLabel(status) }}
+            </v-chip>
+          </v-col>
+        </v-row>
+
+        <div
+          v-if="!searchResults.length"
+          class="text-center mt-2"
+        >
+          No results.
+        </div>
+
+        <template v-else-if="smAndDown">
+          <v-card
+            v-for="(result, i) in searchResults"
+            :key="i"
+            class="mb-2"
+            variant="outlined"
+          >
+            <v-card-text>
+              <div class="d-flex justify-space-between align-start">
+                <div>
+                  <v-chip
+                    size="x-small"
+                    class="mb-1"
+                    >{{ result.source }}</v-chip
+                  >
+                  <div class="text-subtitle-1">{{ result.bookName }}</div>
+                  <div
+                    v-if="result.subtitle"
+                    class="text-body-2 text-medium-emphasis"
+                  >
+                    {{ result.subtitle }}
+                  </div>
+                </div>
+                <v-btn
+                  color="primary"
+                  size="small"
+                  @click="chooseResult(result)"
+                >
+                  <v-icon>mdi-check</v-icon>
+                </v-btn>
+              </div>
+              <div class="text-body-2 mt-2">
+                {{ joinPersons(result.authors) }}
+              </div>
+              <div
+                v-if="result.narrators.length"
+                class="text-body-2 text-medium-emphasis"
+              >
+                Narrated by {{ joinPersons(result.narrators) }}
+              </div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                <span v-if="result.year">{{ result.year }}</span>
+                <span v-if="result.duration">
+                  &middot; {{ result.duration }}</span
+                >
+                <span v-if="result.language">
+                  &middot; {{ result.language }}</span
+                >
+              </div>
+              <a
+                :href="result.url"
+                target="_blank"
+                class="text-caption"
+                >Preview</a
+              >
+            </v-card-text>
+          </v-card>
+        </template>
+
+        <v-table
+          v-else
+          density="compact"
+        >
           <thead>
             <tr>
+              <th>Source</th>
               <th>Authors</th>
               <th>Narrators</th>
               <th>Name</th>
@@ -177,6 +250,9 @@
               v-for="(result, i) in searchResults"
               :key="i"
             >
+              <td>
+                <v-chip size="x-small">{{ result.source }}</v-chip>
+              </td>
               <td>
                 {{ joinPersons(result.authors) }}
               </td>
@@ -227,13 +303,18 @@
 
 <script setup lang="ts">
 import { computed, onMounted, Ref, ref } from "vue";
+import { useDisplay } from "vuetify";
 import { BookSearchResult } from "../types/BookSearchResult";
+import { SourceSearchStatus } from "../types/MultiSourceSearchResult";
 import { SearchServiceInfo } from "../types/SearchServiceInfo";
 import SearchService from "../services/SearchService";
 import { Audiobook } from "../types/Audiobook";
 import ErrorNotifications from "./ErrorNotifications.vue";
+import SeriesSelectionTable from "./SeriesSelectionTable.vue";
 import { useErrors } from "./errors";
+import { useSelectedSearchSources } from "../composables/useSelectedSearchSources";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
+import { UserNotificationError } from "../types/Errors";
 
 const fileExtRegex = new RegExp(/\.(\w{3,4})(?:$|\?)/);
 const props = defineProps<{ bookDetails: Audiobook; dialogWidth?: string }>();
@@ -241,12 +322,16 @@ const emit = defineEmits<{
   (e: "resultChosen", result: BookSearchResult | undefined): void;
 }>();
 
+const { smAndDown } = useDisplay();
+
 const searchTerm = ref("");
 const searchResults: Ref<BookSearchResult[]> = ref([]);
+const sourceStatuses: Ref<SourceSearchStatus[]> = ref([]);
 const selectedResult: Ref<BookSearchResult | undefined> = ref(undefined);
 const searching = ref(false);
 const gettingDetails = ref(false);
 const services: Ref<SearchServiceInfo[]> = ref([]);
+const selectedSources = useSelectedSearchSources(services);
 
 const getFileNameExclExt = (fileName: string): string => {
   const regexMatch = fileExtRegex.exec(fileName);
@@ -314,16 +399,39 @@ const existingTags = computed((): { name: string; value: any }[] => {
   return tags;
 });
 
-const search = async (source: string) => {
+const statusLabel = (status: SourceSearchStatus): string => {
+  if (!status.success) {
+    return "failed";
+  }
+  return status.resultCount === 1
+    ? "1 result"
+    : `${status.resultCount} results`;
+};
+
+const statusColor = (status: SourceSearchStatus): string | undefined => {
+  if (!status.success) {
+    return "error";
+  }
+  return status.resultCount === 0 ? "warning" : undefined;
+};
+
+const runSearch = async () => {
+  if (!searchTerm.value || !selectedSources.value.length) {
+    return;
+  }
+
   searching.value = true;
   selectedResult.value = undefined;
   searchResults.value = [];
+  sourceStatuses.value = [];
 
   try {
-    searchResults.value = await SearchService.searchSource(
-      source,
+    const result = await SearchService.searchMultiple(
+      selectedSources.value,
       searchTerm.value,
     );
+    searchResults.value = result.results;
+    sourceStatuses.value = result.sourceStatuses;
   } finally {
     searching.value = false;
   }
@@ -375,16 +483,7 @@ onMounted(async () => {
   try {
     services.value = await SearchService.getServices();
   } catch {
-    // Fall back to hardcoded services if the endpoint fails
-    services.value = [
-      { name: "Audible", enabled: true },
-      { name: "Goodreads", enabled: true },
-      {
-        name: "Hardcover",
-        enabled: false,
-        disabledReason: "API key not configured",
-      },
-    ];
+    throw new UserNotificationError("Failed to load metadata search sources.");
   }
 });
 

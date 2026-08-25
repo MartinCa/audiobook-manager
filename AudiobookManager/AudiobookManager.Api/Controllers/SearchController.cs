@@ -23,6 +23,12 @@ public class SearchController : ControllerBase
         return await _scrapingService.Search(sourceName, q);
     }
 
+    [HttpPost("multi")]
+    public async Task<MultiSourceSearchResult> SearchMultiple([FromBody] MultiSearchDto dto)
+    {
+        return await _scrapingService.SearchMultiple(dto.Sources, dto.Q);
+    }
+
     [HttpPost("details")]
     public async Task<BookSearchResult> GetBookDetails([FromBody] PathDto dto)
     {

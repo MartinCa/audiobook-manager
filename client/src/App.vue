@@ -48,27 +48,27 @@
           >
             <v-list-item-title v-text="link.text" />
           </v-list-item>
-          <!-- <v-list-group v-else
-                        :value="true"
-                        :prepend-icon="link.icon">
-            <template v-slot:activator>
-              <v-list-item-content>
-                <v-list-item-title>{{ link.text }}</v-list-item-title>
-              </v-list-item-content>
+          <v-list-group
+            v-else
+            :value="link.text"
+          >
+            <template v-slot:activator="{ props }">
+              <v-list-item
+                v-bind="props"
+                :to="link.to"
+                :prepend-icon="link.icon"
+                :title="link.text"
+              />
             </template>
 
-            <v-list-item v-for="(subLink, i) in link.subLinks"
-                         :key="i"
-                         link
-                         :prepend-icon="subLink.icon">
-              <v-list-item-title v-text="subLink.text"></v-list-item-title>
-
-               <v-list-item-icon>
-                <v-icon v-text="subLink.icon"></v-icon>
-              </v-list-item-icon>
-            </v-list-item>
-
-          </v-list-group> -->
+            <v-list-item
+              v-for="(subLink, j) in link.subLinks"
+              :key="j"
+              :to="subLink.to"
+              :prepend-icon="subLink.icon"
+              :title="subLink.text"
+            />
+          </v-list-group>
         </template>
       </v-list>
     </v-navigation-drawer>
@@ -105,23 +105,23 @@ const links: MenuLink[] = [
     to: "/library",
     icon: "mdi-library",
     text: "Library",
-  },
-  {
-    to: "/library/consistency",
-    icon: "mdi-check-decagram",
-    text: "Consistency",
+    subLinks: [
+      {
+        to: "/library/discovered",
+        icon: "mdi-file-find",
+        text: "Discovered",
+      },
+      {
+        to: "/library/consistency",
+        icon: "mdi-check-decagram",
+        text: "Consistency",
+      },
+    ],
   },
   {
     icon: "mdi-cog",
     text: "Settings",
     to: "/settings",
-    // subLinks: [
-    //   {
-    //     icon: "mdi-cog",
-    //     text: "Series Mapping",
-    //     to: "/settings"
-    //   }
-    // ]
   },
 ];
 </script>

@@ -70,7 +70,7 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 - **Database** — EF Core context (`DatabaseContext.cs`), models in `Models/`, entity mappings in `EntityMappings/`, repositories in `Repositories/`. SQLite with snake_case naming convention (`UseSnakeCaseNamingConvention()`). DI registration in `DependencyInjection.cs`.
 - **Domain** — Domain models shared across layers (Audiobook, Person, AudiobookFileInfo, AudiobookImage). These are distinct from the Database models — the service layer maps between them.
 - **FileManager** — File I/O operations: `AudiobookFileHandler` (static utility for path generation, file relocation, metadata/cover writing), `AudiobookTagHandler` (m4b tag parsing/writing via ATL library), `FileScanner` (directory scanning).
-- **Scraping** — Metadata scraping (AngleSharp). Goodreads and Audible integration for book metadata.
+- **Scraping** — Metadata scraping. Scrapers: `GoodreadsScraper` (AngleSharp HTML scraping), `AudibleScraper`, `HardcoverScraper` (GraphQL API, requires an API key). See "Adding a metadata source scraper" below.
 - **Settings** — `AudiobookManagerSettings` with key env vars: `AudiobookImportPath`, `AudiobookLibraryPath`, `DbLocation`.
 - **HubClient** — SignalR client library. Implements `IOrganize` interface — must be updated when new SignalR events are added.
 - **Test** — MSTest unit tests with Moq for mocking.
@@ -127,6 +127,15 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description) and `reader.txt` (narrators). `WriteCover()` extracts embedded cover art to `cover.jpg` or `cover.png`.
+
+### Adding a metadata source scraper
+
+Adding a new source (or changing an existing one's name/availability) requires touching exactly **one file** — the scraper itself — and nothing else, front or back end:
+
+1. Implement `IScraper` (`AudiobookManager.Scraping/Scrapers/IScraper.cs`) in a new class under `AudiobookManager.Scraping/Scrapers/`. Set `SourceName`, `IsSource()`, `SupportsUrl()`, `Search()`, `GetBookDetails()`, and optionally `RequiresApiKey`/`IsApiKeyConfigured` if it needs a key (see `HardcoverScraper` for the pattern).
+2. That's it. DI registration is reflection-based (`AudiobookManager.Scraping/DependencyInjection.cs` registers every non-abstract `IScraper` in the assembly automatically) — no manual wiring.
+3. `ScrapingService.GetSearchServiceInfo()` (`GET /api/search/services`) automatically includes the new scraper, and `ScrapingService.Search`/`SearchMultiple`/`GetBookDetails` automatically tags results with the scraper's `SourceName`.
+4. The frontend's source picker (`BookSearchDialog.vue`), the "Add by URL" hint (`ManualUrlSearchDialog.vue`), and the remembered-source-selection composable (`useSelectedSearchSources.ts`) all derive their list of sources from `GET /search/services` live — **none of them hardcode source names**, and none should be edited when a scraper is added, removed, or renamed. Do not reintroduce a hardcoded fallback source list on the frontend (one existed in `BookSearchDialog.vue` and was removed for exactly this reason — it silently drifted from the real backend list).
 
 ## Key Configuration
 
