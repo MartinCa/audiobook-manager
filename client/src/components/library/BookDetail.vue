@@ -29,268 +29,35 @@
         </v-col>
       </v-row>
 
-      <v-toolbar>
-        <v-btn
-          color="primary"
-          @click="showSearchDialog = true"
-        >
-          <v-icon>mdi-magnify</v-icon>
-          Search
-        </v-btn>
-        <v-btn
-          color="primary"
-          @click="showManualUrlSearchDialog = true"
-        >
-          <v-icon>mdi-magnify</v-icon>
-          Add by URL
-        </v-btn>
-
-        <v-spacer></v-spacer>
-
-        <v-btn
-          color="primary"
-          :disabled="saving"
-          @click="saveBook()"
-        >
-          <template v-if="saving">
-            <v-progress-circular
-              indeterminate
-              size="23"
-              :width="2"
-            />
-          </template>
-          <template v-else>
-            <v-icon>mdi-content-save</v-icon>
-            Save
-          </template>
-        </v-btn>
-
-        <v-btn
-          :href="goodreadsQuery"
-          target="_blank"
-        >
-          <v-icon>mdi-magnify</v-icon>
-          Goodreads
-        </v-btn>
-      </v-toolbar>
-
-      <v-row>
-        <v-col class="text-left">
-          <div class="text-subtitle-2 mb-1">Path:</div>
-          <DiffDisplay
-            v-if="newPath"
-            :actual="bookDetail.filePath"
-            :expected="newPath"
-          />
-          <span v-else>{{ bookDetail.filePath }}</span>
-        </v-col>
-      </v-row>
-
-      <v-form ref="form">
-        <CoverEditor
-          ref="coverEditor"
-          :base64-data="input.cover_base64"
-          :mime-type="input.cover_mime"
-          :cover-url="
-            !input.cover_base64 && bookDetail?.coverFilePath
-              ? `${apiBaseUrl}/browse/audiobooks/${bookDetail.id}/cover`
-              : undefined
-          "
-          @update:cover="onCoverUpdate"
-        />
-        <v-row>
-          <v-col
-            cols="12"
-            md="6"
+      <BookEditForm
+        ref="bookEditForm"
+        v-model:input="input"
+        :search-book-details="searchBookDetails"
+        :current-path="bookDetail.filePath"
+        :new-path="newPath"
+        :cover-url="coverUrl"
+        @reset="resetInput"
+      >
+        <template #toolbar-actions>
+          <v-btn
+            color="primary"
+            :disabled="saving"
+            @click="saveBook()"
           >
-            <v-text-field
-              label="Authors"
-              hide-details="auto"
-              hint="Separated by ','"
-              density="comfortable"
-              :rules="[(v: any) => !!v || 'Authors is required']"
-              v-model="input.authors"
-            ></v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            md="6"
-          >
-            <v-text-field
-              label="Narrators"
-              hide-details="auto"
-              density="comfortable"
-              hint="Separated by ','"
-              v-model="input.narrators"
-            ></v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            md="6"
-          >
-            <v-text-field
-              label="Book name"
-              hide-details="auto"
-              density="comfortable"
-              :rules="[(v: any) => !!v || 'Book name is required']"
-              v-model="input.bookName"
-            ></v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            md="6"
-          >
-            <v-text-field
-              label="Subtitle"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.subtitle"
-            ></v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="6"
-          >
-            <v-text-field
-              label="Series name"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.series"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="6"
-          >
-            <v-text-field
-              label="Series part"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.seriesPart"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col cols="12">
-            <v-text-field
-              label="Year"
-              type="number"
-              hide-details="auto"
-              density="comfortable"
-              :rules="[(v: any) => !!v || 'Year is required']"
-              v-model="input.year"
-            ></v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="8"
-            md="9"
-            lg="10"
-          >
-            <v-text-field
-              label="Genres"
-              hint="Separated by '/'"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.genres"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="4"
-            md="3"
-            lg="2"
-          >
-            <v-btn
-              color="primary"
-              size="large"
-              :disabled="isNonfiction"
-              block
-              @click="addNonfictionGenre"
-            >
-              Add Nonfiction
-            </v-btn>
-          </v-col>
-          <v-col cols="12">
-            <v-textarea
-              label="Description"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.description"
-            >
-            </v-textarea>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="6"
-          >
-            <v-text-field
-              label="Copyright"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.copyright"
-            >
-            </v-text-field>
-          </v-col>
-          <v-col
-            cols="12"
-            sm="6"
-          >
-            <v-text-field
-              label="Publisher"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.publisher"
-            >
-            </v-text-field>
-          </v-col>
-
-          <v-col
-            cols="12"
-            sm="6"
-            class="text-left"
-          >
-            <v-text-field
-              label="Www"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.www"
-            >
-            </v-text-field>
-            <a
-              v-if="input.www"
-              :href="input.www"
-              target="_blank"
-              >Preview</a
-            >
-          </v-col>
-          <v-col
-            cols="12"
-            sm="6"
-          >
-            <v-text-field
-              label="Rating"
-              type="number"
-              hide-details="auto"
-              density="comfortable"
-              v-model="input.rating"
-            >
-            </v-text-field>
-          </v-col>
-        </v-row>
-        <v-row>
-          <v-col
-            cols="12"
-            sm="4"
-          >
-            <v-btn
-              color="warning"
-              @click="resetInput()"
-            >
-              Reset input
-            </v-btn>
-          </v-col>
+            <template v-if="saving">
+              <v-progress-circular
+                indeterminate
+                size="23"
+                :width="2"
+              />
+            </template>
+            <template v-else>
+              <v-icon>mdi-content-save</v-icon>
+              Save
+            </template>
+          </v-btn>
+        </template>
+        <template #form-actions>
           <v-col
             cols="12"
             sm="4"
@@ -310,48 +77,8 @@
               <template v-else>Save</template>
             </v-btn>
           </v-col>
-        </v-row>
-      </v-form>
-
-      <v-dialog
-        v-if="showSearchDialog"
-        v-model="showSearchDialog"
-        :width="dialogWidth"
-        :fullscreen="mdAndDown"
-      >
-        <BookSearchDialog
-          v-if="searchBookDetails"
-          :dialog-width="dialogWidth"
-          :book-details="searchBookDetails"
-          @result-chosen="onSearchResultChosen"
-        />
-      </v-dialog>
-      <v-dialog
-        v-if="showManualUrlSearchDialog"
-        v-model="showManualUrlSearchDialog"
-        :width="dialogWidth"
-        :fullscreen="mdAndDown"
-      >
-        <ManualUrlSearchDialog
-          :dialog-width="dialogWidth"
-          @result-chosen="onSearchResultChosen"
-        />
-      </v-dialog>
-      <v-dialog
-        v-if="showTagPreview"
-        v-model="showTagPreview"
-        :width="dialogWidth"
-        :fullscreen="mdAndDown"
-      >
-        <TagPreviewDialog
-          v-if="pendingSearchResult"
-          :dialog-width="dialogWidth"
-          :current-input="input"
-          :search-result="pendingSearchResult"
-          @apply="applyPreviewedTags"
-          @cancel="showTagPreview = false"
-        />
-      </v-dialog>
+        </template>
+      </BookEditForm>
 
       <!-- Issues section -->
       <template v-if="bookIssues.length > 0">
@@ -431,18 +158,12 @@ import { debounce } from "lodash";
 import AudiobookDetail from "../../types/AudiobookDetail";
 import OrganizeAudiobookInput from "../../types/OrganizeAudiobookInput";
 import { Audiobook, AudiobookImage } from "../../types/Audiobook";
-import { BookSearchResult } from "../../types/BookSearchResult";
 import ConsistencyIssue from "../../types/ConsistencyIssue";
 import BrowseService from "../../services/BrowseService";
 import AudiobookService from "../../services/AudiobookService";
 import ConsistencyService from "../../services/ConsistencyService";
-import BookSearchDialog from "../BookSearchDialog.vue";
-import ManualUrlSearchDialog from "../ManualUrlSearchDialog.vue";
-import TagPreviewDialog from "../TagPreviewDialog.vue";
-import CoverEditor from "../CoverEditor.vue";
+import BookEditForm from "../BookEditForm.vue";
 import DiffDisplay from "../DiffDisplay.vue";
-import { useDialogWidth } from "../dialog";
-import { joinPersons } from "../../helpers/bookDetailsHelpers";
 
 const apiBaseUrl = import.meta.env.VITE_BASE_API_URL as string;
 
@@ -452,23 +173,14 @@ const bookId = computed(() => Number(route.params.bookId));
 const loading = ref(true);
 const saving = ref(false);
 const bookDetail: Ref<AudiobookDetail | null> = ref(null);
-const form: Ref<any | null> = ref(null);
+const bookEditForm = ref<InstanceType<typeof BookEditForm> | null>(null);
 const input: Ref<OrganizeAudiobookInput> = ref({});
-const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
-const showSearchDialog = ref(false);
-const showManualUrlSearchDialog = ref(false);
-const showTagPreview = ref(false);
-const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
 const newPath = ref("");
 
 const bookIssues: Ref<ConsistencyIssue[]> = ref([]);
 const resolvingIds: Ref<Set<number>> = ref(new Set());
 const snackbar = ref(false);
 const snackbarText = ref("");
-
-const nonfictionGenre = "Nonfiction";
-
-const { dialogWidth, mdAndDown } = useDialogWidth();
 
 const searchBookDetails = computed((): Audiobook => {
   const bd = bookDetail.value!;
@@ -496,24 +208,10 @@ const searchBookDetails = computed((): Audiobook => {
   };
 });
 
-const goodreadsQuery = computed((): string => {
-  let queryTokens: string[] = [];
-  if (input.value.authors) {
-    queryTokens = queryTokens.concat(input.value.authors?.split(" "));
-  }
-  if (input.value.bookName) {
-    queryTokens = queryTokens.concat(input.value.bookName?.split(" "));
-  }
-  const query = queryTokens.join("+");
-  return `https://www.goodreads.com/search?utf8=%E2%9C%93&search_type=books&search[query]=${query}`;
-});
-
-const genresSplit = computed(
-  (): string[] => input.value.genres?.split("/") ?? [],
-);
-
-const isNonfiction = computed((): boolean =>
-  genresSplit.value.some((genre) => genre === nonfictionGenre),
+const coverUrl = computed((): string | undefined =>
+  bookDetail.value?.coverFilePath
+    ? `${apiBaseUrl}/browse/audiobooks/${bookDetail.value.id}/cover`
+    : undefined,
 );
 
 const resetInput = () => {
@@ -578,14 +276,8 @@ const convertInputToAudiobook = (): Audiobook | null => {
   };
 };
 
-const validateForm = async (): Promise<boolean> => {
-  if (!form.value) return false;
-  const formValidation = await form.value.validate();
-  return formValidation.valid;
-};
-
 const saveBook = async () => {
-  const formValid = await validateForm();
+  const formValid = await bookEditForm.value?.validate();
   if (!formValid) return;
 
   const data = convertInputToAudiobook();
@@ -624,90 +316,6 @@ const updateNewBookPath = debounce(async () => {
     }
   }
 }, 300);
-
-const onCoverUpdate = (
-  base64Data: string | undefined,
-  mimeType: string | undefined,
-) => {
-  input.value.cover_base64 = base64Data;
-  input.value.cover_mime = mimeType;
-};
-
-const addNonfictionGenre = () => {
-  if (isNonfiction.value) return;
-  input.value.genres = [...genresSplit.value, nonfictionGenre].join("/");
-};
-
-const onSearchResultChosen = (searchData: BookSearchResult | undefined) => {
-  showSearchDialog.value = false;
-  showManualUrlSearchDialog.value = false;
-
-  if (searchData) {
-    pendingSearchResult.value = searchData;
-    showTagPreview.value = true;
-  }
-};
-
-const applyPreviewedTags = (
-  result: BookSearchResult,
-  selectedFields: Set<string>,
-) => {
-  showTagPreview.value = false;
-
-  if (selectedFields.has("authors")) {
-    input.value.authors = joinPersons(result.authors);
-  }
-  if (selectedFields.has("narrators")) {
-    input.value.narrators = joinPersons(result.narrators) ?? null;
-  }
-  if (selectedFields.has("bookName")) {
-    input.value.bookName = result.bookName;
-  }
-  if (selectedFields.has("subtitle")) {
-    input.value.subtitle = result.subtitle;
-  }
-  if (selectedFields.has("series")) {
-    if (result.series?.length) {
-      const seriesData = result.series[0];
-      input.value.series = seriesData.seriesName;
-      input.value.seriesOriginal = seriesData.originalSeriesName;
-      input.value.seriesPart = seriesData.seriesPart;
-      input.value.seriesPartWarning = seriesData.partWarning;
-    } else {
-      input.value.series = "";
-      input.value.seriesOriginal = "";
-      input.value.seriesPart = "";
-      input.value.seriesPartWarning = false;
-    }
-  }
-  if (selectedFields.has("year")) {
-    input.value.year = result.year;
-  }
-  if (selectedFields.has("genres")) {
-    input.value.genres = result.genres?.join("/");
-  }
-  if (selectedFields.has("description")) {
-    input.value.description = result.description;
-  }
-  if (selectedFields.has("rating")) {
-    input.value.rating = result.rating;
-  }
-  if (selectedFields.has("publisher")) {
-    input.value.publisher = result.publisher;
-  }
-  if (selectedFields.has("copyright")) {
-    input.value.copyright = result.copyright;
-  }
-  if (selectedFields.has("asin")) {
-    input.value.asin = result.asin;
-  }
-  if (selectedFields.has("www")) {
-    input.value.www = result.url;
-  }
-  if (selectedFields.has("cover") && result.imageUrl) {
-    coverEditor.value?.loadImgFromUrl(result.imageUrl);
-  }
-};
 
 // Issue helpers
 const getIssueIcon = (issueType: string): string => {
