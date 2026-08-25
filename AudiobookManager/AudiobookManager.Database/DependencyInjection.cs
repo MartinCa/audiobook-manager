@@ -13,6 +13,7 @@ public static class DependencyInjection
             .AddScoped<ISeriesMappingRepository, SeriesMappingRepository>()
             .AddScoped<IQueuedOrganizeTaskRepository, QueuedOrganizeTaskRepository>()
             .AddScoped<IDiscoveredAudiobookRepository, DiscoveredAudiobookRepository>()
-            .AddScoped<IConsistencyIssueRepository, ConsistencyIssueRepository>();
+            .AddScoped<IConsistencyIssueRepository, ConsistencyIssueRepository>()
+            .AddScoped<IOrphanDirectoryRepository, OrphanDirectoryRepository>();
 
 }

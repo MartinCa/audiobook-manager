@@ -39,4 +39,5 @@ public class DatabaseContext : DbContext
     public DbSet<QueuedOrganizeTask> QueuedOrganizeTasks { get; set; }
     public DbSet<DiscoveredAudiobook> DiscoveredAudiobooks { get; set; }
     public DbSet<ConsistencyIssue> ConsistencyIssues { get; set; }
+    public DbSet<OrphanDirectory> OrphanDirectories { get; set; }
 }

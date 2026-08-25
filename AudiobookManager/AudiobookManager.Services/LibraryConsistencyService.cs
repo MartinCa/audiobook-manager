@@ -12,6 +12,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly AudiobookManagerSettings _settings;
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly ILogger<LibraryConsistencyService> _logger;
 
@@ -19,12 +20,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IOptions<AudiobookManagerSettings> settings,
         IAudiobookRepository audiobookRepository,
         IConsistencyIssueRepository issueRepository,
+        IOrphanDirectoryRepository orphanDirectoryRepository,
         IAudiobookTagHandler tagHandler,
         ILogger<LibraryConsistencyService> logger)
     {
         _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _issueRepository = issueRepository;
+        _orphanDirectoryRepository = orphanDirectoryRepository;
         _tagHandler = tagHandler;
         _logger = logger;
     }
@@ -34,6 +37,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _logger.LogInformation("Starting library consistency check");
 
         await _issueRepository.ClearAllAsync();
+        await _orphanDirectoryRepository.ClearAllAsync();
 
         var audiobooks = await _audiobookRepository.GetAllWithIncludesAsync();
         var totalBooks = audiobooks.Count;
@@ -145,7 +149,38 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             }
         }
 
+        issuesFound = await CheckForOrphanDirectories(progressAction, totalBooks, issuesFound);
+
         _logger.LogInformation("Consistency check complete. Books: {Total}, Issues: {Issues}", totalBooks, issuesFound);
+    }
+
+    private async Task<int> CheckForOrphanDirectories(Func<string, int, int, int, Task> progressAction, int totalBooks, int issuesFound)
+    {
+        if (!Directory.Exists(_settings.AudiobookLibraryPath))
+        {
+            return issuesFound;
+        }
+
+        var leafDirectories = Directory.GetDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
+            .Where(directory => !Directory.GetDirectories(directory).Any());
+
+        foreach (var directory in leafDirectories)
+        {
+            var hasAudioFile = Directory.GetFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
+            if (!hasAudioFile)
+            {
+                await _orphanDirectoryRepository.InsertAsync(new OrphanDirectory
+                {
+                    DirectoryPath = directory,
+                    DetectedAt = DateTime.UtcNow
+                });
+                issuesFound++;
+            }
+        }
+
+        await progressAction("Checked library directories for orphaned folders", totalBooks, totalBooks, issuesFound);
+
+        return issuesFound;
     }
 
     public async Task ResolveIssue(long issueId)
@@ -251,6 +286,57 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
         await _issueRepository.DeleteAsync(issue.Id);
+    }
+
+    public async Task ResolveOrphanDirectory(long orphanDirectoryId)
+    {
+        var directory = await _orphanDirectoryRepository.GetByIdAsync(orphanDirectoryId);
+        if (directory == null)
+            throw new KeyNotFoundException($"Orphan directory {orphanDirectoryId} not found");
+
+        DeleteOrphanDirectoryFromDisk(directory.DirectoryPath);
+        await _orphanDirectoryRepository.DeleteAsync(orphanDirectoryId);
+    }
+
+    public async Task<(int resolved, int failed)> ResolveAllOrphanDirectories()
+    {
+        var directories = await _orphanDirectoryRepository.GetAllAsync();
+        var resolved = 0;
+        var failed = 0;
+
+        foreach (var directory in directories)
+        {
+            try
+            {
+                await ResolveOrphanDirectory(directory.Id);
+                resolved++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve orphan directory {DirectoryId}", directory.Id);
+                failed++;
+            }
+        }
+
+        return (resolved, failed);
+    }
+
+    private static void DeleteOrphanDirectoryFromDisk(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+        {
+            return;
+        }
+
+        // Safety net in case a file was added to the directory since it was detected as orphaned
+        var hasAudioFile = Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories)
+            .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
+        if (hasAudioFile)
+        {
+            return;
+        }
+
+        Directory.Delete(directoryPath, recursive: true);
     }
 
     public async Task<(int resolved, int failed)> ResolveIssuesByType(string issueType)

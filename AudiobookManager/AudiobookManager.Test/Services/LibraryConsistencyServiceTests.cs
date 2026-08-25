@@ -15,6 +15,7 @@ public class LibraryConsistencyServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
@@ -25,6 +26,7 @@ public class LibraryConsistencyServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _tagHandler = new Mock<IAudiobookTagHandler>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
         _settings = Options.Create(new AudiobookManagerSettings
@@ -36,6 +38,7 @@ public class LibraryConsistencyServiceTests
             _settings,
             _audiobookRepository.Object,
             _issueRepository.Object,
+            _orphanDirectoryRepository.Object,
             _tagHandler.Object,
             _logger.Object);
     }
@@ -245,6 +248,7 @@ public class LibraryConsistencyServiceTests
                 settings,
                 _audiobookRepository.Object,
                 _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _logger.Object);
 
@@ -316,6 +320,133 @@ public class LibraryConsistencyServiceTests
         {
             Directory.Delete(tempRoot, true);
         }
+    }
+
+    [TestMethod]
+    public async Task RunConsistencyCheck_DirectoryWithNoAudioFile_ReportsOrphanDirectory()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var bookWithAudioDir = Path.Combine(libraryPath, "Author", "Book With Audio");
+        var orphanDir = Path.Combine(libraryPath, "Author", "Orphaned Folder");
+        Directory.CreateDirectory(bookWithAudioDir);
+        Directory.CreateDirectory(orphanDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(bookWithAudioDir, "book.m4b"), "fake audio");
+            await File.WriteAllTextAsync(Path.Combine(orphanDir, "desc.txt"), "leftover");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _logger.Object);
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
+
+            OrphanDirectory? insertedDirectory = null;
+            _orphanDirectoryRepository.Setup(r => r.InsertAsync(It.IsAny<OrphanDirectory>()))
+                .Callback<OrphanDirectory>(d => insertedDirectory = d)
+                .Returns(Task.CompletedTask);
+
+            var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+            Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+            {
+                progressCalls.Add((msg, bc, t, i));
+                return Task.CompletedTask;
+            };
+
+            await service.RunConsistencyCheck(progressAction);
+
+            _orphanDirectoryRepository.Verify(r => r.InsertAsync(It.IsAny<OrphanDirectory>()), Times.Once);
+            Assert.IsNotNull(insertedDirectory);
+            Assert.AreEqual(orphanDir, insertedDirectory!.DirectoryPath);
+            Assert.IsTrue(progressCalls.Exists(c => c.issues == 1));
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_DeletesDirectoryAndRemovesEntry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        await File.WriteAllTextAsync(Path.Combine(tempDir, "leftover.txt"), "leftover");
+
+        var orphanDirectory = new OrphanDirectory { Id = 5, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
+        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(orphanDirectory);
+
+        await _service.ResolveOrphanDirectory(5);
+
+        Assert.IsFalse(Directory.Exists(tempDir));
+        _orphanDirectoryRepository.Verify(r => r.DeleteAsync(5), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_NotFound_ThrowsKeyNotFound()
+    {
+        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((OrphanDirectory?)null);
+
+        var exception = await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _service.ResolveOrphanDirectory(999));
+        Assert.IsNotNull(exception);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_AudioFilePresent_DoesNotDeleteDirectoryButRemovesEntry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "book.m4b"), "fake audio");
+
+            var orphanDirectory = new OrphanDirectory { Id = 6, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(6)).ReturnsAsync(orphanDirectory);
+
+            await _service.ResolveOrphanDirectory(6);
+
+            Assert.IsTrue(Directory.Exists(tempDir), "directory containing an audio file should not be deleted");
+            _orphanDirectoryRepository.Verify(r => r.DeleteAsync(6), Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveAllOrphanDirectories_ResolvesAll()
+    {
+        var tempDir1 = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var tempDir2 = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir1);
+        Directory.CreateDirectory(tempDir2);
+
+        var directories = new List<OrphanDirectory>
+        {
+            new OrphanDirectory { Id = 7, DirectoryPath = tempDir1, DetectedAt = DateTime.UtcNow },
+            new OrphanDirectory { Id = 8, DirectoryPath = tempDir2, DetectedAt = DateTime.UtcNow }
+        };
+
+        _orphanDirectoryRepository.Setup(r => r.GetAllAsync()).ReturnsAsync(directories);
+        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(directories[0]);
+        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(8)).ReturnsAsync(directories[1]);
+
+        var (resolved, failed) = await _service.ResolveAllOrphanDirectories();
+
+        Assert.AreEqual(2, resolved);
+        Assert.AreEqual(0, failed);
+        Assert.IsFalse(Directory.Exists(tempDir1));
+        Assert.IsFalse(Directory.Exists(tempDir2));
     }
 
     [TestMethod]

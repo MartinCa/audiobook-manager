@@ -1,4 +1,5 @@
 import ConsistencyIssue from "../types/ConsistencyIssue";
+import OrphanDirectory from "../types/OrphanDirectory";
 import BaseHttpService from "./BaseHttpService";
 
 class ConsistencyService extends BaseHttpService {
@@ -26,6 +27,18 @@ class ConsistencyService extends BaseHttpService {
 
   getIssuesByAudiobook(audiobookId: number): Promise<ConsistencyIssue[]> {
     return this.getData(`/consistency/issues/by-audiobook/${audiobookId}`);
+  }
+
+  getOrphanDirectories(): Promise<OrphanDirectory[]> {
+    return this.getData("/consistency/orphan-directories");
+  }
+
+  resolveOrphanDirectory(id: number): Promise<void> {
+    return this.postData(`/consistency/orphan-directories/${id}/resolve`);
+  }
+
+  resolveAllOrphanDirectories(): Promise<{ resolved: number; failed: number }> {
+    return this.postData("/consistency/orphan-directories/resolve-all");
   }
 }
 

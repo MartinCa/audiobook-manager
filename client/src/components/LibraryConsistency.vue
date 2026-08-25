@@ -24,7 +24,8 @@
         </v-btn>
         <div class="text-caption text-medium-emphasis mt-2">
           Verifies that every book in the library has the correct file path,
-          sidecar metadata files (desc.txt, reader.txt), and a cover image.
+          sidecar metadata files (desc.txt, reader.txt), and a cover image, and
+          flags leftover folders with no audio file.
         </div>
       </v-col>
     </v-row>
@@ -171,13 +172,97 @@
         </v-expansion-panels>
       </v-col>
     </v-row>
-    <v-row v-else-if="!checking && !checkComplete">
+    <v-row v-if="orphanDirectories.length > 0">
+      <v-col cols="12">
+        <h3 class="text-h6 mb-3">
+          Orphaned Directories ({{ orphanDirectories.length }})
+        </h3>
+        <v-card variant="outlined">
+          <v-card-text>
+            <div class="d-flex justify-end mb-2">
+              <v-btn
+                size="small"
+                variant="outlined"
+                :loading="resolvingAllOrphans"
+                :disabled="resolvingAllOrphans"
+                @click="onBulkResolveOrphansClick()"
+              >
+                Delete All {{ orphanDirectories.length }}
+              </v-btn>
+            </div>
+            <v-list density="compact">
+              <v-list-item
+                v-for="dir in orphanDirectories"
+                :key="dir.id"
+              >
+                <template v-slot:prepend>
+                  <v-icon icon="mdi-folder-remove" />
+                </template>
+                <v-list-item-title class="text-wrap">
+                  {{ dir.directoryPath }}
+                </v-list-item-title>
+                <template v-slot:append>
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    :loading="resolvingOrphanIds.has(dir.id)"
+                    @click.stop="onResolveOrphanClick(dir)"
+                  >
+                    Delete
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+    <v-row
+      v-if="
+        !checking &&
+        !checkComplete &&
+        issues.length === 0 &&
+        orphanDirectories.length === 0
+      "
+    >
       <v-col cols="12">
         <div class="text-center mt-5">
           Run a consistency check to find issues in your library.
         </div>
       </v-col>
     </v-row>
+
+    <v-dialog
+      v-model="orphanConfirmDialog"
+      max-width="500"
+    >
+      <v-card>
+        <v-card-title>Confirm Deletion</v-card-title>
+        <v-card-text>
+          <template v-if="pendingOrphanBulk">
+            This will permanently delete
+            <strong>all {{ orphanDirectories.length }}</strong>
+            orphaned directories (folders with no audio file) and everything in
+            them. This action cannot be undone.
+          </template>
+          <template v-else-if="pendingOrphanDirectory">
+            This will permanently delete
+            <strong>{{ pendingOrphanDirectory.directoryPath }}</strong>
+            and everything in it. This action cannot be undone.
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="cancelOrphanConfirm()">Cancel</v-btn>
+          <v-btn
+            color="error"
+            @click="confirmOrphanResolve()"
+          >
+            Delete
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog
       v-model="confirmDialog"
@@ -229,6 +314,7 @@
 import { computed, Ref, ref, onMounted, onUnmounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
+import OrphanDirectory from "../types/OrphanDirectory";
 import DiffDisplay from "./DiffDisplay.vue";
 import { useSignalR, HubEventToken } from "@/signalr/hub";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
@@ -261,6 +347,13 @@ const pendingBulkCount: Ref<number> = ref(0);
 const snackbar: Ref<boolean> = ref(false);
 const snackbarText: Ref<string> = ref("");
 const displayCounts: Record<string, number> = reactive({});
+
+const orphanDirectories: Ref<OrphanDirectory[]> = ref([]);
+const resolvingOrphanIds: Ref<Set<number>> = ref(new Set());
+const resolvingAllOrphans: Ref<boolean> = ref(false);
+const orphanConfirmDialog: Ref<boolean> = ref(false);
+const pendingOrphanDirectory: Ref<OrphanDirectory | null> = ref(null);
+const pendingOrphanBulk: Ref<boolean> = ref(false);
 
 interface TypeGroup {
   issueType: string;
@@ -327,6 +420,7 @@ const onConsistencyCheckComplete = (arg: ConsistencyCheckComplete) => {
   completeTotalBooks.value = arg.totalBooksChecked;
   completeTotalIssues.value = arg.totalIssuesFound;
   loadIssues();
+  loadOrphanDirectories();
 };
 
 signalR.on(ConsistencyCheckProgressToken, onConsistencyCheckProgress);
@@ -350,6 +444,10 @@ const startCheck = async () => {
 
 const loadIssues = async () => {
   issues.value = await ConsistencyService.getIssues();
+};
+
+const loadOrphanDirectories = async () => {
+  orphanDirectories.value = await ConsistencyService.getOrphanDirectories();
 };
 
 const getBulkResolveDescription = (issueType: string): string => {
@@ -512,8 +610,74 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
   }
 };
 
+const onResolveOrphanClick = (dir: OrphanDirectory) => {
+  pendingOrphanDirectory.value = dir;
+  pendingOrphanBulk.value = false;
+  orphanConfirmDialog.value = true;
+};
+
+const onBulkResolveOrphansClick = () => {
+  pendingOrphanDirectory.value = null;
+  pendingOrphanBulk.value = true;
+  orphanConfirmDialog.value = true;
+};
+
+const cancelOrphanConfirm = () => {
+  orphanConfirmDialog.value = false;
+  pendingOrphanDirectory.value = null;
+  pendingOrphanBulk.value = false;
+};
+
+const confirmOrphanResolve = () => {
+  if (pendingOrphanBulk.value) {
+    bulkResolveOrphans();
+  } else if (pendingOrphanDirectory.value) {
+    resolveOrphanDirectory(pendingOrphanDirectory.value);
+  }
+  orphanConfirmDialog.value = false;
+  pendingOrphanDirectory.value = null;
+  pendingOrphanBulk.value = false;
+};
+
+const resolveOrphanDirectory = async (dir: OrphanDirectory) => {
+  resolvingOrphanIds.value.add(dir.id);
+  try {
+    await ConsistencyService.resolveOrphanDirectory(dir.id);
+    orphanDirectories.value = orphanDirectories.value.filter(
+      (d) => d.id !== dir.id,
+    );
+    snackbarText.value = "Directory deleted successfully";
+    snackbar.value = true;
+  } catch {
+    snackbarText.value = "Failed to delete directory";
+    snackbar.value = true;
+  } finally {
+    resolvingOrphanIds.value.delete(dir.id);
+  }
+};
+
+const bulkResolveOrphans = async () => {
+  resolvingAllOrphans.value = true;
+  try {
+    const result = await ConsistencyService.resolveAllOrphanDirectories();
+    let msg = `Deleted ${result.resolved} directories`;
+    if (result.failed > 0) {
+      msg += ` (${result.failed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+  } catch {
+    snackbarText.value = "Failed to bulk delete orphaned directories";
+    snackbar.value = true;
+  } finally {
+    resolvingAllOrphans.value = false;
+    await loadOrphanDirectories();
+  }
+};
+
 onMounted(() => {
   loadIssues();
+  loadOrphanDirectories();
 });
 </script>
 
