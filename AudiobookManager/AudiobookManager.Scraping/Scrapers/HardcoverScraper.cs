@@ -131,13 +131,26 @@ public class HardcoverScraper : IScraper
     // `search()` query used by Search() above, with query_type "Series" - see
     // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
 
+    // Both book_series(...) selections below filter out two kinds of rows that aren't real
+    // roster entries:
+    // - compilation: true - omnibus/box-set links (e.g. a "Books 1-4" bundle) that Hardcover
+    //   attaches to a series position alongside the individual books, but that don't appear as
+    //   their own entry on the series page itself.
+    // - book.canonical_id not null - alternate-language/translated editions are frequently
+    //   recorded as their own `book` row (rather than just an `edition` of the original) and
+    //   linked into the series at the same position as the original; canonical_id is non-null
+    //   on these variants and points back at the canonical (original-language) book, which is
+    //   the row we keep.
     private const string _seriesBooksQuery = """
         query GetSeriesBooks($id: Int!) {
           series_by_pk(id: $id) {
             id
             name
             slug
-            book_series(order_by: {position: asc}) {
+            book_series(
+              order_by: {position: asc}
+              where: {compilation: {_eq: false}, book: {canonical_id: {_is_null: true}}}
+            ) {
               position
               book {
                 id
@@ -158,7 +171,10 @@ public class HardcoverScraper : IScraper
             id
             name
             slug
-            book_series(order_by: {position: asc}) {
+            book_series(
+              order_by: {position: asc}
+              where: {compilation: {_eq: false}, book: {canonical_id: {_is_null: true}}}
+            ) {
               position
               book {
                 id
