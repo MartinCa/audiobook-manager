@@ -23,6 +23,12 @@ public class SeriesOverview
     public int ExpectedBookCount { get; set; }
     public int MissingBookCount { get; set; }
     public int IgnoredBookCount { get; set; }
+
+    /// <summary>
+    /// Whether omnibus/box-set editions from the matched source are kept on the roster instead
+    /// of being filtered out.
+    /// </summary>
+    public bool IncludeOmnibusEditions { get; set; }
 }
 
 public class SeriesDetail

@@ -38,6 +38,13 @@ public class SeriesExpectedBookResult
 
     public string? SourceUrl { get; set; }
 
+    /// <summary>
+    /// Whether the source flags this roster entry as an omnibus/box-set edition rather than an
+    /// individual book. Callers decide whether to keep or drop these - some libraries genuinely
+    /// own the omnibus instead of the individual books it bundles.
+    /// </summary>
+    public bool IsCompilation { get; set; }
+
     public SeriesExpectedBookResult(string title)
     {
         Title = title;

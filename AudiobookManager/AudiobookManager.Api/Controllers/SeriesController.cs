@@ -107,7 +107,7 @@ public class SeriesController : ControllerBase
 
         try
         {
-            var overview = await _seriesService.MatchSeriesAsync(seriesName, dto.SourceName, dto.SourceId, dto.Confidence);
+            var overview = await _seriesService.MatchSeriesAsync(seriesName, dto.SourceName, dto.SourceId, dto.Confidence, dto.IncludeOmnibusEditions);
             return ToDto(overview);
         }
         catch (ArgumentException ex)
@@ -117,6 +117,21 @@ public class SeriesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error matching series {SeriesName} to {SourceName}/{SourceId}", seriesName, dto.SourceName, dto.SourceId);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("{seriesName}/include-omnibus-editions")]
+    public async Task<ActionResult<SeriesOverviewDto>> SetIncludeOmnibusEditions(string seriesName, [FromBody] IncludeOmnibusEditionsDto dto)
+    {
+        try
+        {
+            var overview = await _seriesService.SetIncludeOmnibusEditionsAsync(seriesName, dto.IncludeOmnibusEditions);
+            return ToDto(overview);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting IncludeOmnibusEditions={Include} for series {SeriesName}", dto.IncludeOmnibusEditions, seriesName);
             return StatusCode(500, ex.Message);
         }
     }
@@ -235,7 +250,8 @@ public class SeriesController : ControllerBase
         o.LastRefreshedAt,
         o.ExpectedBookCount,
         o.MissingBookCount,
-        o.IgnoredBookCount);
+        o.IgnoredBookCount,
+        o.IncludeOmnibusEditions);
 
     private static SeriesExpectedBookDto ToDto(SeriesExpectedBookInfo b) => new(
         b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored);

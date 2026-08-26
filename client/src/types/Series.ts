@@ -12,6 +12,7 @@ export interface SeriesOverview {
   expectedBookCount: number;
   missingBookCount: number;
   ignoredBookCount: number;
+  includeOmnibusEditions: boolean;
 }
 
 export interface SeriesExpectedBook {
