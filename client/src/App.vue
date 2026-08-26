@@ -121,6 +121,11 @@ const links: MenuLink[] = [
         icon: "mdi-set-merge",
         text: "Similar Values",
       },
+      {
+        to: "/library/missing-tags",
+        icon: "mdi-tag-off",
+        text: "Missing Tags",
+      },
     ],
   },
   {
