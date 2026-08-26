@@ -151,7 +151,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         _logger.LogInformation("({audiobookFile}) tags saved", audiobook.FileInfo.FullPath);
     }
 
-    private static List<Person> ParsePersonsFromString(string str)
+    public static List<Person> ParsePersonsFromString(string str)
     {
         return str.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(x => new Person(x.Trim())).ToList();
     }

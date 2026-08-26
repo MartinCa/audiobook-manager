@@ -1,4 +1,4 @@
-import BookFileInfo from "../types/BookFileInfo";
+import DiscoveredAudiobook from "../types/DiscoveredAudiobook";
 import { PaginatedResult } from "../types/Common";
 import BaseHttpService from "./BaseHttpService";
 
@@ -11,7 +11,7 @@ class LibraryService extends BaseHttpService {
     limit: number,
     offset: number,
     search?: string,
-  ): Promise<PaginatedResult<BookFileInfo>> {
+  ): Promise<PaginatedResult<DiscoveredAudiobook>> {
     const params = new URLSearchParams({
       limit: String(limit),
       offset: String(offset),
@@ -22,6 +22,10 @@ class LibraryService extends BaseHttpService {
 
   deleteDiscoveredBook(path: string): Promise<void> {
     return this.delete(`/library/discovered?path=${encodeURIComponent(path)}`);
+  }
+
+  bulkImportDiscovered(paths: string[]): Promise<void> {
+    return this.postData("/library/discovered/bulk-import", { paths });
   }
 }
 

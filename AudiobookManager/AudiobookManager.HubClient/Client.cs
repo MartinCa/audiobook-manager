@@ -65,4 +65,16 @@ public class Client : IOrganize
         Console.WriteLine($"Similar value align complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
         return Task.CompletedTask;
     }
+
+    public Task DiscoveredImportProgress(DiscoveredImportProgress progress)
+    {
+        Console.WriteLine($"Discovered import: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task DiscoveredImportComplete(DiscoveredImportComplete result)
+    {
+        Console.WriteLine($"Discovered import complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
 }
