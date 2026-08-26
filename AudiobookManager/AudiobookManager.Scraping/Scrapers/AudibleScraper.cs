@@ -95,12 +95,9 @@ public partial class AudibleScraper : IScraper
             throw new Exception($"Error getting search results from Audible, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
         }
 
-        var responseStream = await response.Content.ReadAsStreamAsync();
+        var html = await response.Content.ReadAsStringAsync();
 
-        HtmlParser parser = new();
-        var doc = parser.ParseDocument(responseStream);
-
-        return await ParseAudibleDetails(doc, bookUrl);
+        return await ParseAudibleDetails(html, bookUrl);
     }
 
     private async Task<BookSearchResult?> ParseAudibleSearchResult(IElement resultElem)
@@ -178,8 +175,11 @@ public partial class AudibleScraper : IScraper
         };
     }
 
-    private async Task<BookSearchResult> ParseAudibleDetails(IDocument doc, string bookUrl)
+    public async Task<BookSearchResult> ParseAudibleDetails(string html, string bookUrl)
     {
+        HtmlParser parser = new();
+        var doc = parser.ParseDocument(html);
+
         var audiobookJson = FindLdJsonObject(doc, "Audiobook");
 
         if (audiobookJson is not { } audiobook)
