@@ -35,6 +35,11 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         return (items, total);
     }
 
+    public async Task<List<DiscoveredAudiobook>> GetByPathsAsync(List<string> paths)
+    {
+        return await _db.DiscoveredAudiobooks.Where(d => paths.Contains(d.FileInfoFullPath)).ToListAsync();
+    }
+
     public async Task DeleteAsync(long id)
     {
         var entity = await _db.DiscoveredAudiobooks.FindAsync(id);

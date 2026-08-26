@@ -4,6 +4,8 @@ using AudiobookManager.FileManager;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using DomainAudiobook = AudiobookManager.Domain.Audiobook;
+using DomainAudiobookFileInfo = AudiobookManager.Domain.AudiobookFileInfo;
 
 namespace AudiobookManager.Services;
 
@@ -13,6 +15,7 @@ public class LibraryScanService : ILibraryScanService
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IDiscoveredAudiobookRepository _discoveredAudiobookRepository;
     private readonly IAudiobookTagHandler _tagHandler;
+    private readonly IAudiobookService _audiobookService;
     private readonly ILogger<LibraryScanService> _logger;
 
     public LibraryScanService(
@@ -20,12 +23,14 @@ public class LibraryScanService : ILibraryScanService
         IAudiobookRepository audiobookRepository,
         IDiscoveredAudiobookRepository discoveredAudiobookRepository,
         IAudiobookTagHandler tagHandler,
+        IAudiobookService audiobookService,
         ILogger<LibraryScanService> logger)
     {
         _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _discoveredAudiobookRepository = discoveredAudiobookRepository;
         _tagHandler = tagHandler;
+        _audiobookService = audiobookService;
         _logger = logger;
     }
 
@@ -99,5 +104,84 @@ public class LibraryScanService : ILibraryScanService
             totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
 
         return (totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> BulkImportAsync(
+        List<string> filePaths,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var discovered = await _discoveredAudiobookRepository.GetByPathsAsync(filePaths);
+        var byPath = discovered.ToDictionary(d => d.FileInfoFullPath);
+
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var total = filePaths.Count;
+
+        foreach (var path in filePaths)
+        {
+            processed++;
+
+            if (byPath.TryGetValue(path, out var entry))
+            {
+                try
+                {
+                    var domain = ToDomainAudiobook(entry);
+                    await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
+                    await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
+                    succeeded++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to bulk import discovered audiobook at {FilePath}", path);
+                    failed++;
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Discovered audiobook not found for path {FilePath}", path);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        return (processed, succeeded, failed);
+    }
+
+    // Builds the domain object from the tag snapshot captured at scan time, rather than
+    // re-parsing the file, so the imported book matches exactly what the user reviewed and
+    // accepted in the discovered-books list.
+    private static DomainAudiobook ToDomainAudiobook(DiscoveredAudiobook entry)
+    {
+        var authors = AudiobookTagHandler.ParsePersonsFromString(entry.Authors ?? string.Empty);
+        if (authors.Count == 0 || string.IsNullOrWhiteSpace(entry.BookName) || !entry.Year.HasValue)
+        {
+            throw new InvalidOperationException("Missing required tags: author, book name, and year are all required");
+        }
+
+        var genres = string.IsNullOrWhiteSpace(entry.Genres)
+            ? new List<string>()
+            : entry.Genres.Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+        return new DomainAudiobook(
+            authors,
+            entry.BookName,
+            entry.Year,
+            new DomainAudiobookFileInfo(entry.FileInfoFullPath, entry.FileInfoFileName, entry.FileInfoSizeInBytes))
+        {
+            Narrators = AudiobookTagHandler.ParsePersonsFromString(entry.Narrators ?? string.Empty),
+            Subtitle = entry.Subtitle,
+            Series = entry.Series,
+            SeriesPart = entry.SeriesPart,
+            Genres = genres,
+            Description = entry.Description,
+            Copyright = entry.Copyright,
+            Publisher = entry.Publisher,
+            Rating = entry.Rating,
+            Asin = entry.Asin,
+            Www = entry.Www,
+            DurationInSeconds = entry.DurationInSeconds
+        };
     }
 }

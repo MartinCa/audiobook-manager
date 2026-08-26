@@ -1,7 +1,6 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
-using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -13,6 +12,7 @@ namespace AudiobookManager.Api.Controllers;
 public class LibraryController : ControllerBase
 {
     private static readonly SemaphoreSlim _scanLock = new(1, 1);
+    private static readonly SemaphoreSlim _bulkImportLock = new(1, 1);
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -76,14 +76,14 @@ public class LibraryController : ControllerBase
     }
 
     [HttpGet("discovered")]
-    public async Task<PaginatedResult<AudiobookFileInfo>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
+    public async Task<PaginatedResult<DiscoveredAudiobookDto>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
         var mapped = items
-            .Select(d => new AudiobookFileInfo(d.FileInfoFullPath, d.FileInfoFileName, d.FileInfoSizeInBytes))
+            .Select(d => new DiscoveredAudiobookDto(d))
             .ToList();
 
-        return new PaginatedResult<AudiobookFileInfo>(mapped.Count, total, mapped);
+        return new PaginatedResult<DiscoveredAudiobookDto>(mapped.Count, total, mapped);
     }
 
     [HttpDelete("discovered")]
@@ -91,5 +91,31 @@ public class LibraryController : ControllerBase
     {
         await _discoveredRepo.DeleteByPathAsync(path);
         return NoContent();
+    }
+
+    [HttpPost("discovered/bulk-import")]
+    public IActionResult StartBulkImport([FromBody] BulkImportDiscoveredDto dto)
+    {
+        if (dto.Paths == null || dto.Paths.Count == 0)
+            return BadRequest("No paths provided");
+
+        return BackgroundOperationRunner.Start(
+            _bulkImportLock,
+            _serviceScopeFactory,
+            _logger,
+            async sp =>
+            {
+                var scanService = sp.GetRequiredService<ILibraryScanService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed) =>
+                    _organizeHub.Clients.All.DiscoveredImportProgress(
+                        new DiscoveredImportProgress(processed, total, succeeded, failed));
+
+                var (processed, succeeded, failed) = await scanService.BulkImportAsync(dto.Paths, ProgressAction);
+
+                await _organizeHub.Clients.All.DiscoveredImportComplete(
+                    new DiscoveredImportComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.DiscoveredImportComplete(new DiscoveredImportComplete(0, 0, 0)));
     }
 }

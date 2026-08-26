@@ -10,4 +10,6 @@ public interface IOrganize
     Task ConsistencyCheckComplete(ConsistencyCheckComplete result);
     Task SimilarValueAlignProgress(SimilarValueAlignProgress progress);
     Task SimilarValueAlignComplete(SimilarValueAlignComplete result);
+    Task DiscoveredImportProgress(DiscoveredImportProgress progress);
+    Task DiscoveredImportComplete(DiscoveredImportComplete result);
 }
