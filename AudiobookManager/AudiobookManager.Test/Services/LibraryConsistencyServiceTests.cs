@@ -338,6 +338,77 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task RunConsistencyCheck_DescriptionAndGenresDifferFromFile_ReportsTagMismatch()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "fake audio content");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                "DB description", "DB copyright", "DB publisher", "DB rating", "DB asin", "DB www", null, null,
+                tempFile, "test.m4b", 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") },
+                Genres = new List<Database.Models.Genre> { new Database.Models.Genre(1, "Fiction") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
+
+            // Simulates the m4b tags on disk having drifted from the library metadata for
+            // fields that were previously excluded from the tag-mismatch comparison.
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000))
+            {
+                Description = "File description",
+                Copyright = "File copyright",
+                Publisher = "File publisher",
+                Rating = "File rating",
+                Asin = "File asin",
+                Www = "File www",
+                Genres = new List<string> { "Fantasy" }
+            };
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+
+            var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+            Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+            {
+                progressCalls.Add((msg, bc, t, i));
+                return Task.CompletedTask;
+            };
+
+            await _service.RunConsistencyCheck(progressAction);
+
+            _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(iss =>
+                iss.IssueType == ConsistencyIssueType.TagMismatch &&
+                iss.AudiobookId == 1 &&
+                iss.ExpectedValue!.Contains("Description: DB description") &&
+                iss.ActualValue!.Contains("Description: File description") &&
+                iss.ExpectedValue!.Contains("Copyright: DB copyright") &&
+                iss.ExpectedValue!.Contains("Publisher: DB publisher") &&
+                iss.ExpectedValue!.Contains("Rating: DB rating") &&
+                iss.ExpectedValue!.Contains("Asin: DB asin") &&
+                iss.ExpectedValue!.Contains("Www: DB www") &&
+                iss.ExpectedValue!.Contains("Genres: Fiction") &&
+                iss.ActualValue!.Contains("Genres: Fantasy")
+            )), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_TagMismatch_RewritesTagsFromDatabaseMetadata()
     {
         var dbAudiobook = new DbAudiobook(

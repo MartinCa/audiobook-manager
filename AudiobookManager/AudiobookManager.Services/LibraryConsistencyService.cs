@@ -443,9 +443,19 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         Compare("Series", audiobook.Series, parsed.Series);
         Compare("Series Part", audiobook.SeriesPart, parsed.SeriesPart);
         Compare("Year", audiobook.Year.ToString(), parsed.Year?.ToString());
+        Compare("Description", audiobook.Description, parsed.Description);
+        Compare("Copyright", audiobook.Copyright, parsed.Copyright);
+        Compare("Publisher", audiobook.Publisher, parsed.Publisher);
+        Compare("Rating", audiobook.Rating, parsed.Rating);
+        Compare("Asin", audiobook.Asin, parsed.Asin);
+        Compare("Www", audiobook.Www, parsed.Www);
+        Compare("Genres", FormatGenres(audiobook.Genres.Select(g => g.Name)), FormatGenres(parsed.Genres));
 
         return mismatches;
     }
+
+    private static string FormatGenres(IEnumerable<string> genres) =>
+        string.Join(", ", genres.OrderBy(g => g, StringComparer.Ordinal));
 
     private static string FormatPersons(IEnumerable<Person> persons) =>
         string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
