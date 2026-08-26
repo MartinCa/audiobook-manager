@@ -274,6 +274,66 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
+    public async Task SearchSeriesMatchesAsync_WithPlainTextQuery_SearchesByQueryNotLibrarySeriesName()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+        });
+
+        var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>
+        {
+            new("42", "Mistborn") { Authors = new List<string> { "Brandon Sanderson" } },
+        });
+
+        var candidates = await MakeService(scraper).SearchSeriesMatchesAsync("Mistborn", "Alloy of Law");
+
+        Assert.AreEqual("Alloy of Law", scraper.LastSearchTerm);
+        Assert.AreEqual(1, candidates.Count);
+        Assert.AreEqual("42", candidates[0].SourceId);
+    }
+
+    [TestMethod]
+    public async Task SearchSeriesMatchesAsync_WithUrl_ReturnsSingleCandidateFromMatchingScraper()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+        });
+
+        var roster = new SeriesSearchResult("42", "Mistborn") { Authors = new List<string> { "Brandon Sanderson" } };
+        var matchingScraper = new FakeSeriesScraper(
+            "Hardcover",
+            new List<SeriesSearchResult>(),
+            roster,
+            url => url.Contains("hardcover.app"));
+        var otherScraper = new Mock<IScraper>();
+        otherScraper.SetupGet(s => s.SourceName).Returns("Goodreads");
+        otherScraper.SetupGet(s => s.SupportsSeriesLookup).Returns(false);
+
+        var candidates = await MakeService(matchingScraper, otherScraper.Object)
+            .SearchSeriesMatchesAsync("Mistborn", "https://hardcover.app/series/mistborn");
+
+        Assert.AreEqual(1, candidates.Count);
+        Assert.AreEqual("Hardcover", candidates[0].SourceName);
+        Assert.AreEqual("42", candidates[0].SourceId);
+        otherScraper.Verify(s => s.GetSeriesBooks(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchSeriesMatchesAsync_WithUrlNoScraperSupportsIt_ReturnsEmpty()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>());
+
+        var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>());
+
+        var candidates = await MakeService(scraper)
+            .SearchSeriesMatchesAsync("Mistborn", "https://example.com/series/mistborn");
+
+        Assert.AreEqual(0, candidates.Count);
+    }
+
+    [TestMethod]
     public async Task MatchSeriesAsync_StoresRosterAndPreservesIgnoreFlags()
     {
         var existing = new Series
@@ -469,12 +529,20 @@ public class SeriesServiceTests
     {
         private readonly IList<SeriesSearchResult> _searchResults;
         private readonly SeriesSearchResult? _roster;
+        private readonly Func<string, bool> _supportsUrl;
 
-        public FakeSeriesScraper(string sourceName, IList<SeriesSearchResult> searchResults, SeriesSearchResult? roster = null)
+        public string? LastSearchTerm { get; private set; }
+
+        public FakeSeriesScraper(
+            string sourceName,
+            IList<SeriesSearchResult> searchResults,
+            SeriesSearchResult? roster = null,
+            Func<string, bool>? supportsUrl = null)
         {
             SourceName = sourceName;
             _searchResults = searchResults;
             _roster = roster;
+            _supportsUrl = supportsUrl ?? (_ => false);
         }
 
         public string SourceName { get; }
@@ -484,14 +552,18 @@ public class SeriesServiceTests
         public bool IsSource(string sourceName) =>
             string.Equals(sourceName, SourceName, StringComparison.InvariantCultureIgnoreCase);
 
-        public bool SupportsUrl(string url) => false;
+        public bool SupportsUrl(string url) => _supportsUrl(url);
 
         public Task<IList<MetadataSearchResult>> Search(string searchTerm) =>
             Task.FromResult<IList<MetadataSearchResult>>(new List<MetadataSearchResult>());
 
         public Task<MetadataSearchResult> GetBookDetails(string bookUrl) => throw new NotImplementedException();
 
-        public Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm) => Task.FromResult(_searchResults);
+        public Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm)
+        {
+            LastSearchTerm = searchTerm;
+            return Task.FromResult(_searchResults);
+        }
 
         public Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl) => Task.FromResult(_roster);
     }

@@ -21,6 +21,15 @@ class SeriesService extends BaseHttpService {
     );
   }
 
+  searchMatchCandidates(
+    seriesName: string,
+    query: string,
+  ): Promise<SeriesMatchCandidate[]> {
+    return this.getData(
+      `/series/${encodeURIComponent(seriesName)}/match-candidates/search?query=${encodeURIComponent(query)}`,
+    );
+  }
+
   matchSeries(
     seriesName: string,
     sourceName: string,

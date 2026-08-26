@@ -150,6 +150,27 @@ public class HardcoverScraper : IScraper
         }
         """;
 
+    // `_eq` is a plain equality filter, not one of the disabled pattern-matching operators
+    // (see the "Limitations" note above), so this is safe against the API's filter restrictions.
+    private const string _seriesBooksBySlugQuery = """
+        query GetSeriesBooksBySlug($slug: String!) {
+          series(where: {slug: {_eq: $slug}}, limit: 1) {
+            id
+            name
+            slug
+            book_series(order_by: {position: asc}) {
+              position
+              book {
+                id
+                title
+                slug
+                release_date
+              }
+            }
+          }
+        }
+        """;
+
 
     public async Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm)
     {
@@ -210,17 +231,33 @@ public class HardcoverScraper : IScraper
     public async Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl)
     {
         var seriesId = ParseSeriesIdentifier(seriesIdOrUrl);
-        if (seriesId is null)
+        if (seriesId is not null)
         {
-            _logger.LogWarning("Could not extract a Hardcover series id from {SeriesIdOrUrl}", seriesIdOrUrl);
-            return null;
+            var variables = new { id = seriesId.Value };
+            var responseElement = await ExecuteGraphqlQuery(_seriesBooksQuery, variables);
+            return BuildSeriesResult(responseElement.GetNestedProperty("data", "series_by_pk"), seriesIdOrUrl);
         }
 
-        var variables = new { id = seriesId.Value };
+        // A manually-pasted series URL is usually slug-only (e.g. hardcover.app/series/harry-potter)
+        // rather than the numeric id ParseSeriesIdentifier looks for, so fall back to a slug lookup.
+        var slug = ParseSeriesSlug(seriesIdOrUrl);
+        if (slug is not null)
+        {
+            var variables = new { slug };
+            var responseElement = await ExecuteGraphqlQuery(_seriesBooksBySlugQuery, variables);
+            var seriesArray = responseElement.GetNestedProperty("data", "series");
+            var seriesElement = seriesArray.ValueKind == JsonValueKind.Array && seriesArray.GetArrayLength() > 0
+                ? seriesArray[0]
+                : default;
+            return BuildSeriesResult(seriesElement, seriesIdOrUrl);
+        }
 
-        var responseElement = await ExecuteGraphqlQuery(_seriesBooksQuery, variables);
+        _logger.LogWarning("Could not extract a Hardcover series id or slug from {SeriesIdOrUrl}", seriesIdOrUrl);
+        return null;
+    }
 
-        var seriesElement = responseElement.GetNestedProperty("data", "series_by_pk");
+    private SeriesSearchResult? BuildSeriesResult(JsonElement seriesElement, string seriesIdOrUrl)
+    {
         if (seriesElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
             return null;
@@ -247,7 +284,7 @@ public class HardcoverScraper : IScraper
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to parse Hardcover series roster entry for series {SeriesId}", seriesId);
+                    _logger.LogWarning(ex, "Failed to parse Hardcover series roster entry for series {SeriesIdOrUrl}", seriesIdOrUrl);
                 }
             }
         }
@@ -409,7 +446,7 @@ public class HardcoverScraper : IScraper
 
     /// <summary>
     /// Accepts a bare numeric series id, or a Hardcover series URL whose path ends in one.
-    /// Slug-only URLs cannot be resolved by series_by_pk, so they return null.
+    /// Slug-only URLs return null here - callers fall back to <see cref="ParseSeriesSlug"/>.
     /// </summary>
     private static int? ParseSeriesIdentifier(string seriesIdOrUrl)
     {
@@ -437,6 +474,23 @@ public class HardcoverScraper : IScraper
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Extracts a non-numeric slug from the last path segment of a Hardcover series URL (e.g.
+    /// https://hardcover.app/series/harry-potter -&gt; "harry-potter"). Only meaningful for an
+    /// absolute URL - a bare string reaching here already failed <see cref="ParseSeriesIdentifier"/>
+    /// and isn't necessarily a slug, so non-URL input returns null rather than being guessed at.
+    /// </summary>
+    private static string? ParseSeriesSlug(string seriesIdOrUrl)
+    {
+        if (!Uri.TryCreate(seriesIdOrUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.LastOrDefault();
     }
 
     private async Task<JsonElement> GetBookById(int bookId)

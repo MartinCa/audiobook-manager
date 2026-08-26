@@ -18,6 +18,15 @@ public interface ISeriesService
 
     Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName);
 
+    /// <summary>
+    /// Manual match lookup driven by user input rather than the library's own series name:
+    /// <paramref name="query"/> is either a free-text search term (routed through the same
+    /// source search as <see cref="SuggestSeriesMatchesAsync(string)"/>) or an absolute URL
+    /// pointing directly at a series page on a supported source, in which case exactly that
+    /// one series is returned (scored for display, not filtered out) instead of a search.
+    /// </summary>
+    Task<List<SeriesMatchCandidate>> SearchSeriesMatchesAsync(string seriesName, string query);
+
     Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null);
 
     /// <summary>

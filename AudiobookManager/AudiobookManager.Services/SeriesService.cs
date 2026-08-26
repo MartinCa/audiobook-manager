@@ -129,21 +129,86 @@ public class SeriesService : ISeriesService
 
     public async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName)
     {
-        var knownAuthors = (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null))
+        var knownAuthors = await GetKnownAuthorsAsync(seriesName);
+
+        return await SuggestSeriesMatchesAsync(seriesName, knownAuthors);
+    }
+
+    public async Task<List<SeriesMatchCandidate>> SearchSeriesMatchesAsync(string seriesName, string query)
+    {
+        var trimmedQuery = query?.Trim();
+        if (string.IsNullOrEmpty(trimmedQuery))
+        {
+            return new List<SeriesMatchCandidate>();
+        }
+
+        var knownAuthors = await GetKnownAuthorsAsync(seriesName);
+
+        return Uri.TryCreate(trimmedQuery, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? await LookupSeriesByUrlAsync(seriesName, knownAuthors, trimmedQuery)
+                : await SuggestSeriesMatchesAsync(seriesName, knownAuthors, trimmedQuery);
+    }
+
+    private async Task<List<string>> GetKnownAuthorsAsync(string seriesName) =>
+        (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null))
             .SelectMany(b => b.Authors.Select(a => a.Name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return await SuggestSeriesMatchesAsync(seriesName, knownAuthors);
+    /// <summary>
+    /// Resolves a single series directly from a source URL the user pasted in, rather than
+    /// searching - only the source whose SupportsUrl matches is asked, and the result (if any)
+    /// comes back as a one-item candidate list so the UI flow is identical to a search result.
+    /// </summary>
+    private async Task<List<SeriesMatchCandidate>> LookupSeriesByUrlAsync(
+        string seriesName, IReadOnlyCollection<string> knownAuthors, string url)
+    {
+        var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.SupportsUrl(url));
+        if (scraper is null)
+        {
+            return new List<SeriesMatchCandidate>();
+        }
+
+        try
+        {
+            var result = await scraper.GetSeriesBooks(url);
+            if (result is null)
+            {
+                return new List<SeriesMatchCandidate>();
+            }
+
+            return new List<SeriesMatchCandidate>
+            {
+                new()
+                {
+                    SourceName = scraper.SourceName,
+                    SourceId = result.SourceId,
+                    SeriesName = result.SeriesName,
+                    SourceUrl = result.SourceUrl,
+                    Authors = result.Authors.ToList(),
+                    BookCount = result.BookCount,
+                    Confidence = ScoreCandidate(seriesName, knownAuthors, result.SeriesName, result.Authors),
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Manual series URL lookup failed for source {Source} and url {Url}", scraper.SourceName, url);
+            return new List<SeriesMatchCandidate>();
+        }
     }
 
     /// <summary>
     /// Candidate lookup for callers that already know the series' authors (the bulk
     /// auto-match has them from the overview it just loaded), so no extra query is needed.
+    /// <paramref name="searchTerm"/> defaults to <paramref name="seriesName"/> but can be
+    /// overridden for a manual search that doesn't match the library's own series value.
     /// </summary>
     private async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(
         string seriesName,
-        IReadOnlyCollection<string> knownAuthors)
+        IReadOnlyCollection<string> knownAuthors,
+        string? searchTerm = null)
     {
         var candidates = new List<SeriesMatchCandidate>();
 
@@ -151,7 +216,7 @@ public class SeriesService : ISeriesService
         {
             try
             {
-                var results = await scraper.SearchSeries(seriesName);
+                var results = await scraper.SearchSeries(searchTerm ?? seriesName);
                 foreach (var result in results)
                 {
                     candidates.Add(new SeriesMatchCandidate
