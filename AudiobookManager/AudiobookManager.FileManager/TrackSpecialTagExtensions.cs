@@ -5,7 +5,7 @@ namespace AudiobookManager.FileManager;
 
 public static class TrackSpecialTagExtensions
 {
-    private static readonly Regex _mp4SeriesPartRegex = new Regex(@"^\d+");
+    private static readonly Regex _mp4SeriesPartRegex = new Regex(@"^\d+$");
 
     public const string mp4Name = "MPEG-4 Part 14";
 
