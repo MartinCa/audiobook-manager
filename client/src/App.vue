@@ -12,9 +12,19 @@
 
 <template>
   <v-app>
-    <v-app-bar v-if="mobile">
-      <v-app-bar-nav-icon @click="drawerOpen = !drawerOpen" />
-      <v-app-bar-title>Audiobook Manager</v-app-bar-title>
+    <v-app-bar>
+      <v-app-bar-nav-icon
+        v-if="mobile"
+        @click="drawerOpen = !drawerOpen"
+      />
+      <v-app-bar-title
+        v-if="mobile"
+        style="flex: 0 1 auto"
+        >Audiobook Manager</v-app-bar-title
+      >
+      <v-spacer />
+      <CombinedSearch />
+      <v-spacer />
     </v-app-bar>
 
     <v-navigation-drawer
@@ -90,6 +100,7 @@ import { ref, watch } from "vue";
 import { useDisplay } from "vuetify";
 import { useRoute } from "vue-router";
 import ErrorNotifications from "./components/ErrorNotifications.vue";
+import CombinedSearch from "./components/CombinedSearch.vue";
 import { MenuLink } from "./types/MenuLink";
 import { useErrors } from "./components/errors";
 

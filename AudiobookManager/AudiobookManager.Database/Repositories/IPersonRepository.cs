@@ -5,5 +5,6 @@ public interface IPersonRepository
 {
     Task<Person> GetOrCreatePerson(string name);
     Task<List<Person>> GetAllAuthorsAsync();
+    Task<List<Person>> SearchAuthorsAsync(string query, int limit);
     Task<Person?> GetAuthorWithBooksAsync(long authorId);
 }

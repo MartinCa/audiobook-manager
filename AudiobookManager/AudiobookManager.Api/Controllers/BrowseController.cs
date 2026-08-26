@@ -27,6 +27,46 @@ public class BrowseController : ControllerBase
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
     }
 
+    [HttpGet("search")]
+    public async Task<CombinedSearchResultDto> CombinedSearch([FromQuery] string q, int limit = 5)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return new CombinedSearchResultDto([], [], []);
+        }
+
+        var (books, _) = await _audiobookRepo.SearchAsync(q, limit, 0);
+        var authors = await _personRepo.SearchAuthorsAsync(q, limit);
+        var series = await _audiobookRepo.SearchSeriesAsync(q, limit);
+
+        var bookHits = RankByRelevance(books, q, a => a.BookName ?? "")
+            .Select(a => new BookSearchHitDto(
+                a.Id,
+                a.BookName,
+                a.Subtitle,
+                a.Authors.Select(p => p.Name).ToList(),
+                a.Series,
+                a.Year,
+                a.CoverFilePath))
+            .ToList();
+
+        var authorHits = RankByRelevance(authors, q, p => p.Name)
+            .Select(p => new AuthorSearchHitDto(p.Id, p.Name, p.BooksAuthored.Count))
+            .ToList();
+
+        var seriesHits = RankByRelevance(series, q, s => s.Series)
+            .Select(s => new SeriesSearchHitDto(s.Series, s.BookCount))
+            .ToList();
+
+        return new CombinedSearchResultDto(bookHits, authorHits, seriesHits);
+    }
+
+    private static List<T> RankByRelevance<T>(List<T> items, string query, Func<T, string> keySelector) =>
+        items
+            .OrderByDescending(i => keySelector(i).StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(keySelector)
+            .ToList();
+
     [HttpGet("audiobooks/search")]
     public async Task<PaginatedResult<AudiobookSummaryDto>> SearchAudiobooks([FromQuery] string q, int limit = 20, int offset = 0)
     {

@@ -34,6 +34,18 @@ public class PersonRepository : IPersonRepository
             .ToListAsync();
     }
 
+    public async Task<List<Person>> SearchAuthorsAsync(string query, int limit)
+    {
+        var pattern = $"%{query}%";
+
+        return await _db.Persons
+            .Include(p => p.BooksAuthored)
+            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.Name, pattern))
+            .OrderBy(p => p.Name)
+            .Take(limit)
+            .ToListAsync();
+    }
+
     public async Task<Person?> GetAuthorWithBooksAsync(long authorId)
     {
         return await _db.Persons
