@@ -7,13 +7,6 @@
       <v-icon>mdi-magnify</v-icon>
       Search
     </v-btn>
-    <v-btn
-      color="primary"
-      @click="showManualUrlSearchDialog = true"
-    >
-      <v-icon>mdi-magnify</v-icon>
-      Add by URL
-    </v-btn>
 
     <v-spacer></v-spacer>
 
@@ -296,17 +289,6 @@
     />
   </v-dialog>
   <v-dialog
-    v-if="showManualUrlSearchDialog"
-    v-model="showManualUrlSearchDialog"
-    :width="dialogWidth"
-    :fullscreen="mdAndDown"
-  >
-    <ManualUrlSearchDialog
-      :dialog-width="dialogWidth"
-      @result-chosen="readSearchResult"
-    />
-  </v-dialog>
-  <v-dialog
     v-if="showTagPreview"
     v-model="showTagPreview"
     :width="dialogWidth"
@@ -328,7 +310,6 @@ import { computed, onMounted, ref, Ref } from "vue";
 import { Audiobook } from "../types/Audiobook";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookSearchDialog from "./BookSearchDialog.vue";
-import ManualUrlSearchDialog from "./ManualUrlSearchDialog.vue";
 import TagPreviewDialog from "./TagPreviewDialog.vue";
 import DiffDisplay from "./DiffDisplay.vue";
 import CoverEditor from "./CoverEditor.vue";
@@ -357,7 +338,6 @@ const input = defineModel<OrganizeAudiobookInput>("input", { required: true });
 const form: Ref<any | null> = ref(null);
 const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
 const showSearchDialog = ref(false);
-const showManualUrlSearchDialog = ref(false);
 const showTagPreview = ref(false);
 const pendingSearchResult: Ref<MetadataSearchResult | null> = ref(null);
 
@@ -488,7 +468,6 @@ const onCoverUpdate = (
 
 const readSearchResult = (searchData: MetadataSearchResult | undefined) => {
   showSearchDialog.value = false;
-  showManualUrlSearchDialog.value = false;
 
   if (searchData) {
     pendingSearchResult.value = searchData;

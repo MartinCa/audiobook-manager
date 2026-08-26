@@ -13,7 +13,7 @@
       </v-btn>
 
       <v-text-field
-        label="Search term"
+        label="Search term or book URL"
         single-line
         hide-details
         clearable
@@ -24,7 +24,7 @@
       <v-btn
         icon
         dark
-        :disabled="!searchTerm || !selectedSources.length"
+        :disabled="!canSearch"
         @click="runSearch"
       >
         <v-icon>mdi-magnify</v-icon>
@@ -138,7 +138,7 @@
         />
       </template>
       <template v-else-if="!searchResults?.length && !sourceStatuses?.length">
-        Search using the above input.
+        Search using the above input, or paste a book URL to add it directly.
       </template>
       <template v-else>
         <v-row
@@ -417,20 +417,50 @@ const statusColor = (
   return status.resultCount === 0 ? "warning" : undefined;
 };
 
+// A pasted book URL (e.g. from Hardcover/Audible/Goodreads) skips the multi-source search
+// entirely and goes straight to a details fetch, folding the old separate "Add by URL" flow
+// into this same search field.
+const isUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const canSearch = computed(() => {
+  const term = searchTerm.value?.trim();
+  if (!term) {
+    return false;
+  }
+  return isUrl(term) || selectedSources.value.length > 0;
+});
+
 const runSearch = async () => {
-  if (!searchTerm.value || !selectedSources.value.length) {
+  const term = searchTerm.value?.trim();
+  if (!term) {
     return;
   }
 
-  searching.value = true;
   selectedResult.value = undefined;
   searchResults.value = [];
   sourceStatuses.value = [];
 
+  if (isUrl(term)) {
+    await fetchDetails(term);
+    return;
+  }
+
+  if (!selectedSources.value.length) {
+    return;
+  }
+
+  searching.value = true;
   try {
     const result = await MetadataSearchService.searchMultiple(
       selectedSources.value,
-      searchTerm.value,
+      term,
     );
     searchResults.value = result.results;
     sourceStatuses.value = result.sourceStatuses;
@@ -439,12 +469,10 @@ const runSearch = async () => {
   }
 };
 
-const chooseResult = async (result: MetadataSearchResult) => {
+const fetchDetails = async (url: string) => {
   gettingDetails.value = true;
   try {
-    selectedResult.value = await MetadataSearchService.getBookDetails(
-      result.url,
-    );
+    selectedResult.value = await MetadataSearchService.getBookDetails(url);
 
     if (
       !selectedResult.value.series?.length ||
@@ -456,6 +484,8 @@ const chooseResult = async (result: MetadataSearchResult) => {
     gettingDetails.value = false;
   }
 };
+
+const chooseResult = (result: MetadataSearchResult) => fetchDetails(result.url);
 
 const chooseSeries = (seriesIdx: number) => {
   if (!selectedResult.value) {
