@@ -79,6 +79,19 @@
                     class="mr-2"
                   />
                   {{ getIssueTypeLabel(group.issueType) }}
+                  <v-icon
+                    icon="mdi-information-outline"
+                    size="small"
+                    class="ml-2 text-medium-emphasis"
+                    @click.stop
+                  />
+                  <v-tooltip
+                    activator="parent"
+                    location="bottom"
+                    max-width="320"
+                  >
+                    {{ getBulkResolveDescription(group.issueType) }}
+                  </v-tooltip>
                 </v-col>
                 <v-col cols="auto">
                   <v-chip
@@ -91,16 +104,48 @@
               </v-row>
             </v-expansion-panel-title>
             <v-expansion-panel-text>
-              <div class="d-flex justify-end mb-2">
-                <v-btn
-                  size="small"
-                  variant="outlined"
-                  :loading="resolvingTypes.has(group.issueType)"
-                  :disabled="resolvingTypes.has(group.issueType)"
-                  @click.stop="onBulkResolveClick(group.issueType)"
-                >
-                  Resolve All {{ group.issues.length }}
-                </v-btn>
+              <div
+                class="d-flex align-center justify-space-between mb-2 flex-wrap ga-2"
+              >
+                <div class="d-flex align-center">
+                  <v-checkbox
+                    :model-value="isGroupFullySelected(group)"
+                    :indeterminate="isGroupPartiallySelected(group)"
+                    density="compact"
+                    hide-details
+                    label="Select all visible"
+                    @update:model-value="toggleSelectAllVisible(group)"
+                  />
+                  <span
+                    v-if="selectedCountInGroup(group) > 0"
+                    class="text-caption text-medium-emphasis ml-2"
+                  >
+                    {{ selectedCountInGroup(group) }} selected
+                  </span>
+                </div>
+                <div>
+                  <v-btn
+                    v-if="selectedCountInGroup(group) > 0"
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                    class="mr-2"
+                    :loading="resolvingSelectedTypes.has(group.issueType)"
+                    :disabled="resolvingSelectedTypes.has(group.issueType)"
+                    @click.stop="onResolveSelectedClick(group)"
+                  >
+                    Resolve Selected ({{ selectedCountInGroup(group) }})
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    :loading="resolvingTypes.has(group.issueType)"
+                    :disabled="resolvingTypes.has(group.issueType)"
+                    @click.stop="onBulkResolveClick(group.issueType)"
+                  >
+                    Resolve All {{ group.issues.length }}
+                  </v-btn>
+                </div>
               </div>
               <v-list density="compact">
                 <v-list-item
@@ -109,6 +154,14 @@
                   class="issue-item"
                 >
                   <template v-slot:prepend>
+                    <v-checkbox
+                      :model-value="selectedIssueIds.has(issue.id)"
+                      density="compact"
+                      hide-details
+                      class="mr-1"
+                      @click.stop
+                      @update:model-value="toggleIssueSelected(issue.id)"
+                    />
                     <v-icon :icon="getIssueIcon(issue.issueType)" />
                   </template>
                   <v-list-item-title class="text-wrap">
@@ -151,6 +204,13 @@
                     >
                       Resolve
                     </v-btn>
+                    <v-tooltip
+                      activator="parent"
+                      location="left"
+                      max-width="320"
+                    >
+                      {{ getBulkResolveDescription(issue.issueType) }}
+                    </v-tooltip>
                   </template>
                 </v-list-item>
               </v-list>
@@ -271,11 +331,32 @@
       <v-card>
         <v-card-title>Confirm Resolution</v-card-title>
         <v-card-text>
-          <template v-if="pendingBulkType === 'MissingMediaFile'">
+          <template
+            v-if="
+              pendingSelectedType === 'MissingMediaFile' ||
+              pendingBulkType === 'MissingMediaFile'
+            "
+          >
             This will remove
-            <strong>all {{ pendingBulkCount }} audiobooks</strong> with missing
-            media files from the database and clean up empty directories. This
-            action cannot be undone.
+            <strong>
+              {{ pendingSelectedType ? "the selected" : "all" }}
+              {{
+                pendingSelectedType
+                  ? pendingSelectedIssueIds.length
+                  : pendingBulkCount
+              }}
+              audiobooks
+            </strong>
+            with missing media files from the database and clean up empty
+            directories. This action cannot be undone.
+          </template>
+          <template v-else-if="pendingSelectedType">
+            This will resolve the selected
+            <strong>{{ pendingSelectedIssueIds.length }}</strong>
+            {{ getIssueTypeLabel(pendingSelectedType) }} issue{{
+              pendingSelectedIssueIds.length === 1 ? "" : "s"
+            }}.
+            {{ getBulkResolveDescription(pendingSelectedType) }}
           </template>
           <template v-else-if="pendingBulkType">
             This will resolve all
@@ -295,7 +376,13 @@
             color="error"
             @click="confirmResolve()"
           >
-            {{ pendingBulkType ? "Resolve All" : "Remove" }}
+            {{
+              pendingSelectedType
+                ? "Resolve Selected"
+                : pendingBulkType
+                  ? "Resolve All"
+                  : "Remove"
+            }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -344,6 +431,10 @@ const confirmDialog: Ref<boolean> = ref(false);
 const pendingResolveIssue: Ref<ConsistencyIssue | null> = ref(null);
 const pendingBulkType: Ref<string | null> = ref(null);
 const pendingBulkCount: Ref<number> = ref(0);
+const selectedIssueIds: Ref<Set<number>> = ref(new Set());
+const resolvingSelectedTypes: Ref<Set<string>> = ref(new Set());
+const pendingSelectedType: Ref<string | null> = ref(null);
+const pendingSelectedIssueIds: Ref<number[]> = ref([]);
 const snackbar: Ref<boolean> = ref(false);
 const snackbarText: Ref<string> = ref("");
 const displayCounts: Record<string, number> = reactive({});
@@ -508,6 +599,52 @@ const onBulkResolveClick = (issueType: string) => {
   pendingBulkType.value = issueType;
   pendingBulkCount.value = group.issues.length;
   pendingResolveIssue.value = null;
+  pendingSelectedType.value = null;
+  pendingSelectedIssueIds.value = [];
+  confirmDialog.value = true;
+};
+
+const selectedCountInGroup = (group: TypeGroup): number =>
+  group.issues.filter((i) => selectedIssueIds.value.has(i.id)).length;
+
+const isGroupFullySelected = (group: TypeGroup): boolean =>
+  group.visibleIssues.length > 0 &&
+  group.visibleIssues.every((i) => selectedIssueIds.value.has(i.id));
+
+const isGroupPartiallySelected = (group: TypeGroup): boolean =>
+  !isGroupFullySelected(group) &&
+  group.visibleIssues.some((i) => selectedIssueIds.value.has(i.id));
+
+const toggleIssueSelected = (issueId: number) => {
+  if (selectedIssueIds.value.has(issueId)) {
+    selectedIssueIds.value.delete(issueId);
+  } else {
+    selectedIssueIds.value.add(issueId);
+  }
+};
+
+const toggleSelectAllVisible = (group: TypeGroup) => {
+  if (isGroupFullySelected(group)) {
+    for (const issue of group.visibleIssues) {
+      selectedIssueIds.value.delete(issue.id);
+    }
+  } else {
+    for (const issue of group.visibleIssues) {
+      selectedIssueIds.value.add(issue.id);
+    }
+  }
+};
+
+const onResolveSelectedClick = (group: TypeGroup) => {
+  const ids = group.issues
+    .filter((i) => selectedIssueIds.value.has(i.id))
+    .map((i) => i.id);
+  if (ids.length === 0) return;
+
+  pendingSelectedType.value = group.issueType;
+  pendingSelectedIssueIds.value = ids;
+  pendingBulkType.value = null;
+  pendingResolveIssue.value = null;
   confirmDialog.value = true;
 };
 
@@ -515,10 +652,14 @@ const cancelConfirm = () => {
   confirmDialog.value = false;
   pendingResolveIssue.value = null;
   pendingBulkType.value = null;
+  pendingSelectedType.value = null;
+  pendingSelectedIssueIds.value = [];
 };
 
 const confirmResolve = () => {
-  if (pendingBulkType.value) {
+  if (pendingSelectedType.value && pendingSelectedIssueIds.value.length > 0) {
+    resolveSelected(pendingSelectedType.value, pendingSelectedIssueIds.value);
+  } else if (pendingBulkType.value) {
     bulkResolve(pendingBulkType.value);
   } else if (pendingResolveIssue.value) {
     resolveIssue(pendingResolveIssue.value);
@@ -526,6 +667,30 @@ const confirmResolve = () => {
   confirmDialog.value = false;
   pendingResolveIssue.value = null;
   pendingBulkType.value = null;
+  pendingSelectedType.value = null;
+  pendingSelectedIssueIds.value = [];
+};
+
+const resolveSelected = async (issueType: string, ids: number[]) => {
+  resolvingSelectedTypes.value.add(issueType);
+  try {
+    const result = await ConsistencyService.resolveSelectedIssues(ids);
+    for (const id of ids) {
+      selectedIssueIds.value.delete(id);
+    }
+    let msg = `Resolved ${result.resolved} issues`;
+    if (result.failed > 0) {
+      msg += ` (${result.failed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+  } catch {
+    snackbarText.value = "Failed to resolve selected issues";
+    snackbar.value = true;
+  } finally {
+    resolvingSelectedTypes.value.delete(issueType);
+    await loadIssues();
+  }
 };
 
 const bulkResolve = async (issueType: string) => {
