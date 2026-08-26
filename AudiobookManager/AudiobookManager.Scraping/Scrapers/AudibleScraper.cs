@@ -1,5 +1,7 @@
 ﻿using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using AudiobookManager.Domain;
@@ -22,8 +24,6 @@ public partial class AudibleScraper : IScraper
     private static partial Regex ReSeriesPart();
     [GeneratedRegex(@"\d{4}")]
     private static partial Regex ReYear();
-    [GeneratedRegex(@"^©\d+(.+)\(P\)\d+(.+)$")]
-    private static partial Regex ReCopyrightPublisher();
     [GeneratedRegex(@"^(\d\.?\d?)(?!.*ratings)")]
     private static partial Regex ReRating();
     [GeneratedRegex(@"\(?([\d,]+) ratings\)?")]
@@ -100,14 +100,7 @@ public partial class AudibleScraper : IScraper
         HtmlParser parser = new();
         var doc = parser.ParseDocument(responseStream);
 
-        var mainElement = doc.QuerySelector("div.adbl-main");
-
-        if (mainElement is null)
-        {
-            throw new Exception($"Invalid response from Audible, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-        }
-
-        return await ParseAudibleDetails(mainElement, bookUrl);
+        return await ParseAudibleDetails(doc, bookUrl);
     }
 
     private async Task<BookSearchResult?> ParseAudibleSearchResult(IElement resultElem)
@@ -185,98 +178,84 @@ public partial class AudibleScraper : IScraper
         };
     }
 
-    private async Task<BookSearchResult> ParseAudibleDetails(IElement mainElem, string bookUrl)
+    private async Task<BookSearchResult> ParseAudibleDetails(IDocument doc, string bookUrl)
     {
-        var titleTag = mainElem.QuerySelector("h1.bc-heading");
+        var audiobookJson = FindLdJsonObject(doc, "Audiobook");
 
-        if (titleTag is null)
+        if (audiobookJson is not { } audiobook)
+        {
+            throw new Exception("Could not parse book details from Audible page");
+        }
+
+        var title = GetJsonString(audiobook, "name")?.Trim();
+        if (string.IsNullOrEmpty(title))
         {
             throw new Exception("Could not parse title");
         }
 
-        var title = titleTag.Text().Trim();
+        var subtitle = doc.QuerySelector("adbl-title-lockup h2[slot='subtitle']")?.Text().Trim();
+        subtitle = string.IsNullOrEmpty(subtitle) ? null : subtitle;
 
-        var afterTitleTag = titleTag.ParentElement?.NextElementSibling;
-        string? subtitle = null;
-        if (afterTitleTag is not null && !afterTitleTag.ClassList.Contains("authorLabel"))
-        {
-            var tagText = afterTitleTag.Text().Trim();
-            subtitle = string.IsNullOrEmpty(tagText) ? null : tagText;
-        }
+        var authors = ParsePersonsFromJson(GetJsonProperty(audiobook, "author"));
 
-        var authors = ParsePersons(mainElem.QuerySelector("li.bc-list-item.authorLabel"));
-
-        if (authors is null)
+        if (authors.Count == 0)
         {
             throw new Exception("Could not parse authors");
         }
 
-        var narrators = ParsePersons(mainElem.QuerySelector("li.bc-list-item.narratorLabel"));
+        var narrators = ParsePersonsFromJson(GetJsonProperty(audiobook, "readBy"));
 
-        var durationText = ParseLength(mainElem);
+        var durationText = ParseIsoDuration(GetJsonString(audiobook, "duration"));
 
-        var genres = ParseGenres(mainElem);
+        var genres = doc.QuerySelectorAll("adbl-chip-group[slot='chips'] adbl-chip")
+            .Select(x => x.Text().Trim())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Distinct()
+            .ToList();
 
-        var series = await ParseBookSeries(mainElem);
+        var series = await ParseBookSeries(doc.Body);
 
-        string? imgUrl = null;
-        var imgTag = mainElem.QuerySelector("img.bc-pub-block");
-        if (imgTag is not null)
-        {
-            imgUrl = imgTag.Attributes["src"]?.Value;
-        }
+        var imgUrl = GetJsonString(audiobook, "image");
 
-        string? description = null;
-        string? copyright = null;
-        string? publisher = null;
+        var description = ParseDescriptionHtml(GetJsonString(audiobook, "description"));
+
+        var publisher = GetJsonString(audiobook, "publisher");
+
         int? year = null;
-        var publisherSummaryTag = mainElem.QuerySelector("div.productPublisherSummary");
-        if (publisherSummaryTag is not null)
+        var datePublished = GetJsonString(audiobook, "datePublished");
+        if (!string.IsNullOrEmpty(datePublished))
         {
-            var bcBoxesTags = publisherSummaryTag.QuerySelectorAll("div.bc-box");
-            if (bcBoxesTags.Length >= 1)
+            var yearMatch = ReYear().Match(datePublished);
+            if (yearMatch.Success)
             {
-                description = bcBoxesTags[0].Text().Trim();
+                year = int.Parse(yearMatch.Value, CultureInfo.InvariantCulture);
             }
-            if (bcBoxesTags.Length > 1)
-            {
-                var copyrightText = bcBoxesTags.Last().Text().Trim();
-                var yearMatches = ReYear().Matches(copyrightText);
-                foreach (var yearMatch in yearMatches.ToList())
-                {
-                    var parsedYear = int.Parse(yearMatch.Value);
-                    if (year is null || parsedYear < year)
-                    {
-                        year = parsedYear;
-                    }
-                }
+        }
 
-                var copyrightPublisherMatch = ReCopyrightPublisher().Match(copyrightText);
-                if (copyrightPublisherMatch.Success)
+        float? rating = null;
+        int? numberOfRatings = null;
+        if (GetJsonProperty(audiobook, "aggregateRating") is { ValueKind: JsonValueKind.Object } aggregateRating)
+        {
+            if (aggregateRating.TryGetProperty("ratingValue", out var ratingValueProp))
+            {
+                rating = ParseJsonNumber(ratingValueProp);
+            }
+            if (aggregateRating.TryGetProperty("ratingCount", out var ratingCountProp))
+            {
+                var ratingCountValue = ParseJsonNumber(ratingCountProp);
+                if (ratingCountValue.HasValue)
                 {
-                    copyright = copyrightPublisherMatch.Groups[1].Value;
-                    publisher = copyrightPublisherMatch.Groups[2].Value;
+                    numberOfRatings = (int)ratingCountValue.Value;
                 }
             }
         }
 
-        var ratingResult = ParseRating(mainElem);
-
-        string? asin = null;
-        var asinInputTag = mainElem.QuerySelector("form#adbl-confirm-cash-purchase-form input[name='asin']");
-        if (asinInputTag is not null)
-        {
-            asin = asinInputTag.Attributes["value"]?.Value;
-        }
-        else
-        {
-            asin = ParseAsinFromUrl(bookUrl);
-        }
+        var asin = ParseAsinFromUrl(bookUrl);
 
         return new BookSearchResult(bookUrl, title)
         {
             Authors = authors,
-            Narrators = narrators ?? new List<Person>(),
+            Narrators = narrators,
             Subtitle = subtitle,
             Duration = durationText,
             Year = year,
@@ -285,12 +264,137 @@ public partial class AudibleScraper : IScraper
             Series = series,
             Description = description,
             Genres = genres,
-            Rating = ratingResult.Rating,
-            NumberOfRatings = ratingResult.NumberOfRatings,
-            Copyright = copyright,
+            Rating = rating,
+            NumberOfRatings = numberOfRatings,
+            Copyright = publisher,
             Publisher = publisher,
             Asin = asin,
         };
+    }
+
+    private static JsonElement? FindLdJsonObject(IDocument doc, string typeName)
+    {
+        foreach (var script in doc.QuerySelectorAll("script[type='application/ld+json']"))
+        {
+            var text = script.TextContent;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            JsonDocument jsonDoc;
+            try
+            {
+                jsonDoc = JsonDocument.Parse(text);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            using (jsonDoc)
+            {
+                var root = jsonDoc.RootElement;
+                if (root.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in root.EnumerateArray())
+                    {
+                        if (MatchesLdType(item, typeName))
+                        {
+                            return item.Clone();
+                        }
+                    }
+                }
+                else if (MatchesLdType(root, typeName))
+                {
+                    return root.Clone();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesLdType(JsonElement elem, string typeName)
+    {
+        return elem.ValueKind == JsonValueKind.Object
+            && elem.TryGetProperty("@type", out var typeProp)
+            && typeProp.ValueKind == JsonValueKind.String
+            && string.Equals(typeProp.GetString(), typeName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static JsonElement? GetJsonProperty(JsonElement elem, string name)
+    {
+        return elem.ValueKind == JsonValueKind.Object && elem.TryGetProperty(name, out var prop) ? prop : null;
+    }
+
+    private static string? GetJsonString(JsonElement elem, string name)
+    {
+        var prop = GetJsonProperty(elem, name);
+        return prop is { ValueKind: JsonValueKind.String } ? prop.Value.GetString() : null;
+    }
+
+    private static float? ParseJsonNumber(JsonElement elem)
+    {
+        return elem.ValueKind switch
+        {
+            JsonValueKind.Number => elem.GetSingle(),
+            JsonValueKind.String when float.TryParse(elem.GetString(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value) => value,
+            _ => null,
+        };
+    }
+
+    private static IList<Person> ParsePersonsFromJson(JsonElement? arrayElem)
+    {
+        var result = new List<Person>();
+        if (arrayElem is not { ValueKind: JsonValueKind.Array } array)
+        {
+            return result;
+        }
+
+        foreach (var item in array.EnumerateArray())
+        {
+            var name = GetJsonString(item, "name");
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                result.Add(ParsePersonFromString(name));
+            }
+        }
+
+        return result;
+    }
+
+    private static string? ParseIsoDuration(string? isoDuration)
+    {
+        if (string.IsNullOrWhiteSpace(isoDuration))
+        {
+            return null;
+        }
+
+        try
+        {
+            var timeSpan = XmlConvert.ToTimeSpan(isoDuration);
+            var hours = (int)timeSpan.TotalHours;
+            var minutes = timeSpan.Minutes;
+            return hours > 0 ? $"{hours} hrs and {minutes} mins" : $"{minutes} mins";
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ParseDescriptionHtml(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        var parser = new HtmlParser();
+        var fragmentDoc = parser.ParseDocument($"<div>{html}</div>");
+        var text = fragmentDoc.Body?.Text().Trim();
+        return string.IsNullOrEmpty(text) ? null : text;
     }
 
     private static ParsedRating ParseRating(IElement mainElem)
@@ -317,31 +421,6 @@ public partial class AudibleScraper : IScraper
         }
 
         return result;
-    }
-
-    private static IList<string> ParseGenres(IElement mainElem)
-    {
-        var genres = new HashSet<string>();
-        var genresTag = mainElem.QuerySelector("li.bc-list-item.categoriesLabel");
-        if (genresTag is not null)
-        {
-            genresTag
-                .QuerySelectorAll("a")
-                .Select(x => x.Text().Trim())
-                .ToList()
-                .ForEach(x => genres.Add(x));
-        }
-        var productTopicTags = mainElem.QuerySelector("div.product-topic-tags");
-        if (productTopicTags is not null)
-        {
-            productTopicTags
-                .QuerySelectorAll("span.bc-chip-wrapper a")
-                .Select(x => x.Text().Trim())
-                .ToList()
-                .ForEach(x => genres.Add(x));
-        }
-
-        return genres.ToList();
     }
 
     private static string? ParseLength(IElement? elem)
