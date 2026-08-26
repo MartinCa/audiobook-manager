@@ -113,27 +113,20 @@ public class HardcoverScraper : IScraper
 
     public bool SupportsSeriesLookup => true;
 
-    // These queries were verified against Hardcover's published GraphQL schema - series,
-    // series_by_pk and book_series all exist with the fields named below - so there is no
-    // fallback query flavour: a failure here is transient (network/HTTP/timeout, already
+    // series_by_pk and book_series were verified against Hardcover's published GraphQL
+    // schema - so a failure in GetSeriesBooks is transient (network/HTTP/timeout, already
     // retried and rate limited by the "hardcover" client's handlers) and is allowed to
     // propagate like every other scrape failure in this file.
     // Schema reference (docs.hardcover.app is often egress-blocked in sandboxes): the SDL is
     // mirrored unauthenticated at https://raw.githubusercontent.com/hardcoverapp/hardcover-docs/main/schema.graphql
-    private const string _seriesSearchQuery = """
-        query SearchSeries($term: String!) {
-          series(where: {name: {_ilike: $term}}, limit: 10) {
-            id
-            name
-            slug
-            books_count
-            author {
-              name
-            }
-          }
-        }
-        """;
-
+    //
+    // Series search (SearchSeries below) intentionally does NOT use a `series(where: ...)`
+    // query with `_ilike`/`_like` - Hardcover's API rejects those operators server-side
+    // ("ilike and related operations are not permitted on this server", HTTP 403) even
+    // though they're still present in the published schema types. Fuzzy/typo-tolerant
+    // name search is only available through the same Typesense-backed `search()` query
+    // used by Search() above, with query_type "Series" - see
+    // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
 
     private const string _seriesBooksQuery = """
         query GetSeriesBooks($id: Int!) {
@@ -162,22 +155,41 @@ public class HardcoverScraper : IScraper
             return new List<SeriesSearchResult>();
         }
 
-        var variables = new { term = $"%{searchTerm.Trim()}%" };
+        var query = """
+            query SearchSeries($query: String!) {
+              search(query: $query, query_type: "Series", per_page: 10, page: 1) {
+                results
+              }
+            }
+            """;
 
-        var responseElement = await ExecuteGraphqlQuery(_seriesSearchQuery, variables);
+        var variables = new { query = searchTerm.Trim() };
+        var responseElement = await ExecuteGraphqlQuery(query, variables);
 
-        var seriesArray = responseElement.GetNestedProperty("data", "series");
-        if (seriesArray.ValueKind != JsonValueKind.Array)
+        var resultsJson = responseElement.GetNestedProperty("data", "search", "results");
+
+        JsonElement hitsArray;
+        if (resultsJson.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = resultsJson;
+        }
+        else if (resultsJson.ValueKind == JsonValueKind.Object &&
+                 resultsJson.TryGetProperty("hits", out var hitsElement) &&
+                 hitsElement.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = hitsElement;
+        }
+        else
         {
             return new List<SeriesSearchResult>();
         }
 
         var results = new List<SeriesSearchResult>();
-        foreach (var seriesElement in seriesArray.EnumerateArray())
+        foreach (var hit in hitsArray.EnumerateArray())
         {
             try
             {
-                var parsed = ParseSeriesElement(seriesElement);
+                var parsed = ParseSeriesSearchHit(hit);
                 if (parsed is not null)
                 {
                     results.Add(parsed);
@@ -238,6 +250,45 @@ public class HardcoverScraper : IScraper
         }
 
         result.BookCount ??= result.Books.Count;
+        return result;
+    }
+
+    private SeriesSearchResult? ParseSeriesSearchHit(JsonElement hit)
+    {
+        // Same "document" unwrapping as ParseSearchHit() - Typesense search results may
+        // nest the document under a "document" property or be the document itself.
+        var document = hit.TryGetProperty("document", out var docElement) &&
+                       docElement.ValueKind == JsonValueKind.Object
+            ? docElement
+            : hit;
+
+        var id = document.GetPropertyValueOrNull("id");
+        var name = document.GetPropertyValueOrNull("name");
+
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name))
+        {
+            return null;
+        }
+
+        var slug = document.GetPropertyValueOrNull("slug");
+
+        var result = new SeriesSearchResult(id, name)
+        {
+            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+        };
+
+        if (document.TryGetProperty("books_count", out var booksCountElement) &&
+            booksCountElement.ValueKind == JsonValueKind.Number)
+        {
+            result.BookCount = booksCountElement.GetInt32();
+        }
+
+        var authorName = document.GetPropertyValueOrNull("author_name");
+        if (!string.IsNullOrEmpty(authorName))
+        {
+            result.Authors.Add(authorName);
+        }
+
         return result;
     }
 
