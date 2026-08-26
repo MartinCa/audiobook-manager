@@ -26,6 +26,7 @@
     >
       <v-list
         v-model:opened="openedGroups"
+        open-strategy="multiple"
         density="compact"
         nav
       >
