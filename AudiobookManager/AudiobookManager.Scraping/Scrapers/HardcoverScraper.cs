@@ -118,6 +118,8 @@ public class HardcoverScraper : IScraper
     // around; a GraphQL query naming an unknown field fails wholesale, so if the rich query
     // errors we retry with the minimal field set that mirrors what the per-book
     // book_series/series usage above already proves exists.
+    // Schema reference (docs.hardcover.app is often egress-blocked in sandboxes): the SDL is
+    // mirrored unauthenticated at https://raw.githubusercontent.com/hardcoverapp/hardcover-docs/main/schema.graphql
     private const string _seriesSearchQueryRich = """
         query SearchSeries($term: String!) {
           series(where: {name: {_ilike: $term}}, limit: 10) {
