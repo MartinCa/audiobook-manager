@@ -59,6 +59,16 @@ public class MatchSeriesDto
     public double? Confidence { get; set; }
 }
 
+/// <summary>
+/// Addresses a roster entry by its natural key. Row ids are not stable across a re-match or
+/// refresh, so the ignore endpoints take position and/or title instead.
+/// </summary>
+public class ExpectedBookRefDto
+{
+    public string? Position { get; set; }
+    public string? Title { get; set; }
+}
+
 public class BulkMatchSeriesDto
 {
     public double ConfidenceThreshold { get; set; } = 0.85;

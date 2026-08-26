@@ -238,7 +238,7 @@
                 size="small"
                 variant="text"
                 :disabled="busy"
-                @click="setIgnored(book.id, true)"
+                @click="setIgnored(book, true)"
               >
                 Ignore
               </v-btn>
@@ -284,7 +284,7 @@
                 size="small"
                 variant="text"
                 :disabled="busy"
-                @click="setIgnored(book.id, false)"
+                @click="setIgnored(book, false)"
               >
                 Unignore
               </v-btn>
@@ -415,12 +415,12 @@ const applyMatch = async (candidate: SeriesMatchCandidate) => {
   }
 };
 
-const setIgnored = async (expectedBookId: number, ignored: boolean) => {
+const setIgnored = async (book: SeriesExpectedBook, ignored: boolean) => {
   try {
     if (ignored) {
-      await SeriesService.ignoreExpectedBook(expectedBookId);
+      await SeriesService.ignoreExpectedBook(seriesName.value, book);
     } else {
-      await SeriesService.unignoreExpectedBook(expectedBookId);
+      await SeriesService.unignoreExpectedBook(seriesName.value, book);
     }
     await loadDetail();
   } catch (e: any) {

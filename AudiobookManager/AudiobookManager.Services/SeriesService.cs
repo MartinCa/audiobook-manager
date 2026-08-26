@@ -16,6 +16,17 @@ public class SeriesService : ISeriesService
     /// </summary>
     private const double TitleMatchThreshold = 0.85;
 
+    /// <summary>
+    /// Sanity floor applied when positions match: sources renumber and split series
+    /// differently than a hand-maintained library does (a novella at source position 2.5 vs a
+    /// manually typed "2.5" on an unrelated book), so a matching position must not on its own
+    /// declare an obviously different title to be the same book - which would silently hide a
+    /// genuinely missing entry. Edit-distance similarity alone is a poor floor here (two
+    /// unrelated titles routinely score around 0.3), so shared whole words count too: a
+    /// subtitled or abridged edition keeps the words even when the string lengths diverge.
+    /// </summary>
+    private const double PositionMatchTitleFloor = 0.5;
+
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
     private readonly IEnumerable<IScraper> _scrapers;
@@ -282,8 +293,8 @@ public class SeriesService : ISeriesService
         return await RefreshManyAsync(matchedNames, progressAction);
     }
 
-    public Task IgnoreExpectedBookAsync(long expectedBookId, bool ignored) =>
-        _seriesRepository.SetExpectedBookIgnoredAsync(expectedBookId, ignored);
+    public Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored) =>
+        _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
 
     private async Task<(int Processed, int Succeeded, int Failed)> RefreshManyAsync(
         List<string> seriesNames,
@@ -412,14 +423,44 @@ public class SeriesService : ISeriesService
 
     private static bool IsSameBook(BookKey expected, BookKey owned)
     {
-        if (!string.IsNullOrWhiteSpace(expected.Position) &&
+        var positionsMatch =
+            !string.IsNullOrWhiteSpace(expected.Position) &&
             !string.IsNullOrWhiteSpace(owned.Position) &&
-            PositionsEqual(expected.Position, owned.Position))
+            PositionsEqual(expected.Position, owned.Position);
+
+        // With no title to compare on either side, the position is all there is to go on.
+        if (positionsMatch && (expected.NormalizedTitle.Length == 0 || owned.NormalizedTitle.Length == 0))
         {
             return true;
         }
 
+        // A matching position only needs the titles to be non-contradictory; a strong title
+        // match stands on its own even when the positions disagree (users mistype them).
+        if (positionsMatch)
+        {
+            return TitlesNotContradictory(expected.NormalizedTitle, owned.NormalizedTitle);
+        }
+
         return NormalizedSimilarity(expected.NormalizedTitle, owned.NormalizedTitle, TitleMatchThreshold) >= TitleMatchThreshold;
+    }
+
+    private static bool TitlesNotContradictory(string normA, string normB)
+    {
+        if (NormalizedSimilarity(normA, normB, PositionMatchTitleFloor) >= PositionMatchTitleFloor)
+        {
+            return true;
+        }
+
+        var tokensA = normA.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        var tokensB = normB.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+
+        if (tokensA.Count == 0 || tokensB.Count == 0)
+        {
+            return false;
+        }
+
+        var shared = tokensA.Count(t => tokensB.Contains(t));
+        return shared / (double)Math.Min(tokensA.Count, tokensB.Count) >= PositionMatchTitleFloor;
     }
 
     private static bool PositionsEqual(string a, string b)

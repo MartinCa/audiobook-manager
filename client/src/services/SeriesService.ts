@@ -1,5 +1,6 @@
 import {
   SeriesDetail,
+  SeriesExpectedBook,
   SeriesMatchCandidate,
   SeriesOverview,
 } from "../types/Series";
@@ -51,12 +52,27 @@ class SeriesService extends BaseHttpService {
     return this.postData("/series/refresh-all");
   }
 
-  ignoreExpectedBook(expectedBookId: number): Promise<void> {
-    return this.postData(`/series/expected-books/${expectedBookId}/ignore`);
+  // Roster entries are addressed by their natural key (position and/or title within the
+  // series), not by row id: the backend deletes and re-inserts the whole roster on every
+  // match/refresh, so a cached id can point at a different book by the time it is used.
+  ignoreExpectedBook(
+    seriesName: string,
+    book: SeriesExpectedBook,
+  ): Promise<void> {
+    return this.postData(
+      `/series/${encodeURIComponent(seriesName)}/expected-books/ignore`,
+      { position: book.position, title: book.title },
+    );
   }
 
-  unignoreExpectedBook(expectedBookId: number): Promise<void> {
-    return this.delete(`/series/expected-books/${expectedBookId}/ignore`);
+  unignoreExpectedBook(
+    seriesName: string,
+    book: SeriesExpectedBook,
+  ): Promise<void> {
+    return this.postData(
+      `/series/${encodeURIComponent(seriesName)}/expected-books/unignore`,
+      { position: book.position, title: book.title },
+    );
   }
 }
 

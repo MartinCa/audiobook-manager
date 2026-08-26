@@ -32,5 +32,11 @@ public interface ISeriesService
     Task<(int Processed, int Succeeded, int Failed)> RefreshAllSeriesAsync(
         Func<int, int, int, int, Task> progressAction);
 
-    Task IgnoreExpectedBookAsync(long expectedBookId, bool ignored);
+    /// <summary>
+    /// Flips the ignore flag on a roster entry, addressed by its natural key (series name
+    /// plus position and/or title) rather than its row id: matching and refreshing delete and
+    /// re-insert the roster, so a row id a client cached earlier can refer to a different
+    /// book by the time the call arrives.
+    /// </summary>
+    Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored);
 }

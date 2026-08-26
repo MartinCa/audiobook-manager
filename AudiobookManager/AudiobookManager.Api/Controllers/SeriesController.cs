@@ -144,17 +144,27 @@ public class SeriesController : ControllerBase
         return StartRefresh(service => service.RefreshAllSeriesAsync(RefreshProgressAction));
     }
 
-    [HttpPost("expected-books/{id}/ignore")]
-    public Task<IActionResult> IgnoreExpectedBook(long id) => SetIgnored(id, true);
+    // Roster entries are addressed by their natural key (series name plus position and/or
+    // title), not by row id: matching and refreshing delete and re-insert the whole roster,
+    // so an id a client cached earlier can point at a different book by the time it is used.
+    [HttpPost("{seriesName}/expected-books/ignore")]
+    public Task<IActionResult> IgnoreExpectedBook(string seriesName, [FromBody] ExpectedBookRefDto dto) =>
+        SetIgnored(seriesName, dto, true);
 
-    [HttpDelete("expected-books/{id}/ignore")]
-    public Task<IActionResult> UnignoreExpectedBook(long id) => SetIgnored(id, false);
+    [HttpPost("{seriesName}/expected-books/unignore")]
+    public Task<IActionResult> UnignoreExpectedBook(string seriesName, [FromBody] ExpectedBookRefDto dto) =>
+        SetIgnored(seriesName, dto, false);
 
-    private async Task<IActionResult> SetIgnored(long id, bool ignored)
+    private async Task<IActionResult> SetIgnored(string seriesName, ExpectedBookRefDto? dto, bool ignored)
     {
+        if (string.IsNullOrWhiteSpace(dto?.Position) && string.IsNullOrWhiteSpace(dto?.Title))
+        {
+            return BadRequest("Position or Title is required to identify the expected book");
+        }
+
         try
         {
-            await _seriesService.IgnoreExpectedBookAsync(id, ignored);
+            await _seriesService.IgnoreExpectedBookAsync(seriesName, dto.Position, dto.Title, ignored);
             return Ok();
         }
         catch (KeyNotFoundException)
@@ -163,7 +173,9 @@ public class SeriesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error setting ignored={Ignored} on expected book {ExpectedBookId}", ignored, id);
+            _logger.LogError(ex,
+                "Error setting ignored={Ignored} on expected book (position {Position}, title {Title}) of series {SeriesName}",
+                ignored, dto.Position, dto.Title, seriesName);
             return StatusCode(500, ex.Message);
         }
     }

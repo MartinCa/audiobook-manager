@@ -120,6 +120,101 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
+    public async Task GetSeriesDetailAsync_DoesNotTreatAMatchingPositionOnAWildlyDifferentTitleAsOwned()
+    {
+        // The source numbers a novella at 2.5 and the user typed "2.5" on an unrelated book:
+        // position alone must not hide the genuinely missing entry.
+        var owned = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "An Entirely Unrelated Story", "Mistborn", "2.5"),
+        };
+
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
+        };
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+
+        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+
+        Assert.IsNotNull(detail);
+        Assert.AreEqual(1, detail.MissingBooks.Count);
+        Assert.AreEqual("Secret History", detail.MissingBooks[0].Title);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetailAsync_TreatsMatchingPositionWithASimilarTitleAsOwned()
+    {
+        var owned = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "Secret History (Unabridged)", "Mistborn", "2.5"),
+        };
+
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
+        };
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+
+        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+
+        Assert.IsNotNull(detail);
+        Assert.AreEqual(0, detail.MissingBooks.Count);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetailAsync_TreatsAVerySimilarTitleAtTheWrongPositionAsOwned()
+    {
+        // The user typed the wrong part number; the title still identifies the book.
+        var owned = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "The Hero of Ages", "Mistborn", "7"),
+        };
+
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "The Hero of Ages", "3") },
+        };
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+
+        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+
+        Assert.IsNotNull(detail);
+        Assert.AreEqual(0, detail.MissingBooks.Count);
+    }
+
+    [TestMethod]
+    public async Task IgnoreExpectedBookAsync_AddressesTheRowByItsNaturalKey()
+    {
+        _seriesRepository
+            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true))
+            .Returns(Task.CompletedTask);
+
+        await MakeService().IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
+
+        _seriesRepository.Verify(
+            r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true), Times.Once);
+    }
+
+    [TestMethod]
     public async Task GetSeriesDetailAsync_ReturnsNullForUnknownSeries()
     {
         _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
