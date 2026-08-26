@@ -52,6 +52,13 @@
               >
                 Select all
               </v-btn>
+              <v-btn
+                size="x-small"
+                variant="text"
+                @click="clearSelection()"
+              >
+                Clear
+              </v-btn>
             </div>
             <v-chip-group
               v-model="selectedFields"
@@ -148,6 +155,7 @@
 </template>
 
 <script setup lang="ts">
+import { debounce } from "lodash";
 import { nextTick, onMounted, Ref, ref, watch } from "vue";
 import MissingTagService from "../services/MissingTagService";
 import { AudiobookMissingTags, MissingTagField } from "../types/MissingTag";
@@ -174,6 +182,10 @@ const selectAll = () => {
   selectedFields.value = fields.value.map((f) => f.key);
 };
 
+const clearSelection = () => {
+  selectedFields.value = [];
+};
+
 const loadResults = async () => {
   if (selectedFields.value.length === 0) {
     results.value = [];
@@ -193,10 +205,12 @@ const loadResults = async () => {
   }
 };
 
+const debouncedLoadResults = debounce(loadResults, 500);
+
 watch(
   selectedFields,
   () => {
-    loadResults();
+    debouncedLoadResults();
   },
   { deep: true },
 );
