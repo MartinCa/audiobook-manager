@@ -10,11 +10,19 @@ public class AudiobookController : ControllerBase
 {
     private readonly IAudiobookService _audiobookService;
     private readonly IQueuedOrganizeTaskService _organizeTaskService;
+    private readonly ILibraryConsistencyService _libraryConsistencyService;
+    private readonly ILogger<AudiobookController> _logger;
 
-    public AudiobookController(IAudiobookService audiobookService, IQueuedOrganizeTaskService organizeTaskService)
+    public AudiobookController(
+        IAudiobookService audiobookService,
+        IQueuedOrganizeTaskService organizeTaskService,
+        ILibraryConsistencyService libraryConsistencyService,
+        ILogger<AudiobookController> logger)
     {
         _audiobookService = audiobookService;
         _organizeTaskService = organizeTaskService;
+        _libraryConsistencyService = libraryConsistencyService;
+        _logger = logger;
     }
 
     [HttpPost("details")]
@@ -46,6 +54,16 @@ public class AudiobookController : ControllerBase
         {
             var book = MapToDomain(dto);
             await _audiobookService.UpdateAudiobook(id, book);
+
+            try
+            {
+                await _libraryConsistencyService.RecheckAudiobookAsync(id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after save", id);
+            }
+
             return Ok();
         }
         catch (Exception ex)
