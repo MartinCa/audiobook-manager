@@ -135,7 +135,9 @@ public class HardcoverScraper : IScraper
     // roster entries:
     // - compilation: true - omnibus/box-set links (e.g. a "Books 1-4" bundle) that Hardcover
     //   attaches to a series position alongside the individual books, but that don't appear as
-    //   their own entry on the series page itself.
+    //   their own entry on the series page itself. Checked on both the book_series link row and
+    //   the book itself - contributors sometimes only tag one of the two, so either flag being
+    //   set is enough to treat it as a compilation.
     // - book.canonical_id not null - alternate-language/translated editions are frequently
     //   recorded as their own `book` row (rather than just an `edition` of the original) and
     //   linked into the series at the same position as the original; canonical_id is non-null
@@ -149,7 +151,10 @@ public class HardcoverScraper : IScraper
             slug
             book_series(
               order_by: {position: asc}
-              where: {compilation: {_eq: false}, book: {canonical_id: {_is_null: true}}}
+              where: {
+                compilation: {_eq: false}
+                book: {canonical_id: {_is_null: true}, compilation: {_eq: false}}
+              }
             ) {
               position
               book {
@@ -173,7 +178,10 @@ public class HardcoverScraper : IScraper
             slug
             book_series(
               order_by: {position: asc}
-              where: {compilation: {_eq: false}, book: {canonical_id: {_is_null: true}}}
+              where: {
+                compilation: {_eq: false}
+                book: {canonical_id: {_is_null: true}, compilation: {_eq: false}}
+              }
             ) {
               position
               book {
