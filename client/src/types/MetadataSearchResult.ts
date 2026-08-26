@@ -1,13 +1,13 @@
 import { AudiobookPerson } from "./Audiobook";
 
-export interface BookSeriesSearchResult {
+export interface MetadataSeriesSearchResult {
   seriesName: string;
   seriesPart?: string;
   originalSeriesName?: string;
   partWarning?: boolean;
 }
 
-export interface BookSearchResult {
+export interface MetadataSearchResult {
   url: string;
   source: string;
   authors: AudiobookPerson[];
@@ -18,7 +18,7 @@ export interface BookSearchResult {
   year: number;
   language?: string;
   imageUrl?: string;
-  series: BookSeriesSearchResult[];
+  series: MetadataSeriesSearchResult[];
   description?: string;
   genres: string[];
   rating?: number;

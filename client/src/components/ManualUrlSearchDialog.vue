@@ -66,17 +66,17 @@ import { computed, onMounted, Ref, ref } from "vue";
 import ErrorNotifications from "./ErrorNotifications.vue";
 import SeriesSelectionTable from "./SeriesSelectionTable.vue";
 import { useErrors } from "./errors";
-import { BookSearchResult } from "@/types/BookSearchResult";
-import { SearchServiceInfo } from "@/types/SearchServiceInfo";
-import SearchService from "@/services/SearchService";
+import { MetadataSearchResult } from "@/types/MetadataSearchResult";
+import { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInfo";
+import MetadataSearchService from "@/services/MetadataSearchService";
 
 const validForm = ref(false);
 const bookUrl = ref("");
-const services: Ref<SearchServiceInfo[]> = ref([]);
+const services: Ref<MetadataSearchServiceInfo[]> = ref([]);
 const props = defineProps<{ dialogWidth?: string }>();
-const selectedResult: Ref<BookSearchResult | undefined> = ref(undefined);
+const selectedResult: Ref<MetadataSearchResult | undefined> = ref(undefined);
 const emit = defineEmits<{
-  (e: "resultChosen", result: BookSearchResult | undefined): void;
+  (e: "resultChosen", result: MetadataSearchResult | undefined): void;
 }>();
 
 const urlHint = computed((): string => {
@@ -92,7 +92,9 @@ const submit = async () => {
   if (!validForm.value) {
     return;
   }
-  selectedResult.value = await SearchService.getBookDetails(bookUrl.value);
+  selectedResult.value = await MetadataSearchService.getBookDetails(
+    bookUrl.value,
+  );
 
   if (
     !selectedResult.value.series?.length ||
@@ -115,7 +117,7 @@ const chooseSeries = (seriesIdx: number) => {
 
 onMounted(async () => {
   try {
-    services.value = await SearchService.getServices();
+    services.value = await MetadataSearchService.getServices();
   } catch {
     // Hint just stays empty if this fails; not critical to the manual-add flow.
   }

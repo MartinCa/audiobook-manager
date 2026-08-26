@@ -10,7 +10,7 @@ class ImageService {
     return new Promise<{ blob: Blob; contentType: string }>(
       (resolve, reject) => {
         apiClient
-          .get("/search/proxy-image", {
+          .get("/metadata-search/proxy-image", {
             params: { url: imageUrl },
             responseType: "arraybuffer",
           })

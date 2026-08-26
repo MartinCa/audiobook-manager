@@ -304,10 +304,10 @@
 <script setup lang="ts">
 import { computed, onMounted, Ref, ref } from "vue";
 import { useDisplay } from "vuetify";
-import { BookSearchResult } from "../types/BookSearchResult";
-import { SourceSearchStatus } from "../types/MultiSourceSearchResult";
-import { SearchServiceInfo } from "../types/SearchServiceInfo";
-import SearchService from "../services/SearchService";
+import { MetadataSearchResult } from "../types/MetadataSearchResult";
+import { MetadataSourceSearchStatus } from "../types/MetadataMultiSourceSearchResult";
+import { MetadataSearchServiceInfo } from "../types/MetadataSearchServiceInfo";
+import MetadataSearchService from "../services/MetadataSearchService";
 import { Audiobook } from "../types/Audiobook";
 import ErrorNotifications from "./ErrorNotifications.vue";
 import SeriesSelectionTable from "./SeriesSelectionTable.vue";
@@ -319,18 +319,18 @@ import { UserNotificationError } from "../types/Errors";
 const fileExtRegex = new RegExp(/\.(\w{3,4})(?:$|\?)/);
 const props = defineProps<{ bookDetails: Audiobook; dialogWidth?: string }>();
 const emit = defineEmits<{
-  (e: "resultChosen", result: BookSearchResult | undefined): void;
+  (e: "resultChosen", result: MetadataSearchResult | undefined): void;
 }>();
 
 const { smAndDown } = useDisplay();
 
 const searchTerm = ref("");
-const searchResults: Ref<BookSearchResult[]> = ref([]);
-const sourceStatuses: Ref<SourceSearchStatus[]> = ref([]);
-const selectedResult: Ref<BookSearchResult | undefined> = ref(undefined);
+const searchResults: Ref<MetadataSearchResult[]> = ref([]);
+const sourceStatuses: Ref<MetadataSourceSearchStatus[]> = ref([]);
+const selectedResult: Ref<MetadataSearchResult | undefined> = ref(undefined);
 const searching = ref(false);
 const gettingDetails = ref(false);
-const services: Ref<SearchServiceInfo[]> = ref([]);
+const services: Ref<MetadataSearchServiceInfo[]> = ref([]);
 const selectedSources = useSelectedSearchSources(services);
 
 const getFileNameExclExt = (fileName: string): string => {
@@ -399,7 +399,7 @@ const existingTags = computed((): { name: string; value: any }[] => {
   return tags;
 });
 
-const statusLabel = (status: SourceSearchStatus): string => {
+const statusLabel = (status: MetadataSourceSearchStatus): string => {
   if (!status.success) {
     return "failed";
   }
@@ -408,7 +408,9 @@ const statusLabel = (status: SourceSearchStatus): string => {
     : `${status.resultCount} results`;
 };
 
-const statusColor = (status: SourceSearchStatus): string | undefined => {
+const statusColor = (
+  status: MetadataSourceSearchStatus,
+): string | undefined => {
   if (!status.success) {
     return "error";
   }
@@ -426,7 +428,7 @@ const runSearch = async () => {
   sourceStatuses.value = [];
 
   try {
-    const result = await SearchService.searchMultiple(
+    const result = await MetadataSearchService.searchMultiple(
       selectedSources.value,
       searchTerm.value,
     );
@@ -437,10 +439,12 @@ const runSearch = async () => {
   }
 };
 
-const chooseResult = async (result: BookSearchResult) => {
+const chooseResult = async (result: MetadataSearchResult) => {
   gettingDetails.value = true;
   try {
-    selectedResult.value = await SearchService.getBookDetails(result.url);
+    selectedResult.value = await MetadataSearchService.getBookDetails(
+      result.url,
+    );
 
     if (
       !selectedResult.value.series?.length ||
@@ -481,7 +485,7 @@ onMounted(async () => {
   }
 
   try {
-    services.value = await SearchService.getServices();
+    services.value = await MetadataSearchService.getServices();
   } catch {
     throw new UserNotificationError("Failed to load metadata search sources.");
   }

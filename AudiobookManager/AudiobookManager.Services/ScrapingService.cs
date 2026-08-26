@@ -14,7 +14,7 @@ public class ScrapingService : IScrapingService
         _logger = logger;
     }
 
-    public async Task<IList<BookSearchResult>> Search(string sourceName, string searchTerm)
+    public async Task<IList<MetadataSearchResult>> Search(string sourceName, string searchTerm)
     {
         var scraper = _scrapers.SingleOrDefault(s => s.IsSource(sourceName));
 
@@ -32,7 +32,7 @@ public class ScrapingService : IScrapingService
         return results;
     }
 
-    public async Task<MultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm)
+    public async Task<MetadataMultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm)
     {
         var scrapers = _scrapers.Where(s => sourceNames.Any(s.IsSource)).ToList();
 
@@ -46,7 +46,7 @@ public class ScrapingService : IScrapingService
                     result.Source = scraper.SourceName;
                 }
 
-                return (Status: new SourceSearchStatus
+                return (Status: new MetadataSourceSearchStatus
                 {
                     Source = scraper.SourceName,
                     Success = true,
@@ -57,26 +57,26 @@ public class ScrapingService : IScrapingService
             {
                 _logger.LogWarning(ex, "Search failed for source {Source}", scraper.SourceName);
 
-                return (Status: new SourceSearchStatus
+                return (Status: new MetadataSourceSearchStatus
                 {
                     Source = scraper.SourceName,
                     Success = false,
                     ResultCount = 0,
                     Error = ex.Message,
-                }, Results: (IList<BookSearchResult>)new List<BookSearchResult>());
+                }, Results: (IList<MetadataSearchResult>)new List<MetadataSearchResult>());
             }
         });
 
         var outcomes = await Task.WhenAll(searchTasks);
 
-        return new MultiSourceSearchResult
+        return new MetadataMultiSourceSearchResult
         {
             Results = outcomes.SelectMany(o => o.Results).ToList(),
             SourceStatuses = outcomes.Select(o => o.Status).ToList(),
         };
     }
 
-    public Task<BookSearchResult> GetBookDetails(string bookUrl)
+    public Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
         var scraper = _scrapers.SingleOrDefault(s => s.SupportsUrl(bookUrl));
 
@@ -88,7 +88,7 @@ public class ScrapingService : IScrapingService
         return GetBookDetailsFromScraper(scraper, bookUrl);
     }
 
-    private static async Task<BookSearchResult> GetBookDetailsFromScraper(IScraper scraper, string bookUrl)
+    private static async Task<MetadataSearchResult> GetBookDetailsFromScraper(IScraper scraper, string bookUrl)
     {
         var result = await scraper.GetBookDetails(bookUrl);
         result.Source = scraper.SourceName;
@@ -100,13 +100,13 @@ public class ScrapingService : IScrapingService
         return _scrapers.Select(x => x.SourceName).ToList();
     }
 
-    public IList<SearchServiceInfo> GetSearchServiceInfo()
+    public IList<MetadataSearchServiceInfo> GetSearchServiceInfo()
     {
         return _scrapers.Select(s =>
         {
             var enabled = !s.RequiresApiKey || s.IsApiKeyConfigured;
             string? disabledReason = !enabled ? "API key not configured" : null;
-            return new SearchServiceInfo(s.SourceName, enabled, disabledReason);
+            return new MetadataSearchServiceInfo(s.SourceName, enabled, disabledReason);
         }).ToList();
     }
 }

@@ -69,7 +69,7 @@ public partial class GoodreadsScraper : IScraper
         .Build();
     }
 
-    public async Task<BookSearchResult> GetBookDetails(string bookUrl)
+    public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
         Dictionary<string, string> queryParameters = new()
         {
@@ -111,7 +111,7 @@ public partial class GoodreadsScraper : IScraper
         }, new CancellationToken());
     }
 
-    public async Task<IList<BookSearchResult>> Search(string searchTerm)
+    public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
         var httpClient = _httpClientFactory.CreateClient("goodreads");
 
@@ -133,7 +133,7 @@ public partial class GoodreadsScraper : IScraper
         return await SearchViaHtml(httpClient, searchTerm);
     }
 
-    private async Task<IList<BookSearchResult>> SearchViaAutocomplete(HttpClient httpClient, string searchTerm)
+    private async Task<IList<MetadataSearchResult>> SearchViaAutocomplete(HttpClient httpClient, string searchTerm)
     {
         var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/book/auto_complete", new Dictionary<string, string>
         {
@@ -155,7 +155,7 @@ public partial class GoodreadsScraper : IScraper
 
             if (results is null || results.Count == 0)
             {
-                return new List<BookSearchResult>();
+                return new List<MetadataSearchResult>();
             }
 
             return results
@@ -197,25 +197,25 @@ public partial class GoodreadsScraper : IScraper
                         numberOfRatings = parsedCount;
                     }
 
-                    return new BookSearchResult(url, title)
+                    return new MetadataSearchResult(url, title)
                     {
                         Authors = authors,
                         Narrators = new List<Person>(),
                         ImageUrl = ConvertImgUrl(imageUrl),
                         Genres = new List<string>(),
-                        Series = new List<BookSeriesSearchResult>(),
+                        Series = new List<MetadataSeriesSearchResult>(),
                         Rating = rating,
                         NumberOfRatings = numberOfRatings,
                     };
                 })
                 .Where(r => r is not null)
-                .Cast<BookSearchResult>()
+                .Cast<MetadataSearchResult>()
                 .Where(r => !r.BookName.Contains("Large Print", StringComparison.OrdinalIgnoreCase))
                 .ToList();
         }, new CancellationToken());
     }
 
-    private async Task<IList<BookSearchResult>> SearchViaHtml(HttpClient httpClient, string searchTerm)
+    private async Task<IList<MetadataSearchResult>> SearchViaHtml(HttpClient httpClient, string searchTerm)
     {
         var termTokens = searchTerm.Split(" ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -251,7 +251,7 @@ public partial class GoodreadsScraper : IScraper
             var searchHeaderTag = doc.QuerySelector("h3.searchSubNavContainer");
             if (searchHeaderTag is not null && searchHeaderTag.Text().Trim().StartsWith("No results"))
             {
-                return new List<BookSearchResult>();
+                return new List<MetadataSearchResult>();
             }
 
             throw new Exception("Invalid response from Goodreads");
@@ -266,7 +266,7 @@ public partial class GoodreadsScraper : IScraper
 
     public string SourceName => _sourceName;
 
-    public async Task<BookSearchResult> ParseNewBookJson(string newBookJson, string bookUrl)
+    public async Task<MetadataSearchResult> ParseNewBookJson(string newBookJson, string bookUrl)
     {
         (var bookElement, var workElement, var contributorElements, var seriesElements) = GetBookJsonElements(newBookJson);
 
@@ -366,7 +366,7 @@ public partial class GoodreadsScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse rating for {BookUrl}", bookUrl);
         }
 
-        IList<BookSeriesSearchResult> series = new List<BookSeriesSearchResult>();
+        IList<MetadataSeriesSearchResult> series = new List<MetadataSeriesSearchResult>();
         try
         {
             series = await ParseSeries(bookElement, seriesElements);
@@ -400,7 +400,7 @@ public partial class GoodreadsScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse publisher/language/isbn/asin for {BookUrl}", bookUrl);
         }
 
-        return new BookSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName)
         {
             Authors = authors,
             Narrators = narrators,
@@ -492,7 +492,7 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private async Task<IList<BookSeriesSearchResult>> ParseSeries(JsonElement bookElement, IList<JsonElement> seriesElements)
+    private async Task<IList<MetadataSeriesSearchResult>> ParseSeries(JsonElement bookElement, IList<JsonElement> seriesElements)
     {
         var seriesPositions = bookElement
             .GetProperty("bookSeries")
@@ -512,7 +512,7 @@ public partial class GoodreadsScraper : IScraper
         {
             if (seriesMap.TryGetValue(x.Ref, out var result))
             {
-                return new BookSeriesSearchResult(result)
+                return new MetadataSeriesSearchResult(result)
                 {
                     SeriesPart = x.Position
                 };
@@ -521,13 +521,13 @@ public partial class GoodreadsScraper : IScraper
             return null;
         })
             .Where(x => x is not null)
-            .Cast<BookSeriesSearchResult>()
+            .Cast<MetadataSeriesSearchResult>()
             .ToList();
 
         return await _bookSeriesMapper.MapBookSeries(series);
     }
 
-    private async Task<BookSearchResult> ParseLegacyBookDetails(IHtmlDocument doc, string bookUrl)
+    private async Task<MetadataSearchResult> ParseLegacyBookDetails(IHtmlDocument doc, string bookUrl)
     {
         var mainElem = doc.QuerySelector("div#topcol");
         var allAuthors = ParseAuthors(mainElem);
@@ -569,7 +569,7 @@ public partial class GoodreadsScraper : IScraper
 
         var genres = ParseGenres(doc);
 
-        return new BookSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName)
         {
             Authors = authors,
             Narrators = narrators,
@@ -589,7 +589,7 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private static BookSearchResult ParseSearchResult(IElement resultElem)
+    private static MetadataSearchResult ParseSearchResult(IElement resultElem)
     {
         var coverTag = resultElem.QuerySelector("td");
         var coverLinkTag = coverTag?.QuerySelector("a");
@@ -632,7 +632,7 @@ public partial class GoodreadsScraper : IScraper
             year = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
         }
 
-        return new BookSearchResult(link, bookName)
+        return new MetadataSearchResult(link, bookName)
         {
             Authors = authors,
             Narrators = new List<Person>(),
@@ -641,7 +641,7 @@ public partial class GoodreadsScraper : IScraper
             Year = year,
             Language = null,
             ImageUrl = imgUrl,
-            Series = new List<BookSeriesSearchResult>(),
+            Series = new List<MetadataSeriesSearchResult>(),
             Description = null,
             Genres = new List<string>(),
             Rating = rating?.Rating,
@@ -725,9 +725,9 @@ public partial class GoodreadsScraper : IScraper
         return FilterGenres(genres);
     }
 
-    private async Task<IList<BookSeriesSearchResult>> ParseBookSeries(IElement mainElem)
+    private async Task<IList<MetadataSeriesSearchResult>> ParseBookSeries(IElement mainElem)
     {
-        var series = new List<BookSeriesSearchResult>();
+        var series = new List<MetadataSeriesSearchResult>();
 
         var dataDivTags = mainElem.QuerySelectorAll("div#bookDataBox>div");
         foreach (var dataDivTag in dataDivTags.ToList())
@@ -742,7 +742,7 @@ public partial class GoodreadsScraper : IScraper
                     {
                         if (ReSeries().TryMatch(itemATag.Text().Trim(), out var seriesMatch))
                         {
-                            series.Add(new BookSeriesSearchResult(seriesMatch.Groups[1].Value.Trim())
+                            series.Add(new MetadataSeriesSearchResult(seriesMatch.Groups[1].Value.Trim())
                             {
                                 SeriesPart = seriesMatch.Groups[2].Value
                             });

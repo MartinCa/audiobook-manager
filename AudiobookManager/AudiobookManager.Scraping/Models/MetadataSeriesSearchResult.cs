@@ -1,12 +1,12 @@
 ﻿namespace AudiobookManager.Scraping.Models;
-public class BookSeriesSearchResult
+public class MetadataSeriesSearchResult
 {
     public string SeriesName { get; set; }
     public string? SeriesPart { get; set; }
     public string? OriginalSeriesName { get; set; }
     public bool? PartWarning { get; set; }
 
-    public BookSeriesSearchResult(string seriesName)
+    public MetadataSeriesSearchResult(string seriesName)
     {
         SeriesName = seriesName;
     }

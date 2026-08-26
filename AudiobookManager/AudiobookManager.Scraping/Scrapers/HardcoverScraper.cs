@@ -44,7 +44,7 @@ public class HardcoverScraper : IScraper
 
     public bool SupportsUrl(string url) => url.Contains(_hardcoverDomain);
 
-    public async Task<IList<BookSearchResult>> Search(string searchTerm)
+    public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
         var query = """
             query SearchBooks($query: String!) {
@@ -72,10 +72,10 @@ public class HardcoverScraper : IScraper
         }
         else
         {
-            return new List<BookSearchResult>();
+            return new List<MetadataSearchResult>();
         }
 
-        var results = new List<BookSearchResult>();
+        var results = new List<MetadataSearchResult>();
         foreach (var hit in hitsArray.EnumerateArray())
         {
             try
@@ -95,7 +95,7 @@ public class HardcoverScraper : IScraper
         return results;
     }
 
-    public async Task<BookSearchResult> GetBookDetails(string bookUrl)
+    public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
         var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
 
@@ -460,7 +460,7 @@ public class HardcoverScraper : IScraper
         }
         """;
 
-    private BookSearchResult? ParseSearchHit(JsonElement hit)
+    private MetadataSearchResult? ParseSearchHit(JsonElement hit)
     {
         // Each hit may contain a nested "document" property (Typesense format)
         // or be the document itself (direct array format)
@@ -542,7 +542,7 @@ public class HardcoverScraper : IScraper
             rating = ratingElement.GetSingle();
         }
 
-        return new BookSearchResult(url, title)
+        return new MetadataSearchResult(url, title)
         {
             Authors = authors,
             Narrators = new List<Person>(),
@@ -551,12 +551,12 @@ public class HardcoverScraper : IScraper
             ImageUrl = imageUrl,
             Rating = rating,
             NumberOfRatings = numberOfRatings,
-            Series = new List<BookSeriesSearchResult>(),
+            Series = new List<MetadataSeriesSearchResult>(),
             Genres = new List<string>(),
         };
     }
 
-    private async Task<BookSearchResult> ParseBookDetails(JsonElement bookElement, string bookUrl)
+    private async Task<MetadataSearchResult> ParseBookDetails(JsonElement bookElement, string bookUrl)
     {
         string? bookName = null;
         string? subtitle = null;
@@ -656,7 +656,7 @@ public class HardcoverScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse rating for {BookUrl}", bookUrl);
         }
 
-        IList<BookSeriesSearchResult> series = new List<BookSeriesSearchResult>();
+        IList<MetadataSeriesSearchResult> series = new List<MetadataSeriesSearchResult>();
         try
         {
             series = await ParseSeries(bookElement);
@@ -733,7 +733,7 @@ public class HardcoverScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse duration for {BookUrl}", bookUrl);
         }
 
-        return new BookSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName)
         {
             Authors = authors,
             Narrators = narrators,
@@ -867,9 +867,9 @@ public class HardcoverScraper : IScraper
             .ToList();
     }
 
-    private async Task<IList<BookSeriesSearchResult>> ParseSeries(JsonElement bookElement)
+    private async Task<IList<MetadataSeriesSearchResult>> ParseSeries(JsonElement bookElement)
     {
-        var series = new List<BookSeriesSearchResult>();
+        var series = new List<MetadataSeriesSearchResult>();
 
         if (!bookElement.TryGetProperty("book_series", out var bookSeriesElement) ||
             bookSeriesElement.ValueKind != JsonValueKind.Array)
@@ -907,7 +907,7 @@ public class HardcoverScraper : IScraper
                 }
             }
 
-            series.Add(new BookSeriesSearchResult(seriesName)
+            series.Add(new MetadataSeriesSearchResult(seriesName)
             {
                 SeriesPart = position
             });

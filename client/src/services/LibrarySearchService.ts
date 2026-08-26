@@ -1,10 +1,10 @@
-import CombinedSearchResult from "../types/CombinedSearchResult";
+import LibrarySearchResult from "../types/LibrarySearchResult";
 import BaseHttpService from "./BaseHttpService";
 
 class LibrarySearchService extends BaseHttpService {
-  combinedSearch(query: string, limit = 5): Promise<CombinedSearchResult> {
+  searchLibrary(query: string, limit = 5): Promise<LibrarySearchResult> {
     return this.getData(
-      `/browse/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      `/browse/library-search?q=${encodeURIComponent(query)}&limit=${limit}`,
     );
   }
 }

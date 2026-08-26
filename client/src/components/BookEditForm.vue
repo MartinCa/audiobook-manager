@@ -332,7 +332,7 @@ import ManualUrlSearchDialog from "./ManualUrlSearchDialog.vue";
 import TagPreviewDialog from "./TagPreviewDialog.vue";
 import DiffDisplay from "./DiffDisplay.vue";
 import CoverEditor from "./CoverEditor.vue";
-import { BookSearchResult } from "../types/BookSearchResult";
+import { MetadataSearchResult } from "../types/MetadataSearchResult";
 import { useDialogWidth } from "./dialog";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
 import SimilarValueService from "../services/SimilarValueService";
@@ -359,7 +359,7 @@ const coverEditor = ref<InstanceType<typeof CoverEditor> | null>(null);
 const showSearchDialog = ref(false);
 const showManualUrlSearchDialog = ref(false);
 const showTagPreview = ref(false);
-const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
+const pendingSearchResult: Ref<MetadataSearchResult | null> = ref(null);
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
@@ -486,7 +486,7 @@ const onCoverUpdate = (
   input.value.cover_mime = mimeType;
 };
 
-const readSearchResult = (searchData: BookSearchResult | undefined) => {
+const readSearchResult = (searchData: MetadataSearchResult | undefined) => {
   showSearchDialog.value = false;
   showManualUrlSearchDialog.value = false;
 
@@ -497,7 +497,7 @@ const readSearchResult = (searchData: BookSearchResult | undefined) => {
 };
 
 const applyPreviewedTags = (
-  result: BookSearchResult,
+  result: MetadataSearchResult,
   selectedFields: Set<string>,
 ) => {
   showTagPreview.value = false;

@@ -86,15 +86,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { debounce } from "lodash";
-import SearchService from "../services/LibrarySearchService";
-import CombinedSearchResult from "../types/CombinedSearchResult";
+import LibrarySearchService from "../services/LibrarySearchService";
+import LibrarySearchResult from "../types/LibrarySearchResult";
 
 const MIN_QUERY_LENGTH = 2;
 
 const query = ref("");
 const menuOpen = ref(false);
 const searched = ref(false);
-const results = ref<CombinedSearchResult>({
+const results = ref<LibrarySearchResult>({
   books: [],
   authors: [],
   series: [],
@@ -111,7 +111,7 @@ const hasResults = computed(
 
 const runSearch = async (value: string) => {
   const currentRequestId = ++requestId;
-  const result = await SearchService.combinedSearch(value);
+  const result = await LibrarySearchService.searchLibrary(value);
   if (currentRequestId !== requestId) {
     return;
   }

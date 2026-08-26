@@ -6,37 +6,37 @@ using Microsoft.AspNetCore.Mvc;
 namespace AudiobookManager.Api.Controllers;
 [Route("api/[controller]")]
 [ApiController]
-public class SearchController : ControllerBase
+public class MetadataSearchController : ControllerBase
 {
     private readonly IScrapingService _scrapingService;
     private readonly IHttpClientFactory _httpClientFactory;
 
-    public SearchController(IScrapingService scrapingService, IHttpClientFactory httpClientFactory)
+    public MetadataSearchController(IScrapingService scrapingService, IHttpClientFactory httpClientFactory)
     {
         _scrapingService = scrapingService;
         _httpClientFactory = httpClientFactory;
     }
 
     [HttpGet("{sourceName}")]
-    public async Task<IList<BookSearchResult>> Search(string sourceName, [FromQuery] string q)
+    public async Task<IList<MetadataSearchResult>> Search(string sourceName, [FromQuery] string q)
     {
         return await _scrapingService.Search(sourceName, q);
     }
 
     [HttpPost("multi")]
-    public async Task<MultiSourceSearchResult> SearchMultiple([FromBody] MultiSearchDto dto)
+    public async Task<MetadataMultiSourceSearchResult> SearchMultiple([FromBody] MetadataMultiSearchDto dto)
     {
         return await _scrapingService.SearchMultiple(dto.Sources, dto.Q);
     }
 
     [HttpPost("details")]
-    public async Task<BookSearchResult> GetBookDetails([FromBody] PathDto dto)
+    public async Task<MetadataSearchResult> GetBookDetails([FromBody] PathDto dto)
     {
         return await _scrapingService.GetBookDetails(dto.Path);
     }
 
     [HttpGet("services")]
-    public IList<SearchServiceInfo> GetSearchServices()
+    public IList<MetadataSearchServiceInfo> GetSearchServices()
     {
         return _scrapingService.GetSearchServiceInfo();
     }

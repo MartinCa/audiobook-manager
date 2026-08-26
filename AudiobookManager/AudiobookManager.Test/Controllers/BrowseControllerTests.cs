@@ -26,9 +26,9 @@ public class BrowseControllerTests
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
 
     [TestMethod]
-    public async Task CombinedSearch_BlankQuery_ReturnsEmptyResult()
+    public async Task SearchLibrary_BlankQuery_ReturnsEmptyResult()
     {
-        var result = await _controller.CombinedSearch("   ");
+        var result = await _controller.SearchLibrary("   ");
 
         Assert.AreEqual(0, result.Books.Count);
         Assert.AreEqual(0, result.Authors.Count);
@@ -37,7 +37,7 @@ public class BrowseControllerTests
     }
 
     [TestMethod]
-    public async Task CombinedSearch_CombinesBooksAuthorsAndSeries()
+    public async Task SearchLibrary_CombinesBooksAuthorsAndSeries()
     {
         var book = MakeBook(1, "Mistborn: The Final Empire", "Mistborn");
         book.Authors = new List<Person> { new(1, "Brandon Sanderson") };
@@ -49,7 +49,7 @@ public class BrowseControllerTests
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("mist", 5))
             .ReturnsAsync(new List<(string Series, int BookCount)> { ("Mistborn", 3) });
 
-        var result = await _controller.CombinedSearch("mist");
+        var result = await _controller.SearchLibrary("mist");
 
         Assert.AreEqual(1, result.Books.Count);
         Assert.AreEqual("Mistborn: The Final Empire", result.Books[0].BookName);
@@ -61,7 +61,7 @@ public class BrowseControllerTests
     }
 
     [TestMethod]
-    public async Task CombinedSearch_RanksExactPrefixMatchesFirst()
+    public async Task SearchLibrary_RanksExactPrefixMatchesFirst()
     {
         var prefixMatch = new Person(1, "San Diego") { BooksAuthored = new List<Audiobook> { MakeBook(1, "Book A") } };
         var substringMatch = new Person(2, "Brandon Sanderson") { BooksAuthored = new List<Audiobook> { MakeBook(2, "Book B") } };
@@ -71,7 +71,7 @@ public class BrowseControllerTests
         _personRepo.Setup(r => r.SearchAuthorsAsync("san", 5))
             .ReturnsAsync(new List<Person> { substringMatch, prefixMatch });
 
-        var result = await _controller.CombinedSearch("san");
+        var result = await _controller.SearchLibrary("san");
 
         Assert.AreEqual(2, result.Authors.Count);
         Assert.AreEqual("San Diego", result.Authors[0].Name);

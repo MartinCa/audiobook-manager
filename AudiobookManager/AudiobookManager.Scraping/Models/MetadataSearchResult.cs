@@ -1,7 +1,7 @@
 ﻿using AudiobookManager.Domain;
 
 namespace AudiobookManager.Scraping.Models;
-public class BookSearchResult
+public class MetadataSearchResult
 {
     public string Url { get; set; }
     public string Source { get; set; } = "";
@@ -13,7 +13,7 @@ public class BookSearchResult
     public int? Year { get; set; }
     public string? Language { get; set; }
     public string? ImageUrl { get; set; }
-    public IList<BookSeriesSearchResult>? Series { get; set; }
+    public IList<MetadataSeriesSearchResult>? Series { get; set; }
     public string? Description { get; set; }
     public IList<string> Genres { get; set; }
     public float? Rating { get; set; }
@@ -23,7 +23,7 @@ public class BookSearchResult
     public string? Asin { get; set; }
     public string? Isbn { get; set; }
 
-    public BookSearchResult(string url, string bookName)
+    public MetadataSearchResult(string url, string bookName)
     {
         Url = url;
         BookName = bookName;

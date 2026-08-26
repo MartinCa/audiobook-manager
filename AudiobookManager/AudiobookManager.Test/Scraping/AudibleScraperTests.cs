@@ -12,7 +12,7 @@ public class AudibleScraperTests
     {
         var httpClientFactory = new Mock<IHttpClientFactory>();
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
-        bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<BookSeriesSearchResult>>())).Returns<IList<BookSeriesSearchResult>>(x => Task.FromResult(x));
+        bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>())).Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
 
         return new AudibleScraper(httpClientFactory.Object, bookSeriesMapper.Object);
     }

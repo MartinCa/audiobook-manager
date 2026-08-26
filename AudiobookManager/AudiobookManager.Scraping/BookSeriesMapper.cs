@@ -8,7 +8,7 @@ namespace AudiobookManager.Scraping;
 
 public interface IBookSeriesMapper
 {
-    public Task<IList<BookSeriesSearchResult>> MapBookSeries(IList<BookSeriesSearchResult> results);
+    public Task<IList<MetadataSeriesSearchResult>> MapBookSeries(IList<MetadataSeriesSearchResult> results);
 }
 
 public partial class BookSeriesMapper : IBookSeriesMapper
@@ -23,7 +23,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         _db = db;
     }
 
-    public async Task<IList<BookSeriesSearchResult>> MapBookSeries(IList<BookSeriesSearchResult> results)
+    public async Task<IList<MetadataSeriesSearchResult>> MapBookSeries(IList<MetadataSeriesSearchResult> results)
     {
         var mappings = await GetRegexMappings();
 
@@ -34,7 +34,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         return mappingTasks.Select(task => task.Result).ToList();
     }
 
-    public async Task<BookSeriesSearchResult> MapSingleBookSeries(BookSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping)>? mappings = null)
+    public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping)>? mappings = null)
     {
         var allMappings = mappings ?? await GetRegexMappings();
 
@@ -43,7 +43,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(cleanedResult.SeriesName));
         if (matchingMapping != default)
         {
-            return new BookSeriesSearchResult(matchingMapping.Mapping.MappedSeries)
+            return new MetadataSeriesSearchResult(matchingMapping.Mapping.MappedSeries)
             {
                 OriginalSeriesName = cleanedResult.SeriesName,
                 SeriesPart = cleanedResult.SeriesPart,
@@ -54,9 +54,9 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         return cleanedResult;
     }
 
-    private BookSeriesSearchResult CleanSeriesName(BookSeriesSearchResult result)
+    private MetadataSeriesSearchResult CleanSeriesName(MetadataSeriesSearchResult result)
     {
-        return new BookSeriesSearchResult(ReSeriesEnd().Replace(result.SeriesName, "").Trim())
+        return new MetadataSeriesSearchResult(ReSeriesEnd().Replace(result.SeriesName, "").Trim())
         {
             OriginalSeriesName = result.OriginalSeriesName,
             SeriesPart = result.SeriesPart,

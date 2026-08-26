@@ -23,7 +23,7 @@
         >Audiobook Manager</v-app-bar-title
       >
       <v-spacer />
-      <CombinedSearch />
+      <LibrarySearch />
       <v-spacer />
     </v-app-bar>
 
@@ -100,7 +100,7 @@ import { ref, watch } from "vue";
 import { useDisplay } from "vuetify";
 import { useRoute } from "vue-router";
 import ErrorNotifications from "./components/ErrorNotifications.vue";
-import CombinedSearch from "./components/CombinedSearch.vue";
+import LibrarySearch from "./components/LibrarySearch.vue";
 import { MenuLink } from "./types/MenuLink";
 import { useErrors } from "./components/errors";
 

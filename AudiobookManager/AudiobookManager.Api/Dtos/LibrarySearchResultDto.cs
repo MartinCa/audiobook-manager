@@ -1,6 +1,6 @@
 namespace AudiobookManager.Api.Dtos;
 
-public record BookSearchHitDto(
+public record LibraryBookHitDto(
     long Id,
     string? BookName,
     string? Subtitle,
@@ -10,19 +10,19 @@ public record BookSearchHitDto(
     string? CoverFilePath
 );
 
-public record AuthorSearchHitDto(
+public record LibraryAuthorHitDto(
     long Id,
     string Name,
     int BookCount
 );
 
-public record SeriesSearchHitDto(
+public record LibrarySeriesHitDto(
     string Name,
     int BookCount
 );
 
-public record CombinedSearchResultDto(
-    List<BookSearchHitDto> Books,
-    List<AuthorSearchHitDto> Authors,
-    List<SeriesSearchHitDto> Series
+public record LibrarySearchResultDto(
+    List<LibraryBookHitDto> Books,
+    List<LibraryAuthorHitDto> Authors,
+    List<LibrarySeriesHitDto> Series
 );

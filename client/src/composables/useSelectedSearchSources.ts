@@ -1,5 +1,5 @@
 import { Ref, ref, watch } from "vue";
-import { SearchServiceInfo } from "../types/SearchServiceInfo";
+import { MetadataSearchServiceInfo } from "../types/MetadataSearchServiceInfo";
 
 const storageKey = "abm.search.selectedSources";
 
@@ -21,7 +21,7 @@ function writeStoredSources(sources: string[]) {
 }
 
 export function useSelectedSearchSources(
-  services: Ref<SearchServiceInfo[]>,
+  services: Ref<MetadataSearchServiceInfo[]>,
 ): Ref<string[]> {
   const selectedSources: Ref<string[]> = ref([]);
 
