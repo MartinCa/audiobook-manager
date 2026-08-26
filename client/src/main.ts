@@ -16,6 +16,7 @@ const DiscoveredAudiobooks = () =>
   import("./components/library/DiscoveredAudiobooks.vue");
 const LibraryConsistency = () => import("./components/LibraryConsistency.vue");
 const SimilarValues = () => import("./components/SimilarValues.vue");
+const MissingTags = () => import("./components/MissingTags.vue");
 const BookDetail = () => import("./components/library/BookDetail.vue");
 
 // Composables
@@ -41,6 +42,7 @@ const routes = [
   { path: "/library/discovered", component: DiscoveredAudiobooks },
   { path: "/library/consistency", component: LibraryConsistency },
   { path: "/library/similar-values", component: SimilarValues },
+  { path: "/library/missing-tags", component: MissingTags },
   { path: "/settings", component: Settings },
 ];
 

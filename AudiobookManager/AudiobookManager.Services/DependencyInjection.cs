@@ -16,6 +16,7 @@ public static class DependencyInjection
         .AddScoped<ILibraryScanService, LibraryScanService>()
         .AddScoped<ILibraryConsistencyService, LibraryConsistencyService>()
         .AddScoped<ISimilarValueService, SimilarValueService>()
+        .AddScoped<IMissingTagService, MissingTagService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();
