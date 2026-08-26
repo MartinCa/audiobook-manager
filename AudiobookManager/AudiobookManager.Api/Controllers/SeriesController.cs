@@ -123,11 +123,11 @@ public class SeriesController : ControllerBase
                     _organizeHub.Clients.All.SeriesMatchProgress(
                         new SeriesMatchProgress(processed, total, succeeded, failed));
 
-                var (processed, succeeded, failed) =
+                var (processed, succeeded, failed, stopReason) =
                     await seriesService.BulkAutoMatchSeriesAsync(threshold, seriesNames, ProgressAction);
 
                 await _organizeHub.Clients.All.SeriesMatchComplete(
-                    new SeriesMatchComplete(processed, succeeded, failed));
+                    new SeriesMatchComplete(processed, succeeded, failed, stopReason));
             },
             () => _organizeHub.Clients.All.SeriesMatchComplete(new SeriesMatchComplete(0, 0, 0)));
     }
@@ -184,7 +184,7 @@ public class SeriesController : ControllerBase
         _organizeHub.Clients.All.SeriesRefreshProgress(
             new SeriesRefreshProgress(processed, total, succeeded, failed));
 
-    private IActionResult StartRefresh(Func<ISeriesService, Task<(int Processed, int Succeeded, int Failed)>> work)
+    private IActionResult StartRefresh(Func<ISeriesService, Task<(int Processed, int Succeeded, int Failed, string? StopReason)>> work)
     {
         return BackgroundOperationRunner.Start(
             _refreshLock,
@@ -193,10 +193,10 @@ public class SeriesController : ControllerBase
             async sp =>
             {
                 var seriesService = sp.GetRequiredService<ISeriesService>();
-                var (processed, succeeded, failed) = await work(seriesService);
+                var (processed, succeeded, failed, stopReason) = await work(seriesService);
 
                 await _organizeHub.Clients.All.SeriesRefreshComplete(
-                    new SeriesRefreshComplete(processed, succeeded, failed));
+                    new SeriesRefreshComplete(processed, succeeded, failed, stopReason));
             },
             () => _organizeHub.Clients.All.SeriesRefreshComplete(new SeriesRefreshComplete(0, 0, 0)));
     }

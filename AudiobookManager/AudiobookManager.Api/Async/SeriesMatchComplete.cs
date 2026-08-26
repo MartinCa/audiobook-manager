@@ -6,10 +6,17 @@ public class SeriesMatchComplete
     public int TotalSucceeded { get; set; }
     public int TotalFailed { get; set; }
 
-    public SeriesMatchComplete(int totalProcessed, int totalSucceeded, int totalFailed)
+    /// <summary>
+    /// Set only when the batch stopped early (currently: the Hardcover daily request budget
+    /// was exhausted) rather than running to completion over every requested series.
+    /// </summary>
+    public string? StopReason { get; set; }
+
+    public SeriesMatchComplete(int totalProcessed, int totalSucceeded, int totalFailed, string? stopReason = null)
     {
         TotalProcessed = totalProcessed;
         TotalSucceeded = totalSucceeded;
         TotalFailed = totalFailed;
+        StopReason = stopReason;
     }
 }

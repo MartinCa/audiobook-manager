@@ -86,7 +86,8 @@ public class Client : IOrganize
 
     public Task SeriesMatchComplete(SeriesMatchComplete result)
     {
-        Console.WriteLine($"Series match complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
+        Console.WriteLine($"Series match complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
         return Task.CompletedTask;
     }
 
@@ -98,7 +99,8 @@ public class Client : IOrganize
 
     public Task SeriesRefreshComplete(SeriesRefreshComplete result)
     {
-        Console.WriteLine($"Series refresh complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
+        Console.WriteLine($"Series refresh complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
         return Task.CompletedTask;
     }
 }

@@ -274,7 +274,9 @@ const onRefreshProgress = (arg: SeriesRefreshProgress) => {
 
 const onRefreshComplete = (arg: SeriesRefreshComplete) => {
   refreshing.value = false;
-  let msg = `Refresh complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series updated`;
+  let msg = arg.stopReason
+    ? `Refresh stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
+    : `Refresh complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series updated`;
   if (arg.totalFailed > 0) {
     msg += ` (${arg.totalFailed} failed)`;
   }

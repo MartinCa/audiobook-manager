@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
 using Microsoft.Extensions.Logging;
@@ -346,7 +347,7 @@ public class SeriesServiceTests
 
         var progressCalls = new List<(int Processed, int Total, int Succeeded, int Failed)>();
 
-        var (processed, succeeded, failed) = await MakeService(scraper).BulkAutoMatchSeriesAsync(
+        var (processed, succeeded, failed, stopReason) = await MakeService(scraper).BulkAutoMatchSeriesAsync(
             0.9,
             null,
             (p, t, s, f) => { progressCalls.Add((p, t, s, f)); return Task.CompletedTask; });
@@ -354,6 +355,7 @@ public class SeriesServiceTests
         Assert.AreEqual(2, processed);
         Assert.AreEqual(1, succeeded);
         Assert.AreEqual(0, failed);
+        Assert.IsNull(stopReason);
         Assert.AreEqual(2, progressCalls.Count);
         Assert.AreEqual(2, progressCalls[^1].Total);
     }
@@ -379,12 +381,57 @@ public class SeriesServiceTests
             .ReturnsAsync((string term) => new List<SeriesSearchResult> { new("42", term) });
         scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>())).ThrowsAsync(new Exception("source exploded"));
 
-        var (processed, succeeded, failed) = await MakeService(scraper.Object)
+        var (processed, succeeded, failed, stopReason) = await MakeService(scraper.Object)
             .BulkAutoMatchSeriesAsync(0.5, null, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(2, processed);
         Assert.AreEqual(0, succeeded);
         Assert.AreEqual(2, failed);
+        Assert.IsNull(stopReason);
+    }
+
+    [TestMethod]
+    public async Task BulkAutoMatchSeriesAsync_StopsImmediatelyWhenHardcoverDailyLimitIsExhausted()
+    {
+        _audiobookRepository.Setup(r => r.GetSeriesGroupingDataAsync()).ReturnsAsync(new List<SeriesGroupingBook>
+        {
+            new("Mistborn", "1", "Book A", new List<string>()),
+            new("Mistborn Two", "1", "Book B", new List<string>()),
+            new("Mistborn Three", "1", "Book C", new List<string>()),
+        });
+        _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
+            .ReturnsAsync(new List<DbAudiobook>());
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>())).ReturnsAsync((Series?)null);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series s) => { s.Id = 1; return s; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.SearchSeries(It.IsAny<string>()))
+            .ReturnsAsync((string term) => new List<SeriesSearchResult> { new("42", term) });
+        // The daily budget runs out on the second series - the third must never be attempted.
+        scraper.SetupSequence(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn"))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(5000))
+            .ThrowsAsync(new Exception("should never be reached"));
+
+        var progressCalls = new List<(int Processed, int Total, int Succeeded, int Failed)>();
+
+        var (processed, succeeded, failed, stopReason) = await MakeService(scraper.Object)
+            .BulkAutoMatchSeriesAsync(0.5, null, (p, t, s, f) => { progressCalls.Add((p, t, s, f)); return Task.CompletedTask; });
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNotNull(stopReason);
+        Assert.AreEqual(1, progressCalls.Count);
+        scraper.Verify(s => s.GetSeriesBooks(It.IsAny<string>()), Times.Exactly(2));
     }
 
     [TestMethod]

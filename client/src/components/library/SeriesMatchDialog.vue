@@ -259,7 +259,9 @@ const onMatchProgress = (arg: SeriesMatchProgress) => {
 
 const onMatchComplete = (arg: SeriesMatchComplete) => {
   matching.value = false;
-  let msg = `Matching complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series matched`;
+  let msg = arg.stopReason
+    ? `Matching stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
+    : `Matching complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series matched`;
   if (arg.totalFailed > 0) {
     msg += ` (${arg.totalFailed} failed)`;
   }

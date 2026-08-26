@@ -450,8 +450,9 @@ const onRefreshProgress = (arg: SeriesRefreshProgress) => {
 
 const onRefreshComplete = (arg: SeriesRefreshComplete) => {
   refreshing.value = false;
-  snackbarText.value =
-    arg.totalFailed > 0
+  snackbarText.value = arg.stopReason
+    ? `Refresh stopped: ${arg.stopReason}`
+    : arg.totalFailed > 0
       ? `Refresh finished with ${arg.totalFailed} failure(s)`
       : "Refresh complete";
   snackbar.value = true;

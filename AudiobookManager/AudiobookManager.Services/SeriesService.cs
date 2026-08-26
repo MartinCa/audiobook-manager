@@ -2,6 +2,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services.Similarity;
 using Microsoft.Extensions.Logging;
@@ -238,7 +239,7 @@ public class SeriesService : ISeriesService
         return saved;
     }
 
-    public async Task<(int Processed, int Succeeded, int Failed)> BulkAutoMatchSeriesAsync(
+    public async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> BulkAutoMatchSeriesAsync(
         double confidenceThreshold,
         List<string>? seriesNames,
         Func<int, int, int, int, Task> progressAction)
@@ -276,12 +277,12 @@ public class SeriesService : ISeriesService
         });
     }
 
-    public Task<(int Processed, int Succeeded, int Failed)> RefreshSeriesAsync(
+    public Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshSeriesAsync(
         string seriesName,
         Func<int, int, int, int, Task> progressAction) =>
         RefreshManyAsync(new List<string> { seriesName }, progressAction);
 
-    public async Task<(int Processed, int Succeeded, int Failed)> RefreshAllSeriesAsync(
+    public async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllSeriesAsync(
         Func<int, int, int, int, Task> progressAction)
     {
         var catalog = await _seriesRepository.GetAllWithExpectedBooksAsync();
@@ -296,7 +297,7 @@ public class SeriesService : ISeriesService
     public Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored) =>
         _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
 
-    private async Task<(int Processed, int Succeeded, int Failed)> RefreshManyAsync(
+    private async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshManyAsync(
         List<string> seriesNames,
         Func<int, int, int, int, Task> progressAction)
     {
@@ -318,8 +319,14 @@ public class SeriesService : ISeriesService
     /// Runs a per-series operation with the shared bulk contract: one try/catch per item so a
     /// single failure never aborts the batch, and a (processed, total, succeeded, failed)
     /// progress report after every item.
+    ///
+    /// The Hardcover daily request budget is the one exception to "a single failure never
+    /// aborts the batch": once it is exhausted every remaining item is guaranteed to fail the
+    /// same way, so the batch stops immediately instead of grinding through the rest as
+    /// individual failures, and the reason is surfaced on the result rather than folded into
+    /// the failed count.
     /// </summary>
-    private async Task<(int Processed, int Succeeded, int Failed)> RunBulkAsync(
+    private async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RunBulkAsync(
         List<string> seriesNames,
         Func<int, int, int, int, Task> progressAction,
         Func<string, Task<bool>> operation)
@@ -328,6 +335,7 @@ public class SeriesService : ISeriesService
         var succeeded = 0;
         var failed = 0;
         var total = seriesNames.Count;
+        string? stopReason = null;
 
         foreach (var name in seriesNames)
         {
@@ -339,6 +347,17 @@ public class SeriesService : ISeriesService
                     succeeded++;
                 }
             }
+            catch (HardcoverDailyLimitExceededException ex)
+            {
+                // This item was refused before it was attempted, not failed - don't count it
+                // as processed, and don't bother reporting the ones after it.
+                processed--;
+                _logger.LogWarning(ex,
+                    "Stopping series catalog bulk operation after {Processed}/{Total} series: {Message}",
+                    processed, total, ex.Message);
+                stopReason = "Hardcover daily API request limit reached";
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Series catalog operation failed for series {SeriesName}", name);
@@ -348,7 +367,7 @@ public class SeriesService : ISeriesService
             await progressAction(processed, total, succeeded, failed);
         }
 
-        return (processed, succeeded, failed);
+        return (processed, succeeded, failed, stopReason);
     }
 
     private static List<SeriesGroupingBook> ToGroupingBooks(IEnumerable<DbAudiobook> books) =>
