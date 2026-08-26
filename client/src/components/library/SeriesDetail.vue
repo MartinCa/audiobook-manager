@@ -92,6 +92,30 @@
               </v-btn>
             </div>
 
+            <div class="d-flex align-center flex-wrap ga-2 mt-3">
+              <v-text-field
+                v-model="manualQuery"
+                label="Search title/author, or paste a series URL"
+                hint="e.g. https://hardcover.app/series/harry-potter"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                style="min-width: 280px; flex: 1 1 280px"
+                :disabled="busy"
+                @keydown.enter="searchManualCandidates()"
+              />
+              <v-btn
+                size="small"
+                :disabled="busy || !manualQuery?.trim()"
+                :loading="searchingManually"
+                prepend-icon="mdi-magnify"
+                @click="searchManualCandidates()"
+              >
+                Search
+              </v-btn>
+            </div>
+
             <v-progress-linear
               v-if="refreshing"
               class="mt-3"
@@ -340,6 +364,9 @@ const candidatesLoaded = ref(false);
 const loadingCandidates = ref(false);
 const matchingCandidate = ref(false);
 
+const manualQuery = ref("");
+const searchingManually = ref(false);
+
 const refreshing = ref(false);
 const refreshProcessed = ref(0);
 const refreshTotal = ref(0);
@@ -352,7 +379,8 @@ const busy = computed(
     loading.value ||
     refreshing.value ||
     loadingCandidates.value ||
-    matchingCandidate.value,
+    matchingCandidate.value ||
+    searchingManually.value,
 );
 
 const goBack = () => {
@@ -390,6 +418,31 @@ const loadCandidates = async () => {
     snackbar.value = true;
   } finally {
     loadingCandidates.value = false;
+  }
+};
+
+const searchManualCandidates = async () => {
+  const query = manualQuery.value?.trim();
+  if (!query) {
+    return;
+  }
+
+  searchingManually.value = true;
+  try {
+    candidates.value = await SeriesService.searchMatchCandidates(
+      seriesName.value,
+      query,
+    );
+    candidatesLoaded.value = true;
+    if (candidates.value.length === 0) {
+      snackbarText.value = "No candidates found for that search";
+      snackbar.value = true;
+    }
+  } catch (e: any) {
+    snackbarText.value = `Search failed: ${e?.response?.data ?? e.message}`;
+    snackbar.value = true;
+  } finally {
+    searchingManually.value = false;
   }
 };
 

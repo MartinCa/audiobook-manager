@@ -76,6 +76,27 @@ public class SeriesController : ControllerBase
         }
     }
 
+    [HttpGet("{seriesName}/match-candidates/search")]
+    public async Task<ActionResult<List<SeriesMatchCandidateDto>>> SearchMatchCandidates(string seriesName, [FromQuery] string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return BadRequest("Query is required");
+        }
+
+        try
+        {
+            var candidates = await _seriesService.SearchSeriesMatchesAsync(seriesName, query);
+            return candidates.Select(c => new SeriesMatchCandidateDto(
+                c.SourceName, c.SourceId, c.SeriesName, c.SourceUrl, c.Authors, c.BookCount, c.Confidence)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching match candidates for series {SeriesName} with query {Query}", seriesName, query);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("{seriesName}/match")]
     public async Task<ActionResult<SeriesOverviewDto>> MatchSeries(string seriesName, [FromBody] MatchSeriesDto dto)
     {
