@@ -52,115 +52,13 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             booksChecked++;
             var bookLabel = $"{string.Join(", ", audiobook.Authors.Select(a => a.Name))} — {audiobook.BookName}";
 
-            if (!File.Exists(audiobook.FileInfoFullPath))
-            {
-                await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
-                    $"Media file not found: {audiobook.FileInfoFileName}",
-                    audiobook.FileInfoFullPath, null);
-                issuesFound++;
-                await progressAction($"Missing: {bookLabel}", booksChecked, totalBooks, issuesFound);
-                continue;
-            }
+            var issues = await DetectIssuesForAudiobookAsync(audiobook);
+            issuesFound += issues.Count;
 
-            try
-            {
-                var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
-                var parsed = _tagHandler.ParseAudiobook(fileInfo);
-
-                // Check file path
-                var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
-                var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
-                if (!string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
-                {
-                    await InsertIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
-                        "File path does not match expected path from tags",
-                        expectedFullPath, audiobook.FileInfoFullPath);
-                    issuesFound++;
-                }
-
-                // Check tag values against library metadata
-                var tagMismatches = FindTagMismatches(audiobook, parsed);
-                if (tagMismatches.Count > 0)
-                {
-                    var description = $"m4b tags do not match library metadata: {string.Join(", ", tagMismatches.Select(m => m.Field))}";
-                    var expectedValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Expected}"));
-                    var actualValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Actual}"));
-                    await InsertIssue(audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue);
-                    issuesFound++;
-                }
-
-                var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
-
-                // Check desc.txt
-                var descPath = AudiobookFileHandler.JoinPaths(directoryPath, "desc.txt");
-                if (!string.IsNullOrEmpty(parsed.Description))
-                {
-                    if (!File.Exists(descPath))
-                    {
-                        await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingDescTxt,
-                            "desc.txt missing but m4b has Description tag",
-                            parsed.Description, null);
-                        issuesFound++;
-                    }
-                    else
-                    {
-                        var descContent = await File.ReadAllTextAsync(descPath);
-                        if (!string.Equals(descContent, parsed.Description, StringComparison.Ordinal))
-                        {
-                            await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
-                                "desc.txt content does not match Description tag",
-                                parsed.Description, descContent);
-                            issuesFound++;
-                        }
-                    }
-                }
-
-                // Check reader.txt
-                var readerPath = AudiobookFileHandler.JoinPaths(directoryPath, "reader.txt");
-                if (parsed.Narrators.Any())
-                {
-                    var expectedNarrators = string.Join(", ", parsed.Narrators.Select(n => n.Name));
-                    if (!File.Exists(readerPath))
-                    {
-                        await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingReaderTxt,
-                            "reader.txt missing but m4b has Narrators tag",
-                            expectedNarrators, null);
-                        issuesFound++;
-                    }
-                    else
-                    {
-                        var readerContent = await File.ReadAllTextAsync(readerPath);
-                        if (!string.Equals(readerContent, expectedNarrators, StringComparison.Ordinal))
-                        {
-                            await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
-                                "reader.txt content does not match Narrators tag",
-                                expectedNarrators, readerContent);
-                            issuesFound++;
-                        }
-                    }
-                }
-
-                // Check cover file
-                if (parsed.Cover is not null)
-                {
-                    var coverExists = File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.jpg"))
-                        || File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.png"));
-                    if (!coverExists)
-                    {
-                        await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
-                            "Cover file missing but m4b has embedded cover",
-                            "cover.jpg or cover.png", null);
-                        issuesFound++;
-                    }
-                }
-
-                await progressAction($"Checked: {bookLabel}", booksChecked, totalBooks, issuesFound);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
-                await progressAction($"Error checking: {bookLabel}", booksChecked, totalBooks, issuesFound);
-            }
+            var message = issues.Any(i => i.IssueType == ConsistencyIssueType.MissingMediaFile)
+                ? $"Missing: {bookLabel}"
+                : $"Checked: {bookLabel}";
+            await progressAction(message, booksChecked, totalBooks, issuesFound);
         }
 
         issuesFound = await CheckForOrphanDirectories(progressAction, totalBooks, issuesFound);
@@ -463,7 +361,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private static string FormatPersons(IEnumerable<AudiobookManager.Domain.Person> persons) =>
         string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
 
-    private async Task InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
+    private async Task<ConsistencyIssue> InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
     {
         var issue = new ConsistencyIssue
         {
@@ -475,5 +373,122 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             DetectedAt = DateTime.UtcNow
         };
         await _issueRepository.InsertAsync(issue);
+        return issue;
+    }
+
+    public async Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId)
+    {
+        var audiobook = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
+        if (audiobook == null)
+            throw new KeyNotFoundException($"Audiobook {audiobookId} not found");
+
+        return await DetectIssuesForAudiobookAsync(audiobook);
+    }
+
+    private async Task<List<ConsistencyIssue>> DetectIssuesForAudiobookAsync(Audiobook audiobook)
+    {
+        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+
+        var issues = new List<ConsistencyIssue>();
+
+        if (!File.Exists(audiobook.FileInfoFullPath))
+        {
+            issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
+                $"Media file not found: {audiobook.FileInfoFileName}",
+                audiobook.FileInfoFullPath, null));
+            return issues;
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
+            var parsed = _tagHandler.ParseAudiobook(fileInfo);
+
+            // Check file path
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
+            var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
+            if (!string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
+            {
+                issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
+                    "File path does not match expected path from tags",
+                    expectedFullPath, audiobook.FileInfoFullPath));
+            }
+
+            // Check tag values against library metadata
+            var tagMismatches = FindTagMismatches(audiobook, parsed);
+            if (tagMismatches.Count > 0)
+            {
+                var description = $"m4b tags do not match library metadata: {string.Join(", ", tagMismatches.Select(m => m.Field))}";
+                var expectedValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Expected}"));
+                var actualValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Actual}"));
+                issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue));
+            }
+
+            var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
+
+            // Check desc.txt
+            var descPath = AudiobookFileHandler.JoinPaths(directoryPath, "desc.txt");
+            if (!string.IsNullOrEmpty(parsed.Description))
+            {
+                if (!File.Exists(descPath))
+                {
+                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingDescTxt,
+                        "desc.txt missing but m4b has Description tag",
+                        parsed.Description, null));
+                }
+                else
+                {
+                    var descContent = await File.ReadAllTextAsync(descPath);
+                    if (!string.Equals(descContent, parsed.Description, StringComparison.Ordinal))
+                    {
+                        issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
+                            "desc.txt content does not match Description tag",
+                            parsed.Description, descContent));
+                    }
+                }
+            }
+
+            // Check reader.txt
+            var readerPath = AudiobookFileHandler.JoinPaths(directoryPath, "reader.txt");
+            if (parsed.Narrators.Any())
+            {
+                var expectedNarrators = string.Join(", ", parsed.Narrators.Select(n => n.Name));
+                if (!File.Exists(readerPath))
+                {
+                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingReaderTxt,
+                        "reader.txt missing but m4b has Narrators tag",
+                        expectedNarrators, null));
+                }
+                else
+                {
+                    var readerContent = await File.ReadAllTextAsync(readerPath);
+                    if (!string.Equals(readerContent, expectedNarrators, StringComparison.Ordinal))
+                    {
+                        issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
+                            "reader.txt content does not match Narrators tag",
+                            expectedNarrators, readerContent));
+                    }
+                }
+            }
+
+            // Check cover file
+            if (parsed.Cover is not null)
+            {
+                var coverExists = File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.jpg"))
+                    || File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.png"));
+                if (!coverExists)
+                {
+                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
+                        "Cover file missing but m4b has embedded cover",
+                        "cover.jpg or cover.png", null));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
+        }
+
+        return issues;
     }
 }

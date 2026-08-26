@@ -289,8 +289,8 @@ const saveBook = async () => {
     snackbarText.value = "Book saved successfully";
     snackbar.value = true;
     bookEditForm.value?.noteSavedNames();
-    // Reload detail to reflect changes
-    await loadBook();
+    // Reload detail and issues to reflect changes
+    await Promise.all([loadBook(), loadIssues()]);
   } catch (e: any) {
     snackbarText.value = `Failed to save: ${e?.response?.data ?? e.message}`;
     snackbar.value = true;
