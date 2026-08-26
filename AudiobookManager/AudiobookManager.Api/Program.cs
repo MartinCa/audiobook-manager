@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Workers;
 using AudiobookManager.Database;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
@@ -98,6 +99,11 @@ internal class Program
         using (var scope = builder.Services.BuildServiceProvider().CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
+
+            // Resolving the limiter validates the configured Hardcover burst/per-minute
+            // numbers against the API's documented ceiling - fail fast at startup rather
+            // than silently exceeding the limits at runtime.
+            scope.ServiceProvider.GetRequiredService<HardcoverRateLimiter>();
         }
 
         app.Run();

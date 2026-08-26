@@ -77,4 +77,30 @@ public class Client : IOrganize
         Console.WriteLine($"Discovered import complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
         return Task.CompletedTask;
     }
+
+    public Task SeriesMatchProgress(SeriesMatchProgress progress)
+    {
+        Console.WriteLine($"Series match: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task SeriesMatchComplete(SeriesMatchComplete result)
+    {
+        var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
+        Console.WriteLine($"Series match complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
+        return Task.CompletedTask;
+    }
+
+    public Task SeriesRefreshProgress(SeriesRefreshProgress progress)
+    {
+        Console.WriteLine($"Series refresh: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task SeriesRefreshComplete(SeriesRefreshComplete result)
+    {
+        var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
+        Console.WriteLine($"Series refresh complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
+        return Task.CompletedTask;
+    }
 }

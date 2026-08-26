@@ -3,6 +3,7 @@ using System;
 using AudiobookManager.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260826161020_AddSeriesCatalog")]
+    partial class AddSeriesCatalog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -265,24 +268,6 @@ namespace AudiobookManager.Database.Migrations
                         .HasName("pk_genres");
 
                     b.ToTable("genres", (string)null);
-                });
-
-            modelBuilder.Entity("AudiobookManager.Database.Models.HardcoverRequestQuota", b =>
-                {
-                    b.Property<DateOnly>("UtcDate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("utc_date");
-
-                    b.Property<int>("RequestCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(0)
-                        .HasColumnName("request_count");
-
-                    b.HasKey("UtcDate")
-                        .HasName("pk_hardcover_request_quota");
-
-                    b.ToTable("hardcover_request_quota", (string)null);
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.OrphanDirectory", b =>

@@ -12,4 +12,8 @@ public interface IOrganize
     Task SimilarValueAlignComplete(SimilarValueAlignComplete result);
     Task DiscoveredImportProgress(DiscoveredImportProgress progress);
     Task DiscoveredImportComplete(DiscoveredImportComplete result);
+    Task SeriesMatchProgress(SeriesMatchProgress progress);
+    Task SeriesMatchComplete(SeriesMatchComplete result);
+    Task SeriesRefreshProgress(SeriesRefreshProgress progress);
+    Task SeriesRefreshComplete(SeriesRefreshComplete result);
 }

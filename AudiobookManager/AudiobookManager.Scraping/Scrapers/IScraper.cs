@@ -16,4 +16,21 @@ public interface IScraper
     Task<IList<BookSearchResult>> Search(string searchTerm);
 
     Task<BookSearchResult> GetBookDetails(string bookUrl);
+
+    /// <summary>
+    /// Whether this source can look up a whole series roster (used by the series catalog
+    /// to detect missing books). Optional capability - sources that only do per-book
+    /// lookups leave the defaults below in place.
+    /// </summary>
+    bool SupportsSeriesLookup => false;
+
+    Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm) =>
+        Task.FromResult<IList<SeriesSearchResult>>(new List<SeriesSearchResult>());
+
+    /// <summary>
+    /// Fetches a series and its full book roster by the source id returned from
+    /// <see cref="SearchSeries"/> (a source URL is also accepted).
+    /// </summary>
+    Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl) =>
+        Task.FromResult<SeriesSearchResult?>(null);
 }

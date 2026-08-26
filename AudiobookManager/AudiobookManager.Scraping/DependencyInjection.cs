@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Scraping.Scrapers;
+﻿using AudiobookManager.Scraping.RateLimiting;
+using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,12 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
         });
+        // The token bucket is shared process-wide; the handlers themselves are pooled by
+        // IHttpClientFactory and must not hold rate-limiter state of their own.
+        services.AddSingleton<HardcoverRateLimiter>();
+        services.AddTransient<HardcoverRetryHandler>();
+        services.AddTransient<HardcoverRateLimitingHandler>();
+
         services.AddHttpClient("hardcover")
             .ConfigureHttpClient((sp, client) =>
             {
@@ -24,7 +31,12 @@ public static class DependencyInjection
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.HardcoverApiKey);
                 }
                 client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            });
+            })
+            // Order matters: the retry handler is the outer handler, the rate limiter the
+            // inner one, so every retry attempt re-acquires a rate-limit token and is
+            // counted against the daily budget instead of bypassing both.
+            .AddHttpMessageHandler<HardcoverRetryHandler>()
+            .AddHttpMessageHandler<HardcoverRateLimitingHandler>();
         services.AddScoped<IBookSeriesMapper, BookSeriesMapper>();
 
         var scraperInterface = typeof(IScraper);

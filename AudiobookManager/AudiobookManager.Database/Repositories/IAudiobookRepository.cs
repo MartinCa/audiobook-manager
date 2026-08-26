@@ -10,6 +10,7 @@ public interface IAudiobookRepository
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
+    Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync();
     Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync();
     Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
     Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);
