@@ -322,6 +322,28 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return (resolved, failed);
     }
 
+    public async Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds)
+    {
+        var resolved = 0;
+        var failed = 0;
+
+        foreach (var issueId in issueIds)
+        {
+            try
+            {
+                await ResolveIssue(issueId);
+                resolved++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during selected bulk resolve", issueId);
+                failed++;
+            }
+        }
+
+        return (resolved, failed);
+    }
+
     private static List<(string Field, string Expected, string Actual)> FindTagMismatches(Audiobook audiobook, AudiobookManager.Domain.Audiobook parsed)
     {
         var mismatches = new List<(string Field, string Expected, string Actual)>();

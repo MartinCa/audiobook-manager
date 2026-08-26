@@ -8,6 +8,7 @@ public interface ILibraryConsistencyService
     Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId);
     Task ResolveIssue(long issueId);
     Task<(int resolved, int failed)> ResolveIssuesByType(string issueType);
+    Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds);
     Task ResolveOrphanDirectory(long orphanDirectoryId);
     Task<(int resolved, int failed)> ResolveAllOrphanDirectories();
 }

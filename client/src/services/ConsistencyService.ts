@@ -21,6 +21,12 @@ class ConsistencyService extends BaseHttpService {
     return this.postData(`/consistency/issues/resolve-by-type/${issueType}`);
   }
 
+  resolveSelectedIssues(
+    issueIds: number[],
+  ): Promise<{ resolved: number; failed: number }> {
+    return this.postData("/consistency/issues/resolve-selected", issueIds);
+  }
+
   getIssueSummary(): Promise<Record<number, number>> {
     return this.getData("/consistency/issues/summary");
   }

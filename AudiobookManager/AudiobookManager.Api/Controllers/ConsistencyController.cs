@@ -117,6 +117,26 @@ public class ConsistencyController : ControllerBase
         }
     }
 
+    [HttpPost("issues/resolve-selected")]
+    public async Task<IActionResult> ResolveSelectedIssues([FromBody] List<long> issueIds)
+    {
+        if (issueIds == null || issueIds.Count == 0)
+            return BadRequest("No issue ids provided");
+
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            var (resolved, failed) = await consistencyService.ResolveIssues(issueIds);
+            return Ok(new { resolved, failed });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error bulk resolving selected consistency issues");
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("issues/{id}/resolve")]
     public async Task<IActionResult> ResolveIssue(long id)
     {
