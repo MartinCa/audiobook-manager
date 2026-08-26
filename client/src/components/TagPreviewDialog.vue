@@ -93,17 +93,17 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
-import { BookSearchResult } from "../types/BookSearchResult";
+import { MetadataSearchResult } from "../types/MetadataSearchResult";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
 
 const props = defineProps<{
   dialogWidth: string;
   currentInput: OrganizeAudiobookInput;
-  searchResult: BookSearchResult;
+  searchResult: MetadataSearchResult;
 }>();
 
 const emit = defineEmits<{
-  (e: "apply", result: BookSearchResult, selectedFields: Set<string>): void;
+  (e: "apply", result: MetadataSearchResult, selectedFields: Set<string>): void;
   (e: "cancel"): void;
 }>();
 

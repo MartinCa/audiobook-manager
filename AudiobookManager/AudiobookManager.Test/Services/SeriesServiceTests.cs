@@ -486,10 +486,10 @@ public class SeriesServiceTests
 
         public bool SupportsUrl(string url) => false;
 
-        public Task<IList<BookSearchResult>> Search(string searchTerm) =>
-            Task.FromResult<IList<BookSearchResult>>(new List<BookSearchResult>());
+        public Task<IList<MetadataSearchResult>> Search(string searchTerm) =>
+            Task.FromResult<IList<MetadataSearchResult>>(new List<MetadataSearchResult>());
 
-        public Task<BookSearchResult> GetBookDetails(string bookUrl) => throw new NotImplementedException();
+        public Task<MetadataSearchResult> GetBookDetails(string bookUrl) => throw new NotImplementedException();
 
         public Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm) => Task.FromResult(_searchResults);
 

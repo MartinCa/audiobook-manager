@@ -61,6 +61,21 @@ public class AudiobookRepository : IAudiobookRepository
         return (items, total);
     }
 
+    public async Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit)
+    {
+        var pattern = $"%{query}%";
+
+        var rows = await _db.Audiobooks
+            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.Series, pattern))
+            .GroupBy(a => a.Series!)
+            .Select(g => new { Series = g.Key, BookCount = g.Count() })
+            .OrderBy(g => g.Series)
+            .Take(limit)
+            .ToListAsync();
+
+        return rows.Select(r => (r.Series, r.BookCount)).ToList();
+    }
+
     public async Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId)
     {
         var query = _db.Audiobooks

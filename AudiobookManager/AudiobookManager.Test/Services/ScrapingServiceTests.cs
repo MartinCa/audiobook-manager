@@ -39,7 +39,7 @@ public class ScrapingServiceTests
     public async Task SearchMultiple_OneSourceFailsAndOneSucceeds_ReturnsPartialResultsWithStatuses()
     {
         _goodreadsScraper.Setup(s => s.Search("some book"))
-            .ReturnsAsync(new List<BookSearchResult>
+            .ReturnsAsync(new List<MetadataSearchResult>
             {
                 new("https://goodreads.com/book/1", "Some Book"),
             });
@@ -67,8 +67,8 @@ public class ScrapingServiceTests
     [TestMethod]
     public async Task SearchMultiple_SourceReturnsNoResults_ReportsSuccessWithZeroCount()
     {
-        _goodreadsScraper.Setup(s => s.Search("nothing")).ReturnsAsync(new List<BookSearchResult>());
-        _audibleScraper.Setup(s => s.Search("nothing")).ReturnsAsync(new List<BookSearchResult>());
+        _goodreadsScraper.Setup(s => s.Search("nothing")).ReturnsAsync(new List<MetadataSearchResult>());
+        _audibleScraper.Setup(s => s.Search("nothing")).ReturnsAsync(new List<MetadataSearchResult>());
 
         var result = await _service.SearchMultiple(new[] { "Audible", "Goodreads" }, "nothing");
 

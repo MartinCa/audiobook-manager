@@ -49,9 +49,9 @@
 </template>
 
 <script setup lang="ts">
-import { BookSeriesSearchResult } from "../types/BookSearchResult";
+import { MetadataSeriesSearchResult } from "../types/MetadataSearchResult";
 
-defineProps<{ series: BookSeriesSearchResult[] }>();
+defineProps<{ series: MetadataSeriesSearchResult[] }>();
 defineEmits<{
   (e: "seriesChosen", idx: number): void;
 }>();

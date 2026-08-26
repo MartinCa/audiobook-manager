@@ -51,7 +51,7 @@ public partial class AudibleScraper : IScraper
 
     public string SourceName => _sourceName;
 
-    public async Task<IList<BookSearchResult>> Search(string searchTerm)
+    public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
         var queryParameters = new Dictionary<string, string>(_audibleCommonQueryParameters)
         {
@@ -84,7 +84,7 @@ public partial class AudibleScraper : IScraper
             .Where(result => result is not null).ToList();
     }
 
-    public async Task<BookSearchResult> GetBookDetails(string bookUrl)
+    public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
         var uri = QueryHelpers.AddQueryString(bookUrl, _audibleCommonQueryParameters);
         var httpClient = _httpClientFactory.CreateClient();
@@ -100,7 +100,7 @@ public partial class AudibleScraper : IScraper
         return await ParseAudibleDetails(html, bookUrl);
     }
 
-    private async Task<BookSearchResult?> ParseAudibleSearchResult(IElement resultElem)
+    private async Task<MetadataSearchResult?> ParseAudibleSearchResult(IElement resultElem)
     {
         var titleTag = resultElem.QuerySelector("h3 a");
 
@@ -155,7 +155,7 @@ public partial class AudibleScraper : IScraper
 
         var ratingResult = ParseRating(resultElem);
 
-        return new BookSearchResult(link, titleTag.Text().Trim())
+        return new MetadataSearchResult(link, titleTag.Text().Trim())
         {
             Authors = authors,
             Narrators = narrators ?? new List<Person>(),
@@ -175,7 +175,7 @@ public partial class AudibleScraper : IScraper
         };
     }
 
-    public async Task<BookSearchResult> ParseAudibleDetails(string html, string bookUrl)
+    public async Task<MetadataSearchResult> ParseAudibleDetails(string html, string bookUrl)
     {
         HtmlParser parser = new();
         var doc = parser.ParseDocument(html);
@@ -252,7 +252,7 @@ public partial class AudibleScraper : IScraper
 
         var asin = ParseAsinFromUrl(bookUrl);
 
-        return new BookSearchResult(bookUrl, title)
+        return new MetadataSearchResult(bookUrl, title)
         {
             Authors = authors,
             Narrators = narrators,
@@ -473,9 +473,9 @@ public partial class AudibleScraper : IScraper
         return match.Groups[1].Value;
     }
 
-    private async Task<IList<BookSeriesSearchResult>> ParseBookSeries(IElement? elem)
+    private async Task<IList<MetadataSeriesSearchResult>> ParseBookSeries(IElement? elem)
     {
-        var result = new List<BookSeriesSearchResult>();
+        var result = new List<MetadataSeriesSearchResult>();
         var seriesTag = elem?.QuerySelector("li.bc-list-item.seriesLabel");
         if (seriesTag is not null)
         {
@@ -498,7 +498,7 @@ public partial class AudibleScraper : IScraper
                         seriesPart = match.Groups[1].Value.Trim();
                     }
                 }
-                result.Add(new BookSeriesSearchResult(aTag.Text().Trim()) { SeriesPart = seriesPart });
+                result.Add(new MetadataSeriesSearchResult(aTag.Text().Trim()) { SeriesPart = seriesPart });
             }
         }
 

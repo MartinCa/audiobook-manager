@@ -1,12 +1,12 @@
 namespace AudiobookManager.Scraping.Models;
 
-public class SearchServiceInfo
+public class MetadataSearchServiceInfo
 {
     public string Name { get; set; }
     public bool Enabled { get; set; }
     public string? DisabledReason { get; set; }
 
-    public SearchServiceInfo(string name, bool enabled, string? disabledReason = null)
+    public MetadataSearchServiceInfo(string name, bool enabled, string? disabledReason = null)
     {
         Name = name;
         Enabled = enabled;

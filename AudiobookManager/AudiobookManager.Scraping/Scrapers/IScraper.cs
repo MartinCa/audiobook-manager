@@ -13,9 +13,9 @@ public interface IScraper
 
     bool SupportsUrl(string url);
 
-    Task<IList<BookSearchResult>> Search(string searchTerm);
+    Task<IList<MetadataSearchResult>> Search(string searchTerm);
 
-    Task<BookSearchResult> GetBookDetails(string bookUrl);
+    Task<MetadataSearchResult> GetBookDetails(string bookUrl);
 
     /// <summary>
     /// Whether this source can look up a whole series roster (used by the series catalog

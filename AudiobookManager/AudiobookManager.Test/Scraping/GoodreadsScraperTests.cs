@@ -13,7 +13,7 @@ public class GoodreadsScraperTests
     {
         var httpClientFactory = new Mock<IHttpClientFactory>();
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
-        bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<BookSeriesSearchResult>>())).Returns<IList<BookSeriesSearchResult>>(x => Task.FromResult(x));
+        bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>())).Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
         var logger = new Mock<ILogger<GoodreadsScraper>>();
 
         return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object);

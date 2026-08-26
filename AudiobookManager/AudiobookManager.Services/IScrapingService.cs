@@ -3,9 +3,9 @@
 namespace AudiobookManager.Services;
 public interface IScrapingService
 {
-    public Task<IList<BookSearchResult>> Search(string sourceName, string searchTerm);
-    public Task<MultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm);
-    public Task<BookSearchResult> GetBookDetails(string bookUrl);
+    public Task<IList<MetadataSearchResult>> Search(string sourceName, string searchTerm);
+    public Task<MetadataMultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm);
+    public Task<MetadataSearchResult> GetBookDetails(string bookUrl);
     public IList<string> GetListOfScrapingServices();
-    public IList<SearchServiceInfo> GetSearchServiceInfo();
+    public IList<MetadataSearchServiceInfo> GetSearchServiceInfo();
 }
