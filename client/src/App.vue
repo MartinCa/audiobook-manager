@@ -131,6 +131,11 @@ const links: MenuLink[] = [
         text: "Discovered",
       },
       {
+        to: "/library/series",
+        icon: "mdi-bookshelf",
+        text: "Series",
+      },
+      {
         to: "/library/consistency",
         icon: "mdi-check-decagram",
         text: "Consistency",

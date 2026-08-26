@@ -111,6 +111,319 @@ public class HardcoverScraper : IScraper
         return await ParseBookDetails(bookElement, bookUrl);
     }
 
+    public bool SupportsSeriesLookup => true;
+
+    // Series queries come in a "rich" and a "minimal" flavour. Hardcover's Hasura schema is
+    // community-documented and its optional columns (books_count, author, slug) have moved
+    // around; a GraphQL query naming an unknown field fails wholesale, so if the rich query
+    // errors we retry with the minimal field set that mirrors what the per-book
+    // book_series/series usage above already proves exists.
+    private const string _seriesSearchQueryRich = """
+        query SearchSeries($term: String!) {
+          series(where: {name: {_ilike: $term}}, limit: 10) {
+            id
+            name
+            slug
+            books_count
+            author {
+              name
+            }
+          }
+        }
+        """;
+
+    private const string _seriesSearchQueryMinimal = """
+        query SearchSeries($term: String!) {
+          series(where: {name: {_ilike: $term}}, limit: 10) {
+            id
+            name
+          }
+        }
+        """;
+
+    private const string _seriesBooksQueryRich = """
+        query GetSeriesBooks($id: Int!) {
+          series_by_pk(id: $id) {
+            id
+            name
+            slug
+            book_series(order_by: {position: asc}) {
+              position
+              book {
+                id
+                title
+                slug
+                release_date
+              }
+            }
+          }
+        }
+        """;
+
+    private const string _seriesBooksQueryMinimal = """
+        query GetSeriesBooks($id: Int!) {
+          series_by_pk(id: $id) {
+            id
+            name
+            book_series {
+              position
+              book {
+                id
+                title
+              }
+            }
+          }
+        }
+        """;
+
+    public async Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return new List<SeriesSearchResult>();
+        }
+
+        var variables = new { term = $"%{searchTerm.Trim()}%" };
+
+        JsonElement responseElement;
+        try
+        {
+            responseElement = await ExecuteGraphqlQuery(_seriesSearchQueryRich, variables);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hardcover series search failed with the full field set, retrying with the minimal query");
+            responseElement = await ExecuteGraphqlQuery(_seriesSearchQueryMinimal, variables);
+        }
+
+        var seriesArray = responseElement.GetNestedProperty("data", "series");
+        if (seriesArray.ValueKind != JsonValueKind.Array)
+        {
+            return new List<SeriesSearchResult>();
+        }
+
+        var results = new List<SeriesSearchResult>();
+        foreach (var seriesElement in seriesArray.EnumerateArray())
+        {
+            try
+            {
+                var parsed = ParseSeriesElement(seriesElement);
+                if (parsed is not null)
+                {
+                    results.Add(parsed);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse Hardcover series search result");
+            }
+        }
+
+        return results;
+    }
+
+    public async Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl)
+    {
+        var seriesId = ParseSeriesIdentifier(seriesIdOrUrl);
+        if (seriesId is null)
+        {
+            _logger.LogWarning("Could not extract a Hardcover series id from {SeriesIdOrUrl}", seriesIdOrUrl);
+            return null;
+        }
+
+        var variables = new { id = seriesId.Value };
+
+        JsonElement responseElement;
+        try
+        {
+            responseElement = await ExecuteGraphqlQuery(_seriesBooksQueryRich, variables);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hardcover series roster query failed with the full field set, retrying with the minimal query");
+            responseElement = await ExecuteGraphqlQuery(_seriesBooksQueryMinimal, variables);
+        }
+
+        var seriesElement = responseElement.GetNestedProperty("data", "series_by_pk");
+        if (seriesElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        var result = ParseSeriesElement(seriesElement);
+        if (result is null)
+        {
+            return null;
+        }
+
+        if (seriesElement.TryGetProperty("book_series", out var bookSeriesElement) &&
+            bookSeriesElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in bookSeriesElement.EnumerateArray())
+            {
+                try
+                {
+                    var book = ParseSeriesRosterEntry(entry);
+                    if (book is not null)
+                    {
+                        result.Books.Add(book);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse Hardcover series roster entry for series {SeriesId}", seriesId);
+                }
+            }
+        }
+
+        result.BookCount ??= result.Books.Count;
+        return result;
+    }
+
+    private static SeriesSearchResult? ParseSeriesElement(JsonElement seriesElement)
+    {
+        if (seriesElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var id = GetScalarOrNull(seriesElement, "id");
+        var name = seriesElement.GetPropertyValueOrNull("name");
+
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name))
+        {
+            return null;
+        }
+
+        var slug = seriesElement.GetPropertyValueOrNull("slug");
+
+        var result = new SeriesSearchResult(id, name)
+        {
+            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+        };
+
+        if (seriesElement.TryGetProperty("books_count", out var booksCountElement) &&
+            booksCountElement.ValueKind == JsonValueKind.Number)
+        {
+            result.BookCount = booksCountElement.GetInt32();
+        }
+
+        if (seriesElement.TryGetProperty("author", out var authorElement) &&
+            authorElement.ValueKind == JsonValueKind.Object)
+        {
+            var authorName = authorElement.GetPropertyValueOrNull("name");
+            if (!string.IsNullOrEmpty(authorName))
+            {
+                result.Authors.Add(authorName);
+            }
+        }
+
+        return result;
+    }
+
+    private static SeriesExpectedBookResult? ParseSeriesRosterEntry(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("book", out var bookElement) ||
+            bookElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var title = bookElement.GetPropertyValueOrNull("title");
+        if (string.IsNullOrEmpty(title))
+        {
+            return null;
+        }
+
+        var bookId = GetScalarOrNull(bookElement, "id");
+        var slug = bookElement.GetPropertyValueOrNull("slug");
+
+        int? year = null;
+        var releaseDate = bookElement.GetPropertyValueOrNull("release_date");
+        if (releaseDate is not null &&
+            DateTime.TryParse(releaseDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            year = parsedDate.Year;
+        }
+
+        string? position = null;
+        if (entry.TryGetProperty("position", out var positionElement))
+        {
+            if (positionElement.ValueKind == JsonValueKind.Number)
+            {
+                var posValue = positionElement.GetSingle();
+                position = posValue == Math.Floor(posValue)
+                    ? ((int)posValue).ToString(CultureInfo.InvariantCulture)
+                    : posValue.ToString(CultureInfo.InvariantCulture);
+            }
+            else if (positionElement.ValueKind == JsonValueKind.String)
+            {
+                position = positionElement.GetString();
+            }
+        }
+
+        var identifier = slug ?? bookId;
+
+        return new SeriesExpectedBookResult(title)
+        {
+            Position = position,
+            Year = year,
+            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+        };
+    }
+
+    /// <summary>
+    /// Reads a scalar property that the API may return either as a JSON string or a JSON
+    /// number. The shared GetPropertyValueOrNull helper calls GetString(), which throws on
+    /// numbers - and Hasura returns series/book ids as numbers.
+    /// </summary>
+    private static string? GetScalarOrNull(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString(),
+            JsonValueKind.Number => property.GetRawText(),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Accepts a bare numeric series id, or a Hardcover series URL whose path ends in one.
+    /// Slug-only URLs cannot be resolved by series_by_pk, so they return null.
+    /// </summary>
+    private static int? ParseSeriesIdentifier(string seriesIdOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(seriesIdOrUrl))
+        {
+            return null;
+        }
+
+        if (int.TryParse(seriesIdOrUrl, out var directId))
+        {
+            return directId;
+        }
+
+        if (!Uri.TryCreate(seriesIdOrUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var lastSegment = segments.LastOrDefault();
+
+        if (lastSegment is not null && int.TryParse(lastSegment, out var pathId))
+        {
+            return pathId;
+        }
+
+        return null;
+    }
+
     private async Task<JsonElement> GetBookById(int bookId)
     {
         var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$id: Int!")

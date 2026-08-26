@@ -1,0 +1,439 @@
+using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
+using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
+using AudiobookManager.Scraping.Scrapers;
+using AudiobookManager.Services.Similarity;
+using Microsoft.Extensions.Logging;
+
+namespace AudiobookManager.Services;
+
+public class SeriesService : ISeriesService
+{
+    /// <summary>
+    /// Minimum normalized title similarity for an owned book to be considered the same book
+    /// as a roster entry when positions don't settle it.
+    /// </summary>
+    private const double TitleMatchThreshold = 0.85;
+
+    private readonly IAudiobookRepository _audiobookRepository;
+    private readonly ISeriesRepository _seriesRepository;
+    private readonly IEnumerable<IScraper> _scrapers;
+    private readonly ILogger<SeriesService> _logger;
+
+    public SeriesService(
+        IAudiobookRepository audiobookRepository,
+        ISeriesRepository seriesRepository,
+        IEnumerable<IScraper> scrapers,
+        ILogger<SeriesService> logger)
+    {
+        _audiobookRepository = audiobookRepository;
+        _seriesRepository = seriesRepository;
+        _scrapers = scrapers;
+        _logger = logger;
+    }
+
+    private IEnumerable<IScraper> SeriesCapableScrapers =>
+        _scrapers.Where(s => s.SupportsSeriesLookup && (!s.RequiresApiKey || s.IsApiKeyConfigured));
+
+    public async Task<List<SeriesOverview>> GetAllSeriesOverviewAsync()
+    {
+        var books = await _audiobookRepository.GetAllWithIncludesAsync();
+        var catalog = await _seriesRepository.GetAllWithExpectedBooksAsync();
+        var catalogByName = catalog.ToDictionary(s => s.Name, StringComparer.Ordinal);
+
+        var overviews = books
+            .Where(b => !string.IsNullOrWhiteSpace(b.Series))
+            .GroupBy(b => b.Series!, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                catalogByName.TryGetValue(group.Key, out var catalogRow);
+                return BuildOverview(group.Key, group.ToList(), catalogRow);
+            })
+            .ToList();
+
+        // Catalog rows whose series value no longer appears on any audiobook are still worth
+        // listing - the user may have renamed or removed the last owned book of the series.
+        var ownedNames = new HashSet<string>(overviews.Select(o => o.Name), StringComparer.Ordinal);
+        foreach (var orphanRow in catalog.Where(s => !ownedNames.Contains(s.Name)))
+        {
+            overviews.Add(BuildOverview(orphanRow.Name, new List<DbAudiobook>(), orphanRow));
+        }
+
+        return overviews.OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public async Task<SeriesDetail?> GetSeriesDetailAsync(string seriesName)
+    {
+        var books = await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null);
+        var catalogRow = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+
+        if (books.Count == 0 && catalogRow is null)
+        {
+            return null;
+        }
+
+        var overview = BuildOverview(seriesName, books, catalogRow);
+
+        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var missing = expected
+            .Where(e => !e.IsIgnored && !IsOwned(e, books))
+            .Select(ToExpectedInfo)
+            .OrderBy(e => PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var ignored = expected
+            .Where(e => e.IsIgnored)
+            .Select(ToExpectedInfo)
+            .OrderBy(e => PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new SeriesDetail
+        {
+            Overview = overview,
+            OwnedBooks = books
+                .Select(b => new SeriesOwnedBook
+                {
+                    Id = b.Id,
+                    BookName = b.BookName,
+                    SeriesPart = b.SeriesPart,
+                    Year = b.Year,
+                    Authors = b.Authors.Select(a => a.Name).ToList(),
+                    Narrators = b.Narrators.Select(n => n.Name).ToList(),
+                    DurationInSeconds = b.DurationInSeconds,
+                })
+                .OrderBy(b => PositionSortKey(b.SeriesPart))
+                .ThenBy(b => b.BookName, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            MissingBooks = missing,
+            IgnoredBooks = ignored,
+        };
+    }
+
+    public async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName)
+    {
+        var knownAuthors = (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null))
+            .SelectMany(b => b.Authors.Select(a => a.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var candidates = new List<SeriesMatchCandidate>();
+
+        foreach (var scraper in SeriesCapableScrapers)
+        {
+            try
+            {
+                var results = await scraper.SearchSeries(seriesName);
+                foreach (var result in results)
+                {
+                    candidates.Add(new SeriesMatchCandidate
+                    {
+                        SourceName = scraper.SourceName,
+                        SourceId = result.SourceId,
+                        SeriesName = result.SeriesName,
+                        SourceUrl = result.SourceUrl,
+                        Authors = result.Authors.ToList(),
+                        BookCount = result.BookCount,
+                        Confidence = ScoreCandidate(seriesName, knownAuthors, result.SeriesName, result.Authors),
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Series search failed for source {Source} and series {SeriesName}", scraper.SourceName, seriesName);
+            }
+        }
+
+        return candidates
+            .OrderByDescending(c => c.Confidence)
+            .ThenBy(c => c.SeriesName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null)
+    {
+        var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
+            ?? throw new ArgumentException($"No series-capable scraper for source {sourceName}");
+
+        var roster = await scraper.GetSeriesBooks(sourceSeriesId)
+            ?? throw new Exception($"Source {sourceName} returned no series for id {sourceSeriesId}");
+
+        var existing = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+
+        var saved = await _seriesRepository.UpsertSeriesAsync(new Series
+        {
+            Name = seriesName,
+            MatchedSourceName = scraper.SourceName,
+            MatchedSourceId = roster.SourceId,
+            MatchedSourceUrl = roster.SourceUrl,
+            MatchedSeriesName = roster.SeriesName,
+            MatchConfidence = confidence,
+            LastRefreshedAt = DateTime.UtcNow,
+        });
+
+        var previousExpected = existing?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+
+        var newExpected = roster.Books.Select(b => new SeriesExpectedBook
+        {
+            Position = b.Position,
+            Title = b.Title,
+            Year = b.Year,
+            SourceUrl = b.SourceUrl,
+            // Re-matching or refreshing replaces the roster wholesale, so carry the user's
+            // ignore decisions across for entries that are recognisably the same book.
+            IsIgnored = previousExpected.Any(p => p.IsIgnored && IsSameExpectedBook(p, b.Position, b.Title)),
+        }).ToList();
+
+        await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
+
+        var detail = await GetSeriesDetailAsync(seriesName);
+        return detail?.Overview ?? BuildOverview(seriesName, new List<DbAudiobook>(), saved);
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> BulkAutoMatchSeriesAsync(
+        double confidenceThreshold,
+        List<string>? seriesNames,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var overviews = await GetAllSeriesOverviewAsync();
+
+        var targets = overviews
+            .Where(o => !o.IsMatched)
+            .Where(o => seriesNames is null || seriesNames.Contains(o.Name, StringComparer.Ordinal))
+            .Select(o => o.Name)
+            .ToList();
+
+        return await RunBulkAsync(targets, progressAction, async name =>
+        {
+            var candidates = await SuggestSeriesMatchesAsync(name);
+            var top = candidates.FirstOrDefault();
+
+            if (top is null || top.Confidence < confidenceThreshold)
+            {
+                _logger.LogInformation(
+                    "Skipping auto-match for series {SeriesName}: best confidence {Confidence} below threshold {Threshold}",
+                    name, top?.Confidence ?? 0, confidenceThreshold);
+                return false;
+            }
+
+            await MatchSeriesAsync(name, top.SourceName, top.SourceId, top.Confidence);
+            return true;
+        });
+    }
+
+    public Task<(int Processed, int Succeeded, int Failed)> RefreshSeriesAsync(
+        string seriesName,
+        Func<int, int, int, int, Task> progressAction) =>
+        RefreshManyAsync(new List<string> { seriesName }, progressAction);
+
+    public async Task<(int Processed, int Succeeded, int Failed)> RefreshAllSeriesAsync(
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var catalog = await _seriesRepository.GetAllWithExpectedBooksAsync();
+        var matchedNames = catalog
+            .Where(s => !string.IsNullOrEmpty(s.MatchedSourceName) && !string.IsNullOrEmpty(s.MatchedSourceId))
+            .Select(s => s.Name)
+            .ToList();
+
+        return await RefreshManyAsync(matchedNames, progressAction);
+    }
+
+    public Task IgnoreExpectedBookAsync(long expectedBookId, bool ignored) =>
+        _seriesRepository.SetExpectedBookIgnoredAsync(expectedBookId, ignored);
+
+    private async Task<(int Processed, int Succeeded, int Failed)> RefreshManyAsync(
+        List<string> seriesNames,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        return await RunBulkAsync(seriesNames, progressAction, async name =>
+        {
+            var row = await _seriesRepository.GetByNameWithExpectedBooksAsync(name);
+            if (row is null || string.IsNullOrEmpty(row.MatchedSourceName) || string.IsNullOrEmpty(row.MatchedSourceId))
+            {
+                _logger.LogInformation("Skipping refresh for unmatched series {SeriesName}", name);
+                return false;
+            }
+
+            await MatchSeriesAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence);
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// Runs a per-series operation with the shared bulk contract: one try/catch per item so a
+    /// single failure never aborts the batch, and a (processed, total, succeeded, failed)
+    /// progress report after every item.
+    /// </summary>
+    private async Task<(int Processed, int Succeeded, int Failed)> RunBulkAsync(
+        List<string> seriesNames,
+        Func<int, int, int, int, Task> progressAction,
+        Func<string, Task<bool>> operation)
+    {
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var total = seriesNames.Count;
+
+        foreach (var name in seriesNames)
+        {
+            processed++;
+            try
+            {
+                if (await operation(name))
+                {
+                    succeeded++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Series catalog operation failed for series {SeriesName}", name);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        return (processed, succeeded, failed);
+    }
+
+    private static SeriesOverview BuildOverview(string seriesName, List<DbAudiobook> ownedBooks, Series? catalogRow)
+    {
+        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var active = expected.Where(e => !e.IsIgnored).ToList();
+
+        return new SeriesOverview
+        {
+            Id = catalogRow?.Id,
+            Name = seriesName,
+            Authors = ownedBooks
+                .SelectMany(b => b.Authors.Select(a => a.Name))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            OwnedBookCount = ownedBooks.Count,
+            IsMatched = catalogRow is not null
+                && !string.IsNullOrEmpty(catalogRow.MatchedSourceName)
+                && !string.IsNullOrEmpty(catalogRow.MatchedSourceId),
+            MatchedSourceName = catalogRow?.MatchedSourceName,
+            MatchedSourceId = catalogRow?.MatchedSourceId,
+            MatchedSourceUrl = catalogRow?.MatchedSourceUrl,
+            MatchConfidence = catalogRow?.MatchConfidence,
+            LastRefreshedAt = catalogRow?.LastRefreshedAt,
+            ExpectedBookCount = active.Count,
+            IgnoredBookCount = expected.Count - active.Count,
+            MissingBookCount = active.Count(e => !IsOwned(e, ownedBooks)),
+        };
+    }
+
+    private static SeriesExpectedBookInfo ToExpectedInfo(SeriesExpectedBook book) => new()
+    {
+        Id = book.Id,
+        Title = book.Title,
+        Position = book.Position,
+        Year = book.Year,
+        SourceUrl = book.SourceUrl,
+        IsIgnored = book.IsIgnored,
+    };
+
+    /// <summary>
+    /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
+    /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
+    /// are compared fuzzily.
+    /// </summary>
+    private static bool IsOwned(SeriesExpectedBook expected, IEnumerable<DbAudiobook> ownedBooks)
+    {
+        return ownedBooks.Any(b => IsSameExpectedBook(expected, b.SeriesPart, b.BookName));
+    }
+
+    private static bool IsSameExpectedBook(SeriesExpectedBook expected, string? position, string title)
+    {
+        if (!string.IsNullOrWhiteSpace(expected.Position) &&
+            !string.IsNullOrWhiteSpace(position) &&
+            PositionsEqual(expected.Position, position))
+        {
+            return true;
+        }
+
+        return TitleSimilarity(expected.Title, title) >= TitleMatchThreshold;
+    }
+
+    private static bool PositionsEqual(string a, string b)
+    {
+        if (double.TryParse(a, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numA) &&
+            double.TryParse(b, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numB))
+        {
+            return Math.Abs(numA - numB) < 0.0001;
+        }
+
+        return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer
+    /// and edit distance scaled by the longer string's length.
+    /// </summary>
+    public static double TitleSimilarity(string? a, string? b)
+    {
+        var normA = NameNormalizer.Normalize(a);
+        var normB = NameNormalizer.Normalize(b);
+
+        if (normA.Length == 0 || normB.Length == 0)
+        {
+            return 0;
+        }
+
+        if (normA == normB)
+        {
+            return 1;
+        }
+
+        var distance = LevenshteinDistance.Compute(normA, normB);
+        var longest = Math.Max(normA.Length, normB.Length);
+
+        return Math.Max(0, 1.0 - (double)distance / longest);
+    }
+
+    /// <summary>
+    /// Scores a source series against the library's series value: mostly name similarity,
+    /// nudged up when the source's author overlaps an author of the owned books.
+    /// </summary>
+    public static double ScoreCandidate(
+        string librarySeriesName,
+        IReadOnlyCollection<string> libraryAuthors,
+        string candidateSeriesName,
+        IEnumerable<string> candidateAuthors)
+    {
+        var nameScore = TitleSimilarity(librarySeriesName, candidateSeriesName);
+
+        var authorList = candidateAuthors?.ToList() ?? new List<string>();
+        if (libraryAuthors.Count == 0 || authorList.Count == 0)
+        {
+            return Math.Round(nameScore, 4);
+        }
+
+        var authorOverlap = authorList.Any(ca => libraryAuthors.Any(la => TitleSimilarity(la, ca) >= 0.85));
+
+        // An author match is corroborating evidence, not evidence on its own: it can only
+        // close part of the gap to 1, and never rescues a name that doesn't resemble the value.
+        var score = authorOverlap ? nameScore + (1 - nameScore) * 0.25 : nameScore * 0.95;
+
+        return Math.Round(Math.Clamp(score, 0, 1), 4);
+    }
+
+    private static (double Numeric, string Text) PositionSortKey(string? position)
+    {
+        if (string.IsNullOrWhiteSpace(position))
+        {
+            return (double.MaxValue, string.Empty);
+        }
+
+        if (double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric))
+        {
+            return (numeric, string.Empty);
+        }
+
+        return (double.MaxValue - 1, position);
+    }
+}

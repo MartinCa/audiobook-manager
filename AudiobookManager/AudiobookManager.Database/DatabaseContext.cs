@@ -40,4 +40,6 @@ public class DatabaseContext : DbContext
     public DbSet<DiscoveredAudiobook> DiscoveredAudiobooks { get; set; }
     public DbSet<ConsistencyIssue> ConsistencyIssues { get; set; }
     public DbSet<OrphanDirectory> OrphanDirectories { get; set; }
+    public DbSet<Series> Series { get; set; }
+    public DbSet<SeriesExpectedBook> SeriesExpectedBooks { get; set; }
 }
