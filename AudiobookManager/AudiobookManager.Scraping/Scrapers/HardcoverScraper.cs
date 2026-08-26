@@ -113,14 +113,14 @@ public class HardcoverScraper : IScraper
 
     public bool SupportsSeriesLookup => true;
 
-    // Series queries come in a "rich" and a "minimal" flavour. Hardcover's Hasura schema is
-    // community-documented and its optional columns (books_count, author, slug) have moved
-    // around; a GraphQL query naming an unknown field fails wholesale, so if the rich query
-    // errors we retry with the minimal field set that mirrors what the per-book
-    // book_series/series usage above already proves exists.
+    // These queries were verified against Hardcover's published GraphQL schema - series,
+    // series_by_pk and book_series all exist with the fields named below - so there is no
+    // fallback query flavour: a failure here is transient (network/HTTP/timeout, already
+    // retried and rate limited by the "hardcover" client's handlers) and is allowed to
+    // propagate like every other scrape failure in this file.
     // Schema reference (docs.hardcover.app is often egress-blocked in sandboxes): the SDL is
     // mirrored unauthenticated at https://raw.githubusercontent.com/hardcoverapp/hardcover-docs/main/schema.graphql
-    private const string _seriesSearchQueryRich = """
+    private const string _seriesSearchQuery = """
         query SearchSeries($term: String!) {
           series(where: {name: {_ilike: $term}}, limit: 10) {
             id
@@ -134,16 +134,8 @@ public class HardcoverScraper : IScraper
         }
         """;
 
-    private const string _seriesSearchQueryMinimal = """
-        query SearchSeries($term: String!) {
-          series(where: {name: {_ilike: $term}}, limit: 10) {
-            id
-            name
-          }
-        }
-        """;
 
-    private const string _seriesBooksQueryRich = """
+    private const string _seriesBooksQuery = """
         query GetSeriesBooks($id: Int!) {
           series_by_pk(id: $id) {
             id
@@ -162,21 +154,6 @@ public class HardcoverScraper : IScraper
         }
         """;
 
-    private const string _seriesBooksQueryMinimal = """
-        query GetSeriesBooks($id: Int!) {
-          series_by_pk(id: $id) {
-            id
-            name
-            book_series {
-              position
-              book {
-                id
-                title
-              }
-            }
-          }
-        }
-        """;
 
     public async Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm)
     {
@@ -187,16 +164,7 @@ public class HardcoverScraper : IScraper
 
         var variables = new { term = $"%{searchTerm.Trim()}%" };
 
-        JsonElement responseElement;
-        try
-        {
-            responseElement = await ExecuteGraphqlQuery(_seriesSearchQueryRich, variables);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Hardcover series search failed with the full field set, retrying with the minimal query");
-            responseElement = await ExecuteGraphqlQuery(_seriesSearchQueryMinimal, variables);
-        }
+        var responseElement = await ExecuteGraphqlQuery(_seriesSearchQuery, variables);
 
         var seriesArray = responseElement.GetNestedProperty("data", "series");
         if (seriesArray.ValueKind != JsonValueKind.Array)
@@ -235,16 +203,7 @@ public class HardcoverScraper : IScraper
 
         var variables = new { id = seriesId.Value };
 
-        JsonElement responseElement;
-        try
-        {
-            responseElement = await ExecuteGraphqlQuery(_seriesBooksQueryRich, variables);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Hardcover series roster query failed with the full field set, retrying with the minimal query");
-            responseElement = await ExecuteGraphqlQuery(_seriesBooksQueryMinimal, variables);
-        }
+        var responseElement = await ExecuteGraphqlQuery(_seriesBooksQuery, variables);
 
         var seriesElement = responseElement.GetNestedProperty("data", "series_by_pk");
         if (seriesElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)

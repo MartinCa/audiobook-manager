@@ -38,13 +38,15 @@ public class SeriesService : ISeriesService
 
     public async Task<List<SeriesOverview>> GetAllSeriesOverviewAsync()
     {
-        var books = await _audiobookRepository.GetAllWithIncludesAsync();
+        // Only the series value, the owned-matching fields and the author names are needed
+        // here - loading every audiobook's narrators and genres would be pure waste.
+        var books = await _audiobookRepository.GetSeriesGroupingDataAsync();
         var catalog = await _seriesRepository.GetAllWithExpectedBooksAsync();
         var catalogByName = catalog.ToDictionary(s => s.Name, StringComparer.Ordinal);
 
         var overviews = books
             .Where(b => !string.IsNullOrWhiteSpace(b.Series))
-            .GroupBy(b => b.Series!, StringComparer.Ordinal)
+            .GroupBy(b => b.Series, StringComparer.Ordinal)
             .Select(group =>
             {
                 catalogByName.TryGetValue(group.Key, out var catalogRow);
@@ -57,7 +59,7 @@ public class SeriesService : ISeriesService
         var ownedNames = new HashSet<string>(overviews.Select(o => o.Name), StringComparer.Ordinal);
         foreach (var orphanRow in catalog.Where(s => !ownedNames.Contains(s.Name)))
         {
-            overviews.Add(BuildOverview(orphanRow.Name, new List<DbAudiobook>(), orphanRow));
+            overviews.Add(BuildOverview(orphanRow.Name, new List<SeriesGroupingBook>(), orphanRow));
         }
 
         return overviews.OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -73,11 +75,12 @@ public class SeriesService : ISeriesService
             return null;
         }
 
-        var overview = BuildOverview(seriesName, books, catalogRow);
+        var overview = BuildOverview(seriesName, ToGroupingBooks(books), catalogRow);
 
         var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var ownedKeys = books.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
         var missing = expected
-            .Where(e => !e.IsIgnored && !IsOwned(e, books))
+            .Where(e => !e.IsIgnored && !IsOwned(e, ownedKeys))
             .Select(ToExpectedInfo)
             .OrderBy(e => PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
@@ -119,6 +122,17 @@ public class SeriesService : ISeriesService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        return await SuggestSeriesMatchesAsync(seriesName, knownAuthors);
+    }
+
+    /// <summary>
+    /// Candidate lookup for callers that already know the series' authors (the bulk
+    /// auto-match has them from the overview it just loaded), so no extra query is needed.
+    /// </summary>
+    private async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(
+        string seriesName,
+        IReadOnlyCollection<string> knownAuthors)
+    {
         var candidates = new List<SeriesMatchCandidate>();
 
         foreach (var scraper in SeriesCapableScrapers)
@@ -154,6 +168,20 @@ public class SeriesService : ISeriesService
 
     public async Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null)
     {
+        var saved = await MatchSeriesCoreAsync(seriesName, sourceName, sourceSeriesId, confidence);
+
+        // Only the single-series endpoint needs the full detail projection; bulk callers use
+        // MatchSeriesCoreAsync directly and would throw the result away.
+        var detail = await GetSeriesDetailAsync(seriesName);
+        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), saved);
+    }
+
+    /// <summary>
+    /// Matches the series to a source and replaces its stored roster, returning the catalog
+    /// row. Does no read-side projection work.
+    /// </summary>
+    private async Task<Series> MatchSeriesCoreAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence)
+    {
         var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
             ?? throw new ArgumentException($"No series-capable scraper for source {sourceName}");
 
@@ -173,23 +201,30 @@ public class SeriesService : ISeriesService
             LastRefreshedAt = DateTime.UtcNow,
         });
 
-        var previousExpected = existing?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        // Normalize the previously-ignored titles once rather than once per roster entry.
+        var previouslyIgnored = (existing?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+            .Where(p => p.IsIgnored)
+            .Select(p => BookKey.From(p.Position, p.Title))
+            .ToList();
 
-        var newExpected = roster.Books.Select(b => new SeriesExpectedBook
+        var newExpected = roster.Books.Select(b =>
         {
-            Position = b.Position,
-            Title = b.Title,
-            Year = b.Year,
-            SourceUrl = b.SourceUrl,
-            // Re-matching or refreshing replaces the roster wholesale, so carry the user's
-            // ignore decisions across for entries that are recognisably the same book.
-            IsIgnored = previousExpected.Any(p => p.IsIgnored && IsSameExpectedBook(p, b.Position, b.Title)),
+            var key = BookKey.From(b.Position, b.Title);
+            return new SeriesExpectedBook
+            {
+                Position = b.Position,
+                Title = b.Title,
+                Year = b.Year,
+                SourceUrl = b.SourceUrl,
+                // Re-matching or refreshing replaces the roster wholesale, so carry the user's
+                // ignore decisions across for entries that are recognisably the same book.
+                IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
+            };
         }).ToList();
 
         await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
 
-        var detail = await GetSeriesDetailAsync(seriesName);
-        return detail?.Overview ?? BuildOverview(seriesName, new List<DbAudiobook>(), saved);
+        return saved;
     }
 
     public async Task<(int Processed, int Succeeded, int Failed)> BulkAutoMatchSeriesAsync(
@@ -199,15 +234,22 @@ public class SeriesService : ISeriesService
     {
         var overviews = await GetAllSeriesOverviewAsync();
 
-        var targets = overviews
+        var unmatched = overviews
             .Where(o => !o.IsMatched)
             .Where(o => seriesNames is null || seriesNames.Contains(o.Name, StringComparer.Ordinal))
-            .Select(o => o.Name)
             .ToList();
+
+        // The overview already carries each series' authors, so the candidate lookup below
+        // must not re-query them per series.
+        var authorsByName = unmatched.ToDictionary(o => o.Name, o => o.Authors, StringComparer.Ordinal);
+        var targets = unmatched.Select(o => o.Name).ToList();
 
         return await RunBulkAsync(targets, progressAction, async name =>
         {
-            var candidates = await SuggestSeriesMatchesAsync(name);
+            var knownAuthors = authorsByName.TryGetValue(name, out var authors)
+                ? authors
+                : new List<string>();
+            var candidates = await SuggestSeriesMatchesAsync(name, knownAuthors);
             var top = candidates.FirstOrDefault();
 
             if (top is null || top.Confidence < confidenceThreshold)
@@ -218,7 +260,7 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesAsync(name, top.SourceName, top.SourceId, top.Confidence);
+            await MatchSeriesCoreAsync(name, top.SourceName, top.SourceId, top.Confidence);
             return true;
         });
     }
@@ -256,7 +298,7 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence);
+            await MatchSeriesCoreAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence);
             return true;
         });
     }
@@ -298,17 +340,27 @@ public class SeriesService : ISeriesService
         return (processed, succeeded, failed);
     }
 
-    private static SeriesOverview BuildOverview(string seriesName, List<DbAudiobook> ownedBooks, Series? catalogRow)
+    private static List<SeriesGroupingBook> ToGroupingBooks(IEnumerable<DbAudiobook> books) =>
+        books
+            .Select(b => new SeriesGroupingBook(
+                b.Series ?? string.Empty,
+                b.SeriesPart,
+                b.BookName,
+                b.Authors.Select(a => a.Name).ToList()))
+            .ToList();
+
+    private static SeriesOverview BuildOverview(string seriesName, List<SeriesGroupingBook> ownedBooks, Series? catalogRow)
     {
         var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
         var active = expected.Where(e => !e.IsIgnored).ToList();
+        var ownedKeys = ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
 
         return new SeriesOverview
         {
             Id = catalogRow?.Id,
             Name = seriesName,
             Authors = ownedBooks
-                .SelectMany(b => b.Authors.Select(a => a.Name))
+                .SelectMany(b => b.Authors)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
@@ -323,7 +375,7 @@ public class SeriesService : ISeriesService
             LastRefreshedAt = catalogRow?.LastRefreshedAt,
             ExpectedBookCount = active.Count,
             IgnoredBookCount = expected.Count - active.Count,
-            MissingBookCount = active.Count(e => !IsOwned(e, ownedBooks)),
+            MissingBookCount = active.Count(e => !IsOwned(e, ownedKeys)),
         };
     }
 
@@ -338,25 +390,36 @@ public class SeriesService : ISeriesService
     };
 
     /// <summary>
+    /// A book reduced to what the owned/expected comparison needs, with its title normalized
+    /// once up front - the matching loop is O(expected x owned), so re-normalizing per
+    /// comparison would repeat the same work for every candidate.
+    /// </summary>
+    private readonly record struct BookKey(string? Position, string NormalizedTitle)
+    {
+        public static BookKey From(string? position, string? title) => new(position, NameNormalizer.Normalize(title));
+    }
+
+    /// <summary>
     /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
     /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
     /// are compared fuzzily.
     /// </summary>
-    private static bool IsOwned(SeriesExpectedBook expected, IEnumerable<DbAudiobook> ownedBooks)
+    private static bool IsOwned(SeriesExpectedBook expected, IReadOnlyCollection<BookKey> ownedKeys)
     {
-        return ownedBooks.Any(b => IsSameExpectedBook(expected, b.SeriesPart, b.BookName));
+        var expectedKey = BookKey.From(expected.Position, expected.Title);
+        return ownedKeys.Any(owned => IsSameBook(expectedKey, owned));
     }
 
-    private static bool IsSameExpectedBook(SeriesExpectedBook expected, string? position, string title)
+    private static bool IsSameBook(BookKey expected, BookKey owned)
     {
         if (!string.IsNullOrWhiteSpace(expected.Position) &&
-            !string.IsNullOrWhiteSpace(position) &&
-            PositionsEqual(expected.Position, position))
+            !string.IsNullOrWhiteSpace(owned.Position) &&
+            PositionsEqual(expected.Position, owned.Position))
         {
             return true;
         }
 
-        return TitleSimilarity(expected.Title, title) >= TitleMatchThreshold;
+        return NormalizedSimilarity(expected.NormalizedTitle, owned.NormalizedTitle, TitleMatchThreshold) >= TitleMatchThreshold;
     }
 
     private static bool PositionsEqual(string a, string b)
@@ -374,11 +437,18 @@ public class SeriesService : ISeriesService
     /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer
     /// and edit distance scaled by the longer string's length.
     /// </summary>
-    public static double TitleSimilarity(string? a, string? b)
-    {
-        var normA = NameNormalizer.Normalize(a);
-        var normB = NameNormalizer.Normalize(b);
+    public static double TitleSimilarity(string? a, string? b) =>
+        NormalizedSimilarity(NameNormalizer.Normalize(a), NameNormalizer.Normalize(b));
 
+    /// <summary>
+    /// Similarity of two already-normalized strings. When the caller only cares whether the
+    /// score reaches <paramref name="threshold"/>, the length difference (a lower bound on
+    /// the edit distance) can rule the pair out before the O(n*m) distance matrix is built.
+    /// The threshold stays here rather than inside LevenshteinDistance, which is
+    /// general-purpose.
+    /// </summary>
+    private static double NormalizedSimilarity(string normA, string normB, double threshold = 0)
+    {
         if (normA.Length == 0 || normB.Length == 0)
         {
             return 0;
@@ -389,8 +459,14 @@ public class SeriesService : ISeriesService
             return 1;
         }
 
-        var distance = LevenshteinDistance.Compute(normA, normB);
         var longest = Math.Max(normA.Length, normB.Length);
+
+        if (threshold > 0 && Math.Abs(normA.Length - normB.Length) / (double)longest > 1 - threshold)
+        {
+            return 0;
+        }
+
+        var distance = LevenshteinDistance.Compute(normA, normB);
 
         return Math.Max(0, 1.0 - (double)distance / longest);
     }

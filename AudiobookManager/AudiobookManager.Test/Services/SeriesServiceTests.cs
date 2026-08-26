@@ -133,11 +133,10 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task GetAllSeriesOverviewAsync_MarksUnmatchedSeriesAndCountsOwnedBooks()
     {
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetSeriesGroupingDataAsync()).ReturnsAsync(new List<SeriesGroupingBook>
         {
-            MakeDbAudiobook(1, "Book A", "Series One", "1", "Author X"),
-            MakeDbAudiobook(2, "Book B", "Series One", "2", "Author X"),
-            MakeDbAudiobook(3, "Standalone"),
+            new("Series One", "1", "Book A", new List<string> { "Author X" }),
+            new("Series One", "2", "Book B", new List<string> { "Author X" }),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
 
@@ -230,10 +229,10 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task BulkAutoMatchSeriesAsync_SkipsCandidatesBelowThresholdAndReportsProgress()
     {
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetSeriesGroupingDataAsync()).ReturnsAsync(new List<SeriesGroupingBook>
         {
-            MakeDbAudiobook(1, "Book A", "Mistborn", "1", "Brandon Sanderson"),
-            MakeDbAudiobook(2, "Book B", "Totally Different Value", "1", "Someone Else"),
+            new("Mistborn", "1", "Book A", new List<string> { "Brandon Sanderson" }),
+            new("Totally Different Value", "1", "Book B", new List<string> { "Someone Else" }),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
         _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
@@ -267,10 +266,10 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task BulkAutoMatchSeriesAsync_ContinuesAfterAFailingSeries()
     {
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetSeriesGroupingDataAsync()).ReturnsAsync(new List<SeriesGroupingBook>
         {
-            MakeDbAudiobook(1, "Book A", "Mistborn", "1"),
-            MakeDbAudiobook(2, "Book B", "Mistborn Two", "1"),
+            new("Mistborn", "1", "Book A", new List<string>()),
+            new("Mistborn Two", "1", "Book B", new List<string>()),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
         _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
