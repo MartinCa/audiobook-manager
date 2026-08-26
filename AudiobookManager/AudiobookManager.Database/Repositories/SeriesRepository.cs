@@ -121,4 +121,22 @@ public class SeriesRepository : ISeriesRepository
         book.IsIgnored = ignored;
         await _db.SaveChangesAsync();
     }
+
+    public async Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
+    {
+        var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == seriesName);
+
+        if (existing is null)
+        {
+            existing = new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions };
+            _db.Series.Add(existing);
+        }
+        else
+        {
+            existing.IncludeOmnibusEditions = includeOmnibusEditions;
+        }
+
+        await _db.SaveChangesAsync();
+        return existing;
+    }
 }

@@ -42,4 +42,12 @@ public class SeriesExpectedBook
     [Required]
     [Column("is_ignored")]
     public bool IsIgnored { get; set; }
+
+    /// <summary>
+    /// Whether the source flags this entry as an omnibus/box-set edition rather than an
+    /// individual book. Stored regardless of the series' display setting, so flipping
+    /// <see cref="Series.IncludeOmnibusEditions"/> doesn't require re-fetching the roster.
+    /// </summary>
+    [Column("is_compilation")]
+    public bool IsCompilation { get; set; }
 }

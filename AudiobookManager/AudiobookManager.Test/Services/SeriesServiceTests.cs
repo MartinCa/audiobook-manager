@@ -383,7 +383,7 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
-    public async Task MatchSeriesAsync_ExcludesOmnibusEditionsByDefault()
+    public async Task MatchSeriesAsync_StoresFullRosterIncludingOmnibusEditionsRegardlessOfSetting()
     {
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
@@ -407,50 +407,62 @@ public class SeriesServiceTests
 
         var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>(), roster);
 
+        // includeOmnibusEditions defaults to false here, but storage keeps every roster entry
+        // regardless - the setting only affects what's shown when reading it back.
         await MakeService(scraper).MatchSeriesAsync("Thursday Murder Club", "Hardcover", "99");
 
         Assert.IsNotNull(stored);
-        Assert.AreEqual(1, stored.Count);
-        Assert.AreEqual("The Thursday Murder Club", stored.Single().Title);
+        Assert.AreEqual(2, stored.Count);
+        Assert.IsFalse(stored.Single(b => b.Title == "The Thursday Murder Club").IsCompilation);
+        Assert.IsTrue(stored.Single(b => b.Title == "The Thursday Murder Club / The Man Who Died Twice").IsCompilation);
 
         _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.Is<Series>(s => !s.IncludeOmnibusEditions)), Times.Once);
     }
 
     [TestMethod]
-    public async Task MatchSeriesAsync_KeepsOmnibusEditionsWhenRequested()
+    public async Task GetSeriesDetailAsync_HidesCompilationsUnlessIncludeOmnibusEditionsIsSet()
     {
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync((Series?)null);
-        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
-            .ReturnsAsync((Series s) => { s.Id = 1; return s; });
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
-
-        List<SeriesExpectedBook>? stored = null;
-        _seriesRepository
-            .Setup(r => r.ReplaceExpectedBooksAsync(1, It.IsAny<List<SeriesExpectedBook>>()))
-            .Callback((long _, List<SeriesExpectedBook> books) => stored = books)
-            .Returns(Task.CompletedTask);
-
-        var roster = new SeriesSearchResult("99", "Thursday Murder Club")
+        var catalogRow = new Series
         {
-            Books = new List<SeriesExpectedBookResult>
+            Id = 1,
+            Name = "Thursday Murder Club",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "99",
+            IncludeOmnibusEditions = false,
+            ExpectedBooks = new List<SeriesExpectedBook>
             {
-                new("The Thursday Murder Club") { Position = "1" },
-                new("The Thursday Murder Club / The Man Who Died Twice") { Position = "1", IsCompilation = true },
-            }
+                MakeExpected(1, "The Thursday Murder Club", "1"),
+                new()
+                {
+                    Id = 2,
+                    Title = "The Thursday Murder Club / The Man Who Died Twice",
+                    Position = "1",
+                    IsCompilation = true,
+                },
+            },
         };
 
-        var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>(), roster);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync(catalogRow);
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
 
-        await MakeService(scraper).MatchSeriesAsync("Thursday Murder Club", "Hardcover", "99", includeOmnibusEditions: true);
+        var detail = await MakeService().GetSeriesDetailAsync("Thursday Murder Club");
 
-        Assert.IsNotNull(stored);
-        Assert.AreEqual(2, stored.Count);
+        Assert.IsNotNull(detail);
+        Assert.AreEqual(1, detail.MissingBooks.Count);
+        Assert.AreEqual("The Thursday Murder Club", detail.MissingBooks.Single().Title);
+        Assert.AreEqual(1, detail.Overview.MissingBookCount);
 
-        _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.Is<Series>(s => s.IncludeOmnibusEditions)), Times.Once);
+        catalogRow.IncludeOmnibusEditions = true;
+
+        var detailWithOmnibus = await MakeService().GetSeriesDetailAsync("Thursday Murder Club");
+
+        Assert.IsNotNull(detailWithOmnibus);
+        Assert.AreEqual(2, detailWithOmnibus.MissingBooks.Count);
+        Assert.AreEqual(2, detailWithOmnibus.Overview.MissingBookCount);
     }
 
     [TestMethod]
-    public async Task SetIncludeOmnibusEditionsAsync_RefreshesRosterWhenAlreadyMatched()
+    public async Task SetIncludeOmnibusEditionsAsync_UpdatesFlagWithoutRefetchingRoster()
     {
         var existing = new Series
         {
@@ -462,32 +474,19 @@ public class SeriesServiceTests
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync(existing);
-        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
-            .ReturnsAsync((Series s) => { s.Id = 1; return s; });
+        _seriesRepository.Setup(r => r.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true))
+            .Callback(() => existing.IncludeOmnibusEditions = true)
+            .ReturnsAsync(existing);
         _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
 
-        List<SeriesExpectedBook>? stored = null;
-        _seriesRepository
-            .Setup(r => r.ReplaceExpectedBooksAsync(1, It.IsAny<List<SeriesExpectedBook>>()))
-            .Callback((long _, List<SeriesExpectedBook> books) => stored = books)
-            .Returns(Task.CompletedTask);
+        // No scraper is registered at all - if the service tried to re-fetch the roster, this
+        // would throw for lacking a series-capable source.
+        var overview = await MakeService().SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
 
-        var roster = new SeriesSearchResult("99", "Thursday Murder Club")
-        {
-            Books = new List<SeriesExpectedBookResult>
-            {
-                new("The Thursday Murder Club") { Position = "1" },
-                new("The Thursday Murder Club / The Man Who Died Twice") { Position = "1", IsCompilation = true },
-            }
-        };
-
-        var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>(), roster);
-
-        await MakeService(scraper).SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
-
-        Assert.IsNotNull(stored);
-        Assert.AreEqual(2, stored.Count);
-        _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.Is<Series>(s => s.IncludeOmnibusEditions)), Times.Once);
+        Assert.IsTrue(overview.IncludeOmnibusEditions);
+        _seriesRepository.Verify(r => r.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true), Times.Once);
+        _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.IsAny<Series>()), Times.Never);
+        _seriesRepository.Verify(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()), Times.Never);
     }
 
     [TestMethod]

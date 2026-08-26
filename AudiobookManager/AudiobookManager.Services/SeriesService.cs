@@ -89,7 +89,10 @@ public class SeriesService : ISeriesService
 
         var overview = BuildOverview(seriesName, ToGroupingBooks(books), catalogRow);
 
-        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
+        var expected = (catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+            .Where(e => includeOmnibusEditions || !e.IsCompilation)
+            .ToList();
         var ownedKeys = books.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
         var missing = expected
             .Where(e => !e.IsIgnored && !IsOwned(e, ownedKeys))
@@ -255,23 +258,12 @@ public class SeriesService : ISeriesService
 
     public async Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
     {
-        var existing = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
-
-        if (existing is not null && !string.IsNullOrEmpty(existing.MatchedSourceName) && !string.IsNullOrEmpty(existing.MatchedSourceId))
-        {
-            await MatchSeriesCoreAsync(seriesName, existing.MatchedSourceName, existing.MatchedSourceId, existing.MatchConfidence, includeOmnibusEditions);
-        }
-        else
-        {
-            await _seriesRepository.UpsertSeriesAsync(new Series
-            {
-                Name = seriesName,
-                IncludeOmnibusEditions = includeOmnibusEditions,
-            });
-        }
+        // The full roster (compilations included) is always stored, so this is a pure display
+        // setting - no re-fetch from the source is needed to apply it.
+        var saved = await _seriesRepository.SetIncludeOmnibusEditionsAsync(seriesName, includeOmnibusEditions);
 
         var detail = await GetSeriesDetailAsync(seriesName);
-        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), existing);
+        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), saved);
     }
 
     /// <summary>
@@ -306,22 +298,24 @@ public class SeriesService : ISeriesService
             .Select(p => BookKey.From(p.Position, p.Title))
             .ToList();
 
-        var newExpected = roster.Books
-            .Where(b => includeOmnibusEditions || !b.IsCompilation)
-            .Select(b =>
+        // The full roster is always stored, compilations included - IncludeOmnibusEditions only
+        // controls what SeriesService treats as visible when reading it back, so toggling it
+        // later doesn't require re-fetching from the source.
+        var newExpected = roster.Books.Select(b =>
+        {
+            var key = BookKey.From(b.Position, b.Title);
+            return new SeriesExpectedBook
             {
-                var key = BookKey.From(b.Position, b.Title);
-                return new SeriesExpectedBook
-                {
-                    Position = b.Position,
-                    Title = b.Title,
-                    Year = b.Year,
-                    SourceUrl = b.SourceUrl,
-                    // Re-matching or refreshing replaces the roster wholesale, so carry the user's
-                    // ignore decisions across for entries that are recognisably the same book.
-                    IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
-                };
-            }).ToList();
+                Position = b.Position,
+                Title = b.Title,
+                Year = b.Year,
+                SourceUrl = b.SourceUrl,
+                IsCompilation = b.IsCompilation,
+                // Re-matching or refreshing replaces the roster wholesale, so carry the user's
+                // ignore decisions across for entries that are recognisably the same book.
+                IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
+            };
+        }).ToList();
 
         await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
 
@@ -472,7 +466,10 @@ public class SeriesService : ISeriesService
 
     private static SeriesOverview BuildOverview(string seriesName, List<SeriesGroupingBook> ownedBooks, Series? catalogRow)
     {
-        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
+        var expected = (catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+            .Where(e => includeOmnibusEditions || !e.IsCompilation)
+            .ToList();
         var active = expected.Where(e => !e.IsIgnored).ToList();
         var ownedKeys = ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
 
@@ -497,7 +494,7 @@ public class SeriesService : ISeriesService
             ExpectedBookCount = active.Count,
             IgnoredBookCount = expected.Count - active.Count,
             MissingBookCount = active.Count(e => !IsOwned(e, ownedKeys)),
-            IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
+            IncludeOmnibusEditions = includeOmnibusEditions,
         };
     }
 

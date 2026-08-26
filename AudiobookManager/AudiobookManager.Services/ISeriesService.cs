@@ -30,9 +30,9 @@ public interface ISeriesService
     Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null, bool includeOmnibusEditions = false);
 
     /// <summary>
-    /// Updates the per-series omnibus/box-set inclusion setting. When the series is already
-    /// matched, this immediately re-fetches and re-filters its roster against the new setting
-    /// (equivalent to a refresh); otherwise the setting is just persisted for the next match.
+    /// Updates the per-series omnibus/box-set display setting. The full roster (compilations
+    /// included) is always stored regardless of this setting, so this is a pure DB write - no
+    /// re-fetch from the matched source is needed to apply it.
     /// </summary>
     Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
 

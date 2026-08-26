@@ -17,4 +17,12 @@ public interface ISeriesRepository
     /// deleted and re-inserted on every match/refresh.
     /// </summary>
     Task SetExpectedBookIgnoredAsync(string seriesName, string? position, string? title, bool ignored);
+
+    /// <summary>
+    /// Sets the display-time omnibus/box-set inclusion flag on the series row, creating an
+    /// unmatched catalog row if none exists yet. Does not touch the stored roster - the full
+    /// roster (compilations included) is always stored, and this flag only affects what the
+    /// caller considers visible, so no re-fetch is needed here.
+    /// </summary>
+    Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
 }
