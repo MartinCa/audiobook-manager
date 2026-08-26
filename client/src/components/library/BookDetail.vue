@@ -332,6 +332,8 @@ const getIssueIcon = (issueType: string): string => {
       return "mdi-text-box-remove";
     case "MissingCoverFile":
       return "mdi-image-remove";
+    case "TagMismatch":
+      return "mdi-tag-off";
     default:
       return "mdi-alert";
   }
@@ -353,6 +355,8 @@ const getIssueTypeLabel = (issueType: string): string => {
       return "Incorrect Reader File";
     case "MissingCoverFile":
       return "Missing Cover File";
+    case "TagMismatch":
+      return "Tag Mismatch";
     default:
       return issueType;
   }

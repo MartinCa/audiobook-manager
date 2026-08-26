@@ -14,6 +14,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IAudiobookTagHandler _tagHandler;
+    private readonly IAudiobookService _audiobookService;
     private readonly ILogger<LibraryConsistencyService> _logger;
 
     public LibraryConsistencyService(
@@ -22,6 +23,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
         IAudiobookTagHandler tagHandler,
+        IAudiobookService audiobookService,
         ILogger<LibraryConsistencyService> logger)
     {
         _settings = settings.Value;
@@ -29,6 +31,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _issueRepository = issueRepository;
         _orphanDirectoryRepository = orphanDirectoryRepository;
         _tagHandler = tagHandler;
+        _audiobookService = audiobookService;
         _logger = logger;
     }
 
@@ -72,6 +75,17 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                     await InsertIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
                         "File path does not match expected path from tags",
                         expectedFullPath, audiobook.FileInfoFullPath);
+                    issuesFound++;
+                }
+
+                // Check tag values against library metadata
+                var tagMismatches = FindTagMismatches(audiobook, parsed);
+                if (tagMismatches.Count > 0)
+                {
+                    var description = $"m4b tags do not match library metadata: {string.Join(", ", tagMismatches.Select(m => m.Field))}";
+                    var expectedValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Expected}"));
+                    var actualValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Actual}"));
+                    await InsertIssue(audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue);
                     issuesFound++;
                 }
 
@@ -211,6 +225,10 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingCoverFile:
                 await ResolveMissingCover(issue);
                 break;
+
+            case ConsistencyIssueType.TagMismatch:
+                await ResolveTagMismatch(issue);
+                break;
         }
     }
 
@@ -301,6 +319,22 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         });
     }
 
+    private async Task ResolveTagMismatch(ConsistencyIssue issue)
+    {
+        var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
+        if (dbAudiobook == null)
+            throw new KeyNotFoundException($"Audiobook {issue.AudiobookId} not found");
+
+        // Rewrite the m4b tags (and relocate/resync sidecars if the path changes) from the
+        // library metadata that's already correct in the database - see the "Binding invariant"
+        // in CLAUDE.md, UpdateAudiobook is the only place that's allowed to touch these fields.
+        var domain = AudiobookService.FromDb(dbAudiobook);
+        await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);
+
+        // Tags (and potentially the file path) changed, invalidating all other checks for this book
+        await _issueRepository.DeleteByAudiobookIdAsync(issue.AudiobookId);
+    }
+
     private async Task ResolveMissingCover(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
@@ -389,6 +423,35 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         return (resolved, failed);
     }
+
+    private static List<(string Field, string Expected, string Actual)> FindTagMismatches(Audiobook audiobook, AudiobookManager.Domain.Audiobook parsed)
+    {
+        var mismatches = new List<(string Field, string Expected, string Actual)>();
+
+        void Compare(string field, string? expected, string? actual)
+        {
+            if (!string.Equals(expected ?? "", actual ?? "", StringComparison.Ordinal))
+            {
+                mismatches.Add((field, expected ?? "", actual ?? ""));
+            }
+        }
+
+        Compare("Author", FormatPersons(audiobook.Authors), FormatPersons(parsed.Authors));
+        Compare("Narrators", FormatPersons(audiobook.Narrators), FormatPersons(parsed.Narrators));
+        Compare("Book Name", audiobook.BookName, parsed.BookName);
+        Compare("Subtitle", audiobook.Subtitle, parsed.Subtitle);
+        Compare("Series", audiobook.Series, parsed.Series);
+        Compare("Series Part", audiobook.SeriesPart, parsed.SeriesPart);
+        Compare("Year", audiobook.Year.ToString(), parsed.Year?.ToString());
+
+        return mismatches;
+    }
+
+    private static string FormatPersons(IEnumerable<Person> persons) =>
+        string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+
+    private static string FormatPersons(IEnumerable<AudiobookManager.Domain.Person> persons) =>
+        string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
 
     private async Task InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
     {

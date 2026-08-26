@@ -17,6 +17,7 @@ public class LibraryConsistencyServiceTests
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
+    private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private LibraryConsistencyService _service = null!;
@@ -28,6 +29,7 @@ public class LibraryConsistencyServiceTests
         _issueRepository = new Mock<IConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _tagHandler = new Mock<IAudiobookTagHandler>();
+        _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
         _settings = Options.Create(new AudiobookManagerSettings
         {
@@ -40,6 +42,7 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Object,
             _orphanDirectoryRepository.Object,
             _tagHandler.Object,
+            _audiobookService.Object,
             _logger.Object);
     }
 
@@ -275,6 +278,110 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task RunConsistencyCheck_TagValueDiffersFromFile_ReportsTagMismatch()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "fake audio content");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, "Series", "0.5", 2024,
+                null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
+
+            // Simulates the file's tags having lost the fractional series part (e.g. the
+            // Movement Part fallback truncation bug), so the value on disk no longer matches
+            // what the library metadata says it should be.
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000))
+            {
+                Series = "Series",
+                SeriesPart = "0"
+            };
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+
+            var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
+            Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
+            {
+                progressCalls.Add((msg, bc, t, i));
+                return Task.CompletedTask;
+            };
+
+            await _service.RunConsistencyCheck(progressAction);
+
+            _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(iss =>
+                iss.IssueType == ConsistencyIssueType.TagMismatch &&
+                iss.AudiobookId == 1 &&
+                iss.ExpectedValue!.Contains("Series Part: 0.5") &&
+                iss.ActualValue!.Contains("Series Part: 0") &&
+                !iss.ActualValue!.Contains("Series Part: 0.5")
+            )), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_TagMismatch_RewritesTagsFromDatabaseMetadata()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Series", "0.5", 2024,
+            null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+        };
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 40,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.TagMismatch,
+            Description = "m4b tags do not match library metadata: Series Part",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(40)).ReturnsAsync(issue);
+
+        // ResolveTagMismatch re-fetches the audiobook itself (with its full includes) rather than
+        // relying on issue.Audiobook, which only carries a partial include set (Authors, no Narrators/Genres).
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>()))
+            .ReturnsAsync(new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000)));
+
+        await _service.ResolveIssue(40);
+
+        // The DB record - not the (possibly corrupted) file tags - is the source of truth,
+        // per the "Binding invariant" in CLAUDE.md: only UpdateAudiobook may rewrite these fields.
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Domain.Audiobook>(a =>
+            a.SeriesPart == "0.5" && a.Series == "Series"
+        )), Times.Once);
+        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_WrongFilePath_MovesFileAndCleansUpOldDirectory()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -291,6 +398,7 @@ public class LibraryConsistencyServiceTests
                 _issueRepository.Object,
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
+                _audiobookService.Object,
                 _logger.Object);
 
             var oldFile = Path.Combine(oldDir, "test.m4b");
@@ -403,6 +511,7 @@ public class LibraryConsistencyServiceTests
                 _issueRepository.Object,
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
+                _audiobookService.Object,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -473,6 +582,7 @@ public class LibraryConsistencyServiceTests
                 _issueRepository.Object,
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
+                _audiobookService.Object,
                 _logger.Object);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());

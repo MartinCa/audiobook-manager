@@ -31,6 +31,7 @@ const diffParts = computed((): Change[] => {
   font-family: monospace;
   font-size: 0.85em;
   word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .diff-added {
