@@ -25,6 +25,7 @@
       :temporary="mobile"
     >
       <v-list
+        v-model:opened="openedGroups"
         density="compact"
         nav
       >
@@ -84,14 +85,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useDisplay } from "vuetify";
+import { useRoute } from "vue-router";
 import ErrorNotifications from "./components/ErrorNotifications.vue";
 import { MenuLink } from "./types/MenuLink";
 import { useErrors } from "./components/errors";
 
 const { mobile } = useDisplay();
 const drawerOpen = ref(!mobile.value);
+
+const route = useRoute();
+const openedGroups = ref<string[]>(
+  route.path.startsWith("/library") ? ["Library"] : [],
+);
+watch(
+  () => route.path,
+  (path) => {
+    if (
+      path.startsWith("/library") &&
+      !openedGroups.value.includes("Library")
+    ) {
+      openedGroups.value.push("Library");
+    }
+  },
+);
 
 const { errors, onErrorDismissed } = useErrors();
 
