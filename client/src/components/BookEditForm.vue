@@ -190,12 +190,7 @@
           v-model="input.year"
         ></v-text-field>
       </v-col>
-      <v-col
-        cols="12"
-        sm="8"
-        md="9"
-        lg="10"
-      >
+      <v-col cols="12">
         <v-text-field
           label="Genres"
           hint="Separated by '/'"
@@ -204,22 +199,6 @@
           v-model="input.genres"
         >
         </v-text-field>
-      </v-col>
-      <v-col
-        cols="12"
-        sm="4"
-        md="3"
-        lg="2"
-      >
-        <v-btn
-          color="primary"
-          size="large"
-          :disabled="isNonfiction"
-          block
-          @click="addNonfictionGenre"
-        >
-          Add Nonfiction
-        </v-btn>
       </v-col>
       <v-col cols="12">
         <v-textarea
@@ -382,8 +361,6 @@ const showManualUrlSearchDialog = ref(false);
 const showTagPreview = ref(false);
 const pendingSearchResult: Ref<BookSearchResult | null> = ref(null);
 
-const nonfictionGenre = "Nonfiction";
-
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
 // Entry-time duplicate prevention
@@ -491,14 +468,6 @@ const noteSavedNames = () => {
   }
 };
 
-const genresSplit = computed(
-  (): string[] => input.value.genres?.split("/") ?? [],
-);
-
-const isNonfiction = computed((): boolean =>
-  genresSplit.value.some((genre) => genre === nonfictionGenre),
-);
-
 const seriesMappedNamed = computed((): string => {
   if (
     !input.value.seriesOriginal ||
@@ -515,14 +484,6 @@ const onCoverUpdate = (
 ) => {
   input.value.cover_base64 = base64Data;
   input.value.cover_mime = mimeType;
-};
-
-const addNonfictionGenre = () => {
-  if (isNonfiction.value) {
-    return;
-  }
-
-  input.value.genres = [...genresSplit.value, nonfictionGenre].join("/");
 };
 
 const readSearchResult = (searchData: BookSearchResult | undefined) => {
