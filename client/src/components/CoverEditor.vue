@@ -8,70 +8,100 @@
       <v-img
         v-if="base64Data || coverUrl"
         max-height="200"
-        class="bg-grey-darken-2"
+        class="bg-grey-darken-2 cover-thumbnail"
         transition="false"
         :src="base64Data ? `data:${mimeType};base64,${base64Data}` : coverUrl"
+        @click="showDialog = true"
       ></v-img>
-      <template v-else> No cover </template>
-    </v-col>
-    <v-col
-      cols="12"
-      md="6"
-      lg="9"
-    >
-      <v-row>
-        <v-col
-          cols="12"
-          md="9"
-        >
-          <v-text-field
-            label="Image url"
-            hide-details="auto"
-            v-model="imgUrl"
-          ></v-text-field>
-        </v-col>
-        <v-col
-          cols="12"
-          md="3"
-        >
-          <v-btn
-            color="primary"
-            size="large"
-            block
-            @click="loadImgFromUrl(imgUrl)"
-          >
-            Fetch
-          </v-btn>
-        </v-col>
-      </v-row>
-      <v-row>
-        <v-col
-          cols="12"
-          md="9"
-        >
-          <v-file-input
-            label="Cover image upload"
-            hide-details="auto"
-            accept="image/*"
-            v-model="uploadedImg"
-          ></v-file-input>
-        </v-col>
-        <v-col
-          cols="12"
-          md="3"
-        >
-          <v-btn
-            color="primary"
-            size="large"
-            block
-            @click="loadUploadedImg(uploadedImg)"
-          >
-            Upload
-          </v-btn>
-        </v-col>
-      </v-row>
+      <v-btn
+        v-else
+        variant="outlined"
+        block
+        @click="showDialog = true"
+      >
+        No cover
+      </v-btn>
     </v-col>
   </v-row>
+
+  <v-dialog
+    v-model="showDialog"
+    max-width="600"
+  >
+    <v-card title="Cover">
+      <v-card-text>
+        <v-row>
+          <v-col cols="12">
+            <v-img
+              v-if="base64Data || coverUrl"
+              max-height="300"
+              class="bg-grey-darken-2"
+              transition="false"
+              :src="
+                base64Data ? `data:${mimeType};base64,${base64Data}` : coverUrl
+              "
+            ></v-img>
+            <template v-else> No cover </template>
+          </v-col>
+        </v-row>
+        <v-row>
+          <v-col
+            cols="12"
+            md="9"
+          >
+            <v-text-field
+              label="Image url"
+              hide-details="auto"
+              v-model="imgUrl"
+            ></v-text-field>
+          </v-col>
+          <v-col
+            cols="12"
+            md="3"
+          >
+            <v-btn
+              color="primary"
+              size="large"
+              block
+              @click="loadImgFromUrl(imgUrl)"
+            >
+              Fetch
+            </v-btn>
+          </v-col>
+        </v-row>
+        <v-row>
+          <v-col
+            cols="12"
+            md="9"
+          >
+            <v-file-input
+              label="Cover image upload"
+              hide-details="auto"
+              accept="image/*"
+              v-model="uploadedImg"
+            ></v-file-input>
+          </v-col>
+          <v-col
+            cols="12"
+            md="3"
+          >
+            <v-btn
+              color="primary"
+              size="large"
+              block
+              @click="loadUploadedImg(uploadedImg)"
+            >
+              Upload
+            </v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <v-btn @click="showDialog = false">Close</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -92,6 +122,7 @@ const emit = defineEmits<{
   ): void;
 }>();
 
+const showDialog = ref(false);
 const imgUrl = ref("");
 const uploadedImg = ref([]);
 
@@ -111,3 +142,9 @@ const loadUploadedImg = async (uploaded: File[]) => {
 
 defineExpose({ loadImgFromUrl });
 </script>
+
+<style scoped>
+.cover-thumbnail {
+  cursor: pointer;
+}
+</style>
