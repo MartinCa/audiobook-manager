@@ -402,6 +402,8 @@ const getIssueTypeLabel = (issueType: string): string => {
       return "Incorrect Reader Files";
     case "MissingCoverFile":
       return "Missing Cover Files";
+    case "TagMismatch":
+      return "Tag Mismatches";
     default:
       return issueType;
   }
@@ -462,6 +464,8 @@ const getBulkResolveDescription = (issueType: string): string => {
       return "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.";
     case "MissingCoverFile":
       return "The cover image will be extracted from each affected audiobook file.";
+    case "TagMismatch":
+      return "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.";
     default:
       return "Continue?";
   }
@@ -480,6 +484,8 @@ const getIssueIcon = (issueType: string): string => {
       return "mdi-text-box-remove";
     case "MissingCoverFile":
       return "mdi-image-remove";
+    case "TagMismatch":
+      return "mdi-tag-off";
     default:
       return "mdi-alert";
   }
