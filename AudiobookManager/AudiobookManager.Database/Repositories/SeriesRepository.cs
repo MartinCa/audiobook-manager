@@ -57,6 +57,7 @@ public class SeriesRepository : ISeriesRepository
         existing.MatchedSeriesName = series.MatchedSeriesName;
         existing.MatchConfidence = series.MatchConfidence;
         existing.LastRefreshedAt = series.LastRefreshedAt;
+        existing.IncludeOmnibusEditions = series.IncludeOmnibusEditions;
 
         await _db.SaveChangesAsync();
         return existing;

@@ -13,7 +13,8 @@ public record SeriesOverviewDto(
     DateTime? LastRefreshedAt,
     int ExpectedBookCount,
     int MissingBookCount,
-    int IgnoredBookCount
+    int IgnoredBookCount,
+    bool IncludeOmnibusEditions
 );
 
 public record SeriesExpectedBookDto(
@@ -57,6 +58,12 @@ public class MatchSeriesDto
     public string SourceName { get; set; } = string.Empty;
     public string SourceId { get; set; } = string.Empty;
     public double? Confidence { get; set; }
+    public bool IncludeOmnibusEditions { get; set; }
+}
+
+public class IncludeOmnibusEditionsDto
+{
+    public bool IncludeOmnibusEditions { get; set; }
 }
 
 /// <summary>

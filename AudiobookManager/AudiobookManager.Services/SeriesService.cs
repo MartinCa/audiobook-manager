@@ -243,9 +243,9 @@ public class SeriesService : ISeriesService
             .ToList();
     }
 
-    public async Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null)
+    public async Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null, bool includeOmnibusEditions = false)
     {
-        var saved = await MatchSeriesCoreAsync(seriesName, sourceName, sourceSeriesId, confidence);
+        var saved = await MatchSeriesCoreAsync(seriesName, sourceName, sourceSeriesId, confidence, includeOmnibusEditions);
 
         // Only the single-series endpoint needs the full detail projection; bulk callers use
         // MatchSeriesCoreAsync directly and would throw the result away.
@@ -253,11 +253,32 @@ public class SeriesService : ISeriesService
         return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), saved);
     }
 
+    public async Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
+    {
+        var existing = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+
+        if (existing is not null && !string.IsNullOrEmpty(existing.MatchedSourceName) && !string.IsNullOrEmpty(existing.MatchedSourceId))
+        {
+            await MatchSeriesCoreAsync(seriesName, existing.MatchedSourceName, existing.MatchedSourceId, existing.MatchConfidence, includeOmnibusEditions);
+        }
+        else
+        {
+            await _seriesRepository.UpsertSeriesAsync(new Series
+            {
+                Name = seriesName,
+                IncludeOmnibusEditions = includeOmnibusEditions,
+            });
+        }
+
+        var detail = await GetSeriesDetailAsync(seriesName);
+        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), existing);
+    }
+
     /// <summary>
     /// Matches the series to a source and replaces its stored roster, returning the catalog
     /// row. Does no read-side projection work.
     /// </summary>
-    private async Task<Series> MatchSeriesCoreAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence)
+    private async Task<Series> MatchSeriesCoreAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence, bool includeOmnibusEditions)
     {
         var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
             ?? throw new ArgumentException($"No series-capable scraper for source {sourceName}");
@@ -276,6 +297,7 @@ public class SeriesService : ISeriesService
             MatchedSeriesName = roster.SeriesName,
             MatchConfidence = confidence,
             LastRefreshedAt = DateTime.UtcNow,
+            IncludeOmnibusEditions = includeOmnibusEditions,
         });
 
         // Normalize the previously-ignored titles once rather than once per roster entry.
@@ -284,20 +306,22 @@ public class SeriesService : ISeriesService
             .Select(p => BookKey.From(p.Position, p.Title))
             .ToList();
 
-        var newExpected = roster.Books.Select(b =>
-        {
-            var key = BookKey.From(b.Position, b.Title);
-            return new SeriesExpectedBook
+        var newExpected = roster.Books
+            .Where(b => includeOmnibusEditions || !b.IsCompilation)
+            .Select(b =>
             {
-                Position = b.Position,
-                Title = b.Title,
-                Year = b.Year,
-                SourceUrl = b.SourceUrl,
-                // Re-matching or refreshing replaces the roster wholesale, so carry the user's
-                // ignore decisions across for entries that are recognisably the same book.
-                IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
-            };
-        }).ToList();
+                var key = BookKey.From(b.Position, b.Title);
+                return new SeriesExpectedBook
+                {
+                    Position = b.Position,
+                    Title = b.Title,
+                    Year = b.Year,
+                    SourceUrl = b.SourceUrl,
+                    // Re-matching or refreshing replaces the roster wholesale, so carry the user's
+                    // ignore decisions across for entries that are recognisably the same book.
+                    IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
+                };
+            }).ToList();
 
         await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
 
@@ -316,9 +340,10 @@ public class SeriesService : ISeriesService
             .Where(o => seriesNames is null || seriesNames.Contains(o.Name, StringComparer.Ordinal))
             .ToList();
 
-        // The overview already carries each series' authors, so the candidate lookup below
-        // must not re-query them per series.
+        // The overview already carries each series' authors and any omnibus-inclusion setting
+        // recorded before it was matched, so the candidate lookup below must not re-query them.
         var authorsByName = unmatched.ToDictionary(o => o.Name, o => o.Authors, StringComparer.Ordinal);
+        var includeOmnibusByName = unmatched.ToDictionary(o => o.Name, o => o.IncludeOmnibusEditions, StringComparer.Ordinal);
         var targets = unmatched.Select(o => o.Name).ToList();
 
         return await RunBulkAsync(targets, progressAction, async name =>
@@ -337,7 +362,8 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesCoreAsync(name, top.SourceName, top.SourceId, top.Confidence);
+            var includeOmnibusEditions = includeOmnibusByName.GetValueOrDefault(name);
+            await MatchSeriesCoreAsync(name, top.SourceName, top.SourceId, top.Confidence, includeOmnibusEditions);
             return true;
         });
     }
@@ -375,7 +401,7 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesCoreAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence);
+            await MatchSeriesCoreAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence, row.IncludeOmnibusEditions);
             return true;
         });
     }
@@ -471,6 +497,7 @@ public class SeriesService : ISeriesService
             ExpectedBookCount = active.Count,
             IgnoredBookCount = expected.Count - active.Count,
             MissingBookCount = active.Count(e => !IsOwned(e, ownedKeys)),
+            IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
         };
     }
 

@@ -131,18 +131,17 @@ public class HardcoverScraper : IScraper
     // `search()` query used by Search() above, with query_type "Series" - see
     // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
 
-    // Both book_series(...) selections below filter out two kinds of rows that aren't real
-    // roster entries:
-    // - compilation: true - omnibus/box-set links (e.g. a "Books 1-4" bundle) that Hardcover
-    //   attaches to a series position alongside the individual books, but that don't appear as
-    //   their own entry on the series page itself. Checked on both the book_series link row and
-    //   the book itself - contributors sometimes only tag one of the two, so either flag being
-    //   set is enough to treat it as a compilation.
-    // - book.canonical_id not null - alternate-language/translated editions are frequently
-    //   recorded as their own `book` row (rather than just an `edition` of the original) and
-    //   linked into the series at the same position as the original; canonical_id is non-null
-    //   on these variants and points back at the canonical (original-language) book, which is
-    //   the row we keep.
+    // Both book_series(...) selections below exclude alternate-language/translated editions -
+    // these are frequently recorded as their own `book` row (rather than just an `edition` of
+    // the original) and linked into the series at the same position as the original;
+    // canonical_id is non-null on these variants and points back at the canonical
+    // (original-language) book, which is the row we keep.
+    //
+    // Omnibus/box-set entries (e.g. a "Books 1-4" bundle, flagged by `compilation` on either the
+    // book_series link row or the book itself - contributors sometimes only tag one of the two)
+    // are deliberately NOT filtered out here: whether to keep them is a per-series choice some
+    // libraries genuinely own the omnibus rather than the individual books - so `compilation` is
+    // selected and left for the caller (SeriesService) to filter based on that series' setting.
     private const string _seriesBooksQuery = """
         query GetSeriesBooks($id: Int!) {
           series_by_pk(id: $id) {
@@ -151,17 +150,16 @@ public class HardcoverScraper : IScraper
             slug
             book_series(
               order_by: {position: asc}
-              where: {
-                compilation: {_eq: false}
-                book: {canonical_id: {_is_null: true}, compilation: {_eq: false}}
-              }
+              where: {book: {canonical_id: {_is_null: true}}}
             ) {
               position
+              compilation
               book {
                 id
                 title
                 slug
                 release_date
+                compilation
               }
             }
           }
@@ -178,17 +176,16 @@ public class HardcoverScraper : IScraper
             slug
             book_series(
               order_by: {position: asc}
-              where: {
-                compilation: {_eq: false}
-                book: {canonical_id: {_is_null: true}, compilation: {_eq: false}}
-              }
+              where: {book: {canonical_id: {_is_null: true}}}
             ) {
               position
+              compilation
               book {
                 id
                 title
                 slug
                 release_date
+                compilation
               }
             }
           }
@@ -440,11 +437,19 @@ public class HardcoverScraper : IScraper
 
         var identifier = slug ?? bookId;
 
+        // Contributors sometimes only tag one of the two records, so either flag being set is
+        // enough to treat the entry as a compilation.
+        var linkIsCompilation = entry.TryGetProperty("compilation", out var linkCompilationElement) &&
+            linkCompilationElement.ValueKind == JsonValueKind.True;
+        var bookIsCompilation = bookElement.TryGetProperty("compilation", out var bookCompilationElement) &&
+            bookCompilationElement.ValueKind == JsonValueKind.True;
+
         return new SeriesExpectedBookResult(title)
         {
             Position = position,
             Year = year,
             SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            IsCompilation = linkIsCompilation || bookIsCompilation,
         };
     }
 

@@ -27,7 +27,14 @@ public interface ISeriesService
     /// </summary>
     Task<List<SeriesMatchCandidate>> SearchSeriesMatchesAsync(string seriesName, string query);
 
-    Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null);
+    Task<SeriesOverview> MatchSeriesAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence = null, bool includeOmnibusEditions = false);
+
+    /// <summary>
+    /// Updates the per-series omnibus/box-set inclusion setting. When the series is already
+    /// matched, this immediately re-fetches and re-filters its roster against the new setting
+    /// (equivalent to a refresh); otherwise the setting is just persisted for the next match.
+    /// </summary>
+    Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
 
     /// <summary>
     /// StopReason is set (and the batch stops early) only when the Hardcover daily request

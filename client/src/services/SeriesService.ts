@@ -35,12 +35,24 @@ class SeriesService extends BaseHttpService {
     sourceName: string,
     sourceId: string,
     confidence?: number,
+    includeOmnibusEditions?: boolean,
   ): Promise<SeriesOverview> {
     return this.postData(`/series/${encodeURIComponent(seriesName)}/match`, {
       sourceName,
       sourceId,
       confidence,
+      includeOmnibusEditions,
     });
+  }
+
+  setIncludeOmnibusEditions(
+    seriesName: string,
+    includeOmnibusEditions: boolean,
+  ): Promise<SeriesOverview> {
+    return this.postData(
+      `/series/${encodeURIComponent(seriesName)}/include-omnibus-editions`,
+      { includeOmnibusEditions },
+    );
   }
 
   startBulkMatch(

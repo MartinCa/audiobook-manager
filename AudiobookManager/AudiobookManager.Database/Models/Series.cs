@@ -42,5 +42,14 @@ public class Series
     [Column("last_refreshed_at")]
     public DateTime? LastRefreshedAt { get; set; }
 
+    /// <summary>
+    /// Whether omnibus/box-set editions from the matched source should be kept on the roster
+    /// instead of being filtered out. Defaults to false because most series report these
+    /// alongside the individual books even though they aren't a distinct missing book, but some
+    /// libraries genuinely own the omnibus rather than the individual entries.
+    /// </summary>
+    [Column("include_omnibus_editions")]
+    public bool IncludeOmnibusEditions { get; set; }
+
     public List<SeriesExpectedBook> ExpectedBooks { get; set; } = new();
 }

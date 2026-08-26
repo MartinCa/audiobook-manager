@@ -92,6 +92,18 @@
               </v-btn>
             </div>
 
+            <v-checkbox
+              v-model="includeOmnibusEditions"
+              label="Include omnibus/box-set editions"
+              hint="When off, bundles like a 'Books 1-4' omnibus are left out of the missing-books list."
+              persistent-hint
+              density="compact"
+              hide-details="auto"
+              class="mt-2"
+              :disabled="busy || updatingOmnibusSetting"
+              @update:model-value="onIncludeOmnibusEditionsChanged"
+            />
+
             <div class="d-flex align-center flex-wrap ga-2 mt-3">
               <v-text-field
                 v-model="manualQuery"
@@ -364,6 +376,9 @@ const candidatesLoaded = ref(false);
 const loadingCandidates = ref(false);
 const matchingCandidate = ref(false);
 
+const includeOmnibusEditions = ref(false);
+const updatingOmnibusSetting = ref(false);
+
 const manualQuery = ref("");
 const searchingManually = ref(false);
 
@@ -380,7 +395,8 @@ const busy = computed(
     refreshing.value ||
     loadingCandidates.value ||
     matchingCandidate.value ||
-    searchingManually.value,
+    searchingManually.value ||
+    updatingOmnibusSetting.value,
 );
 
 const goBack = () => {
@@ -400,6 +416,7 @@ const loadDetail = async () => {
     books.value = detail.ownedBooks;
     missingBooks.value = detail.missingBooks;
     ignoredBooks.value = detail.ignoredBooks;
+    includeOmnibusEditions.value = detail.overview.includeOmnibusEditions;
   } catch {
     snackbarText.value = "Failed to load series";
     snackbar.value = true;
@@ -454,6 +471,7 @@ const applyMatch = async (candidate: SeriesMatchCandidate) => {
       candidate.sourceName,
       candidate.sourceId,
       candidate.confidence,
+      includeOmnibusEditions.value,
     );
     candidates.value = [];
     candidatesLoaded.value = false;
@@ -479,6 +497,23 @@ const setIgnored = async (book: SeriesExpectedBook, ignored: boolean) => {
   } catch (e: any) {
     snackbarText.value = `Failed to update: ${e?.response?.data ?? e.message}`;
     snackbar.value = true;
+  }
+};
+
+const onIncludeOmnibusEditionsChanged = async (value: boolean | null) => {
+  updatingOmnibusSetting.value = true;
+  try {
+    await SeriesService.setIncludeOmnibusEditions(
+      seriesName.value,
+      value ?? false,
+    );
+    await loadDetail();
+  } catch (e: any) {
+    snackbarText.value = `Failed to update: ${e?.response?.data ?? e.message}`;
+    snackbar.value = true;
+    includeOmnibusEditions.value = !value;
+  } finally {
+    updatingOmnibusSetting.value = false;
   }
 };
 
