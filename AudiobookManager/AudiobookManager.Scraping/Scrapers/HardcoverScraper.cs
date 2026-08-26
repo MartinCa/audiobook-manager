@@ -123,9 +123,12 @@ public class HardcoverScraper : IScraper
     // Series search (SearchSeries below) intentionally does NOT use a `series(where: ...)`
     // query with `_ilike`/`_like` - Hardcover's API rejects those operators server-side
     // ("ilike and related operations are not permitted on this server", HTTP 403) even
-    // though they're still present in the published schema types. Fuzzy/typo-tolerant
-    // name search is only available through the same Typesense-backed `search()` query
-    // used by Search() above, with query_type "Series" - see
+    // though they're still present in the published schema types. This is documented under
+    // "Limitations" at https://docs.hardcover.app/api/getting-started/#limitations (disabled:
+    // _like, _nlike, _ilike, _niregex, _nregex, _iregex, _regex, _nsimilar, _similar; also a
+    // 30s query timeout / 2s search() timeout, and no browser-side use of the API key).
+    // Fuzzy/typo-tolerant name search is only available through the same Typesense-backed
+    // `search()` query used by Search() above, with query_type "Series" - see
     // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
 
     private const string _seriesBooksQuery = """
