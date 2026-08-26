@@ -11,17 +11,22 @@ public static class TrackSpecialTagExtensions
 
     private static readonly Dictionary<SpecialTagField, string> _emptyMap = new Dictionary<SpecialTagField, string>();
 
+    // ATL strips the "----:mean:" prefix when reading back a freeform atom whose mean is the
+    // default "com.apple.iTunes" namespace, exposing it in AdditionalFields under the bare field
+    // name only (see ATL's MP4 reader). Since all these fields use that default namespace, the
+    // keys here must be the bare names too, or writes round-trip to a key ReadSpecialTag never
+    // finds (the value still lands in the same underlying atom on disk either way).
     private static readonly Dictionary<SpecialTagField, string> _mp4Map = new Dictionary<SpecialTagField, string>()
     {
-        { SpecialTagField.ASIN, "----:com.apple.iTunes:ASIN" },
-        { SpecialTagField.Rating, "----:com.apple.iTunes:RATING WMP" },
-        { SpecialTagField.Subtitle, "----:com.apple.iTunes:SUBTITLE" },
-        { SpecialTagField.Www, "----:com.apple.iTunes:WWWAUDIOFILE" },
+        { SpecialTagField.ASIN, "ASIN" },
+        { SpecialTagField.Rating, "RATING WMP" },
+        { SpecialTagField.Subtitle, "SUBTITLE" },
+        { SpecialTagField.Www, "WWWAUDIOFILE" },
         { SpecialTagField.ItunesGapless, "pgap" },
         { SpecialTagField.ItunesMediaType, "stik" },
         { SpecialTagField.ShowMovement, "shwm" },
-        { SpecialTagField.Mp4Series, "----:com.apple.iTunes:SERIES" },
-        { SpecialTagField.Mp4SeriesPart, "----:com.apple.iTunes:SERIES-PART" }
+        { SpecialTagField.Mp4Series, "SERIES" },
+        { SpecialTagField.Mp4SeriesPart, "SERIES-PART" }
     };
 
     public static string? ReadSpecialTag(this Track track, SpecialTagField field)
