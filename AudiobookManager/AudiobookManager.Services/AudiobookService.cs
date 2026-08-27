@@ -148,7 +148,7 @@ public class AudiobookService : IAudiobookService
         return newFullPath;
     }
 
-    public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
+    private async Task<(List<Database.Models.Person> Authors, List<Database.Models.Person> Narrators, List<Database.Models.Genre> Genres)> GetOrCreateAuthorsNarratorsGenres(Audiobook audiobook)
     {
         var authors = new List<Database.Models.Person>();
         foreach (var author in audiobook.Authors)
@@ -161,6 +161,13 @@ public class AudiobookService : IAudiobookService
         var genres = new List<Database.Models.Genre>();
         foreach (var genre in audiobook.Genres)
             genres.Add(await _genreRepository.GetOrCreateGenre(genre));
+
+        return (authors, narrators, genres);
+    }
+
+    public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
+    {
+        var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         AudiobookDb dbAudiobook = new AudiobookDb(
             audiobook.Id ?? default,
@@ -228,17 +235,7 @@ public class AudiobookService : IAudiobookService
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
 
         // Update DB record
-        var authors = new List<Database.Models.Person>();
-        foreach (var author in audiobook.Authors)
-            authors.Add(await _personRepository.GetOrCreatePerson(author.Name));
-
-        var narrators = new List<Database.Models.Person>();
-        foreach (var narrator in audiobook.Narrators)
-            narrators.Add(await _personRepository.GetOrCreatePerson(narrator.Name));
-
-        var genres = new List<Database.Models.Genre>();
-        foreach (var genre in audiobook.Genres)
-            genres.Add(await _genreRepository.GetOrCreateGenre(genre));
+        var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         existing.BookName = audiobook.BookName;
         existing.Subtitle = audiobook.Subtitle;
