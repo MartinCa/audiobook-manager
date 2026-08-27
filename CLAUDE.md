@@ -39,6 +39,9 @@ cd client && npm run dev
 # Production build (includes vue-tsc type checking)
 cd client && npm run build
 
+# Run tests (Vitest)
+cd client && npm test
+
 # Format check (Prettier)
 cd client && npm run format-check
 
@@ -168,9 +171,12 @@ Adding a new source (or changing an existing one's name/availability) requires t
 
 ## Verification Checklist
 
-After making changes, run all four:
+After making changes, run all five — including when a change looks backend- or
+frontend-only, since edits to shared files (e.g. `client/src/signalr/hub.ts`) can break
+the other side's tests too:
 
 1. `cd AudiobookManager && dotnet build` — 0 errors
 2. `cd AudiobookManager && dotnet test` — all pass
 3. `cd client && npm run build` — type-check + build
-4. `cd client && npm run format-check` — Prettier formatting
+4. `cd client && npm test` — Vitest unit tests, all pass
+5. `cd client && npm run format-check` — Prettier formatting

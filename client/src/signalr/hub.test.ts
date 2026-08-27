@@ -6,6 +6,7 @@ const mockConnection = {
   start: vi.fn().mockResolvedValue(undefined),
   on: vi.fn(),
   off: vi.fn(),
+  onreconnected: vi.fn(),
 };
 
 const mockBuilder = {
@@ -95,6 +96,8 @@ describe("useSignalR", () => {
     expect(captured).toBeDefined();
     expect(typeof captured!.on).toBe("function");
     expect(typeof captured!.off).toBe("function");
+    expect(typeof captured!.onReconnected).toBe("function");
+    expect(typeof captured!.offReconnected).toBe("function");
   });
 
   it("throws when called without the plugin", () => {
@@ -148,5 +151,46 @@ describe("SignalRClient.on / off", () => {
     expect(mockConnection.on.mock.calls[0][1]).toBe(
       mockConnection.off.mock.calls[0][1],
     );
+  });
+});
+
+describe("SignalRClient.onReconnected / offReconnected", () => {
+  function triggerReconnected() {
+    const handler = mockConnection.onreconnected.mock.calls[0][0];
+    handler();
+  }
+
+  it("calls a registered listener when the connection reconnects", () => {
+    const listener = vi.fn();
+    const { captured } = mountWithSignalR(() => useSignalR());
+
+    captured!.onReconnected(listener);
+    triggerReconnected();
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("stops calling a listener after offReconnected", () => {
+    const listener = vi.fn();
+    const { captured } = mountWithSignalR(() => useSignalR());
+
+    captured!.onReconnected(listener);
+    captured!.offReconnected(listener);
+    triggerReconnected();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("calls every registered listener", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { captured } = mountWithSignalR(() => useSignalR());
+
+    captured!.onReconnected(first);
+    captured!.onReconnected(second);
+    triggerReconnected();
+
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledOnce();
   });
 });
