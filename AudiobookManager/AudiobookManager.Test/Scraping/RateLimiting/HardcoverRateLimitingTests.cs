@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Settings;
@@ -248,7 +249,13 @@ public class HardcoverRateLimitingTests
         // attempt - not just the first send - must travel back through the rate limiter (and
         // therefore re-consume the daily budget too). Chain: retry -> rate limit -> stub.
         var settings = Settings(daily: 5000, burst: 5, perMinute: 55);
-        var inner = new StubHandler(HttpStatusCode.ServiceUnavailable); // 5xx -> transient, retried
+        // The stub answers with a Retry-After the handler honors (see RetryAfterDelay), which
+        // collapses the real 2s/4s/8s exponential backoff to ~nothing. Without it this single
+        // test sleeps ~14s and dominates the whole backend suite; what is under test here is
+        // that each retry re-enters the rate limiter, not how long Polly waits between them.
+        var inner = new StubHandler(
+            HttpStatusCode.ServiceUnavailable, // 5xx -> transient, retried
+            retryAfter: TimeSpan.FromMilliseconds(1));
 
         var rateLimitingHandler = new HardcoverRateLimitingHandler(
             new HardcoverRateLimiter(settings.HardcoverBurstLimit, settings.HardcoverPerMinuteLimit),
@@ -279,10 +286,12 @@ public class HardcoverRateLimitingTests
     private class StubHandler : HttpMessageHandler
     {
         private readonly HttpStatusCode _status;
+        private readonly TimeSpan? _retryAfter;
 
-        public StubHandler(HttpStatusCode status)
+        public StubHandler(HttpStatusCode status, TimeSpan? retryAfter = null)
         {
             _status = status;
+            _retryAfter = retryAfter;
         }
 
         public int CallCount { get; private set; }
@@ -290,7 +299,13 @@ public class HardcoverRateLimitingTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(new HttpResponseMessage(_status));
+            var response = new HttpResponseMessage(_status);
+            if (_retryAfter is { } retryAfter)
+            {
+                response.Headers.RetryAfter = new RetryConditionHeaderValue(retryAfter);
+            }
+
+            return Task.FromResult(response);
         }
     }
 }
