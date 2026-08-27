@@ -4,6 +4,16 @@ import BaseHttpService from "./BaseHttpService";
 
 function toDto(data: Audiobook) {
   return {
+    ...toPathPreviewDto(data),
+    cover: data.cover,
+  };
+}
+
+// Same fields as toDto but without `cover`, whose base64 image data can be large. Used for
+// endpoints that only need text metadata to compute/check a path (generateNewPath,
+// checkTargetPath), so a debounced keystroke doesn't re-upload the cover on every call.
+function toPathPreviewDto(data: Audiobook) {
+  return {
     authors: data.authors.map((a) => a.name),
     narrators: data.narrators.map((n) => n.name),
     bookName: data.bookName,
@@ -18,7 +28,6 @@ function toDto(data: Audiobook) {
     rating: data.rating,
     asin: data.asin,
     www: data.www,
-    cover: data.cover,
     filePath: data.fileInfo?.fullPath,
     fileName: data.fileInfo?.fileName,
     sizeInBytes: data.fileInfo?.sizeInBytes ?? 0,
@@ -35,11 +44,14 @@ class AudiobookService extends BaseHttpService {
   }
 
   generateNewPath(data: Audiobook): Promise<string> {
-    return this.postData("/audiobook/generate_path", toDto(data));
+    return this.postData("/audiobook/generate_path", toPathPreviewDto(data));
   }
 
   checkTargetPath(data: Audiobook): Promise<TargetPathCheckResult> {
-    return this.postData("/audiobook/check_target_path", toDto(data));
+    return this.postData(
+      "/audiobook/check_target_path",
+      toPathPreviewDto(data),
+    );
   }
 
   updateBook(id: number, data: Audiobook): Promise<void> {

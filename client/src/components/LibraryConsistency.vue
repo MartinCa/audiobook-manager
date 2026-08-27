@@ -398,6 +398,7 @@ import { HubEventToken } from "@/signalr/hub";
 import { useOperationProgress } from "../composables/useOperationProgress";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
 import { ConsistencyCheckComplete } from "../signalr/ConsistencyCheckComplete";
+import { getIssueIcon } from "../helpers/consistencyIssueDisplay";
 
 const PAGE_SIZE = 50;
 
@@ -440,7 +441,9 @@ interface TypeGroup {
   visibleIssues: ConsistencyIssue[];
 }
 
-const groupedByType = computed((): TypeGroup[] => {
+// Depends only on `issues`, so paginating one group ("show more", which only touches
+// `displayCounts`) doesn't force the whole issues array to be re-grouped by type.
+const issuesByType = computed((): Map<string, ConsistencyIssue[]> => {
   const groups = new Map<string, ConsistencyIssue[]>();
   for (const issue of issues.value) {
     if (!groups.has(issue.issueType)) {
@@ -448,15 +451,21 @@ const groupedByType = computed((): TypeGroup[] => {
     }
     groups.get(issue.issueType)!.push(issue);
   }
-  return Array.from(groups.entries()).map(([issueType, typeIssues]) => {
-    const displayCount = displayCounts[issueType] || PAGE_SIZE;
-    return {
-      issueType,
-      issues: typeIssues,
-      displayCount,
-      visibleIssues: typeIssues.slice(0, displayCount),
-    };
-  });
+  return groups;
+});
+
+const groupedByType = computed((): TypeGroup[] => {
+  return Array.from(issuesByType.value.entries()).map(
+    ([issueType, typeIssues]) => {
+      const displayCount = displayCounts[issueType] || PAGE_SIZE;
+      return {
+        issueType,
+        issues: typeIssues,
+        displayCount,
+        visibleIssues: typeIssues.slice(0, displayCount),
+      };
+    },
+  );
 });
 
 const showMore = (issueType: string) => {
@@ -544,26 +553,6 @@ const getBulkResolveDescription = (issueType: string): string => {
       return "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.";
     default:
       return "Continue?";
-  }
-};
-
-const getIssueIcon = (issueType: string): string => {
-  switch (issueType) {
-    case "MissingMediaFile":
-      return "mdi-file-remove";
-    case "WrongFilePath":
-      return "mdi-swap-horizontal";
-    case "MissingDescTxt":
-    case "IncorrectDescTxt":
-    case "MissingReaderTxt":
-    case "IncorrectReaderTxt":
-      return "mdi-text-box-remove";
-    case "MissingCoverFile":
-      return "mdi-image-remove";
-    case "TagMismatch":
-      return "mdi-tag-off";
-    default:
-      return "mdi-alert";
   }
 };
 
@@ -682,13 +671,13 @@ const bulkResolve = async (issueType: string) => {
   resolvingTypes.value.add(issueType);
   try {
     const result = await ConsistencyService.resolveByType(issueType);
+    const resolvedAudiobookIds = new Set(
+      issues.value
+        .filter((x) => x.issueType === issueType)
+        .map((x) => x.audiobookId),
+    );
     issues.value = issues.value.filter((i) => {
       if (issueType === "MissingMediaFile" || issueType === "WrongFilePath") {
-        const resolvedAudiobookIds = new Set(
-          issues.value
-            .filter((x) => x.issueType === issueType)
-            .map((x) => x.audiobookId),
-        );
         return !resolvedAudiobookIds.has(i.audiobookId);
       }
       if (
@@ -703,11 +692,6 @@ const bulkResolve = async (issueType: string) => {
           "MissingReaderTxt",
           "IncorrectReaderTxt",
         ];
-        const resolvedAudiobookIds = new Set(
-          issues.value
-            .filter((x) => x.issueType === issueType)
-            .map((x) => x.audiobookId),
-        );
         if (resolvedAudiobookIds.has(i.audiobookId)) {
           return !metadataTypes.includes(i.issueType);
         }

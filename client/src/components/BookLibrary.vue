@@ -122,6 +122,9 @@ const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
 
 watch(currentPage, () => {
   loadBooks();
+  // Re-check for issues each time the visible page changes, so chips reflect issues
+  // resolved elsewhere (LibraryConsistency, BookDetail) since the summary was last loaded.
+  loadIssueSummary();
 });
 
 const loadBooks = async () => {
@@ -136,6 +139,8 @@ const loadBooks = async () => {
 const debouncedSearch = debounce(() => {
   currentPage.value = 1;
   loadBooks();
+  // Also refresh on search, for the same reason as the pagination watcher above.
+  loadIssueSummary();
 }, 300);
 
 watch(searchQuery, () => {

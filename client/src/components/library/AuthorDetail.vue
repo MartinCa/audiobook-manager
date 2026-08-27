@@ -85,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import BrowseService from "../../services/BrowseService";
 import { formatDuration } from "../../helpers/formatHelpers";
@@ -95,13 +95,18 @@ const route = useRoute();
 const detail = ref<AuthorDetailType | null>(null);
 const loading = ref(false);
 
-onMounted(async () => {
-  loading.value = true;
-  try {
-    const authorId = Number(route.params.authorId);
-    detail.value = await BrowseService.getAuthorDetail(authorId);
-  } finally {
-    loading.value = false;
-  }
-});
+watch(
+  () => route.params.authorId,
+  async (authorIdParam) => {
+    loading.value = true;
+    detail.value = null;
+    try {
+      const authorId = Number(authorIdParam);
+      detail.value = await BrowseService.getAuthorDetail(authorId);
+    } finally {
+      loading.value = false;
+    }
+  },
+  { immediate: true },
+);
 </script>

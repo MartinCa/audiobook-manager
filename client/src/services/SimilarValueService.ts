@@ -85,6 +85,10 @@ class SimilarValueService extends BaseHttpService {
       }
       return Array.from(merged).sort((a, b) => a.localeCompare(b));
     });
+    // A merge counts as bringing the cache up to date, so restart its TTL from now —
+    // otherwise a long session that merges regularly would never re-validate freshness
+    // against the server.
+    cache.fetchedAt = Date.now();
   }
 
   private isCacheValid(entry: NameCacheEntry | null): boolean {

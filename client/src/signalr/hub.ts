@@ -3,7 +3,7 @@ import {
   HubConnectionBuilder,
   LogLevel,
 } from "@microsoft/signalr";
-import { App, inject, InjectionKey } from "vue";
+import { App, inject, InjectionKey, onMounted, onUnmounted } from "vue";
 
 export type HubEventToken<T> = string & { __type?: T };
 
@@ -65,4 +65,25 @@ export function useSignalR(): SignalRClient {
   const client = inject(key);
   if (!client) throw new Error("SignalR plugin not installed");
   return client;
+}
+
+// Registers a hub event listener for exactly the calling component's lifetime, pairing
+// on()/off() automatically. Prefer this over calling useSignalR().on/off directly - a raw
+// on() with no matching off() in onUnmounted leaks a listener per mount/unmount cycle for the
+// rest of the SPA session, and nothing else guards against forgetting the pairing.
+export function useSignalREvent<T>(
+  token: HubEventToken<T>,
+  callback: (payload: T) => void,
+): void {
+  const client = useSignalR();
+  onMounted(() => client.on(token, callback));
+  onUnmounted(() => client.off(token, callback));
+}
+
+// Same pairing guarantee as useSignalREvent, for the reconnect callback (which has no token
+// and lives in its own listener set - see SignalRClient.onReconnected above).
+export function useSignalRReconnected(callback: () => void): void {
+  const client = useSignalR();
+  onMounted(() => client.onReconnected(callback));
+  onUnmounted(() => client.offReconnected(callback));
 }

@@ -152,18 +152,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, Ref, ref, watch } from "vue";
+import { computed, Ref, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { debounce } from "lodash";
 import AudiobookDetail from "../../types/AudiobookDetail";
 import OrganizeAudiobookInput from "../../types/OrganizeAudiobookInput";
-import { Audiobook, AudiobookImage } from "../../types/Audiobook";
+import { Audiobook } from "../../types/Audiobook";
 import ConsistencyIssue from "../../types/ConsistencyIssue";
 import BrowseService from "../../services/BrowseService";
 import AudiobookService from "../../services/AudiobookService";
 import ConsistencyService from "../../services/ConsistencyService";
 import BookEditForm from "../BookEditForm.vue";
 import DiffDisplay from "../DiffDisplay.vue";
+import { convertInputToAudiobook as buildAudiobook } from "../../helpers/organizeAudiobookInput";
+import { getIssueIcon } from "../../helpers/consistencyIssueDisplay";
 
 const apiBaseUrl = import.meta.env.VITE_BASE_API_URL as string;
 
@@ -241,39 +243,14 @@ const resetInput = () => {
 const convertInputToAudiobook = (): Audiobook | null => {
   if (!bookDetail.value) return null;
 
-  const inp = input.value;
-
-  let cover: AudiobookImage | undefined = undefined;
-  if (inp.cover_base64 && inp.cover_mime) {
-    cover = {
-      base64Data: inp.cover_base64,
-      mimeType: inp.cover_mime,
-    };
-  }
-
-  return {
-    authors: inp.authors?.split(",").map((x) => ({ name: x.trim() })) ?? [],
-    narrators: inp.narrators?.split(",").map((x) => ({ name: x.trim() })) ?? [],
-    bookName: inp.bookName,
-    subtitle: inp.subtitle,
-    series: inp.series,
-    seriesPart: inp.seriesPart,
-    year: inp.year,
-    genres: inp.genres?.split("/") ?? [],
-    description: inp.description,
-    copyright: inp.copyright,
-    publisher: inp.publisher,
-    rating: inp.rating?.toString(),
-    asin: inp.asin,
-    www: inp.www,
-    cover: cover,
+  return buildAudiobook(input.value, {
     durationInSeconds: bookDetail.value.durationInSeconds,
     fileInfo: {
       fullPath: bookDetail.value.filePath,
       fileName: bookDetail.value.fileName,
       sizeInBytes: bookDetail.value.sizeInBytes,
     },
-  };
+  });
 };
 
 const saveBook = async () => {
@@ -299,8 +276,27 @@ const saveBook = async () => {
   }
 };
 
+// Watches only the fields path generation actually depends on. Deliberately never reads
+// cover_base64/cover_mime here: a getter that read them (even to overwrite them afterwards)
+// would still track them as reactive dependencies, so editing the cover would keep
+// retriggering this debounced call and deep-diffing the large cover string for nothing.
 watch(
-  input,
+  () => ({
+    authors: input.value.authors,
+    narrators: input.value.narrators,
+    bookName: input.value.bookName,
+    subtitle: input.value.subtitle,
+    series: input.value.series,
+    seriesPart: input.value.seriesPart,
+    year: input.value.year,
+    genres: input.value.genres,
+    description: input.value.description,
+    copyright: input.value.copyright,
+    publisher: input.value.publisher,
+    asin: input.value.asin,
+    www: input.value.www,
+    rating: input.value.rating,
+  }),
   async () => {
     await updateNewBookPath();
   },
@@ -319,26 +315,6 @@ const updateNewBookPath = debounce(async () => {
 }, 300);
 
 // Issue helpers
-const getIssueIcon = (issueType: string): string => {
-  switch (issueType) {
-    case "MissingMediaFile":
-      return "mdi-file-remove";
-    case "WrongFilePath":
-      return "mdi-swap-horizontal";
-    case "MissingDescTxt":
-    case "IncorrectDescTxt":
-    case "MissingReaderTxt":
-    case "IncorrectReaderTxt":
-      return "mdi-text-box-remove";
-    case "MissingCoverFile":
-      return "mdi-image-remove";
-    case "TagMismatch":
-      return "mdi-tag-off";
-    default:
-      return "mdi-alert";
-  }
-};
-
 const getIssueTypeLabel = (issueType: string): string => {
   switch (issueType) {
     case "MissingMediaFile":
@@ -397,9 +373,13 @@ const loadIssues = async () => {
   }
 };
 
-onMounted(async () => {
-  await Promise.all([loadBook(), loadIssues()]);
-});
+watch(
+  bookId,
+  async () => {
+    await Promise.all([loadBook(), loadIssues()]);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
