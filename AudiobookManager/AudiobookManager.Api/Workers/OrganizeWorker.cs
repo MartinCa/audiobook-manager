@@ -49,6 +49,11 @@ public class OrganizeWorker : BackgroundService
                     // instead of silently disappearing if the client missed the QueueError event.
                     var discoveredRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredAudiobookRepository>();
                     await discoveredRepo.DeleteByPathAsync(task.OriginalFileLocation);
+                } catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Cooperative shutdown: the idle Task.Delay above (or another await) was
+                    // cancelled because the host is stopping. This is expected and not an error.
+                    break;
                 } catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error while processing organize task {OriginalFileLoation}", task?.OriginalFileLocation ?? "");

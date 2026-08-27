@@ -6,6 +6,7 @@ using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -47,6 +48,7 @@ public class SeriesControllerTests
             _serviceScopeFactory.Object,
             _statusRegistry.Object,
             _seriesService.Object,
+            Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
 

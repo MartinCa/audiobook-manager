@@ -29,7 +29,7 @@ public static class AudiobookFileHandler
         }
     }
 
-    public static string WriteCover(Audiobook audiobook)
+    public static string? WriteCover(Audiobook audiobook)
     {
         if (audiobook.Cover is not null)
         {
@@ -120,7 +120,28 @@ public static class AudiobookFileHandler
         inputString.ReplacePathSeparators().ReplaceChars(charsToReplace, replacementString);
 
     private static string ReplaceChars(this string inputString, char[] charsToReplace, string replacementString)
-        => charsToReplace.Aggregate(inputString, (acc, currentChar) => acc.Replace(currentChar.ToString(), replacementString));
+    {
+        var invalidChars = new HashSet<char>(charsToReplace);
+        if (!inputString.Any(invalidChars.Contains))
+        {
+            return inputString;
+        }
+
+        var builder = new System.Text.StringBuilder(inputString.Length);
+        foreach (var c in inputString)
+        {
+            if (invalidChars.Contains(c))
+            {
+                builder.Append(replacementString);
+            }
+            else
+            {
+                builder.Append(c);
+            }
+        }
+
+        return builder.ToString();
+    }
 
     private static string ReplacePathSeparators(this string path)
         => path.ReplaceChars(_systemDirectorySeparators, _replacementInvalidPathSeparator);

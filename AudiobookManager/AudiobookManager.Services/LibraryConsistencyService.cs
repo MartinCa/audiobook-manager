@@ -75,8 +75,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             return issuesFound;
         }
 
-        var leafDirectories = Directory.GetDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
-            .Where(directory => !Directory.GetDirectories(directory).Any());
+        // A single recursive enumeration, plus a set of every directory that has at least one
+        // subdirectory (its parent), lets us identify leaf directories without re-stat'ing the
+        // tree for each one via a second Directory.GetDirectories(dir) call per directory.
+        var allDirectories = Directory.EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories).ToList();
+        var parentDirectories = new HashSet<string>(
+            allDirectories.Select(Path.GetDirectoryName).OfType<string>(),
+            StringComparer.Ordinal);
+        var leafDirectories = allDirectories.Where(directory => !parentDirectories.Contains(directory));
 
         foreach (var directory in leafDirectories)
         {
@@ -352,9 +358,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private static string FormatPersons(IEnumerable<AudiobookManager.Domain.Person> persons) =>
         string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
 
-    private async Task<ConsistencyIssue> InsertIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
+    private static ConsistencyIssue BuildIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
     {
-        var issue = new ConsistencyIssue
+        return new ConsistencyIssue
         {
             AudiobookId = audiobookId,
             IssueType = issueType,
@@ -363,8 +369,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             ActualValue = actualValue,
             DetectedAt = DateTime.UtcNow
         };
-        await _issueRepository.InsertAsync(issue);
-        return issue;
     }
 
     public async Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId)
@@ -384,9 +388,10 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         if (!File.Exists(audiobook.FileInfoFullPath))
         {
-            issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
+            issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
                 $"Media file not found: {audiobook.FileInfoFileName}",
                 audiobook.FileInfoFullPath, null));
+            await _issueRepository.InsertRangeAsync(issues);
             return issues;
         }
 
@@ -400,7 +405,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
             if (!string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
             {
-                issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
                     "File path does not match expected path from tags",
                     expectedFullPath, audiobook.FileInfoFullPath));
             }
@@ -412,7 +417,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 var description = $"m4b tags do not match library metadata: {string.Join(", ", tagMismatches.Select(m => m.Field))}";
                 var expectedValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Expected}"));
                 var actualValue = string.Join("\n", tagMismatches.Select(m => $"{m.Field}: {m.Actual}"));
-                issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue));
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue));
             }
 
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
@@ -423,7 +428,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             {
                 if (!File.Exists(descPath))
                 {
-                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingDescTxt,
+                    issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingDescTxt,
                         "desc.txt missing but m4b has Description tag",
                         parsed.Description, null));
                 }
@@ -432,7 +437,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                     var descContent = await File.ReadAllTextAsync(descPath);
                     if (!string.Equals(descContent, parsed.Description, StringComparison.Ordinal))
                     {
-                        issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
+                        issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
                             "desc.txt content does not match Description tag",
                             parsed.Description, descContent));
                     }
@@ -446,7 +451,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 var expectedNarrators = string.Join(", ", parsed.Narrators.Select(n => n.Name));
                 if (!File.Exists(readerPath))
                 {
-                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingReaderTxt,
+                    issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingReaderTxt,
                         "reader.txt missing but m4b has Narrators tag",
                         expectedNarrators, null));
                 }
@@ -455,7 +460,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                     var readerContent = await File.ReadAllTextAsync(readerPath);
                     if (!string.Equals(readerContent, expectedNarrators, StringComparison.Ordinal))
                     {
-                        issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
+                        issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
                             "reader.txt content does not match Narrators tag",
                             expectedNarrators, readerContent));
                     }
@@ -469,7 +474,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                     || File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.png"));
                 if (!coverExists)
                 {
-                    issues.Add(await InsertIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
+                    issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
                         "Cover file missing but m4b has embedded cover",
                         "cover.jpg or cover.png", null));
                 }
@@ -480,6 +485,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
         }
 
+        await _issueRepository.InsertRangeAsync(issues);
         return issues;
     }
 }

@@ -21,6 +21,7 @@ public class OrganizeWorkerTests
     private Mock<IQueuedOrganizeTaskService> _organizeTaskService = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<IDiscoveredAudiobookRepository> _discoveredRepo = null!;
+    private Mock<ILogger<OrganizeWorker>> _logger = null!;
     private ServiceProvider _serviceProvider = null!;
     private OrganizeWorker _worker = null!;
 
@@ -43,7 +44,8 @@ public class OrganizeWorkerTests
         services.AddSingleton(_discoveredRepo.Object);
         _serviceProvider = services.BuildServiceProvider();
 
-        _worker = new OrganizeWorker(_hubContext.Object, _serviceProvider, new Mock<ILogger<OrganizeWorker>>().Object);
+        _logger = new Mock<ILogger<OrganizeWorker>>();
+        _worker = new OrganizeWorker(_hubContext.Object, _serviceProvider, _logger.Object);
     }
 
     [TestCleanup]
@@ -112,5 +114,29 @@ public class OrganizeWorkerTests
         _organizeTaskService.Verify(s => s.DeleteQueuedOrganizeTask(originalPath), Times.Once);
         _organizeClient.Verify(c => c.QueueError(It.Is<QueueError>(e =>
             e.OriginalFileLocation == originalPath && e.Error == "'/library/book.m4b' already exists")), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ExecuteAsync_CooperativeShutdownWhileIdle_DoesNotLogAnError()
+    {
+        // No task is ever queued, so the worker sits in its idle `Task.Delay(5s, stoppingToken)`.
+        // Stopping the host should cancel that delay and exit cleanly, without treating the
+        // resulting OperationCanceledException as a processing failure.
+        var pollCount = 0;
+        _organizeTaskService.Setup(s => s.GetNextQueuedOrganizeTask())
+            .ReturnsAsync(() => { pollCount++; return null; });
+
+        await _worker.StartAsync(CancellationToken.None);
+        await WaitUntilAsync(() => pollCount >= 1, TimeSpan.FromSeconds(5));
+        await _worker.StopAsync(CancellationToken.None);
+
+        _logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
     }
 }

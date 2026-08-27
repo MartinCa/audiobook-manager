@@ -8,6 +8,7 @@ using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -55,6 +56,7 @@ public class SimilarValuesControllerTests
             _similarValueService.Object,
             _personRepository.Object,
             _audiobookRepository.Object,
+            Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
 

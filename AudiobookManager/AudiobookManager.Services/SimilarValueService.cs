@@ -35,14 +35,14 @@ public class SimilarValueService : ISimilarValueService
         var names = authors.Select(a => a.Name).Distinct().ToList();
 
         var clusters = SimilarityGrouper.GroupSimilarValues(names, _settings);
+        var authorsByName = authors.ToLookup(a => a.Name);
 
         return clusters.Select(cluster => new SimilarValueGroup
         {
             Candidates = cluster.Select(name => new SimilarValueCandidate
             {
                 Value = name,
-                Books = authors
-                    .Where(a => a.Name == name)
+                Books = authorsByName[name]
                     .SelectMany(a => a.BooksAuthored.Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }))
                     .DistinctBy(b => b.Id)
                     .ToList()
@@ -90,21 +90,29 @@ public class SimilarValueService : ISimilarValueService
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
 
+                // Track whether the target name is already present in newAuthors via a bool
+                // that is kept in sync on every insertion (including when the target is already
+                // a literal author on the book, not just when it's added to replace a source
+                // name) so a source name encountered later never re-adds it as a duplicate.
                 var newAuthors = new List<Person>();
-                var targetAdded = false;
+                var targetPresent = false;
                 foreach (var author in domain.Authors)
                 {
                     if (sourceSet.Contains(author.Name))
                     {
-                        if (!targetAdded && newAuthors.All(a => a.Name != targetName))
+                        if (!targetPresent)
                         {
                             newAuthors.Add(new Person(targetName));
-                            targetAdded = true;
+                            targetPresent = true;
                         }
                     }
                     else if (newAuthors.All(a => a.Name != author.Name))
                     {
                         newAuthors.Add(author);
+                        if (author.Name == targetName)
+                        {
+                            targetPresent = true;
+                        }
                     }
                 }
                 domain.Authors = newAuthors;

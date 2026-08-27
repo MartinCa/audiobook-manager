@@ -25,9 +25,41 @@ public class PersonRepository : IPersonRepository
         return dbPerson;
     }
 
+    public async Task<Dictionary<string, Person>> GetOrCreatePersons(IEnumerable<string> names)
+    {
+        var distinctNames = names.Distinct().ToList();
+        var result = new Dictionary<string, Person>();
+        if (distinctNames.Count == 0)
+        {
+            return result;
+        }
+
+        var existing = await _db.Persons.Where(p => distinctNames.Contains(p.Name)).ToListAsync();
+        foreach (var person in existing)
+        {
+            result[person.Name] = person;
+        }
+
+        var missingNames = distinctNames.Where(n => !result.ContainsKey(n)).ToList();
+        if (missingNames.Count > 0)
+        {
+            var newPersons = missingNames.Select(n => new Person(default, n)).ToList();
+            _db.Persons.AddRange(newPersons);
+            await _db.SaveChangesAsync();
+
+            foreach (var person in newPersons)
+            {
+                result[person.Name] = person;
+            }
+        }
+
+        return result;
+    }
+
     public async Task<List<Person>> GetAllAuthorsAsync()
     {
         return await _db.Persons
+            .AsNoTracking()
             .Include(p => p.BooksAuthored)
             .Where(p => p.BooksAuthored.Any())
             .OrderBy(p => p.Name)
@@ -39,6 +71,7 @@ public class PersonRepository : IPersonRepository
         var pattern = $"%{query}%";
 
         return await _db.Persons
+            .AsNoTracking()
             .Include(p => p.BooksAuthored)
             .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.Name, pattern))
             .OrderBy(p => p.Name)

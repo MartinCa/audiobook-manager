@@ -6,19 +6,29 @@ public class FileScanner
     public static List<AudiobookFileInfo> ScanDirectoryForFiles(string path, Func<FileInfo, bool>? fileFilter = null)
     {
         var result = new List<AudiobookFileInfo>();
+        var directories = new Stack<string>();
+        directories.Push(path);
 
-        foreach (string sPath in Directory.GetFiles(path))
+        // Iterative, single accumulating list with lazy Enumerate* calls instead of recursive
+        // GetFiles/GetDirectories (which each materialize their own array) merged via AddRange
+        // at every level - avoids O(depth) intermediate list allocations on deep/wide trees.
+        while (directories.Count > 0)
         {
-            var fileInfo = new FileInfo(sPath);
-            if (fileFilter is null || fileFilter(fileInfo))
+            var currentPath = directories.Pop();
+
+            foreach (string sPath in Directory.EnumerateFiles(currentPath))
             {
-                result.Add(new AudiobookFileInfo(fileInfo));
+                var fileInfo = new FileInfo(sPath);
+                if (fileFilter is null || fileFilter(fileInfo))
+                {
+                    result.Add(new AudiobookFileInfo(fileInfo));
+                }
             }
-        }
 
-        foreach (string sPath in Directory.GetDirectories(path))
-        {
-            result.AddRange(ScanDirectoryForFiles(sPath, fileFilter));
+            foreach (string sPath in Directory.EnumerateDirectories(currentPath))
+            {
+                directories.Push(sPath);
+            }
         }
 
         return result;

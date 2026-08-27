@@ -6,6 +6,7 @@ using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -38,6 +39,7 @@ public class ConsistencyControllerTests
             _statusRegistry.Object,
             _issueRepository.Object,
             _orphanDirectoryRepository.Object,
+            Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
 

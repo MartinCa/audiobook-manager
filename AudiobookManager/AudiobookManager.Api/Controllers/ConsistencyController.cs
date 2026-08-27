@@ -20,6 +20,7 @@ public class ConsistencyController : ControllerBase
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<ConsistencyController> _logger;
 
     public ConsistencyController(
@@ -28,6 +29,7 @@ public class ConsistencyController : ControllerBase
         IOperationStatusRegistry statusRegistry,
         IConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
+        IHostApplicationLifetime appLifetime,
         ILogger<ConsistencyController> logger)
     {
         _organizeHub = organizeHub;
@@ -35,6 +37,7 @@ public class ConsistencyController : ControllerBase
         _statusRegistry = statusRegistry;
         _issueRepository = issueRepository;
         _orphanDirectoryRepository = orphanDirectoryRepository;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -63,7 +66,8 @@ public class ConsistencyController : ControllerBase
                 await _organizeHub.Clients.All.ConsistencyCheckComplete(
                     new ConsistencyCheckComplete(booksChecked, issuesFound));
             },
-            () => _organizeHub.Clients.All.ConsistencyCheckComplete(new ConsistencyCheckComplete(0, 0)));
+            () => _organizeHub.Clients.All.ConsistencyCheckComplete(new ConsistencyCheckComplete(0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpGet("issues")]

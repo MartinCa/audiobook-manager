@@ -16,6 +16,25 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void GetSafeCompletePath_ReplacesEveryInvalidPathCharacter()
+    {
+        var invalidChars = Path.GetInvalidPathChars();
+        if (invalidChars.Length == 0)
+        {
+            Assert.Inconclusive("This platform reports no invalid path characters.");
+        }
+
+        // Build a path with an invalid char between every valid segment, including adjacent
+        // occurrences, so a single-pass replacement has to handle repeats and adjacency.
+        var input = string.Join("", invalidChars.Select(c => $"a{c}{c}"));
+
+        var result = AudiobookFileHandler.GetSafeCompletePath(input);
+
+        Assert.IsFalse(result.Any(c => invalidChars.Contains(c)));
+        Assert.AreEqual(new string('a', invalidChars.Length), result);
+    }
+
+    [TestMethod]
     public void GenerateRelativeAudiobookPath_WithSeries_IncludesSeriesDirectory()
     {
         var audiobook = new Audiobook(
@@ -252,6 +271,35 @@ public class AudiobookFileHandlerTests
 
             var writtenBytes = File.ReadAllBytes(result);
             CollectionAssert.AreEqual(coverBytes, writtenBytes);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public void WriteCover_NoCoverOnAudiobook_ReturnsNullAndWritesNoFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            File.WriteAllText(tempFile, "fake");
+
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Test Book",
+                2024,
+                new AudiobookFileInfo(tempFile, "test.m4b", 100));
+
+            var result = AudiobookFileHandler.WriteCover(audiobook);
+
+            Assert.IsNull(result);
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "cover.jpg")));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "cover.png")));
         }
         finally
         {

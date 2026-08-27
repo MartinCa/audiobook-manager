@@ -58,17 +58,22 @@ public class AudiobookServiceTests
             Genres = new List<string> { "Fiction", "Sci-Fi" }
         };
 
-        _personRepository.Setup(r => r.GetOrCreatePerson("Author1"))
-            .ReturnsAsync(new DbPerson(1, "Author1"));
-        _personRepository.Setup(r => r.GetOrCreatePerson("Author2"))
-            .ReturnsAsync(new DbPerson(2, "Author2"));
-        _personRepository.Setup(r => r.GetOrCreatePerson("Narrator1"))
-            .ReturnsAsync(new DbPerson(3, "Narrator1"));
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.Is<IEnumerable<string>>(names =>
+                names.SequenceEqual(new[] { "Author1", "Author2", "Narrator1" }))))
+            .ReturnsAsync(new Dictionary<string, DbPerson>
+            {
+                ["Author1"] = new DbPerson(1, "Author1"),
+                ["Author2"] = new DbPerson(2, "Author2"),
+                ["Narrator1"] = new DbPerson(3, "Narrator1")
+            });
 
-        _genreRepository.Setup(r => r.GetOrCreateGenre("Fiction"))
-            .ReturnsAsync(new DbGenre(1, "Fiction"));
-        _genreRepository.Setup(r => r.GetOrCreateGenre("Sci-Fi"))
-            .ReturnsAsync(new DbGenre(2, "Sci-Fi"));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.Is<IEnumerable<string>>(names =>
+                names.SequenceEqual(new[] { "Fiction", "Sci-Fi" }))))
+            .ReturnsAsync(new Dictionary<string, DbGenre>
+            {
+                ["Fiction"] = new DbGenre(1, "Fiction"),
+                ["Sci-Fi"] = new DbGenre(2, "Sci-Fi")
+            });
 
         _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
             .ReturnsAsync((DbAudiobook db) =>
@@ -79,11 +84,8 @@ public class AudiobookServiceTests
 
         var result = await _service.InsertAudiobook(audiobook);
 
-        _personRepository.Verify(r => r.GetOrCreatePerson("Author1"), Times.Once);
-        _personRepository.Verify(r => r.GetOrCreatePerson("Author2"), Times.Once);
-        _personRepository.Verify(r => r.GetOrCreatePerson("Narrator1"), Times.Once);
-        _genreRepository.Verify(r => r.GetOrCreateGenre("Fiction"), Times.Once);
-        _genreRepository.Verify(r => r.GetOrCreateGenre("Sci-Fi"), Times.Once);
+        _personRepository.Verify(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()), Times.Once);
+        _genreRepository.Verify(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()), Times.Once);
         _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db =>
             db.BookName == "Test Book" &&
             db.Authors.Count == 2 &&
@@ -112,8 +114,8 @@ public class AudiobookServiceTests
 
         var result = await _service.InsertAudiobook(audiobook);
 
-        _personRepository.Verify(r => r.GetOrCreatePerson(It.IsAny<string>()), Times.Never);
-        _genreRepository.Verify(r => r.GetOrCreateGenre(It.IsAny<string>()), Times.Never);
+        _personRepository.Verify(r => r.GetOrCreatePersons(It.Is<IEnumerable<string>>(names => !names.Any())), Times.Once);
+        _genreRepository.Verify(r => r.GetOrCreateGenres(It.Is<IEnumerable<string>>(names => !names.Any())), Times.Once);
         _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db =>
             db.Authors.Count == 0 &&
             db.Narrators.Count == 0 &&
@@ -209,6 +211,8 @@ public class AudiobookServiceTests
         _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(id)).ReturnsAsync(existing);
         _personRepository.Setup(r => r.GetOrCreatePerson(It.IsAny<string>()))
             .ReturnsAsync((string name) => new DbPerson(1, name));
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
         _audiobookRepository.Setup(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>())).Returns(Task.CompletedTask);
     }
 
