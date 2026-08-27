@@ -54,9 +54,8 @@ public class SeriesControllerTests
     // static gate in its finally block, so waiting for SetFinished alone can race the gate
     // release (especially since Moq callbacks and TaskCompletionSource can resume our
     // continuation synchronously, inline with the SetFinished call, before the runner's very
-    // next statement executes). RunContinuationsAsynchronously plus a short yield afterwards
-    // gives the gate.Release() call room to run first, so the next test doesn't see a
-    // still-held gate.
+    // next statement executes). RunContinuationsAsynchronously keeps that resumption off the
+    // runner's thread; AwaitOperationFinished then waits on the gate itself.
     private Task RegisterFinishedWaiter(string operationKey)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -67,7 +66,7 @@ public class SeriesControllerTests
     private static async Task AwaitOperationFinished(Task finishedSignal)
     {
         await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
-        await Task.Delay(20);
+        await OperationGate.WaitUntilReleasedAsync(typeof(SeriesController));
     }
 
     private static SeriesOverview MakeOverview(string name = "Mistborn") => new SeriesOverview

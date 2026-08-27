@@ -62,8 +62,8 @@ public class SimilarValuesControllerTests
     // static gate in its finally block, so waiting for SetFinished alone can race the gate
     // release (Moq callbacks/TaskCompletionSource can resume our continuation synchronously,
     // inline with the SetFinished call, before the runner's very next statement executes).
-    // RunContinuationsAsynchronously plus a short yield afterwards gives gate.Release() room
-    // to run first, so this static gate isn't still held when the next test starts.
+    // RunContinuationsAsynchronously keeps that resumption off the runner's thread;
+    // AwaitOperationFinished then waits on the gate itself.
     private Task RegisterFinishedWaiter()
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -74,7 +74,7 @@ public class SimilarValuesControllerTests
     private static async Task AwaitOperationFinished(Task finishedSignal)
     {
         await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
-        await Task.Delay(20);
+        await OperationGate.WaitUntilReleasedAsync(typeof(SimilarValuesController));
     }
 
     private static SimilarValueGroup MakeGroup() => new SimilarValueGroup
