@@ -71,21 +71,24 @@ public class AudiobookService : IAudiobookService
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
-        if (File.Exists(newFullPath))
+        if (newFullPath != audiobook.FileInfo.FullPath)
         {
-            throw new Exception($"'{newFullPath}' already exists");
+            if (File.Exists(newFullPath))
+            {
+                throw new Exception($"'{newFullPath}' already exists");
+            }
+
+            await progressAction("Generated new path, relocating", 75);
+
+            sw.Restart();
+
+            AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+
+            _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
+            sw.Restart();
+
+            await progressAction("Relocated", 80);
         }
-
-        await progressAction("Generated new path, relocating", 75);
-
-        sw.Restart();
-
-        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
-
-        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
-        sw.Restart();
-
-        await progressAction("Relocated", 80);
 
         var newParsed = ParseAudiobook(newFullPath);
 
