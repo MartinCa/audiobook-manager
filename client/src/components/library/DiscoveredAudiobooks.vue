@@ -26,19 +26,11 @@
           tracked in the database.
         </div>
         <template v-if="scanning">
-          <v-progress-linear
+          <OperationProgressBar
             class="mt-3"
-            :model-value="
-              scanTotalFiles > 0 ? (scanFilesScanned / scanTotalFiles) * 100 : 0
-            "
-            color="primary"
-            height="20"
-            striped
-          >
-            <template v-slot:default>
-              {{ scanFilesScanned }} / {{ scanTotalFiles }}
-            </template>
-          </v-progress-linear>
+            :processed="scanFilesScanned"
+            :total="scanTotalFiles"
+          />
           <div class="text-caption mt-1">{{ scanMessage }}</div>
         </template>
         <v-alert
@@ -111,19 +103,11 @@
           </v-btn>
         </div>
         <template v-if="importing">
-          <v-progress-linear
+          <OperationProgressBar
             class="mb-3"
-            :model-value="
-              importTotal > 0 ? (importProcessed / importTotal) * 100 : 0
-            "
-            color="primary"
-            height="20"
-            striped
-          >
-            <template v-slot:default>
-              {{ importProcessed }} / {{ importTotal }}
-            </template>
-          </v-progress-linear>
+            :processed="importProcessed"
+            :total="importTotal"
+          />
         </template>
         <v-expansion-panels
           v-if="discoveredBooks.length"
@@ -235,9 +219,11 @@
 import { computed, onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import { debounce } from "lodash";
 import BookOrganize from "../BookOrganize.vue";
+import OperationProgressBar from "../OperationProgressBar.vue";
 import LibraryService from "../../services/LibraryService";
 import DiscoveredAudiobook from "../../types/DiscoveredAudiobook";
 import { useSignalR, HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../../composables/useOperationProgress";
 import { LibraryScanProgress } from "../../signalr/LibraryScanProgress";
 import { LibraryScanComplete } from "../../signalr/LibraryScanComplete";
 import { ProgressUpdate } from "../../signalr/ProgressUpdate";
@@ -267,35 +253,59 @@ const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
 
 const selectedPaths: Ref<Set<string>> = ref(new Set());
-const importing: Ref<boolean> = ref(false);
-const importProcessed: Ref<number> = ref(0);
-const importTotal: Ref<number> = ref(0);
 const importConfirmDialog: Ref<boolean> = ref(false);
 const snackbar: Ref<boolean> = ref(false);
 const snackbarText: Ref<string> = ref("");
 
-const scanning: Ref<boolean> = ref(false);
 const scanMessage: Ref<string> = ref("");
-const scanFilesScanned: Ref<number> = ref(0);
-const scanTotalFiles: Ref<number> = ref(0);
 const scanComplete: Ref<boolean> = ref(false);
 const scanNewFiles: Ref<number> = ref(0);
 const scanTrackedFiles: Ref<number> = ref(0);
 
-const onLibraryScanProgress = (arg: LibraryScanProgress) => {
-  scanning.value = true;
-  scanMessage.value = arg.message;
-  scanFilesScanned.value = arg.filesScanned;
-  scanTotalFiles.value = arg.totalFiles;
-};
+const {
+  isRunning: scanning,
+  processed: scanFilesScanned,
+  total: scanTotalFiles,
+  start: startScanning,
+} = useOperationProgress<LibraryScanProgress, LibraryScanComplete>({
+  key: "library-scan",
+  progressToken: LibraryScanProgressToken,
+  completeToken: LibraryScanCompleteToken,
+  getProcessed: (arg) => arg.filesScanned,
+  getTotal: (arg) => arg.totalFiles,
+  onProgress: (arg) => {
+    scanMessage.value = arg.message;
+  },
+  onComplete: (arg) => {
+    scanComplete.value = true;
+    scanNewFiles.value = arg.newFilesDiscovered;
+    scanTrackedFiles.value = arg.alreadyTracked;
+    loadDiscoveredBooks();
+  },
+});
 
-const onLibraryScanComplete = (arg: LibraryScanComplete) => {
-  scanning.value = false;
-  scanComplete.value = true;
-  scanNewFiles.value = arg.newFilesDiscovered;
-  scanTrackedFiles.value = arg.alreadyTracked;
-  loadDiscoveredBooks();
-};
+const {
+  isRunning: importing,
+  processed: importProcessed,
+  total: importTotal,
+  start: startImporting,
+} = useOperationProgress<DiscoveredImportProgress, DiscoveredImportComplete>({
+  key: "discovered-import",
+  progressToken: DiscoveredImportProgressToken,
+  completeToken: DiscoveredImportCompleteToken,
+  getProcessed: (arg) => arg.processed,
+  getTotal: (arg) => arg.total,
+  onComplete: (arg) => {
+    let msg = `Import complete: ${arg.totalSucceeded} of ${arg.totalProcessed} books added`;
+    if (arg.totalFailed > 0) {
+      msg += ` (${arg.totalFailed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+    selectedPaths.value = new Set();
+    loadDiscoveredBooks();
+  },
+});
 
 const onUpdateProgress = (arg: ProgressUpdate) => {
   const book = discoveredBooks.value.find(
@@ -316,37 +326,13 @@ const onQueueError = (arg: QueueError) => {
   }
 };
 
-const onDiscoveredImportProgress = (arg: DiscoveredImportProgress) => {
-  importProcessed.value = arg.processed;
-  importTotal.value = arg.total;
-};
-
-const onDiscoveredImportComplete = (arg: DiscoveredImportComplete) => {
-  importing.value = false;
-  let msg = `Import complete: ${arg.totalSucceeded} of ${arg.totalProcessed} books added`;
-  if (arg.totalFailed > 0) {
-    msg += ` (${arg.totalFailed} failed)`;
-  }
-  snackbarText.value = msg;
-  snackbar.value = true;
-  selectedPaths.value = new Set();
-  loadDiscoveredBooks();
-};
-
-signalR.on(LibraryScanProgressToken, onLibraryScanProgress);
-signalR.on(LibraryScanCompleteToken, onLibraryScanComplete);
 signalR.on(UpdateProgress, onUpdateProgress);
 signalR.on(QueueErrorToken, onQueueError);
-signalR.on(DiscoveredImportProgressToken, onDiscoveredImportProgress);
-signalR.on(DiscoveredImportCompleteToken, onDiscoveredImportComplete);
 
 onUnmounted(() => {
-  signalR.off(LibraryScanProgressToken, onLibraryScanProgress);
-  signalR.off(LibraryScanCompleteToken, onLibraryScanComplete);
   signalR.off(UpdateProgress, onUpdateProgress);
   signalR.off(QueueErrorToken, onQueueError);
-  signalR.off(DiscoveredImportProgressToken, onDiscoveredImportProgress);
-  signalR.off(DiscoveredImportCompleteToken, onDiscoveredImportComplete);
+  signalR.offReconnected(loadDiscoveredBooks);
 });
 
 const discoveredTotalPages = computed((): number =>
@@ -397,9 +383,7 @@ const onImportSelectedClick = () => {
 
 const confirmImportSelected = async () => {
   importConfirmDialog.value = false;
-  importing.value = true;
-  importProcessed.value = 0;
-  importTotal.value = 0;
+  startImporting();
   try {
     await LibraryService.bulkImportDiscovered(Array.from(selectedPaths.value));
   } catch (e: any) {
@@ -414,10 +398,8 @@ watch(discoveredCurrentPage, () => {
 });
 
 const startScan = async () => {
-  scanning.value = true;
+  startScanning();
   scanComplete.value = false;
-  scanFilesScanned.value = 0;
-  scanTotalFiles.value = 0;
   scanMessage.value = "";
   await LibraryService.startLibraryScan();
 };
@@ -431,6 +413,11 @@ const loadDiscoveredBooks = async () => {
   discoveredTotalItems.value = result.total;
   discoveredBooks.value = result.items;
 };
+
+// A queued book's UpdateProgress/QueueError events can be missed while disconnected (e.g. a
+// backgrounded mobile tab), leaving it stuck showing "Queued" even after it finished. Reloading
+// the list on reconnect re-syncs queue state the same way it does on mount.
+signalR.onReconnected(loadDiscoveredBooks);
 
 const debouncedDiscoveredSearch = debounce(() => {
   discoveredCurrentPage.value = 1;

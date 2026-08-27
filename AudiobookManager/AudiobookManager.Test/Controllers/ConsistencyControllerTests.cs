@@ -16,6 +16,7 @@ public class ConsistencyControllerTests
 {
     private Mock<IHubContext<OrganizeHub, IOrganize>> _hubContext = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
+    private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<ILogger<ConsistencyController>> _logger = null!;
@@ -26,6 +27,7 @@ public class ConsistencyControllerTests
     {
         _hubContext = new Mock<IHubContext<OrganizeHub, IOrganize>>();
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
+        _statusRegistry = new Mock<IOperationStatusRegistry>();
         _issueRepository = new Mock<IConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _logger = new Mock<ILogger<ConsistencyController>>();
@@ -33,6 +35,7 @@ public class ConsistencyControllerTests
         _controller = new ConsistencyController(
             _hubContext.Object,
             _serviceScopeFactory.Object,
+            _statusRegistry.Object,
             _issueRepository.Object,
             _orphanDirectoryRepository.Object,
             _logger.Object);

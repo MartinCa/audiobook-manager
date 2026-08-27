@@ -128,20 +128,12 @@
               </v-btn>
             </div>
 
-            <v-progress-linear
+            <OperationProgressBar
               v-if="refreshing"
               class="mt-3"
-              :model-value="
-                refreshTotal > 0 ? (refreshProcessed / refreshTotal) * 100 : 0
-              "
-              color="primary"
-              height="20"
-              striped
-            >
-              <template v-slot:default>
-                {{ refreshProcessed }} / {{ refreshTotal }}
-              </template>
-            </v-progress-linear>
+              :processed="refreshProcessed"
+              :total="refreshTotal"
+            />
 
             <div
               v-if="candidates.length"
@@ -340,7 +332,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, Ref, ref } from "vue";
+import { computed, onMounted, Ref, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import SeriesService from "../../services/SeriesService";
 import { formatDuration } from "../../helpers/formatHelpers";
@@ -350,7 +342,9 @@ import {
   SeriesOverview,
   SeriesOwnedBook,
 } from "../../types/Series";
-import { HubEventToken, useSignalR } from "@/signalr/hub";
+import OperationProgressBar from "../OperationProgressBar.vue";
+import { HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../../composables/useOperationProgress";
 import { SeriesRefreshProgress } from "../../signalr/SeriesRefreshProgress";
 import { SeriesRefreshComplete } from "../../signalr/SeriesRefreshComplete";
 
@@ -361,7 +355,6 @@ const SeriesRefreshCompleteToken: HubEventToken<SeriesRefreshComplete> =
 
 const route = useRoute();
 const router = useRouter();
-const signalR = useSignalR();
 
 const books: Ref<SeriesOwnedBook[]> = ref([]);
 const missingBooks: Ref<SeriesExpectedBook[]> = ref([]);
@@ -381,10 +374,6 @@ const updatingOmnibusSetting = ref(false);
 
 const manualQuery = ref("");
 const searchingManually = ref(false);
-
-const refreshing = ref(false);
-const refreshProcessed = ref(0);
-const refreshTotal = ref(0);
 
 const snackbar = ref(false);
 const snackbarText = ref("");
@@ -517,10 +506,30 @@ const onIncludeOmnibusEditionsChanged = async (value: boolean | null) => {
   }
 };
 
+const {
+  isRunning: refreshing,
+  processed: refreshProcessed,
+  total: refreshTotal,
+  start: startRefreshing,
+} = useOperationProgress<SeriesRefreshProgress, SeriesRefreshComplete>({
+  key: "series-refresh",
+  progressToken: SeriesRefreshProgressToken,
+  completeToken: SeriesRefreshCompleteToken,
+  getProcessed: (arg) => arg.processed,
+  getTotal: (arg) => arg.total,
+  onComplete: (arg) => {
+    snackbarText.value = arg.stopReason
+      ? `Refresh stopped: ${arg.stopReason}`
+      : arg.totalFailed > 0
+        ? `Refresh finished with ${arg.totalFailed} failure(s)`
+        : "Refresh complete";
+    snackbar.value = true;
+    loadDetail();
+  },
+});
+
 const refreshSeries = async () => {
-  refreshing.value = true;
-  refreshProcessed.value = 0;
-  refreshTotal.value = 0;
+  startRefreshing();
 
   try {
     await SeriesService.startRefreshSeries(seriesName.value);
@@ -530,30 +539,6 @@ const refreshSeries = async () => {
     snackbar.value = true;
   }
 };
-
-const onRefreshProgress = (arg: SeriesRefreshProgress) => {
-  refreshProcessed.value = arg.processed;
-  refreshTotal.value = arg.total;
-};
-
-const onRefreshComplete = (arg: SeriesRefreshComplete) => {
-  refreshing.value = false;
-  snackbarText.value = arg.stopReason
-    ? `Refresh stopped: ${arg.stopReason}`
-    : arg.totalFailed > 0
-      ? `Refresh finished with ${arg.totalFailed} failure(s)`
-      : "Refresh complete";
-  snackbar.value = true;
-  loadDetail();
-};
-
-signalR.on(SeriesRefreshProgressToken, onRefreshProgress);
-signalR.on(SeriesRefreshCompleteToken, onRefreshComplete);
-
-onUnmounted(() => {
-  signalR.off(SeriesRefreshProgressToken, onRefreshProgress);
-  signalR.off(SeriesRefreshCompleteToken, onRefreshComplete);
-});
 
 onMounted(async () => {
   seriesName.value = route.params.seriesName as string;

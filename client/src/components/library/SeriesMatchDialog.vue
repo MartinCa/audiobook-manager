@@ -58,16 +58,12 @@
           </v-col>
         </v-row>
 
-        <v-progress-linear
+        <OperationProgressBar
           v-if="matching"
           class="my-3"
-          :model-value="total > 0 ? (processed / total) * 100 : 0"
-          color="primary"
-          height="20"
-          striped
-        >
-          <template v-slot:default> {{ processed }} / {{ total }} </template>
-        </v-progress-linear>
+          :processed="processed"
+          :total="total"
+        />
         <div
           v-if="matching"
           class="text-caption mb-2"
@@ -149,10 +145,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, Ref, ref, watch } from "vue";
+import { computed, Ref, ref, watch } from "vue";
 import SeriesService from "../../services/SeriesService";
 import { SeriesMatchCandidate, SeriesOverview } from "../../types/Series";
-import { HubEventToken, useSignalR } from "@/signalr/hub";
+import OperationProgressBar from "../OperationProgressBar.vue";
+import { HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../../composables/useOperationProgress";
 import { SeriesMatchProgress } from "../../signalr/SeriesMatchProgress";
 import { SeriesMatchComplete } from "../../signalr/SeriesMatchComplete";
 
@@ -171,17 +169,12 @@ const SeriesMatchProgressToken: HubEventToken<SeriesMatchProgress> =
 const SeriesMatchCompleteToken: HubEventToken<SeriesMatchComplete> =
   "SeriesMatchComplete";
 
-const signalR = useSignalR();
-
 const threshold = ref(0.85);
 const selected: Ref<string[]> = ref([]);
 // null means "looked up, nothing found" - distinct from "not looked up yet" (undefined).
 const suggestions: Ref<Record<string, SeriesMatchCandidate | null>> = ref({});
 const loadingSuggestions = ref(false);
 
-const matching = ref(false);
-const processed = ref(0);
-const total = ref(0);
 const succeeded = ref(0);
 const failed = ref(0);
 
@@ -232,10 +225,36 @@ const loadSuggestions = async () => {
   }
 };
 
+const {
+  isRunning: matching,
+  processed,
+  total,
+  start: startMatching,
+} = useOperationProgress<SeriesMatchProgress, SeriesMatchComplete>({
+  key: "series-match",
+  progressToken: SeriesMatchProgressToken,
+  completeToken: SeriesMatchCompleteToken,
+  getProcessed: (arg) => arg.processed,
+  getTotal: (arg) => arg.total,
+  onProgress: (arg) => {
+    succeeded.value = arg.succeeded;
+    failed.value = arg.failed;
+  },
+  onComplete: (arg) => {
+    let msg = arg.stopReason
+      ? `Matching stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
+      : `Matching complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series matched`;
+    if (arg.totalFailed > 0) {
+      msg += ` (${arg.totalFailed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+    emit("matched");
+  },
+});
+
 const startMatch = async () => {
-  matching.value = true;
-  processed.value = 0;
-  total.value = 0;
+  startMatching();
   succeeded.value = 0;
   failed.value = 0;
 
@@ -249,32 +268,4 @@ const startMatch = async () => {
 };
 
 const close = () => emit("update:modelValue", false);
-
-const onMatchProgress = (arg: SeriesMatchProgress) => {
-  processed.value = arg.processed;
-  total.value = arg.total;
-  succeeded.value = arg.succeeded;
-  failed.value = arg.failed;
-};
-
-const onMatchComplete = (arg: SeriesMatchComplete) => {
-  matching.value = false;
-  let msg = arg.stopReason
-    ? `Matching stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
-    : `Matching complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series matched`;
-  if (arg.totalFailed > 0) {
-    msg += ` (${arg.totalFailed} failed)`;
-  }
-  snackbarText.value = msg;
-  snackbar.value = true;
-  emit("matched");
-};
-
-signalR.on(SeriesMatchProgressToken, onMatchProgress);
-signalR.on(SeriesMatchCompleteToken, onMatchComplete);
-
-onUnmounted(() => {
-  signalR.off(SeriesMatchProgressToken, onMatchProgress);
-  signalR.off(SeriesMatchCompleteToken, onMatchComplete);
-});
 </script>
