@@ -32,6 +32,7 @@ public class AudiobookRepository : IAudiobookRepository
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {
         var query = _db.Audiobooks
+            .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
@@ -48,6 +49,7 @@ public class AudiobookRepository : IAudiobookRepository
         var pattern = $"%{query}%";
 
         var dbQuery = _db.Audiobooks
+            .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
@@ -111,6 +113,7 @@ public class AudiobookRepository : IAudiobookRepository
     public async Task<List<Audiobook>> GetAllWithIncludesAsync()
     {
         return await _db.Audiobooks
+            .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)

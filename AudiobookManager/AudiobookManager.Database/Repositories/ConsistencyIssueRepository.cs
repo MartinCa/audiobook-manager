@@ -36,6 +36,18 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task InsertRangeAsync(IEnumerable<ConsistencyIssue> issues)
+    {
+        var issueList = issues as ICollection<ConsistencyIssue> ?? issues.ToList();
+        if (issueList.Count == 0)
+        {
+            return;
+        }
+
+        _db.AddRange(issueList);
+        await _db.SaveChangesAsync();
+    }
+
     public async Task ClearAllAsync()
     {
         _db.ConsistencyIssues.RemoveRange(_db.ConsistencyIssues);

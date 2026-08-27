@@ -1,6 +1,10 @@
 import { onMounted, onUnmounted, Ref, ref } from "vue";
 import { throttle } from "lodash";
-import { HubEventToken, useSignalR } from "@/signalr/hub";
+import {
+  HubEventToken,
+  useSignalREvent,
+  useSignalRReconnected,
+} from "@/signalr/hub";
 import OperationsService from "../services/OperationsService";
 
 // Vuetify's determinate progress bar animates each value change with a ~0.2s CSS
@@ -34,8 +38,6 @@ export interface OperationProgress {
 export function useOperationProgress<TProgress, TComplete>(
   options: OperationProgressOptions<TProgress, TComplete>,
 ): OperationProgress {
-  const signalR = useSignalR();
-
   const isRunning = ref(false);
   const processed = ref(0);
   const total = ref(0);
@@ -84,16 +86,13 @@ export function useOperationProgress<TProgress, TComplete>(
     }
   };
 
-  signalR.on(options.progressToken, handleProgress);
-  signalR.on(options.completeToken, handleComplete);
-  signalR.onReconnected(refreshStatus);
+  useSignalREvent(options.progressToken, handleProgress);
+  useSignalREvent(options.completeToken, handleComplete);
+  useSignalRReconnected(refreshStatus);
 
   onMounted(refreshStatus);
 
   onUnmounted(() => {
-    signalR.off(options.progressToken, handleProgress);
-    signalR.off(options.completeToken, handleComplete);
-    signalR.offReconnected(refreshStatus);
     applyProgress.cancel();
   });
 

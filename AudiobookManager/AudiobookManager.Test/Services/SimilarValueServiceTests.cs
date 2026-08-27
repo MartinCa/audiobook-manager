@@ -147,6 +147,32 @@ public class SimilarValueServiceTests
     }
 
     [TestMethod]
+    public async Task AlignAuthorsAsync_BookHasBothTargetAndSourceAuthor_TargetIsNotDuplicated()
+    {
+        // Book already lists the target author name literally, plus a source (to-be-merged) name
+        // as a separate author. The target must appear exactly once after alignment.
+        var book = MakeDbAudiobook(1, "Book One");
+        book.Authors = new List<DbPerson> { new(1, "J.K. Rowling"), new(2, "JK Rowling") };
+
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book });
+
+        Audiobook? capturedAudiobook = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .Callback<long, Audiobook>((id, a) => capturedAudiobook = a)
+            .ReturnsAsync((long id, Audiobook a) => a);
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        Assert.IsNotNull(capturedAudiobook);
+        Assert.AreEqual(1, capturedAudiobook!.Authors.Count);
+        Assert.AreEqual("J.K. Rowling", capturedAudiobook.Authors[0].Name);
+    }
+
+    [TestMethod]
     public async Task AlignAuthorsAsync_ExcludesTargetNameFromBookLookup()
     {
         var book = MakeDbAudiobook(1, "Book One");

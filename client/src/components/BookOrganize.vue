@@ -108,7 +108,7 @@
 
 <script setup lang="ts">
 import { onMounted, Ref, ref, watch } from "vue";
-import { Audiobook, AudiobookImage } from "../types/Audiobook";
+import { Audiobook } from "../types/Audiobook";
 import { TargetPathCheckResult } from "../types/TargetPathCheck";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookDeleteDialog from "./BookDeleteDialog.vue";
@@ -119,6 +119,7 @@ import { useDialogWidth } from "./dialog";
 import { useErrors } from "./errors";
 import AudiobookService from "../services/AudiobookService";
 import { debounce } from "lodash";
+import { convertInputToAudiobook as buildAudiobook } from "../helpers/organizeAudiobookInput";
 
 const props = defineProps<{
   bookPath: string;
@@ -141,9 +142,28 @@ const pendingOrganizeData: Ref<Audiobook | null> = ref(null);
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
+// Watches only the fields path generation actually depends on. Deliberately never reads
+// cover_base64/cover_mime here: a getter that read them (even to overwrite them afterwards)
+// would still track them as reactive dependencies, so editing the cover would keep
+// retriggering this debounced call and deep-diffing the large cover string for nothing.
 watch(
-  input,
-  async (newValue, oldValue) => {
+  () => ({
+    authors: input.value.authors,
+    narrators: input.value.narrators,
+    bookName: input.value.bookName,
+    subtitle: input.value.subtitle,
+    series: input.value.series,
+    seriesPart: input.value.seriesPart,
+    year: input.value.year,
+    genres: input.value.genres,
+    description: input.value.description,
+    copyright: input.value.copyright,
+    publisher: input.value.publisher,
+    asin: input.value.asin,
+    www: input.value.www,
+    rating: input.value.rating,
+  }),
+  async () => {
     await updateNewBookPath();
   },
   { deep: true },
@@ -187,37 +207,10 @@ const convertInputToAudiobook = (): Audiobook | null => {
     return null;
   }
 
-  const inp = input.value;
-
-  let cover: AudiobookImage | undefined = undefined;
-  if (inp.cover_base64 && inp.cover_mime) {
-    cover = {
-      base64Data: inp.cover_base64,
-      mimeType: inp.cover_mime,
-    };
-  }
-
-  let newBook: Audiobook = {
-    authors: inp.authors?.split(",").map((x) => ({ name: x.trim() })) ?? [],
-    narrators: inp.narrators?.split(",").map((x) => ({ name: x.trim() })) ?? [],
-    bookName: inp.bookName,
-    subtitle: inp.subtitle,
-    series: inp.series,
-    seriesPart: inp.seriesPart,
-    year: inp.year,
-    genres: inp.genres?.split("/") ?? [],
-    description: inp.description,
-    copyright: inp.copyright,
-    publisher: inp.publisher,
-    rating: inp.rating?.toString(),
-    asin: inp.asin,
-    www: inp.www,
-    cover: cover,
+  return buildAudiobook(input.value, {
     durationInSeconds: bookDetails.value.durationInSeconds,
     fileInfo: bookDetails.value.fileInfo,
-  };
-
-  return newBook;
+  });
 };
 
 const organizeBook = async () => {

@@ -18,9 +18,20 @@ const fakeSignalR = {
   offReconnected: vi.fn(),
 };
 
-vi.mock("@/signalr/hub", () => ({
-  useSignalR: () => fakeSignalR,
-}));
+vi.mock("@/signalr/hub", async () => {
+  const vue = await import("vue");
+  return {
+    useSignalR: () => fakeSignalR,
+    useSignalREvent: (token: string, callback: (...args: any[]) => void) => {
+      vue.onMounted(() => fakeSignalR.on(token, callback));
+      vue.onUnmounted(() => fakeSignalR.off(token, callback));
+    },
+    useSignalRReconnected: (callback: () => void) => {
+      vue.onMounted(() => fakeSignalR.onReconnected(callback));
+      vue.onUnmounted(() => fakeSignalR.offReconnected(callback));
+    },
+  };
+});
 
 const mockedGetStatus = vi.mocked(OperationsService.getStatus);
 

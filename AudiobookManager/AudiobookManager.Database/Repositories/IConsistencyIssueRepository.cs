@@ -7,6 +7,7 @@ public interface IConsistencyIssueRepository
     Task<List<ConsistencyIssue>> GetAllWithAudiobookAsync();
     Task<ConsistencyIssue?> GetByIdAsync(long id);
     Task InsertAsync(ConsistencyIssue issue);
+    Task InsertRangeAsync(IEnumerable<ConsistencyIssue> issues);
     Task ClearAllAsync();
     Task DeleteAsync(long id);
     Task DeleteByAudiobookIdAsync(long audiobookId);

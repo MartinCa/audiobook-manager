@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
-import { createSignalR, useSignalR, HubEventToken } from "./hub";
+import {
+  createSignalR,
+  useSignalR,
+  useSignalREvent,
+  useSignalRReconnected,
+  HubEventToken,
+} from "./hub";
 
 const mockConnection = {
   start: vi.fn().mockResolvedValue(undefined),
@@ -34,7 +40,7 @@ function mountWithSignalR<T>(setup: () => T) {
   let captured: T | undefined;
   let capturedError: Error | undefined;
 
-  mount(
+  const wrapper = mount(
     {
       setup() {
         try {
@@ -52,7 +58,7 @@ function mountWithSignalR<T>(setup: () => T) {
     },
   );
 
-  return { captured, capturedError };
+  return { captured, capturedError, wrapper };
 }
 
 describe("createSignalR", () => {
@@ -192,5 +198,40 @@ describe("SignalRClient.onReconnected / offReconnected", () => {
 
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledOnce();
+  });
+});
+
+describe("useSignalREvent", () => {
+  it("registers the listener on mount and unregisters it on unmount", () => {
+    const token: HubEventToken<{ count: number }> = "ProgressUpdate";
+    const cb = vi.fn();
+    const { wrapper } = mountWithSignalR(() => useSignalREvent(token, cb));
+
+    expect(mockConnection.on).toHaveBeenCalledWith("ProgressUpdate", cb);
+    expect(mockConnection.off).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+
+    expect(mockConnection.off).toHaveBeenCalledWith("ProgressUpdate", cb);
+  });
+});
+
+describe("useSignalRReconnected", () => {
+  function triggerReconnected() {
+    const handler = mockConnection.onreconnected.mock.calls[0][0];
+    handler();
+  }
+
+  it("registers the listener on mount and stops calling it after unmount", () => {
+    const cb = vi.fn();
+    const { wrapper } = mountWithSignalR(() => useSignalRReconnected(cb));
+
+    triggerReconnected();
+    expect(cb).toHaveBeenCalledOnce();
+
+    wrapper.unmount();
+
+    triggerReconnected();
+    expect(cb).toHaveBeenCalledOnce();
   });
 });

@@ -22,6 +22,7 @@ public class LibraryController : ControllerBase
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IDiscoveredAudiobookRepository _discoveredRepo;
     private readonly ILibraryScanService _libraryScanService;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
@@ -30,6 +31,7 @@ public class LibraryController : ControllerBase
         IOperationStatusRegistry statusRegistry,
         IDiscoveredAudiobookRepository discoveredRepo,
         ILibraryScanService libraryScanService,
+        IHostApplicationLifetime appLifetime,
         ILogger<LibraryController> logger)
     {
         _organizeHub = organizeHub;
@@ -37,6 +39,7 @@ public class LibraryController : ControllerBase
         _statusRegistry = statusRegistry;
         _discoveredRepo = discoveredRepo;
         _libraryScanService = libraryScanService;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -65,24 +68,22 @@ public class LibraryController : ControllerBase
                 await _organizeHub.Clients.All.LibraryScanComplete(
                     new LibraryScanComplete(totalFiles, newFilesDiscovered, trackedFiles));
             },
-            () => _organizeHub.Clients.All.LibraryScanComplete(new LibraryScanComplete(0, 0, 0)));
+            () => _organizeHub.Clients.All.LibraryScanComplete(new LibraryScanComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpGet("discovered")]
     public async Task<PaginatedResult<DiscoveredAudiobookDto>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
-        var mapped = new List<DiscoveredAudiobookDto>();
+        var mapped = items.Select(item => new DiscoveredAudiobookDto(item)).ToList();
 
-        foreach (var item in items)
-        {
-            var dto = new DiscoveredAudiobookDto(item);
-            if (dto.IsWellTagged)
-            {
-                dto.IsDuplicate = await _libraryScanService.IsDuplicateTargetAsync(item);
-            }
-            mapped.Add(dto);
-        }
+        // Each duplicate check is an independent I/O call keyed by its own dto/item pair, so run
+        // them concurrently instead of one-at-a-time in the page.
+        var duplicateChecks = items.Zip(mapped, (item, dto) => (item, dto))
+            .Where(pair => pair.dto.IsWellTagged)
+            .Select(async pair => pair.dto.IsDuplicate = await _libraryScanService.IsDuplicateTargetAsync(pair.item));
+        await Task.WhenAll(duplicateChecks);
 
         return new PaginatedResult<DiscoveredAudiobookDto>(mapped.Count, total, mapped);
     }
@@ -125,6 +126,7 @@ public class LibraryController : ControllerBase
                 await _organizeHub.Clients.All.DiscoveredImportComplete(
                     new DiscoveredImportComplete(processed, succeeded, failed));
             },
-            () => _organizeHub.Clients.All.DiscoveredImportComplete(new DiscoveredImportComplete(0, 0, 0)));
+            () => _organizeHub.Clients.All.DiscoveredImportComplete(new DiscoveredImportComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 }

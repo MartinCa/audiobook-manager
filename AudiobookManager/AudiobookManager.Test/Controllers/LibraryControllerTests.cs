@@ -5,6 +5,7 @@ using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -29,6 +30,7 @@ public class LibraryControllerTests
             new Mock<IOperationStatusRegistry>().Object,
             _discoveredRepo.Object,
             _libraryScanService.Object,
+            Mock.Of<IHostApplicationLifetime>(),
             new Mock<ILogger<LibraryController>>().Object);
     }
 
@@ -82,5 +84,32 @@ public class LibraryControllerTests
         Assert.IsFalse(result.Items[0].IsWellTagged);
         Assert.IsFalse(result.Items[0].IsDuplicate);
         _libraryScanService.Verify(s => s.IsDuplicateTargetAsync(It.IsAny<DiscoveredAudiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetDiscovered_MultipleWellTaggedEntries_EachGetsItsOwnDuplicateResultRegardlessOfConcurrentChecks()
+    {
+        // Duplicate checks run concurrently now (Task.WhenAll), so each item's own result must
+        // still land on the correct dto rather than getting crossed with another item's.
+        var duplicateEntry = MakeWellTagged("/import/dup.m4b");
+        var freeEntry = MakeWellTagged("/import/free.m4b");
+        var notWellTagged = new DiscoveredAudiobook("Untagged", "/import/untagged.m4b", "untagged.m4b", 1000, DateTime.UtcNow)
+        {
+            Authors = null,
+            Year = null
+        };
+
+        _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
+            .ReturnsAsync((new List<DiscoveredAudiobook> { duplicateEntry, freeEntry, notWellTagged }, 3));
+        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(duplicateEntry)).ReturnsAsync(true);
+        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(freeEntry)).ReturnsAsync(false);
+
+        var result = await _controller.GetDiscovered();
+
+        Assert.AreEqual(3, result.Items.Count);
+        Assert.IsTrue(result.Items.Single(i => i.FullPath == "/import/dup.m4b").IsDuplicate);
+        Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/free.m4b").IsDuplicate);
+        Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/untagged.m4b").IsDuplicate);
+        _libraryScanService.Verify(s => s.IsDuplicateTargetAsync(notWellTagged), Times.Never);
     }
 }

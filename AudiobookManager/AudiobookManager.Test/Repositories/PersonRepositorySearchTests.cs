@@ -82,4 +82,52 @@ public class PersonRepositorySearchTests
 
         Assert.AreEqual(0, results.Count);
     }
+
+    [TestMethod]
+    public async Task GetOrCreatePersons_AllNamesNew_CreatesEveryOneInASingleBatch()
+    {
+        var result = await _repository.GetOrCreatePersons(new[] { "Brandon Sanderson", "Frank Herbert" });
+
+        Assert.AreEqual(2, result.Count);
+        Assert.IsTrue(result["Brandon Sanderson"].Id != default);
+        Assert.IsTrue(result["Frank Herbert"].Id != default);
+        Assert.AreNotEqual(result["Brandon Sanderson"].Id, result["Frank Herbert"].Id);
+    }
+
+    [TestMethod]
+    public async Task GetOrCreatePersons_AllNamesExisting_ReusesExistingRowsWithoutDuplicating()
+    {
+        var existing = await _repository.GetOrCreatePerson("Brandon Sanderson");
+
+        var result = await _repository.GetOrCreatePersons(new[] { "Brandon Sanderson" });
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual(existing.Id, result["Brandon Sanderson"].Id);
+
+        var all = await _db.Persons.Where(p => p.Name == "Brandon Sanderson").ToListAsync();
+        Assert.AreEqual(1, all.Count);
+    }
+
+    [TestMethod]
+    public async Task GetOrCreatePersons_MixOfExistingAndNewNames_ReusesExistingAndCreatesOnlyMissing()
+    {
+        var existing = await _repository.GetOrCreatePerson("Brandon Sanderson");
+
+        var result = await _repository.GetOrCreatePersons(new[] { "Brandon Sanderson", "Frank Herbert" });
+
+        Assert.AreEqual(2, result.Count);
+        Assert.AreEqual(existing.Id, result["Brandon Sanderson"].Id);
+        Assert.IsTrue(result["Frank Herbert"].Id != default);
+
+        var allHerbert = await _db.Persons.Where(p => p.Name == "Frank Herbert").ToListAsync();
+        Assert.AreEqual(1, allHerbert.Count);
+    }
+
+    [TestMethod]
+    public async Task GetOrCreatePersons_EmptyInput_ReturnsEmptyDictionaryWithoutQuerying()
+    {
+        var result = await _repository.GetOrCreatePersons(Array.Empty<string>());
+
+        Assert.AreEqual(0, result.Count);
+    }
 }

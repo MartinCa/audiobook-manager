@@ -26,6 +26,7 @@ public class SeriesController : ControllerBase
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly ISeriesService _seriesService;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<SeriesController> _logger;
 
     public SeriesController(
@@ -33,12 +34,14 @@ public class SeriesController : ControllerBase
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         ISeriesService seriesService,
+        IHostApplicationLifetime appLifetime,
         ILogger<SeriesController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _seriesService = seriesService;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -176,7 +179,8 @@ public class SeriesController : ControllerBase
                 await _organizeHub.Clients.All.SeriesMatchComplete(
                     new SeriesMatchComplete(processed, succeeded, failed, stopReason));
             },
-            () => _organizeHub.Clients.All.SeriesMatchComplete(new SeriesMatchComplete(0, 0, 0)));
+            () => _organizeHub.Clients.All.SeriesMatchComplete(new SeriesMatchComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpPost("{seriesName}/refresh")]
@@ -250,7 +254,8 @@ public class SeriesController : ControllerBase
                 await _organizeHub.Clients.All.SeriesRefreshComplete(
                     new SeriesRefreshComplete(processed, succeeded, failed, stopReason));
             },
-            () => _organizeHub.Clients.All.SeriesRefreshComplete(new SeriesRefreshComplete(0, 0, 0)));
+            () => _organizeHub.Clients.All.SeriesRefreshComplete(new SeriesRefreshComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     private static SeriesOverviewDto ToDto(SeriesOverview o) => new(

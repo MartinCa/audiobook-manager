@@ -18,7 +18,8 @@ public static class BackgroundOperationRunner
         IOperationStatusRegistry statusRegistry,
         string operationKey,
         Func<IServiceProvider, Task> work,
-        Func<Task> onError)
+        Func<Task> onError,
+        CancellationToken applicationStopping = default)
     {
         if (!gate.Wait(0))
         {
@@ -26,6 +27,19 @@ public static class BackgroundOperationRunner
         }
 
         statusRegistry.SetRunning(operationKey);
+
+        // The fire-and-forget work below doesn't (yet) thread a CancellationToken into `work`
+        // itself - most of the underlying service methods it calls don't accept one, and
+        // retrofitting that across every long-running operation is out of scope here. As a
+        // minimally invasive improvement, at least surface a clear signal when the host shuts
+        // down while an operation is still in flight, so an unexpected abrupt stop is visible in
+        // the logs instead of silent.
+        var shutdownRegistration = applicationStopping.CanBeCanceled
+            ? applicationStopping.Register(() =>
+                logger.LogWarning(
+                    "Application is stopping while background operation '{OperationKey}' is still running; it will not be cancelled and may be interrupted mid-way",
+                    operationKey))
+            : (CancellationTokenRegistration?)null;
 
         _ = Task.Run(async () =>
         {
@@ -48,6 +62,7 @@ public static class BackgroundOperationRunner
             }
             finally
             {
+                shutdownRegistration?.Dispose();
                 statusRegistry.SetFinished(operationKey);
                 gate.Release();
             }

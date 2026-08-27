@@ -191,5 +191,28 @@ describe("SimilarValueService", () => {
 
       expect(result).toEqual(["Alice", "Bob"]);
     });
+
+    it("refreshes the TTL so a merge keeps the cache valid instead of letting it go stale", async () => {
+      vi.useFakeTimers();
+      try {
+        mockedApiClient.get.mockResolvedValueOnce({ data: ["Alice"] });
+        await SimilarValueService.getAuthorNames();
+
+        // Advance close to (but not past) the TTL, then merge — the merge should reset
+        // the TTL clock rather than leaving the original fetchedAt in place.
+        vi.advanceTimersByTime(5 * 60 * 1000 - 1000);
+        SimilarValueService.addKnownAuthorNames(["Bob"]);
+
+        // Advance past what would have been the original TTL deadline; since the merge
+        // refreshed fetchedAt, the cache should still be served without a new request.
+        vi.advanceTimersByTime(2000);
+        const result = await SimilarValueService.getAuthorNames();
+
+        expect(mockedApiClient.get).toHaveBeenCalledTimes(1);
+        expect(result).toEqual(["Alice", "Bob"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

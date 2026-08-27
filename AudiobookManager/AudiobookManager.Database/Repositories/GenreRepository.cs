@@ -24,4 +24,35 @@ public class GenreRepository : IGenreRepository
 
         return dbGenre;
     }
+
+    public async Task<Dictionary<string, Genre>> GetOrCreateGenres(IEnumerable<string> names)
+    {
+        var distinctNames = names.Distinct().ToList();
+        var result = new Dictionary<string, Genre>();
+        if (distinctNames.Count == 0)
+        {
+            return result;
+        }
+
+        var existing = await _db.Genres.Where(g => distinctNames.Contains(g.Name)).ToListAsync();
+        foreach (var genre in existing)
+        {
+            result[genre.Name] = genre;
+        }
+
+        var missingNames = distinctNames.Where(n => !result.ContainsKey(n)).ToList();
+        if (missingNames.Count > 0)
+        {
+            var newGenres = missingNames.Select(n => new Genre(default, n)).ToList();
+            _db.Genres.AddRange(newGenres);
+            await _db.SaveChangesAsync();
+
+            foreach (var genre in newGenres)
+            {
+                result[genre.Name] = genre;
+            }
+        }
+
+        return result;
+    }
 }

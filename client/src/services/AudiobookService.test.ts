@@ -40,7 +40,7 @@ function makeBook(overrides: Partial<Audiobook> = {}): Audiobook {
   };
 }
 
-const expectedDto = {
+const expectedPathPreviewDto = {
   authors: ["Author One", "Author Two"],
   narrators: ["Narrator One"],
   bookName: "Some Book",
@@ -55,10 +55,14 @@ const expectedDto = {
   rating: "4.5",
   asin: "ASIN123",
   www: "https://example.com",
-  cover: { base64Data: "abc123", mimeType: "image/jpeg" },
   filePath: "/library/author/book.m4b",
   fileName: "book.m4b",
   sizeInBytes: 12345,
+};
+
+const expectedDto = {
+  ...expectedPathPreviewDto,
+  cover: { base64Data: "abc123", mimeType: "image/jpeg" },
 };
 
 beforeEach(() => {
@@ -122,7 +126,7 @@ describe("AudiobookService", () => {
   });
 
   describe("generateNewPath", () => {
-    it("POSTs the mapped DTO to /audiobook/generate_path", async () => {
+    it("POSTs the mapped DTO (without cover data) to /audiobook/generate_path", async () => {
       const book = makeBook();
       mockedApiClient.post.mockResolvedValueOnce({ data: "generated/path" });
 
@@ -130,14 +134,19 @@ describe("AudiobookService", () => {
 
       expect(mockedApiClient.post).toHaveBeenCalledWith(
         "/audiobook/generate_path",
-        expectedDto,
+        expectedPathPreviewDto,
       );
+      const requestBody = mockedApiClient.post.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(requestBody).not.toHaveProperty("cover");
       expect(result).toBe("generated/path");
     });
   });
 
   describe("checkTargetPath", () => {
-    it("POSTs the mapped DTO to /audiobook/check_target_path and resolves the response", async () => {
+    it("POSTs the mapped DTO (without cover data) to /audiobook/check_target_path and resolves the response", async () => {
       const book = makeBook();
       const checkResult = {
         targetPath: "/library/author/2020 - Some Book/book.m4b",
@@ -154,8 +163,13 @@ describe("AudiobookService", () => {
 
       expect(mockedApiClient.post).toHaveBeenCalledWith(
         "/audiobook/check_target_path",
-        expectedDto,
+        expectedPathPreviewDto,
       );
+      const requestBody = mockedApiClient.post.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect(requestBody).not.toHaveProperty("cover");
       expect(result).toEqual(checkResult);
     });
   });

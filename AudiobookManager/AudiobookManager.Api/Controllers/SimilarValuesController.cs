@@ -21,6 +21,7 @@ public class SimilarValuesController : ControllerBase
     private readonly ISimilarValueService _similarValueService;
     private readonly IPersonRepository _personRepository;
     private readonly IAudiobookRepository _audiobookRepository;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<SimilarValuesController> _logger;
 
     public SimilarValuesController(
@@ -30,6 +31,7 @@ public class SimilarValuesController : ControllerBase
         ISimilarValueService similarValueService,
         IPersonRepository personRepository,
         IAudiobookRepository audiobookRepository,
+        IHostApplicationLifetime appLifetime,
         ILogger<SimilarValuesController> logger)
     {
         _organizeHub = organizeHub;
@@ -38,6 +40,7 @@ public class SimilarValuesController : ControllerBase
         _similarValueService = similarValueService;
         _personRepository = personRepository;
         _audiobookRepository = audiobookRepository;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -103,7 +106,8 @@ public class SimilarValuesController : ControllerBase
                 await _organizeHub.Clients.All.SimilarValueAlignComplete(
                     new SimilarValueAlignComplete(processed, succeeded, failed));
             },
-            () => _organizeHub.Clients.All.SimilarValueAlignComplete(new SimilarValueAlignComplete(0, 0, 0)));
+            () => _organizeHub.Clients.All.SimilarValueAlignComplete(new SimilarValueAlignComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     private static List<SimilarValueGroupDto> ToDto(List<Domain.SimilarValueGroup> groups)

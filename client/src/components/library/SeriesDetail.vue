@@ -332,7 +332,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, Ref, ref } from "vue";
+import { computed, Ref, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import SeriesService from "../../services/SeriesService";
 import { formatDuration } from "../../helpers/formatHelpers";
@@ -540,8 +540,16 @@ const refreshSeries = async () => {
   }
 };
 
-onMounted(async () => {
-  seriesName.value = route.params.seriesName as string;
-  await loadDetail();
-});
+watch(
+  () => route.params.seriesName,
+  async (newSeriesName) => {
+    seriesName.value = newSeriesName as string;
+    candidates.value = [];
+    candidatesLoaded.value = false;
+    manualQuery.value = "";
+    ignoredCollapsed.value = true;
+    await loadDetail();
+  },
+  { immediate: true },
+);
 </script>

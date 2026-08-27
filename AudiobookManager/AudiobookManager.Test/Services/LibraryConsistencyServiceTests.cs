@@ -69,10 +69,10 @@ public class LibraryConsistencyServiceTests
 
         await _service.RunConsistencyCheck(progressAction);
 
-        _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
             i.IssueType == ConsistencyIssueType.MissingMediaFile &&
             i.AudiobookId == 1
-        )), Times.Once);
+        ))), Times.Once);
 
         Assert.AreEqual(1, progressCalls.Count);
         Assert.AreEqual(1, progressCalls[0].issues);
@@ -137,9 +137,9 @@ public class LibraryConsistencyServiceTests
             await _service.RunConsistencyCheck(progressAction);
 
             // File exists, so MissingMediaFile should NOT be inserted
-            _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
                 i.IssueType == ConsistencyIssueType.MissingMediaFile
-            )), Times.Never);
+            ))), Times.Never);
 
             Assert.AreEqual(1, progressCalls.Count);
             Assert.IsTrue(progressCalls[0].message.StartsWith("Checked:"));
@@ -323,13 +323,13 @@ public class LibraryConsistencyServiceTests
 
             await _service.RunConsistencyCheck(progressAction);
 
-            _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(iss =>
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
                 iss.ExpectedValue!.Contains("Series Part: 0.5") &&
                 iss.ActualValue!.Contains("Series Part: 0") &&
                 !iss.ActualValue!.Contains("Series Part: 0.5")
-            )), Times.Once);
+            ))), Times.Once);
         }
         finally
         {
@@ -388,7 +388,7 @@ public class LibraryConsistencyServiceTests
 
             await _service.RunConsistencyCheck(progressAction);
 
-            _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(iss =>
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
                 iss.ExpectedValue!.Contains("Description: DB description") &&
@@ -400,7 +400,7 @@ public class LibraryConsistencyServiceTests
                 iss.ExpectedValue!.Contains("Www: DB www") &&
                 iss.ExpectedValue!.Contains("Genres: Fiction") &&
                 iss.ActualValue!.Contains("Genres: Fantasy")
-            )), Times.Once);
+            ))), Times.Once);
         }
         finally
         {
@@ -779,10 +779,10 @@ public class LibraryConsistencyServiceTests
         Assert.AreEqual(ConsistencyIssueType.MissingMediaFile, issues[0].IssueType);
 
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
-        _issueRepository.Verify(r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
             i.IssueType == ConsistencyIssueType.MissingMediaFile &&
             i.AudiobookId == 1
-        )), Times.Once);
+        ))), Times.Once);
     }
 
     [TestMethod]
