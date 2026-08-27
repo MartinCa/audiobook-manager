@@ -169,6 +169,44 @@ Adding a new source (or changing an existing one's name/availability) requires t
 - HTTP resilience via Polly
 - **TypeScript pinned to 6.x** — do not upgrade to TypeScript 7 yet. TS 7.0 dropped the Compiler/AST API that `vue-tsc` relies on, so `vue-tsc` (and therefore `npm run build`) breaks on it. Official support is blocked on TS 7.1's plugin interface (see [vuejs/language-tools#5381](https://github.com/vuejs/language-tools/issues/5381)); an interim third-party shim (`typescript-native-bridge`) exists but isn't worth adopting for this project. Re-check once `vue-tsc` ships native TS 7.1 support.
 
+## Testing Policy
+
+**Every new feature ships with tests, and every bug fix ships with a regression test.** A
+change is not complete until the tests covering it exist and pass.
+
+- **New features** — cover the behavior the feature adds, including its failure and edge cases
+  (empty/null inputs, error paths, permission/limit boundaries), not just the happy path. A
+  new service gets a test class; a new endpoint gets a controller test; a new helper,
+  composable, or component gets a `*.test.ts`.
+- **Bug fixes** — first write a test that fails against the unfixed code and passes with the
+  fix, so the specific bug can never silently return. Reference the failure in the test name
+  (e.g. `..._DoesNotResurrectStaleSidecarsOnRelocation`).
+- **Invariants** — behavior CLAUDE.md calls out as an invariant (the Author/Series/SeriesPart/
+  Year/BookName binding rule, "no hardcoded source list on the frontend", Hardcover's
+  disabled pattern-matching operators) deserves an explicit regression guard, since the cost
+  of a silent regression there is high.
+
+Where tests live:
+- **Backend** — MSTest + Moq in `AudiobookManager/AudiobookManager.Test/`, mirroring the source
+  layout (`Services/`, `Controllers/`, `FileManager/`, `Repositories/`, `Scraping/`). Test
+  fixtures go in a `TestData/` folder next to the tests that use them.
+- **Frontend** — Vitest, named `*.test.ts` (**not** `.spec.ts`), colocated beside the file under
+  test. Vuetify component tests mount with the plugin registered — see `client/vitest.setup.ts`
+  for the jsdom polyfills (`ResizeObserver`, `visualViewport`) Vuetify overlays need.
+
+Writing tests that actually catch regressions:
+- **Assert on the exact value, not a loose substring.** `toContain("Searching: A, B")` still
+  passes when a third item is appended; `toEqual(["A", "B"])` does not. If unsure a test can
+  fail, break the production code and confirm it goes red.
+- **The test name must match what it asserts.** A test named "returns true for …" that asserts
+  `false` misleads every future reader.
+- **Never wait on a fixed `Task.Delay`/`setTimeout` for background work to settle** — poll the
+  real condition with a timeout instead (see `AudiobookManager.Test/Controllers/OperationGate.cs`).
+  Fixed sleeps are flaky under CI contention and slow the suite down.
+- **Keep real sleeps out of the suite.** Collapse retry/backoff waits via the code's own
+  levers (e.g. a `Retry-After` header) rather than letting a test sit through an exponential
+  backoff.
+
 ## Verification Checklist
 
 After making changes, run all five — including when a change looks backend- or
