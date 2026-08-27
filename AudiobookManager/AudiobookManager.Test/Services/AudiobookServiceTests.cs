@@ -156,4 +156,219 @@ public class AudiobookServiceTests
         Assert.AreEqual("Parsed Book", result.BookName);
         _tagHandler.Verify(t => t.ParseAudiobook(It.Is<FileInfo>(fi => fi.FullName == "/path/book.m4b")), Times.Once);
     }
+
+    #region UpdateAudiobook
+
+    private string _testRoot = null!;
+    private string _libraryPath = null!;
+
+    private void SetupUpdateAudiobookTest()
+    {
+        _testRoot = Path.Combine(Path.GetTempPath(), "audiobook-service-tests-" + Guid.NewGuid());
+        _libraryPath = Path.Combine(_testRoot, "library");
+        Directory.CreateDirectory(_libraryPath);
+
+        _settings = Options.Create(new AudiobookManagerSettings
+        {
+            AudiobookLibraryPath = _libraryPath
+        });
+
+        _service = new AudiobookService(
+            _tagHandler.Object,
+            _settings,
+            _audiobookRepository.Object,
+            _personRepository.Object,
+            _genreRepository.Object,
+            _logger.Object);
+    }
+
+    private static void CleanupTestRoot(string? testRoot)
+    {
+        if (testRoot is not null && Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+
+    private static DbAudiobook CreateExistingDbAudiobook(long id, string filePath, string? series = null, string? seriesPart = null)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        File.WriteAllText(filePath, "original m4b content");
+
+        return new DbAudiobook(
+            id, "Old Book Name", null, series, seriesPart, 2020,
+            "Old description", null, null, null, null, null, null, null,
+            filePath, Path.GetFileName(filePath), 1000)
+        {
+            Authors = new List<DbPerson> { new DbPerson(1, "Old Author") }
+        };
+    }
+
+    private void SetupCommonRepositoryMocks(long id, DbAudiobook existing)
+    {
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(id)).ReturnsAsync(existing);
+        _personRepository.Setup(r => r.GetOrCreatePerson(It.IsAny<string>()))
+            .ReturnsAsync((string name) => new DbPerson(1, name));
+        _audiobookRepository.Setup(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>())).Returns(Task.CompletedTask);
+    }
+
+    [TestCleanup]
+    public void CleanupUpdateAudiobookTest()
+    {
+        CleanupTestRoot(_testRoot);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_PathUnchanged_DoesNotMoveFileButRewritesTagsAndSidecars()
+    {
+        SetupUpdateAudiobookTest();
+
+        // Compute the path first so the "existing" file already lives exactly where the
+        // updated metadata will generate a path for - i.e. only non-path fields change.
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        Audiobook? tagsSavedFor = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback<Audiobook, Action<float>?>((a, _) => tagsSavedFor = a);
+
+        var reparsed = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(expectedPath, Path.GetFileName(expectedPath), 1000))
+        {
+            Description = "Updated description",
+            Narrators = new List<Person> { new Person("Narrator One") }
+        };
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(reparsed);
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Description = "Updated description",
+            Narrators = new List<Person> { new Person("Narrator One") }
+        };
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.IsTrue(File.Exists(expectedPath), "File should still exist at its original/unchanged path");
+        Assert.AreEqual(expectedPath, result.FileInfo.FullPath);
+
+        _tagHandler.Verify(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()), Times.Once);
+        Assert.IsNotNull(tagsSavedFor);
+
+        var directory = Path.GetDirectoryName(expectedPath)!;
+        Assert.IsTrue(File.Exists(Path.Combine(directory, "desc.txt")), "desc.txt sidecar should be (re)written even without relocation");
+        Assert.AreEqual("Updated description", File.ReadAllText(Path.Combine(directory, "desc.txt")));
+        Assert.IsTrue(File.Exists(Path.Combine(directory, "reader.txt")), "reader.txt sidecar should be (re)written even without relocation");
+
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_PathChanged_RelocatesFileAndCleansUpStaleSidecars()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+
+        var oldDirectory = Path.GetDirectoryName(oldFilePath)!;
+        var staleDesc = Path.Combine(oldDirectory, "desc.txt");
+        var staleReader = Path.Combine(oldDirectory, "reader.txt");
+        var staleCover = Path.Combine(oldDirectory, "cover.jpg");
+        File.WriteAllText(staleDesc, "stale description");
+        File.WriteAllText(staleReader, "stale narrator");
+        File.WriteAllText(staleCover, "stale cover bytes");
+
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var newAuthor = new Person("New Author");
+        var updateDto = new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Description = "New description",
+            Narrators = new List<Person> { new Person("New Narrator") }
+        };
+
+        var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)));
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            .Returns((FileInfo fi) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Description = "New description",
+                Narrators = new List<Person> { new Person("New Narrator") }
+            });
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual(expectedNewPath, result.FileInfo.FullPath);
+        Assert.IsTrue(File.Exists(expectedNewPath), "File should have been relocated to the new path");
+        Assert.IsFalse(File.Exists(oldFilePath), "File should no longer exist at the old path");
+
+        Assert.IsFalse(File.Exists(staleDesc), "Stale desc.txt at the old directory should be cleaned up");
+        Assert.IsFalse(File.Exists(staleReader), "Stale reader.txt at the old directory should be cleaned up");
+        Assert.IsFalse(File.Exists(staleCover), "Stale cover.jpg at the old directory should be cleaned up");
+        Assert.IsFalse(Directory.Exists(oldDirectory), "Now-empty old directory should be removed");
+
+        var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
+        Assert.IsTrue(File.Exists(Path.Combine(newDirectory, "desc.txt")), "desc.txt should be written at the new location");
+        Assert.AreEqual("New description", File.ReadAllText(Path.Combine(newDirectory, "desc.txt")));
+
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.Is<DbAudiobook>(db => db.FileInfoFullPath == expectedNewPath)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_ClearingSeries_RegeneratesPathWithoutSeriesSegment()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "Old Series", "Book 01 - 2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath, series: "Old Series", seriesPart: "1");
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var author = new Person("Old Author");
+        var updateDto = new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Series = null,
+            SeriesPart = null
+        };
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.IsFalse(result.FileInfo.FullPath.Contains("Old Series"), "Regenerated path should not include the cleared series segment");
+        Assert.IsTrue(File.Exists(result.FileInfo.FullPath));
+
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.Is<DbAudiobook>(db => db.Series == null && db.SeriesPart == null)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_TagWriteThrows_ExceptionPropagatesAndDbIsNotUpdated()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Throws(new InvalidOperationException("tag write failed"));
+
+        var updateDto = new Audiobook(new List<Person> { new Person("Old Author") }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _service.UpdateAudiobook(1, updateDto));
+
+        Assert.IsTrue(File.Exists(oldFilePath), "File must not have been relocated since tag write failed before relocation");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
+    }
+
+    #endregion
 }
