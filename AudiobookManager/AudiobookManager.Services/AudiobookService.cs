@@ -41,6 +41,43 @@ public class AudiobookService : IAudiobookService
         return AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, newRelativePath);
     }
 
+    /// <summary>
+    /// Checks whether a file already occupies the audiobook's generated library path, so a
+    /// duplicate can be caught and resolved before organizing attempts the move and fails.
+    /// When the path is occupied by a tracked library book, its size/duration are returned for
+    /// comparison; when it's an untracked file (e.g. an orphan), only its size is available.
+    /// </summary>
+    public async Task<TargetPathCollisionResult> CheckTargetPathCollision(Audiobook audiobook)
+    {
+        var targetPath = GenerateLibraryPath(audiobook);
+
+        if (!File.Exists(targetPath))
+        {
+            return new TargetPathCollisionResult { TargetPath = targetPath, Exists = false };
+        }
+
+        var existingAudiobook = await _audiobookRepository.GetByFullPathAsync(targetPath);
+        if (existingAudiobook is not null)
+        {
+            return new TargetPathCollisionResult
+            {
+                TargetPath = targetPath,
+                Exists = true,
+                ExistingAudiobookId = existingAudiobook.Id,
+                ExistingSizeInBytes = existingAudiobook.FileInfoSizeInBytes,
+                ExistingDurationInSeconds = existingAudiobook.DurationInSeconds
+            };
+        }
+
+        var fileInfo = new FileInfo(targetPath);
+        return new TargetPathCollisionResult
+        {
+            TargetPath = targetPath,
+            Exists = true,
+            ExistingSizeInBytes = fileInfo.Length
+        };
+    }
+
     public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction)
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);

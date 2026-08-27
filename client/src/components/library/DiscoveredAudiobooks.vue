@@ -58,7 +58,15 @@
           >
           badge already have author, book name, and year and can be added in
           bulk. Expand a book to review its full metadata and add it
-          individually.
+          individually. Books marked
+          <v-chip
+            size="x-small"
+            color="warning"
+            class="mx-1"
+            >Duplicate</v-chip
+          >
+          already have a file at their target location and are excluded from
+          bulk import - expand them to compare and resolve.
         </p>
         <v-text-field
           v-model="discoveredSearchQuery"
@@ -122,6 +130,7 @@
                 <v-col cols="auto">
                   <v-checkbox
                     :model-value="selectedPaths.has(book.fullPath)"
+                    :disabled="book.isDuplicate"
                     density="compact"
                     hide-details
                     @click.stop
@@ -137,6 +146,14 @@
                     class="ml-2"
                   >
                     Well tagged
+                  </v-chip>
+                  <v-chip
+                    v-if="book.isDuplicate"
+                    size="x-small"
+                    color="warning"
+                    class="ml-2"
+                  >
+                    Duplicate - expand to resolve
                   </v-chip>
                 </v-col>
                 <v-col>
@@ -311,15 +328,28 @@ const onUpdateProgress = (arg: ProgressUpdate) => {
   const book = discoveredBooks.value.find(
     (x) => x.queueId === arg.originalFileLocation,
   );
-  if (book) {
-    book.queueMessage = arg.progressMessage;
-    book.queueProgress = arg.progress;
+  if (!book) {
+    return;
+  }
+  book.queueMessage = arg.progressMessage;
+  book.queueProgress = arg.progress;
+
+  // The organize succeeded (the discovered row has already been untracked server-side by
+  // OrganizeWorker) - drop it from the visible list without waiting for a full reload.
+  if (arg.progress >= 100) {
+    discoveredBooks.value = discoveredBooks.value.filter((b) => b !== book);
+    selectedPaths.value.delete(book.fullPath);
+    selectedPaths.value = new Set(selectedPaths.value);
   }
 };
 
 const onQueueError = (arg: QueueError) => {
+  // Bulk-import failures never set queueId (that's only used by the single-book
+  // organize queue flow), so fall back to matching on fullPath to surface those too.
   const book = discoveredBooks.value.find(
-    (x) => x.queueId === arg.originalFileLocation,
+    (x) =>
+      x.queueId === arg.originalFileLocation ||
+      x.fullPath === arg.originalFileLocation,
   );
   if (book) {
     book.error = arg.error;
@@ -340,7 +370,7 @@ const discoveredTotalPages = computed((): number =>
 );
 
 const wellTaggedBooks = computed((): DiscoveredAudiobook[] =>
-  discoveredBooks.value.filter((b) => b.isWellTagged),
+  discoveredBooks.value.filter((b) => b.isWellTagged && !b.isDuplicate),
 );
 
 const isAllWellTaggedSelected = computed(
@@ -369,6 +399,9 @@ const toggleSelectAllWellTagged = () => {
 };
 
 const toggleBookSelected = (book: DiscoveredAudiobook) => {
+  if (book.isDuplicate) {
+    return;
+  }
   if (selectedPaths.value.has(book.fullPath)) {
     selectedPaths.value.delete(book.fullPath);
   } else {
@@ -428,10 +461,11 @@ watch(discoveredSearchQuery, () => {
   debouncedDiscoveredSearch();
 });
 
-const markDiscoveredAsQueued = async (
-  book: DiscoveredAudiobook,
-  queueId: string,
-) => {
+const markDiscoveredAsQueued = (book: DiscoveredAudiobook, queueId: string) => {
+  // The discovered row itself isn't untracked here: OrganizeWorker only deletes it once the
+  // organize actually succeeds, so a failure (e.g. a duplicate collision) leaves the row in
+  // place to retry or resolve instead of disappearing based on a SignalR event that might be
+  // missed by a disconnected client.
   book.queueId = queueId;
   var bookIdx = discoveredBooks.value.indexOf(book);
   if (bookIdx === discoveredActivePanel.value) {
@@ -439,7 +473,6 @@ const markDiscoveredAsQueued = async (
   }
   selectedPaths.value.delete(book.fullPath);
   selectedPaths.value = new Set(selectedPaths.value);
-  await LibraryService.deleteDiscoveredBook(book.fullPath);
 };
 
 const removeDiscoveredBook = (book: DiscoveredAudiobook) => {
@@ -453,6 +486,10 @@ const removeDiscoveredBook = (book: DiscoveredAudiobook) => {
   if (currentlyOpen) {
     discoveredActivePanel.value = null;
   }
+
+  // The file itself is already gone at this point (deleted via BookDeleteDialog); untrack the
+  // now-stale discovered row too, rather than leaving it until the next full library scan.
+  LibraryService.deleteDiscoveredBook(book.fullPath);
 };
 
 const formatFileSize = (size: number) => {

@@ -16,6 +16,7 @@ public class DiscoveredAudiobookDto
     public string? Narrators { get; set; }
     public string? Genres { get; set; }
     public bool IsWellTagged { get; set; }
+    public bool IsDuplicate { get; set; }
 
     public DiscoveredAudiobookDto(DiscoveredAudiobook discovered)
     {

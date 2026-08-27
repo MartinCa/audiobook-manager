@@ -136,6 +136,30 @@ describe("AudiobookService", () => {
     });
   });
 
+  describe("checkTargetPath", () => {
+    it("POSTs the mapped DTO to /audiobook/check_target_path and resolves the response", async () => {
+      const book = makeBook();
+      const checkResult = {
+        targetPath: "/library/author/2020 - Some Book/book.m4b",
+        exists: true,
+        existing: {
+          audiobookId: 7,
+          sizeInBytes: 598_000_000,
+          durationInSeconds: 39600,
+        },
+      };
+      mockedApiClient.post.mockResolvedValueOnce({ data: checkResult });
+
+      const result = await AudiobookService.checkTargetPath(book);
+
+      expect(mockedApiClient.post).toHaveBeenCalledWith(
+        "/audiobook/check_target_path",
+        expectedDto,
+      );
+      expect(result).toEqual(checkResult);
+    });
+  });
+
   describe("updateBook", () => {
     it("PUTs the mapped DTO to /audiobook/:id", async () => {
       const book = makeBook();

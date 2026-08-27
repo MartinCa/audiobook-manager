@@ -24,6 +24,11 @@ public class AudiobookRepository : IAudiobookRepository
         return paths.ToHashSet();
     }
 
+    public async Task<Audiobook?> GetByFullPathAsync(string fullPath)
+    {
+        return await _db.Audiobooks.FirstOrDefaultAsync(a => a.FileInfoFullPath == fullPath);
+    }
+
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {
         var query = _db.Audiobooks

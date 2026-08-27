@@ -11,6 +11,8 @@ public interface IAudiobookService
 
     string GenerateLibraryPath(Audiobook audiobook);
 
+    Task<TargetPathCollisionResult> CheckTargetPathCollision(Audiobook audiobook);
+
     Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook);
 
     Task<Audiobook?> GetAudiobookById(long id);

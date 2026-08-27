@@ -93,6 +93,45 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
+    public async Task CheckTargetPath_NoCollision_ReturnsExistsFalse()
+    {
+        var dto = MakeDto();
+
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Audiobook>()))
+            .ReturnsAsync(new TargetPathCollisionResult { TargetPath = "/library/Test Author/2024 - Test Book/test.m4b", Exists = false });
+
+        var result = await _controller.CheckTargetPath(dto);
+
+        Assert.AreEqual("/library/Test Author/2024 - Test Book/test.m4b", result.TargetPath);
+        Assert.IsFalse(result.Exists);
+        Assert.IsNull(result.Existing);
+    }
+
+    [TestMethod]
+    public async Task CheckTargetPath_Collision_ReturnsExistingFileDetails()
+    {
+        var dto = MakeDto();
+
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Audiobook>()))
+            .ReturnsAsync(new TargetPathCollisionResult
+            {
+                TargetPath = "/library/Test Author/2024 - Test Book/test.m4b",
+                Exists = true,
+                ExistingAudiobookId = 7,
+                ExistingSizeInBytes = 598_000_000,
+                ExistingDurationInSeconds = 39600
+            });
+
+        var result = await _controller.CheckTargetPath(dto);
+
+        Assert.IsTrue(result.Exists);
+        Assert.IsNotNull(result.Existing);
+        Assert.AreEqual(7, result.Existing!.AudiobookId);
+        Assert.AreEqual(598_000_000, result.Existing.SizeInBytes);
+        Assert.AreEqual(39600, result.Existing.DurationInSeconds);
+    }
+
+    [TestMethod]
     public async Task UpdateAudiobook_DelegatesToAudiobookServiceUpdateAudiobook()
     {
         // Regression guard for the CLAUDE.md binding invariant: Author/Series/SeriesPart/Year/BookName

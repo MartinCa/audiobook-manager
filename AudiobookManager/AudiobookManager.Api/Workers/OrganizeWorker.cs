@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Api.Async;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -42,6 +43,12 @@ public class OrganizeWorker : BackgroundService
                     await audiobookService.OrganizeAudiobook(task.Audiobook, (msg, prg) => UpdateProgress(task.OriginalFileLocation, msg, prg));
 
                     await organizeTaskService.DeleteQueuedOrganizeTask(task.OriginalFileLocation);
+
+                    // Only untrack the discovered-books row once the organize actually succeeded, so a
+                    // failure (e.g. a duplicate collision) leaves the row in place to retry or resolve
+                    // instead of silently disappearing if the client missed the QueueError event.
+                    var discoveredRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredAudiobookRepository>();
+                    await discoveredRepo.DeleteByPathAsync(task.OriginalFileLocation);
                 } catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error while processing organize task {OriginalFileLoation}", task?.OriginalFileLocation ?? "");

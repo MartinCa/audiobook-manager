@@ -371,4 +371,77 @@ public class AudiobookServiceTests
     }
 
     #endregion
+
+    #region CheckTargetPathCollision
+
+    private static Audiobook MakeAudiobookForCollisionCheck(string bookName = "Children of Time", int year = 2016, string sourcePath = "/import/book.m4b") =>
+        new Audiobook(
+            new List<Person> { new Person("Adrian Tchaikovsky") },
+            bookName,
+            year,
+            new AudiobookFileInfo(sourcePath, Path.GetFileName(sourcePath), 12345));
+
+    [TestMethod]
+    public async Task CheckTargetPathCollision_NoFileAtTarget_ReturnsNotExists()
+    {
+        // Reuses the real-temp-directory setup from the UpdateAudiobook region since this
+        // also needs File.Exists to observe a real filesystem rather than the "/library" stub.
+        SetupUpdateAudiobookTest();
+        var book = MakeAudiobookForCollisionCheck();
+
+        var result = await _service.CheckTargetPathCollision(book);
+
+        Assert.IsFalse(result.Exists);
+        Assert.IsNull(result.ExistingAudiobookId);
+        Assert.IsNull(result.ExistingSizeInBytes);
+        Assert.IsNull(result.ExistingDurationInSeconds);
+        Assert.AreEqual(_service.GenerateLibraryPath(book), result.TargetPath);
+    }
+
+    [TestMethod]
+    public async Task CheckTargetPathCollision_TargetOccupiedByTrackedAudiobook_ReturnsExistingBookDetails()
+    {
+        SetupUpdateAudiobookTest();
+        var book = MakeAudiobookForCollisionCheck();
+        var targetPath = _service.GenerateLibraryPath(book);
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        await File.WriteAllTextAsync(targetPath, "existing audio");
+
+        var existingDbBook = new DbAudiobook(
+            id: 42, bookName: "Children of Time", subtitle: null, series: null, seriesPart: null,
+            year: 2016, description: null, copyright: null, publisher: null, rating: null,
+            asin: null, www: null, coverFilePath: null, durationInSeconds: 39600,
+            fileInfoFullPath: targetPath, fileInfoFileName: Path.GetFileName(targetPath), fileInfoSizeInBytes: 598_000_000);
+
+        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath)).ReturnsAsync(existingDbBook);
+
+        var result = await _service.CheckTargetPathCollision(book);
+
+        Assert.IsTrue(result.Exists);
+        Assert.AreEqual(42, result.ExistingAudiobookId);
+        Assert.AreEqual(598_000_000, result.ExistingSizeInBytes);
+        Assert.AreEqual(39600, result.ExistingDurationInSeconds);
+    }
+
+    [TestMethod]
+    public async Task CheckTargetPathCollision_TargetOccupiedByUntrackedFile_ReturnsFileSizeWithoutAudiobookIdOrDuration()
+    {
+        SetupUpdateAudiobookTest();
+        var book = MakeAudiobookForCollisionCheck();
+        var targetPath = _service.GenerateLibraryPath(book);
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        var content = "orphaned file contents";
+        await File.WriteAllTextAsync(targetPath, content);
+
+        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath)).ReturnsAsync((DbAudiobook?)null);
+
+        var result = await _service.CheckTargetPathCollision(book);
+
+        Assert.IsTrue(result.Exists);
+        Assert.IsNull(result.ExistingAudiobookId);
+        Assert.AreEqual(content.Length, result.ExistingSizeInBytes);
+        Assert.IsNull(result.ExistingDurationInSeconds);
+    }
+
+    #endregion
 }

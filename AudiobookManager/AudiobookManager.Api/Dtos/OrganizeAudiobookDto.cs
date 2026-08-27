@@ -29,3 +29,31 @@ public class OrganizeAudiobookCoverDto
     [Required] public string Base64Data { get; set; } = null!;
     [Required] public string MimeType { get; set; } = null!;
 }
+
+public class TargetPathCheckDto
+{
+    public string TargetPath { get; set; }
+    public bool Exists { get; set; }
+    public ExistingTargetFileDto? Existing { get; set; }
+
+    public TargetPathCheckDto(Services.TargetPathCollisionResult result)
+    {
+        TargetPath = result.TargetPath;
+        Exists = result.Exists;
+        Existing = result.Exists
+            ? new ExistingTargetFileDto
+            {
+                AudiobookId = result.ExistingAudiobookId,
+                SizeInBytes = result.ExistingSizeInBytes ?? 0,
+                DurationInSeconds = result.ExistingDurationInSeconds
+            }
+            : null;
+    }
+}
+
+public class ExistingTargetFileDto
+{
+    public long? AudiobookId { get; set; }
+    public long SizeInBytes { get; set; }
+    public int? DurationInSeconds { get; set; }
+}
