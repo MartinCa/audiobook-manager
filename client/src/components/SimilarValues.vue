@@ -32,19 +32,11 @@
 
     <v-row v-if="aligning">
       <v-col cols="12">
-        <v-progress-linear
+        <OperationProgressBar
           class="mt-3"
-          :model-value="
-            alignTotal > 0 ? (alignProcessed / alignTotal) * 100 : 0
-          "
-          color="primary"
-          height="20"
-          striped
-        >
-          <template v-slot:default>
-            {{ alignProcessed }} / {{ alignTotal }}
-          </template>
-        </v-progress-linear>
+          :processed="alignProcessed"
+          :total="alignTotal"
+        />
         <div class="text-caption">
           Succeeded: {{ alignSucceeded }}, Failed: {{ alignFailed }}
         </div>
@@ -319,10 +311,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, Ref, ref } from "vue";
+import { onMounted, Ref, ref } from "vue";
 import SimilarValueService from "../services/SimilarValueService";
 import { SimilarValueGroup } from "../types/SimilarValue";
-import { useSignalR, HubEventToken } from "@/signalr/hub";
+import OperationProgressBar from "./OperationProgressBar.vue";
+import { HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../composables/useOperationProgress";
 import { SimilarValueAlignProgress } from "../signalr/SimilarValueAlignProgress";
 import { SimilarValueAlignComplete } from "../signalr/SimilarValueAlignComplete";
 
@@ -335,8 +329,6 @@ const SimilarValueAlignProgressToken: HubEventToken<SimilarValueAlignProgress> =
   "SimilarValueAlignProgress";
 const SimilarValueAlignCompleteToken: HubEventToken<SimilarValueAlignComplete> =
   "SimilarValueAlignComplete";
-
-const signalR = useSignalR();
 
 const loading: Ref<boolean> = ref(false);
 const authorGroups: Ref<SimilarValueGroup[]> = ref([]);
@@ -379,9 +371,6 @@ const toggleCandidateBooks = (
   expandedCandidates.value = next;
 };
 
-const aligning: Ref<boolean> = ref(false);
-const alignProcessed: Ref<number> = ref(0);
-const alignTotal: Ref<number> = ref(0);
 const alignSucceeded: Ref<number> = ref(0);
 const alignFailed: Ref<number> = ref(0);
 
@@ -428,6 +417,33 @@ const cancelConfirm = () => {
   pending.value = null;
 };
 
+const {
+  isRunning: aligning,
+  processed: alignProcessed,
+  total: alignTotal,
+  start: startAligning,
+} = useOperationProgress<SimilarValueAlignProgress, SimilarValueAlignComplete>({
+  key: "similar-value-align",
+  progressToken: SimilarValueAlignProgressToken,
+  completeToken: SimilarValueAlignCompleteToken,
+  getProcessed: (arg) => arg.processed,
+  getTotal: (arg) => arg.total,
+  onProgress: (arg) => {
+    alignSucceeded.value = arg.succeeded;
+    alignFailed.value = arg.failed;
+  },
+  onComplete: (arg) => {
+    let msg = `Alignment complete: ${arg.totalSucceeded} of ${arg.totalProcessed} books updated`;
+    if (arg.totalFailed > 0) {
+      msg += ` (${arg.totalFailed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+    SimilarValueService.invalidateNameCaches();
+    loadGroups();
+  },
+});
+
 const confirmApply = async () => {
   const current = pending.value;
   confirmDialog.value = false;
@@ -436,9 +452,7 @@ const confirmApply = async () => {
 
   const sourceValues = current.group.candidates.map((c) => c.value);
 
-  aligning.value = true;
-  alignProcessed.value = 0;
-  alignTotal.value = 0;
+  startAligning();
   alignSucceeded.value = 0;
   alignFailed.value = 0;
 
@@ -454,33 +468,6 @@ const confirmApply = async () => {
     snackbar.value = true;
   }
 };
-
-const onAlignProgress = (arg: SimilarValueAlignProgress) => {
-  alignProcessed.value = arg.processed;
-  alignTotal.value = arg.total;
-  alignSucceeded.value = arg.succeeded;
-  alignFailed.value = arg.failed;
-};
-
-const onAlignComplete = (arg: SimilarValueAlignComplete) => {
-  aligning.value = false;
-  let msg = `Alignment complete: ${arg.totalSucceeded} of ${arg.totalProcessed} books updated`;
-  if (arg.totalFailed > 0) {
-    msg += ` (${arg.totalFailed} failed)`;
-  }
-  snackbarText.value = msg;
-  snackbar.value = true;
-  SimilarValueService.invalidateNameCaches();
-  loadGroups();
-};
-
-signalR.on(SimilarValueAlignProgressToken, onAlignProgress);
-signalR.on(SimilarValueAlignCompleteToken, onAlignComplete);
-
-onUnmounted(() => {
-  signalR.off(SimilarValueAlignProgressToken, onAlignProgress);
-  signalR.off(SimilarValueAlignCompleteToken, onAlignComplete);
-});
 
 const loadGroups = async () => {
   loading.value = true;

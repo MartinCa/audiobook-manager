@@ -14,19 +14,25 @@ public class LibraryController : ControllerBase
     private static readonly SemaphoreSlim _scanLock = new(1, 1);
     private static readonly SemaphoreSlim _bulkImportLock = new(1, 1);
 
+    public const string ScanOperationKey = "library-scan";
+    public const string BulkImportOperationKey = "discovered-import";
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IDiscoveredAudiobookRepository _discoveredRepo;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
         IDiscoveredAudiobookRepository discoveredRepo,
         ILogger<LibraryController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
         _discoveredRepo = discoveredRepo;
         _logger = logger;
     }
@@ -34,45 +40,29 @@ public class LibraryController : ControllerBase
     [HttpPost("scan")]
     public IActionResult StartLibraryScan()
     {
-        if (!_scanLock.Wait(0))
-            return Conflict("A library scan is already in progress");
-
-        Task.Run(async () =>
-        {
-            try
+        return BackgroundOperationRunner.Start(
+            _scanLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ScanOperationKey,
+            async sp =>
             {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var scanService = scope.ServiceProvider.GetRequiredService<ILibraryScanService>();
+                var scanService = sp.GetRequiredService<ILibraryScanService>();
 
-                var (totalFiles, newFilesDiscovered, trackedFiles) = await scanService.ScanLibrary(async (message, filesScanned, total) =>
+                Task ProgressAction(string message, int filesScanned, int total)
                 {
-                    await _organizeHub.Clients.All.LibraryScanProgress(
+                    _statusRegistry.SetProgress(ScanOperationKey, filesScanned, total);
+                    return _organizeHub.Clients.All.LibraryScanProgress(
                         new LibraryScanProgress(message, filesScanned, total));
-                });
+                }
+
+                var (totalFiles, newFilesDiscovered, trackedFiles) = await scanService.ScanLibrary(ProgressAction);
 
                 await _organizeHub.Clients.All.LibraryScanComplete(
                     new LibraryScanComplete(totalFiles, newFilesDiscovered, trackedFiles));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during library scan");
-                try
-                {
-                    await _organizeHub.Clients.All.LibraryScanComplete(
-                        new LibraryScanComplete(0, 0, 0));
-                }
-                catch (Exception hubEx)
-                {
-                    _logger.LogError(hubEx, "Failed to send LibraryScanComplete over SignalR");
-                }
-            }
-            finally
-            {
-                _scanLock.Release();
-            }
-        });
-
-        return Ok();
+            },
+            () => _organizeHub.Clients.All.LibraryScanComplete(new LibraryScanComplete(0, 0, 0)));
     }
 
     [HttpGet("discovered")]
@@ -103,13 +93,18 @@ public class LibraryController : ControllerBase
             _bulkImportLock,
             _serviceScopeFactory,
             _logger,
+            _statusRegistry,
+            BulkImportOperationKey,
             async sp =>
             {
                 var scanService = sp.GetRequiredService<ILibraryScanService>();
 
-                Task ProgressAction(int processed, int total, int succeeded, int failed) =>
-                    _organizeHub.Clients.All.DiscoveredImportProgress(
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(BulkImportOperationKey, processed, total);
+                    return _organizeHub.Clients.All.DiscoveredImportProgress(
                         new DiscoveredImportProgress(processed, total, succeeded, failed));
+                }
 
                 var (processed, succeeded, failed) = await scanService.BulkImportAsync(dto.Paths, ProgressAction);
 

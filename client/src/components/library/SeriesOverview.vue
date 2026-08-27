@@ -67,19 +67,11 @@
 
     <v-row v-if="refreshing">
       <v-col cols="12">
-        <v-progress-linear
+        <OperationProgressBar
           class="mt-3"
-          :model-value="
-            refreshTotal > 0 ? (refreshProcessed / refreshTotal) * 100 : 0
-          "
-          color="primary"
-          height="20"
-          striped
-        >
-          <template v-slot:default>
-            {{ refreshProcessed }} / {{ refreshTotal }}
-          </template>
-        </v-progress-linear>
+          :processed="refreshProcessed"
+          :total="refreshTotal"
+        />
         <div class="text-caption">
           Succeeded: {{ refreshSucceeded }}, Failed: {{ refreshFailed }}
         </div>
@@ -182,12 +174,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, Ref, ref } from "vue";
+import { computed, onMounted, Ref, ref } from "vue";
 import { useRouter } from "vue-router";
 import SeriesService from "../../services/SeriesService";
 import { SeriesOverview } from "../../types/Series";
 import SeriesMatchDialog from "./SeriesMatchDialog.vue";
-import { HubEventToken, useSignalR } from "@/signalr/hub";
+import OperationProgressBar from "../OperationProgressBar.vue";
+import { HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../../composables/useOperationProgress";
 import { SeriesRefreshProgress } from "../../signalr/SeriesRefreshProgress";
 import { SeriesRefreshComplete } from "../../signalr/SeriesRefreshComplete";
 
@@ -197,15 +191,11 @@ const SeriesRefreshCompleteToken: HubEventToken<SeriesRefreshComplete> =
   "SeriesRefreshComplete";
 
 const router = useRouter();
-const signalR = useSignalR();
 
 const series: Ref<SeriesOverview[]> = ref([]);
 const filter = ref("");
 const loading = ref(false);
 
-const refreshing = ref(false);
-const refreshProcessed = ref(0);
-const refreshTotal = ref(0);
 const refreshSucceeded = ref(0);
 const refreshFailed = ref(0);
 
@@ -249,10 +239,36 @@ const loadSeries = async () => {
   }
 };
 
+const {
+  isRunning: refreshing,
+  processed: refreshProcessed,
+  total: refreshTotal,
+  start: startRefreshing,
+} = useOperationProgress<SeriesRefreshProgress, SeriesRefreshComplete>({
+  key: "series-refresh",
+  progressToken: SeriesRefreshProgressToken,
+  completeToken: SeriesRefreshCompleteToken,
+  getProcessed: (arg) => arg.processed,
+  getTotal: (arg) => arg.total,
+  onProgress: (arg) => {
+    refreshSucceeded.value = arg.succeeded;
+    refreshFailed.value = arg.failed;
+  },
+  onComplete: (arg) => {
+    let msg = arg.stopReason
+      ? `Refresh stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
+      : `Refresh complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series updated`;
+    if (arg.totalFailed > 0) {
+      msg += ` (${arg.totalFailed} failed)`;
+    }
+    snackbarText.value = msg;
+    snackbar.value = true;
+    loadSeries();
+  },
+});
+
 const refreshAll = async () => {
-  refreshing.value = true;
-  refreshProcessed.value = 0;
-  refreshTotal.value = 0;
+  startRefreshing();
   refreshSucceeded.value = 0;
   refreshFailed.value = 0;
 
@@ -264,34 +280,6 @@ const refreshAll = async () => {
     snackbar.value = true;
   }
 };
-
-const onRefreshProgress = (arg: SeriesRefreshProgress) => {
-  refreshProcessed.value = arg.processed;
-  refreshTotal.value = arg.total;
-  refreshSucceeded.value = arg.succeeded;
-  refreshFailed.value = arg.failed;
-};
-
-const onRefreshComplete = (arg: SeriesRefreshComplete) => {
-  refreshing.value = false;
-  let msg = arg.stopReason
-    ? `Refresh stopped after ${arg.totalProcessed} series: ${arg.stopReason}`
-    : `Refresh complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series updated`;
-  if (arg.totalFailed > 0) {
-    msg += ` (${arg.totalFailed} failed)`;
-  }
-  snackbarText.value = msg;
-  snackbar.value = true;
-  loadSeries();
-};
-
-signalR.on(SeriesRefreshProgressToken, onRefreshProgress);
-signalR.on(SeriesRefreshCompleteToken, onRefreshComplete);
-
-onUnmounted(() => {
-  signalR.off(SeriesRefreshProgressToken, onRefreshProgress);
-  signalR.off(SeriesRefreshCompleteToken, onRefreshComplete);
-});
 
 onMounted(() => {
   loadSeries();

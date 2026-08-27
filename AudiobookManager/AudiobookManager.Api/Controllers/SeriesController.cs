@@ -19,19 +19,25 @@ public class SeriesController : ControllerBase
     private static readonly SemaphoreSlim _matchLock = new(1, 1);
     private static readonly SemaphoreSlim _refreshLock = new(1, 1);
 
+    public const string MatchOperationKey = "series-match";
+    public const string RefreshOperationKey = "series-refresh";
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
     private readonly ISeriesService _seriesService;
     private readonly ILogger<SeriesController> _logger;
 
     public SeriesController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
         ISeriesService seriesService,
         ILogger<SeriesController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
         _seriesService = seriesService;
         _logger = logger;
     }
@@ -151,13 +157,18 @@ public class SeriesController : ControllerBase
             _matchLock,
             _serviceScopeFactory,
             _logger,
+            _statusRegistry,
+            MatchOperationKey,
             async sp =>
             {
                 var seriesService = sp.GetRequiredService<ISeriesService>();
 
-                Task ProgressAction(int processed, int total, int succeeded, int failed) =>
-                    _organizeHub.Clients.All.SeriesMatchProgress(
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(MatchOperationKey, processed, total);
+                    return _organizeHub.Clients.All.SeriesMatchProgress(
                         new SeriesMatchProgress(processed, total, succeeded, failed));
+                }
 
                 var (processed, succeeded, failed, stopReason) =
                     await seriesService.BulkAutoMatchSeriesAsync(threshold, seriesNames, ProgressAction);
@@ -216,9 +227,12 @@ public class SeriesController : ControllerBase
         }
     }
 
-    private Task RefreshProgressAction(int processed, int total, int succeeded, int failed) =>
-        _organizeHub.Clients.All.SeriesRefreshProgress(
+    private Task RefreshProgressAction(int processed, int total, int succeeded, int failed)
+    {
+        _statusRegistry.SetProgress(RefreshOperationKey, processed, total);
+        return _organizeHub.Clients.All.SeriesRefreshProgress(
             new SeriesRefreshProgress(processed, total, succeeded, failed));
+    }
 
     private IActionResult StartRefresh(Func<ISeriesService, Task<(int Processed, int Succeeded, int Failed, string? StopReason)>> work)
     {
@@ -226,6 +240,8 @@ public class SeriesController : ControllerBase
             _refreshLock,
             _serviceScopeFactory,
             _logger,
+            _statusRegistry,
+            RefreshOperationKey,
             async sp =>
             {
                 var seriesService = sp.GetRequiredService<ISeriesService>();

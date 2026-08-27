@@ -13,8 +13,11 @@ public class SimilarValuesController : ControllerBase
 {
     private static readonly SemaphoreSlim _alignLock = new(1, 1);
 
+    public const string OperationKey = "similar-value-align";
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
     private readonly ISimilarValueService _similarValueService;
     private readonly IPersonRepository _personRepository;
     private readonly IAudiobookRepository _audiobookRepository;
@@ -23,6 +26,7 @@ public class SimilarValuesController : ControllerBase
     public SimilarValuesController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
         ISimilarValueService similarValueService,
         IPersonRepository personRepository,
         IAudiobookRepository audiobookRepository,
@@ -30,6 +34,7 @@ public class SimilarValuesController : ControllerBase
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
         _similarValueService = similarValueService;
         _personRepository = personRepository;
         _audiobookRepository = audiobookRepository;
@@ -78,13 +83,18 @@ public class SimilarValuesController : ControllerBase
             _alignLock,
             _serviceScopeFactory,
             _logger,
+            _statusRegistry,
+            OperationKey,
             async sp =>
             {
                 var similarValueService = sp.GetRequiredService<ISimilarValueService>();
 
-                Task ProgressAction(int processed, int total, int succeeded, int failed) =>
-                    _organizeHub.Clients.All.SimilarValueAlignProgress(
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(OperationKey, processed, total);
+                    return _organizeHub.Clients.All.SimilarValueAlignProgress(
                         new SimilarValueAlignProgress(processed, total, succeeded, failed));
+                }
 
                 var (processed, succeeded, failed) = dto.ValueType == "author"
                     ? await similarValueService.AlignAuthorsAsync(dto.SourceValues, dto.TargetValue, ProgressAction)

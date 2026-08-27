@@ -13,8 +13,11 @@ public class ConsistencyController : ControllerBase
 {
     private static readonly SemaphoreSlim _checkLock = new(1, 1);
 
+    public const string OperationKey = "consistency-check";
+
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly ILogger<ConsistencyController> _logger;
@@ -22,12 +25,14 @@ public class ConsistencyController : ControllerBase
     public ConsistencyController(
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
         IConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
         ILogger<ConsistencyController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
         _issueRepository = issueRepository;
         _orphanDirectoryRepository = orphanDirectoryRepository;
         _logger = logger;
@@ -40,13 +45,18 @@ public class ConsistencyController : ControllerBase
             _checkLock,
             _serviceScopeFactory,
             _logger,
+            _statusRegistry,
+            OperationKey,
             async sp =>
             {
                 var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
 
-                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound) =>
-                    _organizeHub.Clients.All.ConsistencyCheckProgress(
+                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound)
+                {
+                    _statusRegistry.SetProgress(OperationKey, booksChecked, totalBooks);
+                    return _organizeHub.Clients.All.ConsistencyCheckProgress(
                         new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound));
+                }
 
                 var (booksChecked, issuesFound) = await consistencyService.RunConsistencyCheck(ProgressAction);
 

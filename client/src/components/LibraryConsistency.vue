@@ -31,21 +31,11 @@
     </v-row>
     <v-row v-if="checking">
       <v-col cols="12">
-        <v-progress-linear
+        <OperationProgressBar
           class="mt-3"
-          :model-value="
-            checkTotalBooks > 0
-              ? (checkBooksChecked / checkTotalBooks) * 100
-              : 0
-          "
-          color="primary"
-          height="20"
-          striped
-        >
-          <template v-slot:default>
-            {{ checkBooksChecked }} / {{ checkTotalBooks }}
-          </template>
-        </v-progress-linear>
+          :processed="checkBooksChecked"
+          :total="checkTotalBooks"
+        />
         <div class="text-caption mt-1">{{ checkMessage }}</div>
         <div class="text-caption">Issues found: {{ checkIssuesFound }}</div>
       </v-col>
@@ -398,12 +388,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, onMounted, onUnmounted, reactive } from "vue";
+import { computed, Ref, ref, onMounted, reactive } from "vue";
 import ConsistencyService from "../services/ConsistencyService";
 import ConsistencyIssue from "../types/ConsistencyIssue";
 import OrphanDirectory from "../types/OrphanDirectory";
 import DiffDisplay from "./DiffDisplay.vue";
-import { useSignalR, HubEventToken } from "@/signalr/hub";
+import OperationProgressBar from "./OperationProgressBar.vue";
+import { HubEventToken } from "@/signalr/hub";
+import { useOperationProgress } from "../composables/useOperationProgress";
 import { ConsistencyCheckProgress } from "../signalr/ConsistencyCheckProgress";
 import { ConsistencyCheckComplete } from "../signalr/ConsistencyCheckComplete";
 
@@ -414,13 +406,8 @@ const ConsistencyCheckProgressToken: HubEventToken<ConsistencyCheckProgress> =
 const ConsistencyCheckCompleteToken: HubEventToken<ConsistencyCheckComplete> =
   "ConsistencyCheckComplete";
 
-const signalR = useSignalR();
-
 const issues: Ref<ConsistencyIssue[]> = ref([]);
-const checking: Ref<boolean> = ref(false);
 const checkMessage: Ref<string> = ref("");
-const checkBooksChecked: Ref<number> = ref(0);
-const checkTotalBooks: Ref<number> = ref(0);
 const checkIssuesFound: Ref<number> = ref(0);
 const checkComplete: Ref<boolean> = ref(false);
 const completeTotalBooks: Ref<number> = ref(0);
@@ -500,35 +487,33 @@ const getIssueTypeLabel = (issueType: string): string => {
   }
 };
 
-const onConsistencyCheckProgress = (arg: ConsistencyCheckProgress) => {
-  checkMessage.value = arg.message;
-  checkBooksChecked.value = arg.booksChecked;
-  checkTotalBooks.value = arg.totalBooks;
-  checkIssuesFound.value = arg.issuesFound;
-};
-
-const onConsistencyCheckComplete = (arg: ConsistencyCheckComplete) => {
-  checking.value = false;
-  checkComplete.value = true;
-  completeTotalBooks.value = arg.totalBooksChecked;
-  completeTotalIssues.value = arg.totalIssuesFound;
-  loadIssues();
-  loadOrphanDirectories();
-};
-
-signalR.on(ConsistencyCheckProgressToken, onConsistencyCheckProgress);
-signalR.on(ConsistencyCheckCompleteToken, onConsistencyCheckComplete);
-
-onUnmounted(() => {
-  signalR.off(ConsistencyCheckProgressToken, onConsistencyCheckProgress);
-  signalR.off(ConsistencyCheckCompleteToken, onConsistencyCheckComplete);
+const {
+  isRunning: checking,
+  processed: checkBooksChecked,
+  total: checkTotalBooks,
+  start: startChecking,
+} = useOperationProgress<ConsistencyCheckProgress, ConsistencyCheckComplete>({
+  key: "consistency-check",
+  progressToken: ConsistencyCheckProgressToken,
+  completeToken: ConsistencyCheckCompleteToken,
+  getProcessed: (arg) => arg.booksChecked,
+  getTotal: (arg) => arg.totalBooks,
+  onProgress: (arg) => {
+    checkMessage.value = arg.message;
+    checkIssuesFound.value = arg.issuesFound;
+  },
+  onComplete: (arg) => {
+    checkComplete.value = true;
+    completeTotalBooks.value = arg.totalBooksChecked;
+    completeTotalIssues.value = arg.totalIssuesFound;
+    loadIssues();
+    loadOrphanDirectories();
+  },
 });
 
 const startCheck = async () => {
-  checking.value = true;
+  startChecking();
   checkComplete.value = false;
-  checkBooksChecked.value = 0;
-  checkTotalBooks.value = 0;
   checkIssuesFound.value = 0;
   checkMessage.value = "";
   issues.value = [];

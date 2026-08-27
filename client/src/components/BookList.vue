@@ -114,6 +114,7 @@ signalR.on(QueueErrorToken, onQueueError);
 onUnmounted(() => {
   signalR.off(UpdateProgress, onUpdateProgress);
   signalR.off(QueueErrorToken, onQueueError);
+  signalR.offReconnected(loadBooks);
 });
 
 const limit = 50;
@@ -144,6 +145,11 @@ const loadBooks = async () => {
 
   loadingBooks.value = false;
 };
+
+// A queued book's UpdateProgress/QueueError events can be missed while disconnected (e.g. a
+// backgrounded mobile tab), leaving it stuck showing "Queued" even after it finished. Reloading
+// the list on reconnect re-syncs queue state the same way it does on mount.
+signalR.onReconnected(loadBooks);
 
 const enhanceBooksWithQueueInfo = (
   books: BookFileInfo[],

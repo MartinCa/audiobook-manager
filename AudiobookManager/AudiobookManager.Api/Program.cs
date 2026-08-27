@@ -68,6 +68,8 @@ internal class Program
 
         builder.Services.SetupServiceLayer();
 
+        builder.Services.AddSingleton<IOperationStatusRegistry, OperationStatusRegistry>();
+
         builder.Services.AddHostedService<OrganizeWorker>();
 
         var app = builder.Build();
