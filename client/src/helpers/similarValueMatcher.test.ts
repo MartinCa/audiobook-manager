@@ -44,7 +44,7 @@ describe("isNearMatch", () => {
     expect(isNearMatch("Brandon Sanderson", "Brandon Sanderson")).toBe(false);
   });
 
-  it("returns true for case/punctuation-insensitive equivalents that normalize identically but differ in raw form", () => {
+  it("returns false for values that normalize identically but differ in raw form", () => {
     // Normalizes to the same value ("jk rowling" both ways) -> treated as exact, not "near"
     expect(isNearMatch("J.K. Rowling", "JK Rowling")).toBe(false);
   });

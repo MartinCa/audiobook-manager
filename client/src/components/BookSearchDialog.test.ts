@@ -89,8 +89,13 @@ describe("BookSearchDialog source list", () => {
     await flushPromises();
     await nextTick();
 
-    expect(wrapper.text()).toContain("Searching: ZorkSource, QuuxSource");
-    expect(wrapper.text()).not.toContain("DisabledSource:");
+    // Assert on the exact set of selected chips rather than a substring of the
+    // rendered text: a `toContain("Searching: Zork...")` prefix match still
+    // passes when a disabled source is appended to the selection.
+    const selectedChipTexts = wrapper
+      .findAll(".v-chip-group .v-chip--selected")
+      .map((c) => c.text());
+    expect(selectedChipTexts).toEqual(["ZorkSource", "QuuxSource"]);
 
     wrapper.unmount();
   });
