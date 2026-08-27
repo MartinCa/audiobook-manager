@@ -71,21 +71,7 @@ public class AudiobookService : IAudiobookService
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
-        if (File.Exists(newFullPath))
-        {
-            throw new Exception($"'{newFullPath}' already exists");
-        }
-
-        await progressAction("Generated new path, relocating", 75);
-
-        sw.Restart();
-
-        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
-
-        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
-        sw.Restart();
-
-        await progressAction("Relocated", 80);
+        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory, sw, progressAction, relocatingProgress: 75, relocatedProgress: 80);
 
         var newParsed = ParseAudiobook(newFullPath);
 
@@ -101,12 +87,6 @@ public class AudiobookService : IAudiobookService
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
-        if (oldDirectory != Path.GetDirectoryName(newFullPath))
-        {
-            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
-        }
-
         await InsertAudiobook(newParsed);
 
         await progressAction("Done", 100);
@@ -114,7 +94,61 @@ public class AudiobookService : IAudiobookService
         return newParsed;
     }
 
-    public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
+    /// <summary>
+    /// Moves the audiobook's file to <paramref name="newFullPath"/> if it differs from its current path,
+    /// throwing if a file already occupies the destination, and cleans up sidecar files left behind in
+    /// <paramref name="oldDirectory"/> when it moved to a different directory. No-ops (no exists-check,
+    /// no move, no logging/progress) when the path is unchanged. Returns the resulting path.
+    /// </summary>
+    private async Task<string> RelocateIfPathChangedAsync(
+        Audiobook audiobook,
+        string newFullPath,
+        string oldDirectory,
+        Stopwatch? sw = null,
+        Func<string, int, Task>? progressAction = null,
+        int relocatingProgress = 0,
+        int relocatedProgress = 0)
+    {
+        if (newFullPath == audiobook.FileInfo.FullPath)
+        {
+            return newFullPath;
+        }
+
+        if (File.Exists(newFullPath))
+        {
+            throw new Exception($"'{newFullPath}' already exists");
+        }
+
+        if (progressAction is not null)
+        {
+            await progressAction("Generated new path, relocating", relocatingProgress);
+        }
+
+        sw?.Restart();
+
+        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+
+        if (sw is not null)
+        {
+            _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
+            sw.Restart();
+        }
+
+        if (progressAction is not null)
+        {
+            await progressAction("Relocated", relocatedProgress);
+        }
+
+        if (oldDirectory != Path.GetDirectoryName(newFullPath))
+        {
+            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
+            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+        }
+
+        return newFullPath;
+    }
+
+    private async Task<(List<Database.Models.Person> Authors, List<Database.Models.Person> Narrators, List<Database.Models.Genre> Genres)> GetOrCreateAuthorsNarratorsGenres(Audiobook audiobook)
     {
         var authors = new List<Database.Models.Person>();
         foreach (var author in audiobook.Authors)
@@ -127,6 +161,13 @@ public class AudiobookService : IAudiobookService
         var genres = new List<Database.Models.Genre>();
         foreach (var genre in audiobook.Genres)
             genres.Add(await _genreRepository.GetOrCreateGenre(genre));
+
+        return (authors, narrators, genres);
+    }
+
+    public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
+    {
+        var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         AudiobookDb dbAudiobook = new AudiobookDb(
             audiobook.Id ?? default,
@@ -182,20 +223,8 @@ public class AudiobookService : IAudiobookService
 
         // Check if the file needs to be relocated
         var newFullPath = GenerateLibraryPath(audiobook);
-        if (newFullPath != oldFilePath)
-        {
-            if (File.Exists(newFullPath))
-                throw new Exception($"'{newFullPath}' already exists");
-
-            AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
-            audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
-
-            if (oldDirectory != Path.GetDirectoryName(newFullPath))
-            {
-                AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-                AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
-            }
-        }
+        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
+        audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
 
         // Re-parse from current location to get updated metadata
         var currentPath = audiobook.FileInfo.FullPath;
@@ -206,17 +235,7 @@ public class AudiobookService : IAudiobookService
         newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
 
         // Update DB record
-        var authors = new List<Database.Models.Person>();
-        foreach (var author in audiobook.Authors)
-            authors.Add(await _personRepository.GetOrCreatePerson(author.Name));
-
-        var narrators = new List<Database.Models.Person>();
-        foreach (var narrator in audiobook.Narrators)
-            narrators.Add(await _personRepository.GetOrCreatePerson(narrator.Name));
-
-        var genres = new List<Database.Models.Genre>();
-        foreach (var genre in audiobook.Genres)
-            genres.Add(await _genreRepository.GetOrCreateGenre(genre));
+        var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         existing.BookName = audiobook.BookName;
         existing.Subtitle = audiobook.Subtitle;
