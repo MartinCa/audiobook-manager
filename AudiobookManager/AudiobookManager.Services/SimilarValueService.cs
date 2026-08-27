@@ -83,15 +83,9 @@ public class SimilarValueService : ISimilarValueService
         var sourceSet = new HashSet<string>(namesToAlign, StringComparer.Ordinal);
         var books = await _audiobookRepository.GetBooksByAuthorNamesAsync(namesToAlign);
 
-        var processed = 0;
-        var succeeded = 0;
-        var failed = 0;
-        var total = books.Count;
-
-        foreach (var dbBook in books)
-        {
-            processed++;
-            try
+        return await BulkOperationRunner.RunAsync(
+            books,
+            async dbBook =>
             {
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
@@ -116,18 +110,10 @@ public class SimilarValueService : ISimilarValueService
                 domain.Authors = newAuthors;
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
-                succeeded++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to align author for audiobook {AudiobookId}", dbBook.Id);
-                failed++;
-            }
-
-            await progressAction(processed, total, succeeded, failed);
-        }
-
-        return (processed, succeeded, failed);
+            },
+            _logger,
+            dbBook => $"Failed to align author for audiobook {dbBook.Id}",
+            progressAction);
     }
 
     public async Task<(int Processed, int Succeeded, int Failed)> AlignSeriesAsync(
@@ -145,32 +131,18 @@ public class SimilarValueService : ISimilarValueService
 
         var books = await _audiobookRepository.GetBooksBySeriesValuesAsync(valuesToAlign);
 
-        var processed = 0;
-        var succeeded = 0;
-        var failed = 0;
-        var total = books.Count;
-
-        foreach (var dbBook in books)
-        {
-            processed++;
-            try
+        return await BulkOperationRunner.RunAsync(
+            books,
+            async dbBook =>
             {
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
                 domain.Series = targetValue;
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
-                succeeded++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to align series for audiobook {AudiobookId}", dbBook.Id);
-                failed++;
-            }
-
-            await progressAction(processed, total, succeeded, failed);
-        }
-
-        return (processed, succeeded, failed);
+            },
+            _logger,
+            dbBook => $"Failed to align series for audiobook {dbBook.Id}",
+            progressAction);
     }
 }

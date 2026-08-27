@@ -113,40 +113,22 @@ public class LibraryScanService : ILibraryScanService
         var discovered = await _discoveredAudiobookRepository.GetByPathsAsync(filePaths);
         var byPath = discovered.ToDictionary(d => d.FileInfoFullPath);
 
-        var processed = 0;
-        var succeeded = 0;
-        var failed = 0;
-        var total = filePaths.Count;
-
-        foreach (var path in filePaths)
-        {
-            processed++;
-
-            if (byPath.TryGetValue(path, out var entry))
+        return await BulkOperationRunner.RunAsync(
+            filePaths,
+            async path =>
             {
-                try
+                if (!byPath.TryGetValue(path, out var entry))
                 {
-                    var domain = ToDomainAudiobook(entry);
-                    await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
-                    await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
-                    succeeded++;
+                    throw new InvalidOperationException($"Discovered audiobook not found for path {path}");
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to bulk import discovered audiobook at {FilePath}", path);
-                    failed++;
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Discovered audiobook not found for path {FilePath}", path);
-                failed++;
-            }
 
-            await progressAction(processed, total, succeeded, failed);
-        }
-
-        return (processed, succeeded, failed);
+                var domain = ToDomainAudiobook(entry);
+                await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
+                await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
+            },
+            _logger,
+            path => $"Failed to bulk import discovered audiobook at {path}",
+            progressAction);
     }
 
     // Builds the domain object from the tag snapshot captured at scan time, rather than
