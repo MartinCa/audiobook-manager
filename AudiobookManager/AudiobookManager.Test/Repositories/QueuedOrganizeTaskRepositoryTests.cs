@@ -1,0 +1,151 @@
+using AudiobookManager.Database;
+using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Repositories;
+using AudiobookManager.Settings;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace AudiobookManager.Test.Repositories;
+
+/// <summary>
+/// Exercises basic CRUD for the organize queue against a real (temp-file) SQLite database.
+/// </summary>
+[TestClass]
+public class QueuedOrganizeTaskRepositoryTests
+{
+    private string _dbPath = null!;
+    private DatabaseContext _db = null!;
+    private QueuedOrganizeTaskRepository _repository = null!;
+
+    [TestInitialize]
+    public void Setup()
+    {
+        _dbPath = Path.Combine(Path.GetTempPath(), $"queuedorganizetaskrepo-{Guid.NewGuid():N}.db");
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        _db = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+        _db.Database.EnsureCreated();
+        _repository = new QueuedOrganizeTaskRepository(_db);
+    }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        _db.Dispose();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        if (File.Exists(_dbPath))
+        {
+            File.Delete(_dbPath);
+        }
+    }
+
+    private DatabaseContext OpenNewContext()
+    {
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        return new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+    }
+
+    private static QueuedOrganizeTask MakeTask(string path, DateTime queuedTime = default) =>
+        new QueuedOrganizeTask(path, "{\"bookName\":\"A Book\"}", queuedTime);
+
+    [TestMethod]
+    public async Task InsertQueuedOrganizeTask_PersistsAndIsRetrievable()
+    {
+        var inserted = await _repository.InsertQueuedOrganizeTask(MakeTask("/import/book.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual("/import/book.m4b", inserted.OriginalFileLocation);
+
+        var fetched = await _repository.GetQueuedOrganizeTask("/import/book.m4b");
+        Assert.IsNotNull(fetched);
+        Assert.AreEqual("{\"bookName\":\"A Book\"}", fetched!.JsonAudiobook);
+    }
+
+    [TestMethod]
+    public async Task InsertQueuedOrganizeTask_NoQueuedTimeSupplied_DefaultsToUtcNow()
+    {
+        var before = DateTime.UtcNow;
+
+        var inserted = await _repository.InsertQueuedOrganizeTask(MakeTask("/import/book.m4b"));
+
+        var after = DateTime.UtcNow;
+        Assert.IsTrue(inserted.QueuedTime >= before && inserted.QueuedTime <= after,
+            $"expected QueuedTime to default to now; before={before}, actual={inserted.QueuedTime}, after={after}");
+    }
+
+    [TestMethod]
+    public async Task GetQueuedOrganizeTask_NotFound_ReturnsNull()
+    {
+        var result = await _repository.GetQueuedOrganizeTask("/nonexistent.m4b");
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public async Task GetAllQueuedOrganizeTasks_ReturnsEveryInsertedTask()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/one.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/two.m4b", new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)));
+
+        var all = await _repository.GetAllQueuedOrganizeTasks();
+
+        Assert.AreEqual(2, all.Count);
+        CollectionAssert.AreEquivalent(
+            new List<string> { "/import/one.m4b", "/import/two.m4b" },
+            all.Select(t => t.OriginalFileLocation).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetAllQueuedOrganizeTasks_EmptyQueue_ReturnsEmptyList()
+    {
+        var all = await _repository.GetAllQueuedOrganizeTasks();
+
+        Assert.AreEqual(0, all.Count);
+    }
+
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_ReturnsOldestByQueuedTime()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/newer.m4b", new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/older.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        var next = await _repository.GetNextQueuedOrganizeTask();
+
+        Assert.IsNotNull(next);
+        Assert.AreEqual("/import/older.m4b", next!.OriginalFileLocation);
+    }
+
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_EmptyQueue_ReturnsNull()
+    {
+        var next = await _repository.GetNextQueuedOrganizeTask();
+
+        Assert.IsNull(next);
+    }
+
+    // DeleteQueuedOrganizeTask uses ExecuteDeleteAsync, a bulk operation that writes straight to
+    // the database and bypasses the DbContext's change tracker, while GetQueuedOrganizeTask uses
+    // FindAsync, which checks the tracker's local cache before hitting the database. Verifying
+    // the delete through the *same* repository/context instance would actually be checking
+    // FindAsync's local-cache behavior, not the database - so this reads back through a fresh
+    // context/repository, matching how a new scoped DbContext is handed out per web request in
+    // production.
+    [TestMethod]
+    public async Task DeleteQueuedOrganizeTask_RemovesTheMatchingEntry()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/keep.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/remove.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        await _repository.DeleteQueuedOrganizeTask("/import/remove.m4b");
+
+        using var freshContext = OpenNewContext();
+        var freshRepository = new QueuedOrganizeTaskRepository(freshContext);
+
+        Assert.IsNull(await freshRepository.GetQueuedOrganizeTask("/import/remove.m4b"));
+        Assert.IsNotNull(await freshRepository.GetQueuedOrganizeTask("/import/keep.m4b"));
+    }
+
+    [TestMethod]
+    public async Task DeleteQueuedOrganizeTask_NonexistentPath_DoesNotThrow()
+    {
+        await _repository.DeleteQueuedOrganizeTask("/nonexistent.m4b");
+    }
+}
