@@ -94,6 +94,25 @@ describe("useSelectedSearchSources", () => {
     expect(selected.value).toEqual(["Goodreads"]);
   });
 
+  it.each([
+    ["an object", "{}"],
+    ["a number", "3"],
+    ["a string", '"Goodreads"'],
+    ["null", "null"],
+  ])(
+    "ignores valid JSON that is not an array (%s) and falls back to enabled services",
+    (_label, stored) => {
+      localStorage.setItem(storageKey, stored);
+      const services = ref<MetadataSearchServiceInfo[]>([
+        { name: "Goodreads", enabled: true },
+      ]);
+
+      const selected = useSelectedSearchSources(services);
+
+      expect(selected.value).toEqual(["Goodreads"]);
+    },
+  );
+
   it("reacts to the services list changing later (e.g. arriving from the live API)", async () => {
     const services = ref<MetadataSearchServiceInfo[]>([]);
     const selected = useSelectedSearchSources(services);

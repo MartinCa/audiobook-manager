@@ -6,7 +6,13 @@ const storageKey = "abm.search.selectedSources";
 function readStoredSources(): string[] | null {
   try {
     const raw = localStorage.getItem(storageKey);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    // Valid JSON is not necessarily the array shape we wrote (e.g. a stale key
+    // holding `{}` or `3`), so guard before callers treat it as one.
+    return Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
   }

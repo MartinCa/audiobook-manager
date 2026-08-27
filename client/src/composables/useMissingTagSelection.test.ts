@@ -84,6 +84,24 @@ describe("useMissingTagSelection", () => {
     expect(selected.value).toEqual(["author", "year"]);
   });
 
+  it.each([
+    ["an object", "{}"],
+    ["a number", "3"],
+    ["a string", '"author"'],
+    ["null", "null"],
+  ])(
+    "falls back to defaults when stored JSON is valid but not an array (%s)",
+    async (_label, stored) => {
+      localStorage.setItem(storageKey, stored);
+      const fields = ref<MissingTagField[]>(allFields);
+
+      const selected = useMissingTagSelection(fields);
+      await nextTick();
+
+      expect(selected.value).toEqual(["author", "year"]);
+    },
+  );
+
   it("persists selection changes to localStorage", async () => {
     const fields = ref<MissingTagField[]>(allFields);
     const selected = useMissingTagSelection(fields);
