@@ -82,14 +82,37 @@
         @delete-book="removeBook"
       />
     </v-dialog>
+    <v-dialog
+      v-if="showDuplicateDialog && duplicateCheck && pendingOrganizeData"
+      v-model="showDuplicateDialog"
+      :width="dialogWidth"
+      :fullscreen="mdAndDown"
+    >
+      <DuplicateTargetDialog
+        :dialog-width="dialogWidth"
+        :new-path="pendingOrganizeData.fileInfo!.fullPath"
+        :new-size-in-bytes="pendingOrganizeData.fileInfo!.sizeInBytes"
+        :new-duration-in-seconds="pendingOrganizeData.durationInSeconds"
+        :target-path="duplicateCheck.targetPath"
+        :existing-size-in-bytes="duplicateCheck.existing?.sizeInBytes"
+        :existing-duration-in-seconds="
+          duplicateCheck.existing?.durationInSeconds
+        "
+        @existing-deleted="onExistingDeleted"
+        @new-deleted="onNewFileDeleted"
+        @cancelled="onDuplicateCancelled"
+      />
+    </v-dialog>
   </template>
 </template>
 
 <script setup lang="ts">
 import { onMounted, Ref, ref, watch } from "vue";
 import { Audiobook, AudiobookImage } from "../types/Audiobook";
+import { TargetPathCheckResult } from "../types/TargetPathCheck";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookDeleteDialog from "./BookDeleteDialog.vue";
+import DuplicateTargetDialog from "./DuplicateTargetDialog.vue";
 import ErrorNotifications from "./ErrorNotifications.vue";
 import BookEditForm from "./BookEditForm.vue";
 import { useDialogWidth } from "./dialog";
@@ -112,6 +135,9 @@ const input: Ref<OrganizeAudiobookInput> = ref({});
 const organizing = ref(false);
 const showDeleteDialog = ref(false);
 const newPath = ref("");
+const showDuplicateDialog = ref(false);
+const duplicateCheck: Ref<TargetPathCheckResult | null> = ref(null);
+const pendingOrganizeData: Ref<Audiobook | null> = ref(null);
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
@@ -210,12 +236,54 @@ const organizeBook = async () => {
   organizing.value = true;
 
   try {
-    const organizeId = await AudiobookService.organizeBook(data);
-    bookEditForm.value?.noteSavedNames();
-    emit("bookQueued", organizeId);
+    const check = await AudiobookService.checkTargetPath(data);
+    if (check.exists) {
+      pendingOrganizeData.value = data;
+      duplicateCheck.value = check;
+      showDuplicateDialog.value = true;
+      return;
+    }
+
+    await queueOrganize(data);
   } finally {
     organizing.value = false;
   }
+};
+
+const queueOrganize = async (data: Audiobook) => {
+  const organizeId = await AudiobookService.organizeBook(data);
+  bookEditForm.value?.noteSavedNames();
+  emit("bookQueued", organizeId);
+};
+
+const onExistingDeleted = async () => {
+  showDuplicateDialog.value = false;
+  duplicateCheck.value = null;
+  const data = pendingOrganizeData.value;
+  pendingOrganizeData.value = null;
+  if (!data) {
+    return;
+  }
+
+  organizing.value = true;
+  try {
+    await queueOrganize(data);
+  } finally {
+    organizing.value = false;
+  }
+};
+
+const onNewFileDeleted = () => {
+  showDuplicateDialog.value = false;
+  duplicateCheck.value = null;
+  pendingOrganizeData.value = null;
+  emit("bookDeleted");
+};
+
+const onDuplicateCancelled = () => {
+  showDuplicateDialog.value = false;
+  duplicateCheck.value = null;
+  pendingOrganizeData.value = null;
 };
 const getBookDetails = async () => {
   const book = await AudiobookService.parseBookDetails(props.bookPath);

@@ -47,6 +47,14 @@ public class AudiobookController : ControllerBase
         return _audiobookService.GenerateLibraryPath(book);
     }
 
+    [HttpPost("check_target_path")]
+    public async Task<TargetPathCheckDto> CheckTargetPath([FromBody] OrganizeAudiobookDto dto)
+    {
+        var book = MapToDomain(dto);
+        var result = await _audiobookService.CheckTargetPathCollision(book);
+        return new TargetPathCheckDto(result);
+    }
+
     [HttpPut("{id}")]
     public async Task<ActionResult> UpdateAudiobook(long id, [FromBody] OrganizeAudiobookDto dto)
     {

@@ -11,6 +11,7 @@ export default interface DiscoveredAudiobook {
   narrators?: string;
   genres?: string;
   isWellTagged: boolean;
+  isDuplicate: boolean;
 
   queueId?: string;
   queueProgress?: number;

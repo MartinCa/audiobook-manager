@@ -21,6 +21,7 @@ public class LibraryController : ControllerBase
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IDiscoveredAudiobookRepository _discoveredRepo;
+    private readonly ILibraryScanService _libraryScanService;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
@@ -28,12 +29,14 @@ public class LibraryController : ControllerBase
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         IDiscoveredAudiobookRepository discoveredRepo,
+        ILibraryScanService libraryScanService,
         ILogger<LibraryController> logger)
     {
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _discoveredRepo = discoveredRepo;
+        _libraryScanService = libraryScanService;
         _logger = logger;
     }
 
@@ -69,9 +72,17 @@ public class LibraryController : ControllerBase
     public async Task<PaginatedResult<DiscoveredAudiobookDto>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
-        var mapped = items
-            .Select(d => new DiscoveredAudiobookDto(d))
-            .ToList();
+        var mapped = new List<DiscoveredAudiobookDto>();
+
+        foreach (var item in items)
+        {
+            var dto = new DiscoveredAudiobookDto(item);
+            if (dto.IsWellTagged)
+            {
+                dto.IsDuplicate = await _libraryScanService.IsDuplicateTargetAsync(item);
+            }
+            mapped.Add(dto);
+        }
 
         return new PaginatedResult<DiscoveredAudiobookDto>(mapped.Count, total, mapped);
     }
@@ -106,7 +117,10 @@ public class LibraryController : ControllerBase
                         new DiscoveredImportProgress(processed, total, succeeded, failed));
                 }
 
-                var (processed, succeeded, failed) = await scanService.BulkImportAsync(dto.Paths, ProgressAction);
+                Task OnItemFailed(string path, string error) =>
+                    _organizeHub.Clients.All.QueueError(new QueueError(path, error));
+
+                var (processed, succeeded, failed) = await scanService.BulkImportAsync(dto.Paths, ProgressAction, OnItemFailed);
 
                 await _organizeHub.Clients.All.DiscoveredImportComplete(
                     new DiscoveredImportComplete(processed, succeeded, failed));

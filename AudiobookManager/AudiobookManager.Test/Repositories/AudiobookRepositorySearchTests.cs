@@ -80,4 +80,25 @@ public class AudiobookRepositorySearchTests
 
         Assert.AreEqual(2, results.Count);
     }
+
+    [TestMethod]
+    public async Task GetByFullPathAsync_MatchingBookExists_ReturnsIt()
+    {
+        await SeedBookAsync("Children of Time", null);
+
+        var result = await _repository.GetByFullPathAsync("/library/Children of Time.m4b");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("Children of Time", result.BookName);
+    }
+
+    [TestMethod]
+    public async Task GetByFullPathAsync_NoBookAtThatPath_ReturnsNull()
+    {
+        await SeedBookAsync("Children of Time", null);
+
+        var result = await _repository.GetByFullPathAsync("/library/Someone Else.m4b");
+
+        Assert.IsNull(result);
+    }
 }

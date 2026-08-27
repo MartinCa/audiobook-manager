@@ -298,4 +298,94 @@ public class LibraryScanServiceTests
         Assert.AreEqual(0, succeeded);
         Assert.AreEqual(1, failed);
     }
+
+    [TestMethod]
+    public async Task BulkImportAsync_OrganizeThrows_InvokesOnItemFailedWithPathAndMessageBeforeCountingFailure()
+    {
+        var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 5,
+            Authors = "Author One",
+            Year = 2022
+        };
+
+        _discoveredAudiobookRepository.Setup(r => r.GetByPathsAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook> { discovered });
+
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ThrowsAsync(new Exception("'/library/book.m4b' already exists"));
+
+        var failures = new List<(string Path, string Error)>();
+
+        var (processed, succeeded, failed) = await _service.BulkImportAsync(
+            new List<string> { "/import/book.m4b" },
+            (_, __, ___, ____) => Task.CompletedTask,
+            (path, error) =>
+            {
+                failures.Add((path, error));
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(1, failed);
+
+        Assert.AreEqual(1, failures.Count);
+        Assert.AreEqual("/import/book.m4b", failures[0].Path);
+        Assert.AreEqual("'/library/book.m4b' already exists", failures[0].Error);
+
+        _discoveredAudiobookRepository.Verify(r => r.DeleteAsync(5), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task IsDuplicateTargetAsync_FileAlreadyAtGeneratedPath_ReturnsTrue()
+    {
+        var targetPath = Path.Combine(_libraryPath, "existing.m4b");
+        await File.WriteAllTextAsync(targetPath, "already there");
+
+        var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Authors = "Author One",
+            Year = 2022
+        };
+
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>())).Returns(targetPath);
+
+        var isDuplicate = await _service.IsDuplicateTargetAsync(discovered);
+
+        Assert.IsTrue(isDuplicate);
+    }
+
+    [TestMethod]
+    public async Task IsDuplicateTargetAsync_NoFileAtGeneratedPath_ReturnsFalse()
+    {
+        var targetPath = Path.Combine(_libraryPath, "not-there.m4b");
+
+        var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Authors = "Author One",
+            Year = 2022
+        };
+
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>())).Returns(targetPath);
+
+        var isDuplicate = await _service.IsDuplicateTargetAsync(discovered);
+
+        Assert.IsFalse(isDuplicate);
+    }
+
+    [TestMethod]
+    public async Task IsDuplicateTargetAsync_EntryMissingRequiredTags_ReturnsFalseWithoutThrowing()
+    {
+        var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Authors = null,
+            Year = 2022
+        };
+
+        var isDuplicate = await _service.IsDuplicateTargetAsync(discovered);
+
+        Assert.IsFalse(isDuplicate);
+        _audiobookService.Verify(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>()), Times.Never);
+    }
 }

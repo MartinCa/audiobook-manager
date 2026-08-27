@@ -1,4 +1,5 @@
 import { Audiobook } from "../types/Audiobook";
+import { TargetPathCheckResult } from "../types/TargetPathCheck";
 import BaseHttpService from "./BaseHttpService";
 
 function toDto(data: Audiobook) {
@@ -35,6 +36,10 @@ class AudiobookService extends BaseHttpService {
 
   generateNewPath(data: Audiobook): Promise<string> {
     return this.postData("/audiobook/generate_path", toDto(data));
+  }
+
+  checkTargetPath(data: Audiobook): Promise<TargetPathCheckResult> {
+    return this.postData("/audiobook/check_target_path", toDto(data));
   }
 
   updateBook(id: number, data: Audiobook): Promise<void> {

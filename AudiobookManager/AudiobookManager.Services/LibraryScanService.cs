@@ -108,7 +108,8 @@ public class LibraryScanService : ILibraryScanService
 
     public async Task<(int Processed, int Succeeded, int Failed)> BulkImportAsync(
         List<string> filePaths,
-        Func<int, int, int, int, Task> progressAction)
+        Func<int, int, int, int, Task> progressAction,
+        Func<string, string, Task>? onItemFailed = null)
     {
         var discovered = await _discoveredAudiobookRepository.GetByPathsAsync(filePaths);
         var byPath = discovered.ToDictionary(d => d.FileInfoFullPath);
@@ -117,18 +118,40 @@ public class LibraryScanService : ILibraryScanService
             filePaths,
             async path =>
             {
-                if (!byPath.TryGetValue(path, out var entry))
+                try
                 {
-                    throw new InvalidOperationException($"Discovered audiobook not found for path {path}");
-                }
+                    if (!byPath.TryGetValue(path, out var entry))
+                    {
+                        throw new InvalidOperationException($"Discovered audiobook not found for path {path}");
+                    }
 
-                var domain = ToDomainAudiobook(entry);
-                await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
-                await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
+                    var domain = ToDomainAudiobook(entry);
+                    await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
+                    await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
+                }
+                catch (Exception ex) when (onItemFailed is not null)
+                {
+                    await onItemFailed(path, ex.Message);
+                    throw;
+                }
             },
             _logger,
             path => $"Failed to bulk import discovered audiobook at {path}",
             progressAction);
+    }
+
+    public async Task<bool> IsDuplicateTargetAsync(DiscoveredAudiobook entry)
+    {
+        try
+        {
+            var domain = ToDomainAudiobook(entry);
+            var targetPath = _audiobookService.GenerateLibraryPath(domain);
+            return File.Exists(targetPath);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     // Builds the domain object from the tag snapshot captured at scan time, rather than
