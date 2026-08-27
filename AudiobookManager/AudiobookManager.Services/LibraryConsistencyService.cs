@@ -258,24 +258,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     public async Task<(int resolved, int failed)> ResolveAllOrphanDirectories()
     {
         var directories = await _orphanDirectoryRepository.GetAllAsync();
-        var resolved = 0;
-        var failed = 0;
 
-        foreach (var directory in directories)
-        {
-            try
-            {
-                await ResolveOrphanDirectory(directory.Id);
-                resolved++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to resolve orphan directory {DirectoryId}", directory.Id);
-                failed++;
-            }
-        }
+        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
+            directories,
+            directory => ResolveOrphanDirectory(directory.Id),
+            _logger,
+            directory => $"Failed to resolve orphan directory {directory.Id}");
 
-        return (resolved, failed);
+        return (succeeded, failed);
     }
 
     private static void DeleteOrphanDirectoryFromDisk(string directoryPath)
@@ -302,46 +292,25 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             throw new ArgumentException($"Unknown issue type: {issueType}");
 
         var issues = await _issueRepository.GetByTypeAsync(parsedType);
-        var resolved = 0;
-        var failed = 0;
 
-        foreach (var issue in issues)
-        {
-            try
-            {
-                await ResolveIssue(issue.Id);
-                resolved++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during bulk resolve", issue.Id);
-                failed++;
-            }
-        }
+        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
+            issues,
+            issue => ResolveIssue(issue.Id),
+            _logger,
+            issue => $"Failed to resolve issue {issue.Id} during bulk resolve");
 
-        return (resolved, failed);
+        return (succeeded, failed);
     }
 
     public async Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds)
     {
-        var resolved = 0;
-        var failed = 0;
+        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
+            issueIds.ToList(),
+            ResolveIssue,
+            _logger,
+            issueId => $"Failed to resolve issue {issueId} during selected bulk resolve");
 
-        foreach (var issueId in issueIds)
-        {
-            try
-            {
-                await ResolveIssue(issueId);
-                resolved++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during selected bulk resolve", issueId);
-                failed++;
-            }
-        }
-
-        return (resolved, failed);
+        return (succeeded, failed);
     }
 
     private static List<(string Field, string Expected, string Actual)> FindTagMismatches(Audiobook audiobook, AudiobookManager.Domain.Audiobook parsed)
