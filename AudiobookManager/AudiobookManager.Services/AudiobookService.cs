@@ -71,24 +71,7 @@ public class AudiobookService : IAudiobookService
 
         var newFullPath = GenerateLibraryPath(audiobook);
 
-        if (newFullPath != audiobook.FileInfo.FullPath)
-        {
-            if (File.Exists(newFullPath))
-            {
-                throw new Exception($"'{newFullPath}' already exists");
-            }
-
-            await progressAction("Generated new path, relocating", 75);
-
-            sw.Restart();
-
-            AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
-
-            _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
-            sw.Restart();
-
-            await progressAction("Relocated", 80);
-        }
+        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory, sw, progressAction, relocatingProgress: 75, relocatedProgress: 80);
 
         var newParsed = ParseAudiobook(newFullPath);
 
@@ -104,17 +87,65 @@ public class AudiobookService : IAudiobookService
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
+        await InsertAudiobook(newParsed);
+
+        await progressAction("Done", 100);
+
+        return newParsed;
+    }
+
+    /// <summary>
+    /// Moves the audiobook's file to <paramref name="newFullPath"/> if it differs from its current path,
+    /// throwing if a file already occupies the destination, and cleans up sidecar files left behind in
+    /// <paramref name="oldDirectory"/> when it moved to a different directory. No-ops (no exists-check,
+    /// no move, no logging/progress) when the path is unchanged. Returns the resulting path.
+    /// </summary>
+    private async Task<string> RelocateIfPathChangedAsync(
+        Audiobook audiobook,
+        string newFullPath,
+        string oldDirectory,
+        Stopwatch? sw = null,
+        Func<string, int, Task>? progressAction = null,
+        int relocatingProgress = 0,
+        int relocatedProgress = 0)
+    {
+        if (newFullPath == audiobook.FileInfo.FullPath)
+        {
+            return newFullPath;
+        }
+
+        if (File.Exists(newFullPath))
+        {
+            throw new Exception($"'{newFullPath}' already exists");
+        }
+
+        if (progressAction is not null)
+        {
+            await progressAction("Generated new path, relocating", relocatingProgress);
+        }
+
+        sw?.Restart();
+
+        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
+
+        if (sw is not null)
+        {
+            _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath} took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, newFullPath, sw.ElapsedMilliseconds);
+            sw.Restart();
+        }
+
+        if (progressAction is not null)
+        {
+            await progressAction("Relocated", relocatedProgress);
+        }
+
         if (oldDirectory != Path.GetDirectoryName(newFullPath))
         {
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
 
-        await InsertAudiobook(newParsed);
-
-        await progressAction("Done", 100);
-
-        return newParsed;
+        return newFullPath;
     }
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
@@ -185,20 +216,8 @@ public class AudiobookService : IAudiobookService
 
         // Check if the file needs to be relocated
         var newFullPath = GenerateLibraryPath(audiobook);
-        if (newFullPath != oldFilePath)
-        {
-            if (File.Exists(newFullPath))
-                throw new Exception($"'{newFullPath}' already exists");
-
-            AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
-            audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
-
-            if (oldDirectory != Path.GetDirectoryName(newFullPath))
-            {
-                AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-                AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
-            }
-        }
+        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
+        audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
 
         // Re-parse from current location to get updated metadata
         var currentPath = audiobook.FileInfo.FullPath;
