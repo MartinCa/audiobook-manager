@@ -135,6 +135,147 @@ public class HardcoverRateLimitingTests
         Assert.AreEqual(2, inner.CallCount);
     }
 
+    [TestMethod]
+    public void CreateOptions_ThrowsWhenConfiguredLimitsWouldExceedTheHard60PerMinuteCeiling()
+    {
+        // Mirrors the settings-driven constructor path: a misconfigured
+        // AudiobookManagerSettings (burst+perMinute > 60) must fail fast at startup rather
+        // than silently exceeding Hardcover's documented ceiling.
+        var settings = Settings(burst: 10, perMinute: 55);
+
+        var ex = Assert.ThrowsExactly<ArgumentOutOfRangeException>(
+            () => new HardcoverRateLimiter(settings.HardcoverBurstLimit, settings.HardcoverPerMinuteLimit));
+
+        Assert.IsTrue(ex.Message.Contains("60"), "exception should reference the documented per-minute ceiling");
+    }
+
+    [TestMethod]
+    public void CreateOptions_ExactlyAtTheHard60PerMinuteCeilingSucceeds()
+    {
+        // Boundary: burst + perMinute == 60 is allowed, only > 60 is rejected.
+        var options = HardcoverRateLimiter.CreateOptions(10, 50);
+
+        Assert.AreEqual(10, options.TokenLimit);
+
+        using var limiter = new HardcoverRateLimiter(10, 50);
+        Assert.AreEqual(10, limiter.Capacity);
+        Assert.AreEqual(50, limiter.TokensPerMinute);
+    }
+
+    [TestMethod]
+    public async Task Handler_ARequestExactlyAtTheConfiguredDailyLimitSucceeds_TheNextThrows()
+    {
+        // Real counting behaviour: request N (== dailyLimit) succeeds, request N+1 is refused.
+        const int dailyLimit = 4;
+        var counts = new Dictionary<DateOnly, int>();
+        _quotaRepository
+            .Setup(r => r.TryConsumeAsync(It.IsAny<DateOnly>(), It.IsAny<int>()))
+            .ReturnsAsync((DateOnly date, int limit) =>
+            {
+                counts.TryGetValue(date, out var current);
+                if (current >= limit)
+                {
+                    return false;
+                }
+
+                counts[date] = current + 1;
+                return true;
+            });
+
+        var inner = new StubHandler(HttpStatusCode.OK);
+        using var client = MakeClient(Settings(daily: dailyLimit), inner);
+
+        for (var i = 0; i < dailyLimit; i++)
+        {
+            var response = await client.GetAsync("https://api.hardcover.app/v1/graphql");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, $"request #{i + 1} (at/under the limit) should succeed");
+        }
+
+        Assert.AreEqual(dailyLimit, inner.CallCount);
+
+        await Assert.ThrowsExactlyAsync<HardcoverDailyLimitExceededException>(
+            () => client.GetAsync("https://api.hardcover.app/v1/graphql"));
+
+        Assert.AreEqual(dailyLimit, inner.CallCount, "the request past the limit must never reach the inner handler");
+    }
+
+    [TestMethod]
+    public async Task Handler_QuotaCounterIsScopedPerUtcDay_ANewDayStartsFresh()
+    {
+        // Simulates the persisted quota crossing a UTC day boundary: the repository's counts
+        // are keyed per-DateOnly, so a day that already exhausted its budget must not affect
+        // a different day's budget.
+        var counts = new Dictionary<DateOnly, int>();
+        _quotaRepository
+            .Setup(r => r.TryConsumeAsync(It.IsAny<DateOnly>(), It.IsAny<int>()))
+            .ReturnsAsync((DateOnly date, int limit) =>
+            {
+                counts.TryGetValue(date, out var current);
+                if (current >= limit)
+                {
+                    return false;
+                }
+
+                counts[date] = current + 1;
+                return true;
+            });
+
+        var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Exhaust "yesterday" directly against the repository, bypassing the handler (which
+        // always stamps DateTime.UtcNow) - this stands in for a quota row left over from the
+        // previous UTC day.
+        Assert.IsTrue(await _quotaRepository.Object.TryConsumeAsync(yesterday, 1));
+        Assert.IsFalse(await _quotaRepository.Object.TryConsumeAsync(yesterday, 1));
+
+        var inner = new StubHandler(HttpStatusCode.OK);
+        using var client = MakeClient(Settings(daily: 1), inner);
+
+        // Today's counter is independent and starts fresh even though yesterday's is spent.
+        var response = await client.GetAsync("https://api.hardcover.app/v1/graphql");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual(1, inner.CallCount);
+        Assert.AreEqual(1, counts[today]);
+        Assert.AreEqual(1, counts[yesterday], "yesterday's counter must not have been touched by today's request");
+    }
+
+    [TestMethod]
+    public async Task RetryHandler_ReacquiresARateLimitTokenOnEachRetryAttempt()
+    {
+        // HardcoverRetryHandler sits outside HardcoverRateLimitingHandler, so every retry
+        // attempt - not just the first send - must travel back through the rate limiter (and
+        // therefore re-consume the daily budget too). Chain: retry -> rate limit -> stub.
+        var settings = Settings(daily: 5000, burst: 5, perMinute: 55);
+        var inner = new StubHandler(HttpStatusCode.ServiceUnavailable); // 5xx -> transient, retried
+
+        var rateLimitingHandler = new HardcoverRateLimitingHandler(
+            new HardcoverRateLimiter(settings.HardcoverBurstLimit, settings.HardcoverPerMinuteLimit),
+            _scopeFactory,
+            Options.Create(settings),
+            new Mock<ILogger<HardcoverRateLimitingHandler>>().Object)
+        {
+            InnerHandler = inner,
+        };
+
+        var retryHandler = new HardcoverRetryHandler(new Mock<ILogger<HardcoverRetryHandler>>().Object)
+        {
+            InnerHandler = rateLimitingHandler,
+        };
+
+        using var client = new HttpClient(retryHandler);
+
+        await client.GetAsync("https://api.hardcover.app/v1/graphql");
+
+        // MaxRetryAttempts = 3, so the initial attempt plus 3 retries = 4 sends, each of
+        // which must have gone through the rate limiter (and the daily-quota repository).
+        Assert.AreEqual(4, inner.CallCount, "every retry attempt must reach the inner handler again");
+        _quotaRepository.Verify(
+            r => r.TryConsumeAsync(It.IsAny<DateOnly>(), It.IsAny<int>()),
+            Times.Exactly(4));
+    }
+
     private class StubHandler : HttpMessageHandler
     {
         private readonly HttpStatusCode _status;
