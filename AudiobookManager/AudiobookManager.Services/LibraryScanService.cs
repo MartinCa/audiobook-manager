@@ -153,8 +153,12 @@ public class LibraryScanService : ILibraryScanService
 
             // The discovered file may already sit at its own computed target path (e.g. it was
             // scanned in place inside the library). That's not a collision with a different
-            // file - it's the same file - so it must not be flagged as a duplicate.
-            return !string.Equals(Path.GetFullPath(targetPath), Path.GetFullPath(entry.FileInfoFullPath), StringComparison.Ordinal);
+            // file - it's the same file - so it must not be flagged as a duplicate. File systems
+            // are case-insensitive on Windows/macOS but case-sensitive on Linux.
+            var pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            return !string.Equals(Path.GetFullPath(targetPath), Path.GetFullPath(entry.FileInfoFullPath), pathComparison);
         }
         catch (InvalidOperationException)
         {
