@@ -43,7 +43,7 @@ public class SimilarValueServiceTests
 
     private static DbAudiobook MakeDbAudiobook(long id, string bookName, string? series = null)
     {
-        return new DbAudiobook(id, bookName, null, series, null, 2024, null, null, null, null, null, null, null, null,
+        return new DbAudiobook(id, bookName, null, series, null, 2024, null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
     }
 

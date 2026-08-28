@@ -226,6 +226,18 @@
         >
         </v-text-field>
       </v-col>
+      <v-col
+        cols="12"
+        sm="6"
+      >
+        <v-text-field
+          label="Language"
+          hide-details="auto"
+          density="comfortable"
+          v-model="input.language"
+        >
+        </v-text-field>
+      </v-col>
 
       <v-col
         cols="12"
@@ -521,6 +533,9 @@ const applyPreviewedTags = (
   }
   if (selectedFields.has("publisher")) {
     input.value.publisher = result.publisher;
+  }
+  if (selectedFields.has("language")) {
+    input.value.language = result.language;
   }
   if (selectedFields.has("copyright")) {
     input.value.copyright = result.copyright;

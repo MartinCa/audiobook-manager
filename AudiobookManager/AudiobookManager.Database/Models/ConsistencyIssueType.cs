@@ -9,5 +9,7 @@ public enum ConsistencyIssueType
     MissingReaderTxt = 4,
     IncorrectReaderTxt = 5,
     MissingCoverFile = 6,
-    TagMismatch = 7
+    TagMismatch = 7,
+    MissingOpfFile = 8,
+    IncorrectOpfFile = 9
 }

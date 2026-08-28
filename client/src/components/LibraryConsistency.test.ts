@@ -180,3 +180,20 @@ describe("LibraryConsistency bulk resolve", () => {
     wrapper.unmount();
   });
 });
+
+describe("LibraryConsistency OPF issue grouping", () => {
+  it("groups missing and incorrect OPF file issues under their own labeled groups", async () => {
+    mockedGetIssues.mockResolvedValue([
+      makeIssue(1, 1, "MissingOpfFile"),
+      makeIssue(2, 2, "IncorrectOpfFile"),
+    ]);
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Missing OPF Files");
+    expect(wrapper.text()).toContain("Incorrect OPF Files");
+
+    wrapper.unmount();
+  });
+});

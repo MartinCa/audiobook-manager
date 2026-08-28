@@ -156,6 +156,44 @@ describe("BookDetail route param reactivity", () => {
   });
 });
 
+describe("BookDetail issue type labels", () => {
+  it("renders human-readable labels for missing and incorrect OPF file issues", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+    mockedGetIssues.mockResolvedValueOnce([
+      {
+        id: 1,
+        audiobookId: 1,
+        bookName: "First Book",
+        authors: ["Author"],
+        issueType: "MissingOpfFile",
+        description: "metadata.opf missing",
+        expectedValue: undefined,
+        actualValue: undefined,
+        detectedAt: "2024-01-01T00:00:00Z",
+      },
+      {
+        id: 2,
+        audiobookId: 1,
+        bookName: "First Book",
+        authors: ["Author"],
+        issueType: "IncorrectOpfFile",
+        description: "metadata.opf content does not match library metadata",
+        expectedValue: undefined,
+        actualValue: undefined,
+        detectedAt: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Missing OPF File");
+    expect(wrapper.text()).toContain("Incorrect OPF File");
+
+    wrapper.unmount();
+  });
+});
+
 describe("BookDetail check consistency action", () => {
   it("calls recheckAudiobook and reloads issues via getIssuesByAudiobook on click", async () => {
     mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));

@@ -195,6 +195,7 @@ const resetInput = () => {
     description: book?.description,
     copyright: book?.copyright,
     publisher: book?.publisher,
+    language: book?.language,
     asin: book?.asin,
     www: book?.www,
     rating: rating,

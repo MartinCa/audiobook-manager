@@ -42,6 +42,7 @@ export function convertInputToAudiobook(
     description: input.description,
     copyright: input.copyright,
     publisher: input.publisher,
+    language: input.language,
     rating: input.rating?.toString(),
     asin: input.asin,
     www: input.www,

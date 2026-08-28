@@ -75,6 +75,35 @@ public class AudiobookTagHandlerTests
     }
 
     [TestMethod]
+    public void SaveAudiobookTagsToFile_ThenParseAudiobook_RoundTripsLanguage()
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Brandon Sanderson") },
+                "The Way of Kings",
+                2010,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length))
+            {
+                Language = "English"
+            };
+
+            _handler.SaveAudiobookTagsToFile(audiobook);
+
+            var reparsed = _handler.ParseAudiobook(new FileInfo(tempFile));
+
+            Assert.AreEqual("English", reparsed.Language);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
     public void SaveAudiobookTagsToFile_WithoutSeries_ParsesBackWithNullSeries()
     {
         var tempFile = CopyFixtureToTempFile();

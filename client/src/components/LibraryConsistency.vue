@@ -489,6 +489,10 @@ const getIssueTypeLabel = (issueType: string): string => {
       return "Incorrect Reader Files";
     case "MissingCoverFile":
       return "Missing Cover Files";
+    case "MissingOpfFile":
+      return "Missing OPF Files";
+    case "IncorrectOpfFile":
+      return "Incorrect OPF Files";
     case "TagMismatch":
       return "Tag Mismatches";
     default:
@@ -574,6 +578,9 @@ const getBulkResolveDescription = (issueType: string): string => {
       return "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.";
     case "MissingCoverFile":
       return "The cover image will be extracted from each affected audiobook file.";
+    case "MissingOpfFile":
+    case "IncorrectOpfFile":
+      return "A metadata.opf sidecar file will be created or updated for each affected book.";
     case "TagMismatch":
       return "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.";
     default:
@@ -771,14 +778,18 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
         issue.issueType === "MissingDescTxt" ||
         issue.issueType === "IncorrectDescTxt" ||
         issue.issueType === "MissingReaderTxt" ||
-        issue.issueType === "IncorrectReaderTxt"
+        issue.issueType === "IncorrectReaderTxt" ||
+        issue.issueType === "MissingOpfFile" ||
+        issue.issueType === "IncorrectOpfFile"
       ) {
         return !(
           i.audiobookId === issue.audiobookId &&
           (i.issueType === "MissingDescTxt" ||
             i.issueType === "IncorrectDescTxt" ||
             i.issueType === "MissingReaderTxt" ||
-            i.issueType === "IncorrectReaderTxt")
+            i.issueType === "IncorrectReaderTxt" ||
+            i.issueType === "MissingOpfFile" ||
+            i.issueType === "IncorrectOpfFile")
         );
       }
       return i.id !== issue.id;

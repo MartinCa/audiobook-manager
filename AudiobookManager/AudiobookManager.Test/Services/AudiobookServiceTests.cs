@@ -97,6 +97,36 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public async Task InsertAudiobook_MapsLanguageThroughToFromDb()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author1") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        {
+            Language = "English"
+        };
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbPerson> { ["Author1"] = new DbPerson(1, "Author1") });
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 1;
+                return db;
+            });
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.Language == "English")), Times.Once);
+        Assert.AreEqual("English", result.Language);
+    }
+
+    [TestMethod]
     public async Task InsertAudiobook_EmptyAuthorsAndNarrators_Succeeds()
     {
         var audiobook = new Audiobook(
@@ -199,7 +229,7 @@ public class AudiobookServiceTests
 
         return new DbAudiobook(
             id, "Old Book Name", null, series, seriesPart, 2020,
-            "Old description", null, null, null, null, null, null, null,
+            "Old description", null, null, null, null, null, null, null, null,
             filePath, Path.GetFileName(filePath), 1000)
         {
             Authors = new List<DbPerson> { new DbPerson(1, "Old Author") }
@@ -245,17 +275,21 @@ public class AudiobookServiceTests
         var reparsed = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(expectedPath, Path.GetFileName(expectedPath), 1000))
         {
             Description = "Updated description",
-            Narrators = new List<Person> { new Person("Narrator One") }
+            Narrators = new List<Person> { new Person("Narrator One") },
+            Language = "English"
         };
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(reparsed);
 
         var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
         {
             Description = "Updated description",
-            Narrators = new List<Person> { new Person("Narrator One") }
+            Narrators = new List<Person> { new Person("Narrator One") },
+            Language = "English"
         };
 
         var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual("English", existing.Language);
 
         Assert.IsTrue(File.Exists(expectedPath), "File should still exist at its original/unchanged path");
         Assert.AreEqual(expectedPath, result.FileInfo.FullPath);
@@ -662,7 +696,7 @@ public class AudiobookServiceTests
 
         var existingDbBook = new DbAudiobook(
             id: 42, bookName: "Children of Time", subtitle: null, series: null, seriesPart: null,
-            year: 2016, description: null, copyright: null, publisher: null, rating: null,
+            year: 2016, description: null, copyright: null, publisher: null, language: null, rating: null,
             asin: null, www: null, coverFilePath: null, durationInSeconds: 39600,
             fileInfoFullPath: targetPath, fileInfoFileName: Path.GetFileName(targetPath), fileInfoSizeInBytes: 598_000_000);
 

@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Domain;
+﻿using System.Xml.Linq;
+using AudiobookManager.Domain;
 
 namespace AudiobookManager.FileManager;
 public static class AudiobookFileHandler
@@ -7,7 +8,10 @@ public static class AudiobookFileHandler
     private const string _replaceInvalidPathOrFileNameCharacter = "";
     private const char _preferredDirectorySeparatorChar = '/';
     private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
-    private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png" };
+    private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png", "metadata.opf" };
+
+    private static readonly XNamespace _opfNamespace = "http://www.idpf.org/2007/opf";
+    private static readonly XNamespace _dcNamespace = "http://purl.org/dc/elements/1.1/";
 
     // Windows and macOS file systems are case-insensitive while Linux is case-sensitive, so two
     // paths differing only in case refer to the same file on the former but not the latter.
@@ -72,6 +76,99 @@ public static class AudiobookFileHandler
         {
             MakeMetadataFile(directoryPath, "reader.txt", string.Join(", ", audiobook.Narrators.Select(x => x.Name)));
         }
+
+        WriteOpf(audiobook);
+    }
+
+    public static void WriteOpf(Audiobook audiobook)
+    {
+        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
+        MakeMetadataFile(directoryPath, "metadata.opf", BuildOpfContent(audiobook));
+    }
+
+    /// <summary>
+    /// Builds the metadata.opf sidecar content (Calibre/Audiobookshelf's standard OPF format,
+    /// sitting above the m4b's embedded tags in Audiobookshelf's own metadata precedence). Used
+    /// both to write the file and, by <see cref="LibraryConsistencyService"/>, to compute what the
+    /// file's content should be for drift detection - the two must never diverge, or "correct"
+    /// would mean two different things depending on which one you asked.
+    /// </summary>
+    public static string BuildOpfContent(Audiobook audiobook)
+    {
+        var metadata = new XElement(_opfNamespace + "metadata",
+            new XAttribute(XNamespace.Xmlns + "dc", _dcNamespace),
+            new XAttribute(XNamespace.Xmlns + "opf", _opfNamespace),
+            new XElement(_dcNamespace + "title", audiobook.BookName ?? ""));
+
+        foreach (var author in audiobook.Authors)
+        {
+            metadata.Add(new XElement(_dcNamespace + "creator",
+                new XAttribute(_opfNamespace + "role", "aut"),
+                author.Name));
+        }
+
+        foreach (var narrator in audiobook.Narrators)
+        {
+            metadata.Add(new XElement(_dcNamespace + "contributor",
+                new XAttribute(_opfNamespace + "role", "nrt"),
+                narrator.Name));
+        }
+
+        if (!string.IsNullOrEmpty(audiobook.Description))
+        {
+            metadata.Add(new XElement(_dcNamespace + "description", audiobook.Description));
+        }
+
+        if (!string.IsNullOrEmpty(audiobook.Publisher))
+        {
+            metadata.Add(new XElement(_dcNamespace + "publisher", audiobook.Publisher));
+        }
+
+        if (audiobook.Year is not null)
+        {
+            metadata.Add(new XElement(_dcNamespace + "date", audiobook.Year.ToString()));
+        }
+
+        if (!string.IsNullOrEmpty(audiobook.Language))
+        {
+            metadata.Add(new XElement(_dcNamespace + "language", audiobook.Language));
+        }
+
+        foreach (var genre in audiobook.Genres)
+        {
+            metadata.Add(new XElement(_dcNamespace + "subject", genre));
+        }
+
+        if (!string.IsNullOrEmpty(audiobook.Asin))
+        {
+            metadata.Add(new XElement(_dcNamespace + "identifier",
+                new XAttribute(_opfNamespace + "scheme", "ASIN"),
+                audiobook.Asin));
+        }
+
+        if (!string.IsNullOrEmpty(audiobook.Series))
+        {
+            metadata.Add(new XElement(_opfNamespace + "meta",
+                new XAttribute("name", "calibre:series"),
+                new XAttribute("content", audiobook.Series)));
+
+            if (!string.IsNullOrEmpty(audiobook.SeriesPart))
+            {
+                metadata.Add(new XElement(_opfNamespace + "meta",
+                    new XAttribute("name", "calibre:series_index"),
+                    new XAttribute("content", audiobook.SeriesPart)));
+            }
+        }
+
+        var package = new XElement(_opfNamespace + "package",
+            new XAttribute("version", "2.0"),
+            metadata);
+
+        var document = new XDocument(new XDeclaration("1.0", "UTF-8", null), package);
+
+        using var writer = new StringWriter();
+        document.Save(writer);
+        return writer.ToString();
     }
 
     public static string? WriteCover(Audiobook audiobook)

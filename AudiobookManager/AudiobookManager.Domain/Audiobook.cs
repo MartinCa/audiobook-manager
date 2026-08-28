@@ -14,6 +14,7 @@ public class Audiobook
     public string? Description { get; set; }
     public string? Copyright { get; set; }
     public string? Publisher { get; set; }
+    public string? Language { get; set; }
     public string? Rating { get; set; }
     public string? Asin { get; set; }
     public string? Www { get; set; }

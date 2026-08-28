@@ -12,6 +12,8 @@ export function getIssueIcon(issueType: string): string {
     case "IncorrectDescTxt":
     case "MissingReaderTxt":
     case "IncorrectReaderTxt":
+    case "MissingOpfFile":
+    case "IncorrectOpfFile":
       return "mdi-text-box-remove";
     case "MissingCoverFile":
       return "mdi-image-remove";

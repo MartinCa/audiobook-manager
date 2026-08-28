@@ -243,6 +243,7 @@ const searchBookDetails = computed((): Audiobook => {
     description: bd.description,
     copyright: bd.copyright,
     publisher: bd.publisher,
+    language: bd.language,
     rating: bd.rating,
     asin: bd.asin,
     www: bd.www,
@@ -277,6 +278,7 @@ const resetInput = () => {
     description: book.description,
     copyright: book.copyright,
     publisher: book.publisher,
+    language: book.language,
     asin: book.asin,
     www: book.www,
     rating: rating,
@@ -407,6 +409,10 @@ const getIssueTypeLabel = (issueType: string): string => {
       return "Incorrect Reader File";
     case "MissingCoverFile":
       return "Missing Cover File";
+    case "MissingOpfFile":
+      return "Missing OPF File";
+    case "IncorrectOpfFile":
+      return "Incorrect OPF File";
     case "TagMismatch":
       return "Tag Mismatch";
     default:

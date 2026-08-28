@@ -131,6 +131,7 @@ public class BrowseController : ControllerBase
             audiobook.Description,
             audiobook.Copyright,
             audiobook.Publisher,
+            audiobook.Language,
             audiobook.Rating,
             audiobook.Asin,
             audiobook.Www,

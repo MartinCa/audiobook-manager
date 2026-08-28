@@ -11,6 +11,7 @@ export default interface AudiobookDetail {
   description?: string;
   copyright?: string;
   publisher?: string;
+  language?: string;
   rating?: string;
   asin?: string;
   www?: string;

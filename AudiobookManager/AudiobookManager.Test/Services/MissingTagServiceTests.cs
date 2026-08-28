@@ -28,7 +28,7 @@ public class MissingTagServiceTests
         string? description = null,
         string? coverFilePath = null)
     {
-        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, null, null, null, null, null,
+        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, null, null, null, null, null, null,
             coverFilePath, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = authors ?? new List<DbPerson>()
