@@ -375,6 +375,25 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
+    public async Task IsDuplicateTargetAsync_TargetPathIsTheDiscoveredFileItself_ReturnsFalse()
+    {
+        var targetPath = Path.Combine(_libraryPath, "existing.m4b");
+        await File.WriteAllTextAsync(targetPath, "already there");
+
+        var discovered = new DiscoveredAudiobook("A Book", targetPath, "existing.m4b", 1000, DateTime.UtcNow)
+        {
+            Authors = "Author One",
+            Year = 2022
+        };
+
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>())).Returns(targetPath);
+
+        var isDuplicate = await _service.IsDuplicateTargetAsync(discovered);
+
+        Assert.IsFalse(isDuplicate);
+    }
+
+    [TestMethod]
     public async Task IsDuplicateTargetAsync_EntryMissingRequiredTags_ReturnsFalseWithoutThrowing()
     {
         var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)

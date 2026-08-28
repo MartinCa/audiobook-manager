@@ -146,7 +146,15 @@ public class LibraryScanService : ILibraryScanService
         {
             var domain = ToDomainAudiobook(entry);
             var targetPath = _audiobookService.GenerateLibraryPath(domain);
-            return File.Exists(targetPath);
+            if (!File.Exists(targetPath))
+            {
+                return false;
+            }
+
+            // The discovered file may already sit at its own computed target path (e.g. it was
+            // scanned in place inside the library). That's not a collision with a different
+            // file - it's the same file - so it must not be flagged as a duplicate.
+            return !string.Equals(Path.GetFullPath(targetPath), Path.GetFullPath(entry.FileInfoFullPath), StringComparison.Ordinal);
         }
         catch (InvalidOperationException)
         {
