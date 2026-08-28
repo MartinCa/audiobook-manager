@@ -7,6 +7,7 @@ using AngleSharp.Html.Parser;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Scraping.Scrapers;
 
@@ -20,8 +21,14 @@ public partial class AudibleScraper : IScraper
     private static partial Regex RePersonWithRole();
     [GeneratedRegex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$")]
     private static partial Regex ReAsin();
+    [GeneratedRegex(@"^.*audible\..*\/series\/.+\/([^\?]+).*$")]
+    private static partial Regex ReSeriesId();
     [GeneratedRegex(@".*Book (\d+\.?\d*)")]
     private static partial Regex ReSeriesPart();
+    // Anchored (unlike ReSeriesPart above) so it only matches a series page's roster heading
+    // ("Book 1", "Book 15.5") and not a book title that merely contains the word "Book".
+    [GeneratedRegex(@"^Book (\d+\.?\d*)$")]
+    private static partial Regex ReSeriesPositionHeading();
     [GeneratedRegex(@"\d{4}")]
     private static partial Regex ReYear();
     [GeneratedRegex(@"^(\d\.?\d?)(?!.*ratings)")]
@@ -36,13 +43,20 @@ public partial class AudibleScraper : IScraper
         ["ipRedirectOverride"] = "true"
     };
 
+    // Safety cap on GetSeriesBooks' page loop - well above any real series (Jack Reacher, one
+    // of Audible's longest-running, is ~8 pages), so this only guards against a pagination
+    // end-of-list detection bug rather than a real series ever hitting the limit.
+    private const int _maxSeriesPages = 60;
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBookSeriesMapper _bookSeriesMapper;
+    private readonly ILogger<AudibleScraper> _logger;
 
-    public AudibleScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper)
+    public AudibleScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<AudibleScraper> logger)
     {
         _httpClientFactory = httpClientFactory;
         _bookSeriesMapper = bookSeriesMapper;
+        _logger = logger;
     }
 
     public bool SupportsUrl(string url) => url.Contains(_audibleDomain);
@@ -53,24 +67,7 @@ public partial class AudibleScraper : IScraper
 
     public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
-        var queryParameters = new Dictionary<string, string?>(_audibleCommonQueryParameters)
-        {
-            { "keywords", searchTerm }
-        };
-
-        var uri = QueryHelpers.AddQueryString($"{_audibleBaseUrl}/search", queryParameters);
-        var httpClient = _httpClientFactory.CreateClient();
-        var response = await httpClient.GetAsync(uri);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new Exception($"Error getting search results from Audible, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-        }
-
-        var responseStream = await response.Content.ReadAsStreamAsync();
-
-        HtmlParser parser = new();
-        var doc = parser.ParseDocument(responseStream);
+        var doc = await FetchSearchDocument(searchTerm);
 
         var searchResultElements = doc.QuerySelectorAll("li.bc-list-item.productListItem");
 
@@ -82,6 +79,252 @@ public partial class AudibleScraper : IScraper
         return searchResultTasks
             .Select(task => task.Result)
             .OfType<MetadataSearchResult>().ToList();
+    }
+
+    public bool SupportsSeriesLookup => true;
+
+    /// <summary>
+    /// Audible has no series-only search endpoint we've found, so this runs the same book
+    /// search as <see cref="Search"/> and surfaces the distinct series referenced by each
+    /// hit's "Series:" link (the same markup <see cref="ParseBookSeriesFromLegacyMarkup"/>
+    /// reads for a single book), deduplicated by series id across all hits.
+    /// </summary>
+    public async Task<IList<SeriesSearchResult>> SearchSeries(string searchTerm)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return new List<SeriesSearchResult>();
+        }
+
+        var doc = await FetchSearchDocument(searchTerm);
+
+        var seriesById = new Dictionary<string, SeriesSearchResult>();
+        foreach (var resultElem in doc.QuerySelectorAll("li.bc-list-item.productListItem"))
+        {
+            var seriesTag = resultElem.QuerySelector("li.bc-list-item.seriesLabel");
+            if (seriesTag is null)
+            {
+                continue;
+            }
+
+            var authors = resultElem.QuerySelector("li.bc-list-item.authorLabel")?
+                .QuerySelectorAll("a").Select(a => a.Text().Trim()).ToList()
+                ?? new List<string>();
+
+            foreach (var aTag in seriesTag.QuerySelectorAll("a"))
+            {
+                var seriesName = aTag.Text().Trim();
+                var href = aTag.Attributes["href"]?.Value;
+                if (string.IsNullOrEmpty(seriesName) || string.IsNullOrEmpty(href))
+                {
+                    continue;
+                }
+
+                var absoluteUrl = ResolveAbsoluteUrl(href);
+                var seriesId = ParseSeriesIdFromUrl(absoluteUrl);
+                if (seriesId is null || seriesById.ContainsKey(seriesId))
+                {
+                    continue;
+                }
+
+                seriesById[seriesId] = new SeriesSearchResult(seriesId, seriesName)
+                {
+                    SourceUrl = absoluteUrl.Split('?')[0],
+                    Authors = authors,
+                };
+            }
+        }
+
+        return seriesById.Values.ToList();
+    }
+
+    /// <summary>
+    /// Fetches a series' full book roster by paging through its Audible series page
+    /// (?page=1, 2, ...) until the "next" button is absent or disabled. Beware: each numbered
+    /// position ("Book 1") is immediately followed on the page by one or more sibling entries
+    /// for alternate editions/narrations of the same book - those share the position's cover
+    /// art and metadata shape but their own heading is the book's title, not "Book N", so only
+    /// entries whose heading matches <see cref="ReSeriesPositionHeading"/> are kept; this also
+    /// drops bonus/spin-off entries (companion books, "Stories Behind The Stories" featurettes)
+    /// that never carry a position at all. The "N books in series" figure shown on the page
+    /// counts every one of those entries (editions included), not unique series positions, so
+    /// it is deliberately not used as BookCount - the roster's own count is used instead.
+    /// </summary>
+    public async Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl)
+    {
+        var basePath = ResolveSeriesBasePath(seriesIdOrUrl);
+        if (basePath is null)
+        {
+            _logger.LogWarning("Could not resolve an Audible series URL from {SeriesIdOrUrl}", seriesIdOrUrl);
+            return null;
+        }
+
+        SeriesSearchResult? result = null;
+        var seenPositions = new HashSet<string>();
+
+        for (var page = 1; page <= _maxSeriesPages; page++)
+        {
+            var pageQueryParameters = new Dictionary<string, string?>(_audibleCommonQueryParameters)
+            {
+                ["page"] = page.ToString(CultureInfo.InvariantCulture),
+            };
+            var pageUri = QueryHelpers.AddQueryString(basePath, pageQueryParameters);
+            var doc = await FetchAudibleDocument(pageUri);
+
+            if (result is null)
+            {
+                var seriesName = doc.QuerySelector("h1[data-testid='series-title']")?.Text().Trim();
+                if (string.IsNullOrEmpty(seriesName))
+                {
+                    return null;
+                }
+
+                var canonicalUrl = doc.QuerySelector("link[rel='canonical']")?.Attributes["href"]?.Value ?? pageUri;
+                var seriesId = ParseSeriesIdFromUrl(canonicalUrl) ?? seriesIdOrUrl;
+
+                result = new SeriesSearchResult(seriesId, seriesName)
+                {
+                    SourceUrl = canonicalUrl,
+                };
+            }
+
+            var addedAny = false;
+            foreach (var itemElem in doc.QuerySelectorAll("li.bc-list-item.productListItem"))
+            {
+                var book = ParseSeriesRosterEntry(itemElem);
+                if (book?.Position is null || !seenPositions.Add(book.Position))
+                {
+                    continue;
+                }
+
+                result.Books.Add(book);
+                addedAny = true;
+            }
+
+            var nextLink = doc.QuerySelector("span.nextButton a");
+            var nextIsDisabled = nextLink is null ||
+                string.Equals(nextLink.Attributes["aria-disabled"]?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            if (nextIsDisabled)
+            {
+                break;
+            }
+
+            if (!addedAny)
+            {
+                _logger.LogWarning(
+                    "Audible series page {Page} for {SeriesIdOrUrl} added no new roster entries but reported a next page - stopping pagination defensively",
+                    page, seriesIdOrUrl);
+                break;
+            }
+        }
+
+        if (result is not null)
+        {
+            result.BookCount = result.Books.Count;
+        }
+
+        return result;
+    }
+
+    private Task<IDocument> FetchSearchDocument(string searchTerm)
+    {
+        var queryParameters = new Dictionary<string, string?>(_audibleCommonQueryParameters)
+        {
+            { "keywords", searchTerm }
+        };
+
+        var uri = QueryHelpers.AddQueryString($"{_audibleBaseUrl}/search", queryParameters);
+        return FetchAudibleDocument(uri);
+    }
+
+    private async Task<IDocument> FetchAudibleDocument(string uri)
+    {
+        var httpClient = _httpClientFactory.CreateClient();
+        var response = await httpClient.GetAsync(uri);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new Exception($"Error getting page from Audible, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+        }
+
+        var responseStream = await response.Content.ReadAsStreamAsync();
+
+        HtmlParser parser = new();
+        return parser.ParseDocument(responseStream);
+    }
+
+    private string ResolveAbsoluteUrl(string hrefOrUrl) =>
+        hrefOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? hrefOrUrl : $"{_audibleBaseUrl}{hrefOrUrl}";
+
+    /// <summary>
+    /// Accepts a bare Audible series id (as returned in <see cref="SeriesSearchResult.SourceId"/>)
+    /// or a full series URL. A bare id has no slug to build the canonical URL from, but Audible
+    /// accepts any placeholder slug segment and 301s to the real one, so "/series/-/{id}" still
+    /// resolves - confirmed against the live site rather than assumed.
+    /// </summary>
+    private string? ResolveSeriesBasePath(string seriesIdOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(seriesIdOrUrl))
+        {
+            return null;
+        }
+
+        if (Uri.TryCreate(seriesIdOrUrl, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return uri.GetLeftPart(UriPartial.Path);
+        }
+
+        return $"{_audibleBaseUrl}/series/-/{Uri.EscapeDataString(seriesIdOrUrl.Trim())}";
+    }
+
+    private static string? ParseSeriesIdFromUrl(string url)
+    {
+        var match = ReSeriesId().Match(url);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Parses one series-page roster row. Returns null for rows that aren't a numbered series
+    /// entry - see the remarks on <see cref="GetSeriesBooks"/> for why those exist on the page.
+    /// </summary>
+    private SeriesExpectedBookResult? ParseSeriesRosterEntry(IElement itemElem)
+    {
+        var headingText = itemElem.QuerySelector("h2.bc-heading")?.Text().Trim();
+        if (string.IsNullOrEmpty(headingText))
+        {
+            return null;
+        }
+
+        var positionMatch = ReSeriesPositionHeading().Match(headingText);
+        if (!positionMatch.Success)
+        {
+            return null;
+        }
+
+        var titleTag = itemElem.QuerySelector("h3 a");
+        var title = itemElem.Attributes["aria-label"]?.Value?.Trim();
+        if (string.IsNullOrEmpty(title))
+        {
+            title = titleTag?.Text().Trim();
+        }
+        if (string.IsNullOrEmpty(title))
+        {
+            return null;
+        }
+
+        var href = titleTag?.Attributes["href"]?.Value;
+        var sourceUrl = string.IsNullOrEmpty(href) ? null : ResolveAbsoluteUrl(href);
+
+        var releaseDateText = ExtractStringFromTagWithPrefix(itemElem, "li.bc-list-item.releaseDateLabel", "Release date:");
+
+        return new SeriesExpectedBookResult(title)
+        {
+            Position = positionMatch.Groups[1].Value,
+            Year = ParseYearFromReleaseDateText(releaseDateText),
+            SourceUrl = sourceUrl,
+            IsCompilation = false,
+        };
     }
 
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
@@ -129,16 +372,8 @@ public partial class AudibleScraper : IScraper
 
         var durationText = ParseLength(resultElem);
 
-        int? year = null;
         var releaseDateText = ExtractStringFromTagWithPrefix(resultElem, "li.bc-list-item.releaseDateLabel", "Release date:");
-        if (releaseDateText is not null)
-        {
-            var yearText = releaseDateText.Split("-").Last();
-            var currentYear = DateTime.UtcNow.Year.ToString().Substring(2);
-            var yearPrefix = int.Parse(yearText) <= int.Parse(currentYear) ? "20" : "19";
-            var yearStr = $"{yearPrefix}{yearText}";
-            year = int.Parse(yearStr);
-        }
+        var year = ParseYearFromReleaseDateText(releaseDateText);
 
         var language = ExtractStringFromTagWithPrefix(resultElem, "li.bc-list-item.languageLabel", "Language:");
 
@@ -213,7 +448,12 @@ public partial class AudibleScraper : IScraper
             .Distinct()
             .ToList();
 
-        var series = await ParseBookSeries(doc.Body);
+        var seriesResults = ParseBookSeriesFromDetailsJson(doc);
+        if (seriesResults.Count == 0)
+        {
+            seriesResults = ParseBookSeriesFromLegacyMarkup(doc.Body);
+        }
+        var series = await _bookSeriesMapper.MapBookSeries(seriesResults);
 
         var imgUrl = GetJsonString(audiobook, "image");
 
@@ -462,6 +702,28 @@ public partial class AudibleScraper : IScraper
         return tagText.Substring(prefixIdx + prefix.Length).Trim();
     }
 
+    /// <summary>
+    /// Audible's release-date tags only give a two-digit year ("10-27-15"); the century is
+    /// inferred by comparing against the current two-digit year, same as a credit-card expiry.
+    /// </summary>
+    private static int? ParseYearFromReleaseDateText(string? releaseDateText)
+    {
+        if (string.IsNullOrEmpty(releaseDateText))
+        {
+            return null;
+        }
+
+        var yearText = releaseDateText.Split("-").Last();
+        if (!int.TryParse(yearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var twoDigitYear))
+        {
+            return null;
+        }
+
+        var currentTwoDigitYear = int.Parse(DateTime.UtcNow.Year.ToString(CultureInfo.InvariantCulture).Substring(2), CultureInfo.InvariantCulture);
+        var yearPrefix = twoDigitYear <= currentTwoDigitYear ? "20" : "19";
+        return int.Parse($"{yearPrefix}{yearText}", CultureInfo.InvariantCulture);
+    }
+
     private static string? ParseAsinFromUrl(string url)
     {
         var match = ReAsin().Match(url);
@@ -474,6 +736,11 @@ public partial class AudibleScraper : IScraper
     }
 
     private async Task<IList<MetadataSeriesSearchResult>> ParseBookSeries(IElement? elem)
+    {
+        return await _bookSeriesMapper.MapBookSeries(ParseBookSeriesFromLegacyMarkup(elem));
+    }
+
+    private static IList<MetadataSeriesSearchResult> ParseBookSeriesFromLegacyMarkup(IElement? elem)
     {
         var result = new List<MetadataSeriesSearchResult>();
         var seriesTag = elem?.QuerySelector("li.bc-list-item.seriesLabel");
@@ -502,6 +769,62 @@ public partial class AudibleScraper : IScraper
             }
         }
 
-        return await _bookSeriesMapper.MapBookSeries(result);
+        return result;
+    }
+
+    /// <summary>
+    /// The detail page's series line ("Jack Reacher, Book 1") isn't in the DOM as text/links (unlike the
+    /// search-result markup) - it's only present as JSON inside a script tag nested in the
+    /// &lt;adbl-product-details&gt; metadata block: {"series":[{"part":"Book 1","name":"Jack Reacher",...}]}.
+    /// </summary>
+    private static IList<MetadataSeriesSearchResult> ParseBookSeriesFromDetailsJson(IDocument doc)
+    {
+        var result = new List<MetadataSeriesSearchResult>();
+
+        var script = doc.QuerySelector("adbl-product-details adbl-product-metadata script[type='application/json']");
+        var text = script?.TextContent;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return result;
+        }
+
+        JsonDocument jsonDoc;
+        try
+        {
+            jsonDoc = JsonDocument.Parse(text);
+        }
+        catch (JsonException)
+        {
+            return result;
+        }
+
+        using (jsonDoc)
+        {
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Object
+                && jsonDoc.RootElement.TryGetProperty("series", out var seriesProp)
+                && seriesProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in seriesProp.EnumerateArray())
+                {
+                    var name = GetJsonString(item, "name");
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    var part = GetJsonString(item, "part");
+                    string? seriesPart = null;
+                    if (!string.IsNullOrEmpty(part))
+                    {
+                        var match = ReSeriesPart().Match(part);
+                        seriesPart = match.Success ? match.Groups[1].Value.Trim() : part.Trim();
+                    }
+
+                    result.Add(new MetadataSeriesSearchResult(name.Trim()) { SeriesPart = seriesPart });
+                }
+            }
+        }
+
+        return result;
     }
 }

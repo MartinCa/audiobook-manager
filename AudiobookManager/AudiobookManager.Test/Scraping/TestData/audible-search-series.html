@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+    <title>jack reacher - Audible.com</title>
+</head>
+<body>
+    <ul>
+        <li class="bc-list-item productListItem" id="product-list-item-B015RQON6I" aria-label="Killing Floor">
+            <h3><a href="/pd/Killing-Floor-Audiobook/B015RQON6I?ref=a_search_1">Killing Floor</a></h3>
+            <ul>
+                <li class="bc-list-item authorLabel">By: <a href="/author/Lee-Child/B000APO0PQ">Lee Child</a></li>
+                <li class="bc-list-item seriesLabel">Series:
+                    <a href="/series/Jack-Reacher-Audiobooks/B005NASKDG?ref_pageloadid=not_applicable&amp;pf_rd_p=abc">Jack Reacher</a>, Book 1
+                </li>
+            </ul>
+        </li>
+
+        <!-- Same series as above, reached via a different book with different tracking query
+             params on the series link - the dedupe is by series id, not by exact URL string. -->
+        <li class="bc-list-item productListItem" id="product-list-item-B076HYJF7Q" aria-label="Die Trying">
+            <h3><a href="/pd/Die-Trying-Audiobook/B076HYJF7Q?ref=a_search_2">Die Trying</a></h3>
+            <ul>
+                <li class="bc-list-item authorLabel">By: <a href="/author/Lee-Child/B000APO0PQ">Lee Child</a></li>
+                <li class="bc-list-item seriesLabel">Series:
+                    <a href="/series/Jack-Reacher-Audiobooks/B005NASKDG?ref_pageloadid=not_applicable&amp;pf_rd_p=xyz">Jack Reacher</a>, Book 2
+                </li>
+            </ul>
+        </li>
+
+        <!-- A standalone book with no series at all - must be skipped, not error. -->
+        <li class="bc-list-item productListItem" id="product-list-item-B0STANDALONE" aria-label="A Standalone Book">
+            <h3><a href="/pd/A-Standalone-Book-Audiobook/B0STANDALONE?ref=a_search_3">A Standalone Book</a></h3>
+            <ul>
+                <li class="bc-list-item authorLabel">By: <a href="/author/Some-Author/B000000000">Some Author</a></li>
+            </ul>
+        </li>
+    </ul>
+</body>
+</html>
