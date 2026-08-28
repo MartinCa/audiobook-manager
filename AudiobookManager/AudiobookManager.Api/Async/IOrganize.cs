@@ -16,4 +16,7 @@ public interface IOrganize
     Task SeriesMatchComplete(SeriesMatchComplete result);
     Task SeriesRefreshProgress(SeriesRefreshProgress progress);
     Task SeriesRefreshComplete(SeriesRefreshComplete result);
+    Task AudiobookSaveProgress(AudiobookSaveProgress progress);
+    Task AudiobookSaveComplete(AudiobookSaveComplete result);
+    Task AudiobookSaveError(AudiobookSaveError error);
 }

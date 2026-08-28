@@ -39,6 +39,12 @@
         @reset="resetInput"
       >
         <template #toolbar-actions>
+          <span
+            v-if="saving"
+            class="text-caption mr-2"
+          >
+            {{ saveMessage }} ({{ saveProgress }}%)
+          </span>
           <v-btn
             color="primary"
             :disabled="saving"
@@ -62,6 +68,12 @@
             cols="12"
             sm="4"
           >
+            <span
+              v-if="saving"
+              class="text-caption d-block mb-1"
+            >
+              {{ saveMessage }} ({{ saveProgress }}%)
+            </span>
             <v-btn
               color="primary"
               :disabled="saving"
@@ -185,6 +197,17 @@ import BookEditForm from "../BookEditForm.vue";
 import DiffDisplay from "../DiffDisplay.vue";
 import { convertInputToAudiobook as buildAudiobook } from "../../helpers/organizeAudiobookInput";
 import { getIssueIcon } from "../../helpers/consistencyIssueDisplay";
+import { HubEventToken, useSignalREvent } from "@/signalr/hub";
+import { AudiobookSaveProgress } from "../../signalr/AudiobookSaveProgress";
+import { AudiobookSaveComplete } from "../../signalr/AudiobookSaveComplete";
+import { AudiobookSaveError } from "../../signalr/AudiobookSaveError";
+
+const AudiobookSaveProgressToken: HubEventToken<AudiobookSaveProgress> =
+  "AudiobookSaveProgress";
+const AudiobookSaveCompleteToken: HubEventToken<AudiobookSaveComplete> =
+  "AudiobookSaveComplete";
+const AudiobookSaveErrorToken: HubEventToken<AudiobookSaveError> =
+  "AudiobookSaveError";
 
 const apiBaseUrl = import.meta.env.VITE_BASE_API_URL as string;
 
@@ -193,6 +216,8 @@ const bookId = computed(() => Number(route.params.bookId));
 
 const loading = ref(true);
 const saving = ref(false);
+const saveMessage = ref("");
+const saveProgress = ref(0);
 const checking = ref(false);
 const bookDetail: Ref<AudiobookDetail | null> = ref(null);
 const bookEditForm = ref<InstanceType<typeof BookEditForm> | null>(null);
@@ -281,20 +306,46 @@ const saveBook = async () => {
   if (!data) return;
 
   saving.value = true;
+  saveMessage.value = "Started";
+  saveProgress.value = 0;
   try {
+    // Fire-and-forget: the request only acknowledges the save has started - actual progress,
+    // completion, and errors arrive over SignalR (see onSaveProgress/onSaveComplete/onSaveError
+    // below), matching the pattern BookOrganize.vue uses for organizing.
     await AudiobookService.updateBook(bookId.value, data);
-    snackbarText.value = "Book saved successfully";
-    snackbar.value = true;
     bookEditForm.value?.noteSavedNames();
-    // Reload detail and issues to reflect changes
-    await Promise.all([loadBook(), loadIssues()]);
   } catch (e: any) {
+    saving.value = false;
     snackbarText.value = `Failed to save: ${e?.response?.data ?? e.message}`;
     snackbar.value = true;
-  } finally {
-    saving.value = false;
   }
 };
+
+const onSaveProgress = (arg: AudiobookSaveProgress) => {
+  if (arg.audiobookId !== bookId.value) return;
+  saveMessage.value = arg.progressMessage;
+  saveProgress.value = arg.progress;
+};
+
+const onSaveComplete = async (arg: AudiobookSaveComplete) => {
+  if (arg.audiobookId !== bookId.value) return;
+  saving.value = false;
+  snackbarText.value = "Book saved successfully";
+  snackbar.value = true;
+  // Reload detail and issues to reflect changes
+  await Promise.all([loadBook(), loadIssues()]);
+};
+
+const onSaveError = (arg: AudiobookSaveError) => {
+  if (arg.audiobookId !== bookId.value) return;
+  saving.value = false;
+  snackbarText.value = `Failed to save: ${arg.error}`;
+  snackbar.value = true;
+};
+
+useSignalREvent(AudiobookSaveProgressToken, onSaveProgress);
+useSignalREvent(AudiobookSaveCompleteToken, onSaveComplete);
+useSignalREvent(AudiobookSaveErrorToken, onSaveError);
 
 // Watches only the fields path generation actually depends on. Deliberately never reads
 // cover_base64/cover_mime here: a getter that read them (even to overwrite them afterwards)

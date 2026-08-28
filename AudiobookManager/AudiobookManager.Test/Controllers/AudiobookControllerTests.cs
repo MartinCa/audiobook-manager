@@ -1,8 +1,11 @@
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -14,7 +17,9 @@ public class AudiobookControllerTests
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<IQueuedOrganizeTaskService> _organizeTaskService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
+    private Mock<IOrganize> _organizeClient = null!;
     private Mock<ILogger<AudiobookController>> _logger = null!;
+    private ServiceProvider _serviceProvider = null!;
     private AudiobookController _controller = null!;
 
     [TestInitialize]
@@ -25,11 +30,48 @@ public class AudiobookControllerTests
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _logger = new Mock<ILogger<AudiobookController>>();
 
+        _organizeClient = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(_organizeClient.Object);
+        var organizeHub = new Mock<IHubContext<OrganizeHub, IOrganize>>();
+        organizeHub.Setup(h => h.Clients).Returns(clients.Object);
+
+        // UpdateAudiobook is fire-and-forget: it resolves its own services from a fresh DI scope
+        // rather than the controller's constructor-injected (request-scoped) instances, so route
+        // the same mocks through a real ServiceProvider for it to resolve.
+        var services = new ServiceCollection();
+        services.AddSingleton(_audiobookService.Object);
+        services.AddSingleton(_libraryConsistencyService.Object);
+        _serviceProvider = services.BuildServiceProvider();
+
         _controller = new AudiobookController(
             _audiobookService.Object,
             _organizeTaskService.Object,
             _libraryConsistencyService.Object,
+            organizeHub.Object,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             _logger.Object);
+    }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        _serviceProvider.Dispose();
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+            await Task.Delay(20);
+        }
+
+        Assert.Fail("Condition was not met within the timeout.");
     }
 
     private static OrganizeAudiobookDto MakeDto(string bookName = "Test Book", string? series = null, string? seriesPart = null) => new()
@@ -132,10 +174,12 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
-    public async Task UpdateAudiobook_DelegatesToAudiobookServiceUpdateAudiobook()
+    public async Task UpdateAudiobook_ReturnsOkImmediatelyAndDelegatesToAudiobookServiceUpdateAudiobookInBackground()
     {
         // Regression guard for the CLAUDE.md binding invariant: Author/Series/SeriesPart/Year/BookName
         // edits must always flow through AudiobookService.UpdateAudiobook, never a raw repository call.
+        // UpdateAudiobook is fire-and-forget (matching OrganizeAudiobook/BookOrganize.vue's SignalR
+        // progress pattern), so the call itself completes and finishes the background work asynchronously.
         var dto = MakeDto("Updated Book Name", series: "Some Series", seriesPart: "2");
 
         var updated = new Audiobook(
@@ -144,21 +188,26 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/Some Series/Book 02 - 2024 - Updated Book Name/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
 
-        var result = await _controller.UpdateAudiobook(1, dto);
+        var result = _controller.UpdateAudiobook(1, dto);
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await WaitUntilAsync(() =>
+            _audiobookService.Invocations.Any(i => i.Method.Name == nameof(IAudiobookService.UpdateAudiobook)),
+            TimeSpan.FromSeconds(5));
+
         _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Audiobook>(a =>
             a.BookName == "Updated Book Name" &&
             a.Series == "Some Series" &&
             a.SeriesPart == "2" &&
-            a.Year == 2024)), Times.Once);
+            a.Year == 2024), It.IsAny<Func<string, int, Task>>()), Times.Once);
     }
 
     [TestMethod]
-    public async Task UpdateAudiobook_AlsoRechecksConsistencyAfterSave()
+    public async Task UpdateAudiobook_ReportsProgressAndCompleteOverSignalR()
     {
         var dto = MakeDto();
         var updated = new Audiobook(
@@ -167,35 +216,53 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/2024 - Test Book/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns((long id, Audiobook a, Func<string, int, Task> progressAction) => InvokeProgressThenReturn(progressAction, updated));
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
 
-        await _controller.UpdateAudiobook(1, dto);
+        _controller.UpdateAudiobook(1, dto);
 
+        await WaitUntilAsync(() =>
+            _organizeClient.Invocations.Any(i => i.Method.Name == nameof(IOrganize.AudiobookSaveComplete)),
+            TimeSpan.FromSeconds(5));
+
+        _organizeClient.Verify(c => c.AudiobookSaveProgress(It.Is<AudiobookSaveProgress>(p =>
+            p.AudiobookId == 1 && p.ProgressMessage == "Started" && p.Progress == 0)), Times.Once);
+        _organizeClient.Verify(c => c.AudiobookSaveComplete(It.Is<AudiobookSaveComplete>(r => r.AudiobookId == 1)), Times.Once);
         _libraryConsistencyService.Verify(s => s.RecheckAudiobookAsync(1), Times.Once);
     }
 
+    private static async Task<Audiobook> InvokeProgressThenReturn(Func<string, int, Task> progressAction, Audiobook result)
+    {
+        await progressAction("Started", 0);
+        return result;
+    }
+
     [TestMethod]
-    public async Task UpdateAudiobook_ServiceThrows_ReturnsBadRequest()
+    public async Task UpdateAudiobook_ServiceThrows_ReportsAudiobookSaveErrorOverSignalR()
     {
         var dto = MakeDto();
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
             .ThrowsAsync(new Exception("relocation failed"));
 
-        var result = await _controller.UpdateAudiobook(1, dto);
+        _controller.UpdateAudiobook(1, dto);
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
-        var badRequest = (BadRequestObjectResult)result;
-        Assert.AreEqual("relocation failed", badRequest.Value);
+        await WaitUntilAsync(() =>
+            _organizeClient.Invocations.Any(i => i.Method.Name == nameof(IOrganize.AudiobookSaveError)),
+            TimeSpan.FromSeconds(5));
+
+        _organizeClient.Verify(c => c.AudiobookSaveError(It.Is<AudiobookSaveError>(e =>
+            e.AudiobookId == 1 && e.Error == "relocation failed")), Times.Once);
+        _organizeClient.Verify(c => c.AudiobookSaveComplete(It.IsAny<AudiobookSaveComplete>()), Times.Never);
         _libraryConsistencyService.Verify(s => s.RecheckAudiobookAsync(It.IsAny<long>()), Times.Never);
     }
 
     [TestMethod]
-    public async Task UpdateAudiobook_ConsistencyRecheckThrows_StillReturnsOk()
+    public async Task UpdateAudiobook_ConsistencyRecheckThrows_StillReportsSaveComplete()
     {
-        // The controller swallows recheck failures (logged as a warning) so that a consistency-check
-        // bug never masks a successful save.
+        // The background work swallows recheck failures (logged as a warning) so that a
+        // consistency-check bug never masks a successful save.
         var dto = MakeDto();
         var updated = new Audiobook(
             new List<Person> { new Person("Test Author") },
@@ -203,12 +270,17 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/2024 - Test Book/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
             .ThrowsAsync(new Exception("recheck failed"));
 
-        var result = await _controller.UpdateAudiobook(1, dto);
+        _controller.UpdateAudiobook(1, dto);
 
-        Assert.IsInstanceOfType(result, typeof(OkResult));
+        await WaitUntilAsync(() =>
+            _organizeClient.Invocations.Any(i => i.Method.Name == nameof(IOrganize.AudiobookSaveComplete)),
+            TimeSpan.FromSeconds(5));
+
+        _organizeClient.Verify(c => c.AudiobookSaveComplete(It.Is<AudiobookSaveComplete>(r => r.AudiobookId == 1)), Times.Once);
+        _organizeClient.Verify(c => c.AudiobookSaveError(It.IsAny<AudiobookSaveError>()), Times.Never);
     }
 }

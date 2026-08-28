@@ -103,4 +103,22 @@ public class Client : IOrganize
         Console.WriteLine($"Series refresh complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
         return Task.CompletedTask;
     }
+
+    public Task AudiobookSaveProgress(AudiobookSaveProgress progress)
+    {
+        Console.WriteLine($"Audiobook {progress.AudiobookId} save: {progress.ProgressMessage} ({progress.Progress}%)");
+        return Task.CompletedTask;
+    }
+
+    public Task AudiobookSaveComplete(AudiobookSaveComplete result)
+    {
+        Console.WriteLine($"Audiobook {result.AudiobookId} save complete");
+        return Task.CompletedTask;
+    }
+
+    public Task AudiobookSaveError(AudiobookSaveError error)
+    {
+        Console.WriteLine($"Audiobook {error.AudiobookId} save error: {error.Error}");
+        return Task.CompletedTask;
+    }
 }

@@ -37,10 +37,39 @@ vi.mock("../../services/AudiobookService", () => ({
   },
 }));
 
+const fakeSignalR = {
+  on: vi.fn(),
+  off: vi.fn(),
+  onReconnected: vi.fn(),
+  offReconnected: vi.fn(),
+};
+
+vi.mock("@/signalr/hub", async () => {
+  const vue = await import("vue");
+  return {
+    useSignalR: () => fakeSignalR,
+    useSignalREvent: (token: string, callback: (...args: any[]) => void) => {
+      vue.onMounted(() => fakeSignalR.on(token, callback));
+      vue.onUnmounted(() => fakeSignalR.off(token, callback));
+    },
+    useSignalRReconnected: (callback: () => void) => {
+      vue.onMounted(() => fakeSignalR.onReconnected(callback));
+      vue.onUnmounted(() => fakeSignalR.offReconnected(callback));
+    },
+  };
+});
+
+function getSignalRHandler(token: string): (...args: any[]) => void {
+  const call = fakeSignalR.on.mock.calls.find((c) => c[0] === token);
+  if (!call) throw new Error(`No registered handler found for ${token}`);
+  return call[1];
+}
+
 const mockedGetBookDetail = vi.mocked(BrowseService.getBookDetail);
 const mockedGetIssues = vi.mocked(ConsistencyService.getIssuesByAudiobook);
 const mockedGenerateNewPath = vi.mocked(AudiobookService.generateNewPath);
 const mockedRecheckAudiobook = vi.mocked(ConsistencyService.recheckAudiobook);
+const mockedUpdateBook = vi.mocked(AudiobookService.updateBook);
 
 function makeBook(id: number, bookName: string): AudiobookDetail {
   return {
@@ -61,7 +90,23 @@ function mountDetail() {
     global: {
       plugins: [vuetify],
       stubs: {
-        BookEditForm: true,
+        BookEditForm: {
+          template: `<div>
+            <slot name="toolbar-actions"></slot>
+            <slot name="form-actions"></slot>
+          </div>`,
+          props: [
+            "input",
+            "searchBookDetails",
+            "currentPath",
+            "newPath",
+            "coverUrl",
+          ],
+          methods: {
+            validate: () => true,
+            noteSavedNames: () => {},
+          },
+        },
         DiffDisplay: true,
       },
     },
@@ -78,6 +123,7 @@ beforeEach(() => {
   mockedGetIssues.mockResolvedValue([]);
   mockedGenerateNewPath.mockResolvedValue("generated/path.m4b");
   mockedRecheckAudiobook.mockResolvedValue([]);
+  mockedUpdateBook.mockResolvedValue(undefined);
 });
 
 describe("BookDetail route param reactivity", () => {
@@ -207,6 +253,141 @@ describe("BookDetail path regeneration debounce", () => {
     expect(mockedGenerateNewPath.mock.calls.length).toBeGreaterThan(
       callsAfterInitialLoad,
     );
+
+    wrapper.unmount();
+  });
+});
+
+describe("BookDetail save flow (fire-and-forget over SignalR)", () => {
+  it("kicks off the save and shows a saving state without waiting for completion", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    expect(button).toBeTruthy();
+    await button!.trigger("click");
+    await flushPromises();
+
+    expect(mockedUpdateBook).toHaveBeenCalledWith(1, expect.any(Object));
+    expect((wrapper.vm as any).saving).toBe(true);
+    // The PUT only acknowledges the save has started - completion (and the reload it triggers)
+    // arrives later via the AudiobookSaveComplete SignalR event, not from this call resolving.
+    expect(mockedGetBookDetail).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it("updates the displayed message/progress on AudiobookSaveProgress events for this book", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    const onProgress = getSignalRHandler("AudiobookSaveProgress");
+    onProgress({
+      audiobookId: 1,
+      progressMessage: "Saving tags",
+      progress: 40,
+    });
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.saveMessage).toBe("Saving tags");
+    expect(vm.saveProgress).toBe(40);
+    expect(vm.saving).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it("reloads book detail/issues and shows success on AudiobookSaveComplete for this book", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    const callsBeforeComplete = mockedGetBookDetail.mock.calls.length;
+
+    const onComplete = getSignalRHandler("AudiobookSaveComplete");
+    onComplete({ audiobookId: 1 });
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.saving).toBe(false);
+    expect(vm.snackbarText).toBe("Book saved successfully");
+    expect(mockedGetBookDetail.mock.calls.length).toBe(callsBeforeComplete + 1);
+
+    wrapper.unmount();
+  });
+
+  it("shows a failure snackbar and clears saving on AudiobookSaveError for this book", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    const onError = getSignalRHandler("AudiobookSaveError");
+    onError({ audiobookId: 1, error: "tag round-trip mismatch" });
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.saving).toBe(false);
+    expect(vm.snackbarText).toBe("Failed to save: tag round-trip mismatch");
+
+    wrapper.unmount();
+  });
+
+  it("ignores AudiobookSaveProgress/Complete/Error events for a different audiobook id", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    const callsBeforeEvents = mockedGetBookDetail.mock.calls.length;
+
+    getSignalRHandler("AudiobookSaveProgress")({
+      audiobookId: 2,
+      progressMessage: "Saving tags",
+      progress: 40,
+    });
+    getSignalRHandler("AudiobookSaveComplete")({ audiobookId: 2 });
+    getSignalRHandler("AudiobookSaveError")({
+      audiobookId: 2,
+      error: "should be ignored",
+    });
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.saving).toBe(true);
+    expect(vm.saveMessage).toBe("Started");
+    expect(mockedGetBookDetail.mock.calls.length).toBe(callsBeforeEvents);
 
     wrapper.unmount();
   });

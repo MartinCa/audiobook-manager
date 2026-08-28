@@ -99,7 +99,7 @@ public class SimilarValueServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
             .ThrowsAsync(new Exception("path collision"));
         _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
 
@@ -133,8 +133,8 @@ public class SimilarValueServiceTests
 
         Audiobook? capturedAudiobook = null;
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
-            .Callback<long, Audiobook>((id, a) => capturedAudiobook = a)
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .Callback<long, Audiobook, Func<string, int, Task>?>((id, a, _) => capturedAudiobook = a)
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         await _service.AlignAuthorsAsync(
             new List<string> { "JK Rowling", "J.K. Rowling" },
@@ -159,8 +159,8 @@ public class SimilarValueServiceTests
 
         Audiobook? capturedAudiobook = null;
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
-            .Callback<long, Audiobook>((id, a) => capturedAudiobook = a)
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .Callback<long, Audiobook, Func<string, int, Task>?>((id, a, _) => capturedAudiobook = a)
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         await _service.AlignAuthorsAsync(
             new List<string> { "J.K. Rowling", "JK Rowling" },
@@ -184,7 +184,7 @@ public class SimilarValueServiceTests
             .ReturnsAsync(new List<DbAudiobook> { book });
 
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         await _service.AlignAuthorsAsync(
             new List<string> { "J.K. Rowling", "JK Rowling" },
@@ -225,7 +225,7 @@ public class SimilarValueServiceTests
             .ReturnsAsync(new List<DbAudiobook> { book });
 
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         await _service.AlignSeriesAsync(
             new List<string> { "Fantasy & Adventure", "Fantasy and Adventure" },
@@ -265,7 +265,7 @@ public class SimilarValueServiceTests
             .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
 
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
-            .ReturnsAsync((long id, Audiobook a) => a);
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
         var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
 
