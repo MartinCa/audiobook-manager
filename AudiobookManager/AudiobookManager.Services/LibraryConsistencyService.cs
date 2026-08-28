@@ -175,7 +175,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
         var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
 
-        if (string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
+        if (AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
         {
             // The path already matches; the issue is no longer valid.
             await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
@@ -403,7 +403,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             // Check file path
             var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
             var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
-            if (!string.Equals(audiobook.FileInfoFullPath, expectedFullPath, StringComparison.Ordinal))
+            if (!AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
             {
                 issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.WrongFilePath,
                     "File path does not match expected path from tags",
