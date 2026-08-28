@@ -35,6 +35,10 @@ class ConsistencyService extends BaseHttpService {
     return this.getData(`/consistency/issues/by-audiobook/${audiobookId}`);
   }
 
+  recheckAudiobook(audiobookId: number): Promise<ConsistencyIssue[]> {
+    return this.postData(`/consistency/issues/recheck/${audiobookId}`);
+  }
+
   getOrphanDirectories(): Promise<OrphanDirectory[]> {
     return this.getData("/consistency/orphan-directories");
   }

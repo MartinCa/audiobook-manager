@@ -110,6 +110,41 @@ public class ConsistencyController : ControllerBase
         )).ToList();
     }
 
+    [HttpPost("issues/recheck/{audiobookId}")]
+    public async Task<IActionResult> RecheckAudiobook(long audiobookId)
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            await consistencyService.RecheckAudiobookAsync(audiobookId);
+
+            // RecheckAudiobookAsync persists issues without a populated Audiobook navigation
+            // property; reload from the repository (like GetIssuesByAudiobook) so BookName/Authors are available.
+            var issues = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
+            return Ok(issues.Select(i => new ConsistencyIssueDto(
+                i.Id,
+                i.AudiobookId,
+                i.Audiobook.BookName,
+                i.Audiobook.Authors.Select(a => a.Name).ToList(),
+                i.IssueType.ToString(),
+                i.Description,
+                i.ExpectedValue,
+                i.ActualValue,
+                i.DetectedAt
+            )).ToList());
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error rechecking consistency for audiobook {AudiobookId}", audiobookId);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("issues/resolve-by-type/{issueType}")]
     public async Task<IActionResult> ResolveIssuesByType(string issueType)
     {

@@ -81,17 +81,36 @@
       </BookEditForm>
 
       <!-- Issues section -->
-      <template v-if="bookIssues.length > 0">
-        <v-row class="mt-5">
-          <v-col cols="12">
-            <h3 class="text-h6 mb-3">
+      <v-row class="mt-5">
+        <v-col
+          cols="12"
+          class="d-flex align-center"
+        >
+          <h3 class="text-h6 mb-0 flex-grow-1">
+            <template v-if="bookIssues.length > 0">
               <v-icon
                 color="warning"
                 class="mr-1"
                 >mdi-alert</v-icon
               >
               Issues ({{ bookIssues.length }})
-            </h3>
+            </template>
+            <template v-else>No known issues</template>
+          </h3>
+          <v-btn
+            variant="outlined"
+            prepend-icon="mdi-magnify-scan"
+            :loading="checking"
+            :disabled="saving"
+            @click="checkConsistency()"
+          >
+            Check Consistency
+          </v-btn>
+        </v-col>
+      </v-row>
+      <template v-if="bookIssues.length > 0">
+        <v-row>
+          <v-col cols="12">
             <v-list density="compact">
               <v-list-item
                 v-for="issue in bookIssues"
@@ -174,6 +193,7 @@ const bookId = computed(() => Number(route.params.bookId));
 
 const loading = ref(true);
 const saving = ref(false);
+const checking = ref(false);
 const bookDetail: Ref<AudiobookDetail | null> = ref(null);
 const bookEditForm = ref<InstanceType<typeof BookEditForm> | null>(null);
 const input: Ref<OrganizeAudiobookInput> = ref({});
@@ -350,6 +370,21 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
     snackbar.value = true;
   } finally {
     resolvingIds.value.delete(issue.id);
+  }
+};
+
+const checkConsistency = async () => {
+  checking.value = true;
+  try {
+    await ConsistencyService.recheckAudiobook(bookId.value);
+    await loadIssues();
+    snackbarText.value = "Consistency check complete";
+    snackbar.value = true;
+  } catch {
+    snackbarText.value = "Failed to check consistency";
+    snackbar.value = true;
+  } finally {
+    checking.value = false;
   }
 };
 

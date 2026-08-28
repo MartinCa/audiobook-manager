@@ -26,6 +26,7 @@ vi.mock("../../services/ConsistencyService", () => ({
   default: {
     getIssuesByAudiobook: vi.fn(),
     resolveIssue: vi.fn(),
+    recheckAudiobook: vi.fn(),
   },
 }));
 
@@ -39,6 +40,7 @@ vi.mock("../../services/AudiobookService", () => ({
 const mockedGetBookDetail = vi.mocked(BrowseService.getBookDetail);
 const mockedGetIssues = vi.mocked(ConsistencyService.getIssuesByAudiobook);
 const mockedGenerateNewPath = vi.mocked(AudiobookService.generateNewPath);
+const mockedRecheckAudiobook = vi.mocked(ConsistencyService.recheckAudiobook);
 
 function makeBook(id: number, bookName: string): AudiobookDetail {
   return {
@@ -75,6 +77,7 @@ beforeEach(() => {
   route.params.bookId = "1";
   mockedGetIssues.mockResolvedValue([]);
   mockedGenerateNewPath.mockResolvedValue("generated/path.m4b");
+  mockedRecheckAudiobook.mockResolvedValue([]);
 });
 
 describe("BookDetail route param reactivity", () => {
@@ -102,6 +105,67 @@ describe("BookDetail route param reactivity", () => {
     expect(mockedGetIssues).toHaveBeenCalledWith(2);
     expect(wrapper.text()).toContain("Second Book");
     expect(wrapper.text()).not.toContain("First Book");
+
+    wrapper.unmount();
+  });
+});
+
+describe("BookDetail check consistency action", () => {
+  it("calls recheckAudiobook and reloads issues via getIssuesByAudiobook on click", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const callsBeforeClick = mockedGetIssues.mock.calls.length;
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Check Consistency"));
+    expect(button).toBeTruthy();
+    await button!.trigger("click");
+    await flushPromises();
+
+    expect(mockedRecheckAudiobook).toHaveBeenCalledWith(1);
+    expect(mockedGetIssues.mock.calls.length).toBe(callsBeforeClick + 1);
+    expect(mockedGetIssues).toHaveBeenLastCalledWith(1);
+    expect((wrapper.vm as any).snackbarText).toBe("Consistency check complete");
+
+    wrapper.unmount();
+  });
+
+  it("shows an error and leaves prior issues intact when recheckAudiobook fails", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+    mockedGetIssues.mockResolvedValueOnce([
+      {
+        id: 1,
+        audiobookId: 1,
+        bookName: "First Book",
+        authors: ["Author"],
+        issueType: "MissingCoverFile",
+        description: "Cover file missing",
+        expectedValue: undefined,
+        actualValue: undefined,
+        detectedAt: "2024-01-01T00:00:00Z",
+      },
+    ]);
+    mockedRecheckAudiobook.mockRejectedValue(new Error("boom"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Issues (1)");
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Check Consistency"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    expect((wrapper.vm as any).snackbarText).toBe(
+      "Failed to check consistency",
+    );
+    expect(wrapper.text()).toContain("Issues (1)");
 
     wrapper.unmount();
   });

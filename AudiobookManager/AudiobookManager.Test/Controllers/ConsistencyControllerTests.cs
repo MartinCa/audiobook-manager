@@ -124,6 +124,75 @@ public class ConsistencyControllerTests
     }
 
     [TestMethod]
+    public async Task RecheckAudiobook_Success_ReturnsReloadedIssues()
+    {
+        var dbAudiobook = new Database.Models.Audiobook(
+            1, "Test Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null,
+            "/path/test.m4b", "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+        };
+
+        var reloadedIssues = new List<ConsistencyIssue>
+        {
+            new ConsistencyIssue
+            {
+                Id = 5,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.WrongFilePath,
+                Description = "File path does not match expected path from tags",
+                ExpectedValue = "/library/expected.m4b",
+                ActualValue = "/path/test.m4b",
+                DetectedAt = DateTime.UtcNow
+            }
+        };
+
+        _issueRepository.Setup(r => r.GetByAudiobookIdAsync(1)).ReturnsAsync(reloadedIssues);
+
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+
+        mockConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(reloadedIssues);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(mockConsistencyService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var result = await _controller.RecheckAudiobook(1) as OkObjectResult;
+
+        Assert.IsNotNull(result);
+        var dtos = result.Value as List<AudiobookManager.Api.Dtos.ConsistencyIssueDto>;
+        Assert.IsNotNull(dtos);
+        Assert.AreEqual(1, dtos.Count);
+        Assert.AreEqual(5, dtos[0].Id);
+        Assert.AreEqual("Test Book", dtos[0].BookName);
+        Assert.AreEqual("WrongFilePath", dtos[0].IssueType);
+        mockConsistencyService.Verify(s => s.RecheckAudiobookAsync(1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RecheckAudiobook_NotFound_Returns404()
+    {
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+
+        mockConsistencyService.Setup(s => s.RecheckAudiobookAsync(999))
+            .ThrowsAsync(new KeyNotFoundException());
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(mockConsistencyService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var result = await _controller.RecheckAudiobook(999);
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
     public async Task GetOrphanDirectories_ReturnsMappedDtoList()
     {
         var directories = new List<OrphanDirectory>
