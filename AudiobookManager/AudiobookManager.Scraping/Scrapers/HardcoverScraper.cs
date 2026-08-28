@@ -870,7 +870,7 @@ public class HardcoverScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse duration for {BookUrl}", bookUrl);
         }
 
-        return new MetadataSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName ?? string.Empty)
         {
             Authors = authors,
             Narrators = narrators,

@@ -299,7 +299,7 @@ public class AudiobookService : IAudiobookService
 
         AudiobookDb dbAudiobook = new AudiobookDb(
             audiobook.Id ?? default,
-            audiobook.BookName,
+            audiobook.BookName ?? string.Empty,
             audiobook.Subtitle,
             audiobook.Series,
             audiobook.SeriesPart,
@@ -353,7 +353,7 @@ public class AudiobookService : IAudiobookService
         // Update DB record
         var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
-        existing.BookName = audiobook.BookName;
+        existing.BookName = audiobook.BookName ?? string.Empty;
         existing.Subtitle = audiobook.Subtitle;
         existing.Series = audiobook.Series;
         existing.SeriesPart = audiobook.SeriesPart;

@@ -41,8 +41,10 @@ public class GoodreadsScraperTests
         // Authors
         Assert.AreEqual(2, parseResult.Authors.Count());
         var author0 = parseResult.Authors.SingleOrDefault(x => x.Name == "Stieg Larsson");
+        Assert.IsNotNull(author0);
         Assert.AreEqual("Author", author0.Role);
         var author1 = parseResult.Authors.SingleOrDefault(x => x.Name == "Kamilla J�rgensen");
+        Assert.IsNotNull(author1);
         Assert.AreEqual("Translator", author1.Role);
 
         // Narrators
@@ -58,13 +60,17 @@ public class GoodreadsScraperTests
         Assert.AreEqual("https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1328116043i/3111609.jpg", parseResult.ImageUrl);
 
         // Series
+        Assert.IsNotNull(parseResult.Series);
         Assert.AreEqual(2, parseResult.Series.Count());
         var series0 = parseResult.Series.SingleOrDefault(x => x.SeriesName == "Millennium");
+        Assert.IsNotNull(series0);
         Assert.AreEqual("2", series0.SeriesPart);
         var series1 = parseResult.Series.SingleOrDefault(x => x.SeriesName == "Millennium Split-Volume Edition");
+        Assert.IsNotNull(series1);
         Assert.AreEqual("3A", series1.SeriesPart);
 
         // Description
+        Assert.IsNotNull(parseResult.Description);
         Assert.IsTrue(parseResult.Description.Contains("Blomkvist"));
 
         // Genres
@@ -72,6 +78,7 @@ public class GoodreadsScraperTests
         Assert.IsTrue(parseResult.Genres.Contains("Mystery"));
 
         // Rating
+        Assert.IsTrue(parseResult.Rating.HasValue);
         Assert.IsTrue(Math.Abs(4.25 - parseResult.Rating.Value) <= 0.25);
 
         // NumberOfRatings
@@ -128,12 +135,14 @@ public class GoodreadsScraperTests
         Assert.AreEqual(1937, result.Year);
 
         // Series
+        Assert.IsNotNull(result.Series);
         Assert.AreEqual(1, result.Series.Count);
         var middleEarth = result.Series.SingleOrDefault(x => x.SeriesName == "Middle-earth");
         Assert.IsNotNull(middleEarth);
         Assert.AreEqual("0", middleEarth.SeriesPart);
 
         // Description - should be sanitized
+        Assert.IsNotNull(result.Description);
         Assert.IsTrue(result.Description.Contains("hobbit"));
         Assert.IsFalse(result.Description.Contains("<br"));
 
@@ -192,12 +201,14 @@ public class GoodreadsScraperTests
         Assert.AreEqual(1977, result.Year);
 
         // Series
+        Assert.IsNotNull(result.Series);
         Assert.AreEqual(1, result.Series.Count);
         var shiningSeries = result.Series.Single();
         Assert.AreEqual("The Shining", shiningSeries.SeriesName);
         Assert.AreEqual("1", shiningSeries.SeriesPart);
 
         // Description - has <br /> tags that should be sanitized
+        Assert.IsNotNull(result.Description);
         Assert.IsTrue(result.Description.Contains("Jack Torrance"));
         Assert.IsFalse(result.Description.Contains("<br"));
         Assert.IsFalse(result.Description.Contains("<"));

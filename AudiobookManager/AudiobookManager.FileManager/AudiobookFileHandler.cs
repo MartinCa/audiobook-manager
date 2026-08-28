@@ -56,13 +56,13 @@ public static class AudiobookFileHandler
 
     public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(newFullPath));
+        Directory.CreateDirectory(Path.GetDirectoryName(newFullPath)!);
         File.Move(audiobook.FileInfo.FullPath, newFullPath);
     }
 
     public static void WriteMetadata(Audiobook audiobook)
     {
-        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
+        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
 
         if (!string.IsNullOrEmpty(audiobook.Description))
         {
@@ -78,7 +78,7 @@ public static class AudiobookFileHandler
     {
         if (audiobook.Cover is not null)
         {
-            var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
+            var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
             var coverExtension = GetMimeFileExt(audiobook.Cover.MimeType);
             var fileName = JoinPaths(directoryPath, $"cover{coverExtension}");
             using var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write);
