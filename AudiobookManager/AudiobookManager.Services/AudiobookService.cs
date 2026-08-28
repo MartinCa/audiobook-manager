@@ -146,7 +146,7 @@ public class AudiobookService : IAudiobookService
         int relocatingProgress = 0,
         int relocatedProgress = 0)
     {
-        if (newFullPath == audiobook.FileInfo.FullPath)
+        if (AudiobookFileHandler.PathsEqual(newFullPath, audiobook.FileInfo.FullPath))
         {
             return newFullPath;
         }

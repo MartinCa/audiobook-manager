@@ -41,12 +41,8 @@ public class FileService : IFileService
 
     private void ValidatePathWithinAllowedBases(string path)
     {
-        var fullPath = Path.GetFullPath(path);
-        var importBase = Path.GetFullPath(_settings.AudiobookImportPath);
-        var libraryBase = Path.GetFullPath(_settings.AudiobookLibraryPath);
-
-        if (!fullPath.StartsWith(importBase, StringComparison.Ordinal) &&
-            !fullPath.StartsWith(libraryBase, StringComparison.Ordinal))
+        if (!AudiobookFileHandler.PathStartsWith(path, _settings.AudiobookImportPath) &&
+            !AudiobookFileHandler.PathStartsWith(path, _settings.AudiobookLibraryPath))
         {
             throw new UnauthorizedAccessException($"Access to path '{path}' is not allowed");
         }

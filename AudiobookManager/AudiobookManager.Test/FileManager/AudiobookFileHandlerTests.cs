@@ -35,6 +35,63 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void PathsEqual_IdenticalPaths_ReturnsTrue()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "Author", "Book.m4b");
+
+        Assert.IsTrue(AudiobookFileHandler.PathsEqual(path, path));
+    }
+
+    [TestMethod]
+    public void PathsEqual_DifferentPaths_ReturnsFalse()
+    {
+        var pathA = Path.Combine(Path.GetTempPath(), "Author", "Book.m4b");
+        var pathB = Path.Combine(Path.GetTempPath(), "Author", "OtherBook.m4b");
+
+        Assert.IsFalse(AudiobookFileHandler.PathsEqual(pathA, pathB));
+    }
+
+    [TestMethod]
+    public void PathsEqual_SamePathDifferentCase_MatchesPlatformCaseSensitivity()
+    {
+        var lower = Path.Combine(Path.GetTempPath(), "author", "book.m4b");
+        var upper = Path.Combine(Path.GetTempPath(), "AUTHOR", "BOOK.M4B");
+
+        var expected = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        Assert.AreEqual(expected, AudiobookFileHandler.PathsEqual(lower, upper));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PathUnderPrefix_ReturnsTrue()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+        var path = Path.Combine(prefix, "Author", "Book.m4b");
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(path, prefix));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PathNotUnderPrefix_ReturnsFalse()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+        var path = Path.Combine(Path.GetTempPath(), "import", "Book.m4b");
+
+        Assert.IsFalse(AudiobookFileHandler.PathStartsWith(path, prefix));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PrefixDifferentCase_MatchesPlatformCaseSensitivity()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+        var path = Path.Combine(Path.GetTempPath(), "LIBRARY", "Author", "Book.m4b");
+
+        var expected = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        Assert.AreEqual(expected, AudiobookFileHandler.PathStartsWith(path, prefix));
+    }
+
+    [TestMethod]
     public void GenerateRelativeAudiobookPath_WithSeries_IncludesSeriesDirectory()
     {
         var audiobook = new Audiobook(

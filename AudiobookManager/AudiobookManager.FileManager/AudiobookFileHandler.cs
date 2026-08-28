@@ -9,6 +9,18 @@ public static class AudiobookFileHandler
     private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
     private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png" };
 
+    // Windows and macOS file systems are case-insensitive while Linux is case-sensitive, so two
+    // paths differing only in case refer to the same file on the former but not the latter.
+    public static readonly StringComparison PathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    public static bool PathsEqual(string pathA, string pathB) =>
+        string.Equals(Path.GetFullPath(pathA), Path.GetFullPath(pathB), PathComparison);
+
+    public static bool PathStartsWith(string path, string prefix) =>
+        Path.GetFullPath(path).StartsWith(Path.GetFullPath(prefix), PathComparison);
+
     public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(newFullPath));
