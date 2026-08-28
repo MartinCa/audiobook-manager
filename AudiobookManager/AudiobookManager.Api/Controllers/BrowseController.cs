@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -152,11 +153,18 @@ public class BrowseController : ControllerBase
             ? "image/png"
             : "image/jpeg";
 
-        // Stream the file instead of buffering it, and let the browser cache it: a 50-row
-        // library page requests 50 of these, and covers only change when the book is saved
-        // (BookDetail busts the cache with the book's updated-at marker).
-        Response.Headers.CacheControl = "private, max-age=300";
-        return PhysicalFile(Path.GetFullPath(coverFilePath), mimeType, enableRangeProcessing: true);
+        // Stream the file instead of buffering it, and let the browser revalidate rather than
+        // re-download: a 50-row library page requests 50 of these. Deliberately no max-age -
+        // a cover is rewritten in place whenever the book is saved, and nothing in the URL
+        // changes when it is, so a freshness window would serve a stale image for its duration.
+        // The ETag/Last-Modified pair makes the repeat request a cheap 304 instead.
+        var fullPath = Path.GetFullPath(coverFilePath);
+        var lastModified = new DateTimeOffset(System.IO.File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero);
+        var length = new FileInfo(fullPath).Length;
+        var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
+
+        Response.Headers.CacheControl = "private, no-cache";
+        return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 
     [HttpGet("series/{seriesName}")]

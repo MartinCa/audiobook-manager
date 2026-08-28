@@ -81,16 +81,6 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
         DetachTracked(ci => ci.AudiobookId == audiobookId);
     }
 
-    private void DetachTracked(Func<ConsistencyIssue, bool>? predicate = null)
-    {
-        foreach (var entry in _db.ChangeTracker.Entries<ConsistencyIssue>()
-                     .Where(e => predicate is null || predicate(e.Entity))
-                     .ToList())
-        {
-            entry.State = EntityState.Detached;
-        }
-    }
-
     public async Task DeleteByAudiobookIdAndTypesAsync(long audiobookId, IEnumerable<ConsistencyIssueType> types)
     {
         var typeList = types.ToList();
@@ -126,10 +116,19 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .AsNoTracking()
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
-            .AsSplitQuery()
             .Where(ci => ci.AudiobookId == audiobookId)
             .OrderBy(ci => ci.IssueType)
             .ThenBy(ci => ci.Id)
             .ToListAsync();
+    }
+
+    private void DetachTracked(Func<ConsistencyIssue, bool>? predicate = null)
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<ConsistencyIssue>()
+                     .Where(e => predicate is null || predicate(e.Entity))
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
     }
 }

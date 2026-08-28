@@ -121,6 +121,37 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void PathStartsWith_RootPrefix_ReturnsTrue()
+    {
+        // A root base path is degenerate but legal (AudiobookLibraryPath is an env var). The
+        // boundary check must not reject everything under it: GetFullPath leaves the trailing
+        // separator on a root, so naively appending another one would never match.
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        var path = Path.Combine(Path.GetTempPath(), "library", "Book.m4b");
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(path, root));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PrefixWithTrailingSeparator_StillRejectsASibling()
+    {
+        // The trailing separator on the prefix must not be double-counted into the boundary.
+        var prefix = Path.Combine(Path.GetTempPath(), "library") + Path.DirectorySeparatorChar;
+        var sibling = Path.Combine(Path.GetTempPath(), "librarything", "Book.m4b");
+
+        Assert.IsFalse(AudiobookFileHandler.PathStartsWith(sibling, prefix));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PathIsThePrefixWithATrailingSeparator_ReturnsTrue()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+        var path = prefix + Path.DirectorySeparatorChar;
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(path, prefix));
+    }
+
+    [TestMethod]
     public void PathComparer_MatchesPlatformCaseSensitivity()
     {
         var expected = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();

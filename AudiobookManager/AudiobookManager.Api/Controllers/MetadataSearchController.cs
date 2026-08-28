@@ -58,8 +58,9 @@ public class MetadataSearchController : ControllerBase
         var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            var statusCode = (int)response.StatusCode;
             response.Dispose();
-            return StatusCode((int)response.StatusCode);
+            return StatusCode(statusCode);
         }
 
         var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";

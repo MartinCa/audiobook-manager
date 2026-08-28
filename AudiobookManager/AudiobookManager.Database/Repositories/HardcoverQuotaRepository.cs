@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;

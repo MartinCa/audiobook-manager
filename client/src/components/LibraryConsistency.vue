@@ -529,12 +529,37 @@ const startCheck = async () => {
   await ConsistencyService.startCheck();
 };
 
+// These are awaited from click handlers and fired from SignalR completion callbacks, and both
+// overwrite shared state, so they need the two standard guards: swallow the failure (an
+// unhandled rejection out of a `finally` would otherwise escape the caller that has already
+// reported its own result), and ignore a response that a newer load has superseded.
+let loadIssuesRequestId = 0;
+
 const loadIssues = async () => {
-  issues.value = await ConsistencyService.getIssues();
+  const requestId = ++loadIssuesRequestId;
+  try {
+    const loaded = await ConsistencyService.getIssues();
+    if (requestId !== loadIssuesRequestId) return;
+    issues.value = loaded;
+  } catch {
+    // Keep the list we already have rather than blanking it on a transient failure.
+    snackbarText.value = "Failed to refresh the issue list";
+    snackbar.value = true;
+  }
 };
 
+let loadOrphansRequestId = 0;
+
 const loadOrphanDirectories = async () => {
-  orphanDirectories.value = await ConsistencyService.getOrphanDirectories();
+  const requestId = ++loadOrphansRequestId;
+  try {
+    const loaded = await ConsistencyService.getOrphanDirectories();
+    if (requestId !== loadOrphansRequestId) return;
+    orphanDirectories.value = loaded;
+  } catch {
+    snackbarText.value = "Failed to refresh the orphaned directory list";
+    snackbar.value = true;
+  }
 };
 
 const getBulkResolveDescription = (issueType: string): string => {

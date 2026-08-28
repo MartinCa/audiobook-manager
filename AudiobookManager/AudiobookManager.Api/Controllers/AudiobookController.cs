@@ -12,14 +12,19 @@ namespace AudiobookManager.Api.Controllers;
 public class AudiobookController : ControllerBase
 {
     /// <summary>
-    /// One in-flight save per audiobook id. UpdateAudiobook rewrites the m4b tags and relocates
-    /// the file, so two concurrent saves for the same book (a double-clicked Save, or a save
-    /// racing a similar-value alignment) would both read the same pre-move path: the first moves
-    /// the file, and the second then writes tags to a path that no longer exists or fails with a
-    /// spurious "already exists". Every other long-running operation is gated the same way via
-    /// BackgroundOperationRunner; this endpoint runs its own work so it carries its own gate.
+    /// The audiobook ids with a save currently in flight. UpdateAudiobook rewrites the m4b tags
+    /// and relocates the file, so two concurrent saves for the same book (a double-clicked Save,
+    /// or a save racing a similar-value alignment) would both read the same pre-move path: the
+    /// first moves the file, and the second then writes tags to a path that no longer exists, or
+    /// fails with a spurious "already exists". Every other long-running operation is gated the
+    /// same way via BackgroundOperationRunner; this endpoint runs its own work, so it carries its
+    /// own gate.
+    ///
+    /// A set rather than a dictionary of semaphores: the check is non-blocking (a second save is
+    /// rejected, never queued), so TryAdd/TryRemove expresses it exactly - and unlike a
+    /// per-id semaphore it does not accumulate one entry per book ever saved.
     /// </summary>
-    private static readonly ConcurrentDictionary<long, SemaphoreSlim> _saveGates = new();
+    private static readonly ConcurrentDictionary<long, byte> _savesInFlight = new();
 
     private readonly IAudiobookService _audiobookService;
     private readonly IQueuedOrganizeTaskService _organizeTaskService;
@@ -79,8 +84,7 @@ public class AudiobookController : ControllerBase
     {
         var book = MapToDomain(dto);
 
-        var gate = _saveGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
-        if (!gate.Wait(0))
+        if (!_savesInFlight.TryAdd(id, 0))
         {
             return Conflict($"A save for audiobook {id} is already in progress");
         }
@@ -123,7 +127,7 @@ public class AudiobookController : ControllerBase
             }
             finally
             {
-                gate.Release();
+                _savesInFlight.TryRemove(id, out _);
             }
         });
 

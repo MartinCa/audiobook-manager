@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.FileManager;
 using AudiobookManager.Settings;

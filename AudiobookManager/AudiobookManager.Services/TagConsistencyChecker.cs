@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Domain;
+using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
 

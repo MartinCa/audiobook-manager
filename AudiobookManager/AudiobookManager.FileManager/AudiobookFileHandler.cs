@@ -35,17 +35,23 @@ public static class AudiobookFileHandler
     /// </summary>
     public static bool PathStartsWith(string path, string prefix)
     {
-        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        var fullPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(prefix));
+        var fullPath = Path.GetFullPath(path);
+        var fullPrefix = Path.GetFullPath(prefix);
 
         if (string.Equals(fullPath, fullPrefix, PathComparison))
         {
             return true;
         }
 
-        return fullPath.Length > fullPrefix.Length
-            && fullPath.StartsWith(fullPrefix, PathComparison)
-            && _systemDirectorySeparators.Contains(fullPath[fullPrefix.Length]);
+        // Require a separator at the boundary so a sibling cannot match. GetFullPath leaves a
+        // trailing separator only on a root ("/" or "C:\"), where it is part of the path rather
+        // than a suffix - appending a second one there would reject everything under it.
+        if (!Path.EndsInDirectorySeparator(fullPrefix))
+        {
+            fullPrefix += Path.DirectorySeparatorChar;
+        }
+
+        return fullPath.StartsWith(fullPrefix, PathComparison);
     }
 
     public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
