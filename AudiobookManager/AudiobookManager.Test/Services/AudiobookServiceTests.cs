@@ -150,13 +150,13 @@ public class AudiobookServiceTests
             2024,
             new AudiobookFileInfo("/path/book.m4b", "book.m4b", 1000));
 
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns(expected);
 
         var result = _service.ParseAudiobook("/path/book.m4b");
 
         Assert.AreEqual("Parsed Book", result.BookName);
-        _tagHandler.Verify(t => t.ParseAudiobook(It.Is<FileInfo>(fi => fi.FullName == "/path/book.m4b")), Times.Once);
+        _tagHandler.Verify(t => t.ParseAudiobook(It.Is<FileInfo>(fi => fi.FullName == "/path/book.m4b"), It.IsAny<bool>()), Times.Once);
     }
 
     #region UpdateAudiobook
@@ -247,7 +247,7 @@ public class AudiobookServiceTests
             Description = "Updated description",
             Narrators = new List<Person> { new Person("Narrator One") }
         };
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(reparsed);
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(reparsed);
 
         var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
         {
@@ -300,8 +300,8 @@ public class AudiobookServiceTests
 
         var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)));
 
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
-            .Returns((FileInfo fi) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
             {
                 Description = "New description",
                 Narrators = new List<Person> { new Person("New Narrator") }
@@ -326,6 +326,86 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public async Task UpdateAudiobook_Relocation_LeavesSidecarsInTheDestinationDirectoryIntact()
+    {
+        // Cleanup must only ever touch the directory the book left. reader.txt is the sharp edge:
+        // it is only (re)written when the book has narrators, so a cleanup that reached into the
+        // destination would destroy it with nothing to restore it.
+        //
+        // Note this passes against the older directory comparison too - it is a behavioural
+        // assertion, not a regression guard. See the sidecar-cleanup note in AudiobookService.
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        // Same author/year, different book name -> same directory tree root, different leaf file.
+        var oldFilePath = Path.Combine(_libraryPath, "Same Author", "2020 - Old Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        // A book with no narrators: reader.txt is never rewritten, so an over-eager cleanup
+        // would destroy it permanently.
+        var updateDto = new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Description = "A description",
+            Narrators = new List<Person>(),
+        };
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Description = "A description",
+                Narrators = new List<Person>(),
+            });
+
+        var expectedNewPath = _service.GenerateLibraryPath(
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)));
+        var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
+        Directory.CreateDirectory(newDirectory);
+
+        // A reader.txt that already sits in the destination directory.
+        var readerInNewDirectory = Path.Combine(newDirectory, "reader.txt");
+        File.WriteAllText(readerInNewDirectory, "A Narrator");
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual(expectedNewPath, result.FileInfo.FullPath);
+        Assert.IsTrue(File.Exists(expectedNewPath));
+        Assert.IsTrue(
+            File.Exists(readerInNewDirectory),
+            "reader.txt in the destination directory must survive - nothing rewrites it for a book with no narrators");
+        Assert.AreEqual("A Narrator", File.ReadAllText(readerInNewDirectory));
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_VerifiesTheTagRoundTripWithoutDecodingTheCover()
+    {
+        // The round-trip check compares text tags only, so encoding the cover it just wrote is
+        // wasted allocation on every single save.
+        SetupUpdateAudiobookTest();
+
+        var filePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, filePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var author = new Person("Old Author");
+        var updateDto = new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        await _service.UpdateAudiobook(1, updateDto);
+
+        // The verification parse asks for no cover data; the post-relocation reparse (which
+        // feeds WriteCover) still does.
+        _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), false), Times.Once);
+        _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), true), Times.Once);
+    }
+
+    [TestMethod]
     public async Task UpdateAudiobook_ClearingSeries_RegeneratesPathWithoutSeriesSegment()
     {
         SetupUpdateAudiobookTest();
@@ -343,8 +423,8 @@ public class AudiobookServiceTests
             SeriesPart = null
         };
 
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
-            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
 
         var result = await _service.UpdateAudiobook(1, updateDto);
 
@@ -424,8 +504,8 @@ public class AudiobookServiceTests
 
         // Simulate the tag write not actually persisting the narrator (leaving a stale value on
         // disk) even though SaveAudiobookTagsToFile reported success.
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
-            .Returns((FileInfo fi) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
             {
                 Narrators = new List<Person> { new Person("Stale Old Narrator") }
             });
@@ -458,8 +538,8 @@ public class AudiobookServiceTests
         var expectedPath = _service.GenerateLibraryPath(audiobook);
 
         _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
-            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
             {
                 Narrators = new List<Person> { new Person("New Narrator") }
             });
@@ -531,8 +611,8 @@ public class AudiobookServiceTests
 
         // Simulate the tag write not actually persisting the narrator, even though
         // SaveAudiobookTagsToFile reported success.
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
-            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
             {
                 Narrators = new List<Person> { new Person("Stale Narrator") }
             });

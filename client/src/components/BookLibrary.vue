@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, Ref, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import { debounce } from "lodash";
 import BrowseService from "../services/BrowseService";
 import ConsistencyService from "../services/ConsistencyService";
@@ -127,24 +127,42 @@ watch(currentPage, () => {
   loadIssueSummary();
 });
 
+// Responses can land out of order (a slow "har" after a fast "harry"), so only the newest
+// request is allowed to write to the list - the same guard LibrarySearch.vue uses.
+let loadRequestId = 0;
+
 const loadBooks = async () => {
+  const requestId = ++loadRequestId;
   const offset = (currentPage.value - 1) * limit;
   const result = searchQuery.value
     ? await BrowseService.searchBooks(searchQuery.value, limit, offset)
     : await BrowseService.getBooks(limit, offset);
+
+  if (requestId !== loadRequestId) return;
+
   totalItems.value = result.total;
   books.value = result.items;
 };
 
 const debouncedSearch = debounce(() => {
-  currentPage.value = 1;
+  // Resetting the page fires the currentPage watcher, which reloads on its own. Doing both
+  // here as well issued two full page loads and two issue-summary fetches per search.
+  if (currentPage.value !== 1) {
+    currentPage.value = 1;
+    return;
+  }
   loadBooks();
-  // Also refresh on search, for the same reason as the pagination watcher above.
   loadIssueSummary();
 }, 300);
 
 watch(searchQuery, () => {
   debouncedSearch();
+});
+
+// A pending debounce would otherwise fire after the component is gone, mutating dead refs and
+// issuing a request nobody reads.
+onUnmounted(() => {
+  debouncedSearch.cancel();
 });
 
 const loadIssueSummary = async () => {

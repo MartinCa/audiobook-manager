@@ -14,11 +14,16 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
 
     public async Task<List<ConsistencyIssue>> GetAllWithAudiobookAsync()
     {
+        // Read-only: nothing mutates these, and tracking every issue plus its audiobook and
+        // author graph for the lifetime of the request is pure overhead on a large library.
         return await _db.ConsistencyIssues
+            .AsNoTracking()
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
+            .AsSplitQuery()
             .OrderBy(ci => ci.AudiobookId)
             .ThenBy(ci => ci.IssueType)
+            .ThenBy(ci => ci.Id)
             .ToListAsync();
     }
 
@@ -50,8 +55,12 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
 
     public async Task ClearAllAsync()
     {
-        _db.ConsistencyIssues.RemoveRange(_db.ConsistencyIssues);
-        await _db.SaveChangesAsync();
+        // One DELETE statement. RemoveRange over the DbSet would fetch and track every row just
+        // to issue an individual DELETE per id. ExecuteDeleteAsync bypasses the change tracker,
+        // so drop any rows this context still holds - SQLite reuses deleted rowids, and a stale
+        // tracked entity would shadow the new row that inherits its id.
+        await _db.ConsistencyIssues.ExecuteDeleteAsync();
+        DetachTracked();
     }
 
     public async Task DeleteAsync(long id)
@@ -66,29 +75,31 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
 
     public async Task DeleteByAudiobookIdAsync(long audiobookId)
     {
-        var issues = await _db.ConsistencyIssues
+        await _db.ConsistencyIssues
             .Where(ci => ci.AudiobookId == audiobookId)
-            .ToListAsync();
-        _db.ConsistencyIssues.RemoveRange(issues);
-        await _db.SaveChangesAsync();
+            .ExecuteDeleteAsync();
+        DetachTracked(ci => ci.AudiobookId == audiobookId);
     }
 
     public async Task DeleteByAudiobookIdAndTypesAsync(long audiobookId, IEnumerable<ConsistencyIssueType> types)
     {
-        var issues = await _db.ConsistencyIssues
-            .Where(ci => ci.AudiobookId == audiobookId && types.Contains(ci.IssueType))
-            .ToListAsync();
-        _db.ConsistencyIssues.RemoveRange(issues);
-        await _db.SaveChangesAsync();
+        var typeList = types.ToList();
+        await _db.ConsistencyIssues
+            .Where(ci => ci.AudiobookId == audiobookId && typeList.Contains(ci.IssueType))
+            .ExecuteDeleteAsync();
+        DetachTracked(ci => ci.AudiobookId == audiobookId && typeList.Contains(ci.IssueType));
     }
 
     public async Task<List<ConsistencyIssue>> GetByTypeAsync(ConsistencyIssueType issueType)
     {
         return await _db.ConsistencyIssues
+            .AsNoTracking()
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
+            .AsSplitQuery()
             .Where(ci => ci.IssueType == issueType)
             .OrderBy(ci => ci.AudiobookId)
+            .ThenBy(ci => ci.Id)
             .ToListAsync();
     }
 
@@ -102,10 +113,22 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
     public async Task<List<ConsistencyIssue>> GetByAudiobookIdAsync(long audiobookId)
     {
         return await _db.ConsistencyIssues
+            .AsNoTracking()
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
             .Where(ci => ci.AudiobookId == audiobookId)
             .OrderBy(ci => ci.IssueType)
+            .ThenBy(ci => ci.Id)
             .ToListAsync();
+    }
+
+    private void DetachTracked(Func<ConsistencyIssue, bool>? predicate = null)
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<ConsistencyIssue>()
+                     .Where(e => predicate is null || predicate(e.Entity))
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
     }
 }

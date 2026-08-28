@@ -529,12 +529,37 @@ const startCheck = async () => {
   await ConsistencyService.startCheck();
 };
 
+// These are awaited from click handlers and fired from SignalR completion callbacks, and both
+// overwrite shared state, so they need the two standard guards: swallow the failure (an
+// unhandled rejection out of a `finally` would otherwise escape the caller that has already
+// reported its own result), and ignore a response that a newer load has superseded.
+let loadIssuesRequestId = 0;
+
 const loadIssues = async () => {
-  issues.value = await ConsistencyService.getIssues();
+  const requestId = ++loadIssuesRequestId;
+  try {
+    const loaded = await ConsistencyService.getIssues();
+    if (requestId !== loadIssuesRequestId) return;
+    issues.value = loaded;
+  } catch {
+    // Keep the list we already have rather than blanking it on a transient failure.
+    snackbarText.value = "Failed to refresh the issue list";
+    snackbar.value = true;
+  }
 };
 
+let loadOrphansRequestId = 0;
+
 const loadOrphanDirectories = async () => {
-  orphanDirectories.value = await ConsistencyService.getOrphanDirectories();
+  const requestId = ++loadOrphansRequestId;
+  try {
+    const loaded = await ConsistencyService.getOrphanDirectories();
+    if (requestId !== loadOrphansRequestId) return;
+    orphanDirectories.value = loaded;
+  } catch {
+    snackbarText.value = "Failed to refresh the orphaned directory list";
+    snackbar.value = true;
+  }
 };
 
 const getBulkResolveDescription = (issueType: string): string => {
@@ -578,16 +603,58 @@ const onBulkResolveClick = (issueType: string) => {
   confirmDialog.value = true;
 };
 
+// Selection state for every group, computed once per selection change. These used to be plain
+// functions called from the template - `selectedCountInGroup` twice per group - so ticking a
+// single checkbox re-scanned every group's full issue array four or more times.
+interface GroupSelection {
+  selected: number;
+  fullySelected: boolean;
+  partiallySelected: boolean;
+}
+
+const groupSelectionState = computed((): Map<string, GroupSelection> => {
+  const state = new Map<string, GroupSelection>();
+  for (const group of groupedByType.value) {
+    let selected = 0;
+    for (const issue of group.issues) {
+      if (selectedIssueIds.value.has(issue.id)) selected++;
+    }
+
+    let visibleSelected = 0;
+    for (const issue of group.visibleIssues) {
+      if (selectedIssueIds.value.has(issue.id)) visibleSelected++;
+    }
+
+    const fullySelected =
+      group.visibleIssues.length > 0 &&
+      visibleSelected === group.visibleIssues.length;
+
+    state.set(group.issueType, {
+      selected,
+      fullySelected,
+      partiallySelected: !fullySelected && visibleSelected > 0,
+    });
+  }
+  return state;
+});
+
+const EMPTY_SELECTION: GroupSelection = {
+  selected: 0,
+  fullySelected: false,
+  partiallySelected: false,
+};
+
+const groupSelection = (group: TypeGroup): GroupSelection =>
+  groupSelectionState.value.get(group.issueType) ?? EMPTY_SELECTION;
+
 const selectedCountInGroup = (group: TypeGroup): number =>
-  group.issues.filter((i) => selectedIssueIds.value.has(i.id)).length;
+  groupSelection(group).selected;
 
 const isGroupFullySelected = (group: TypeGroup): boolean =>
-  group.visibleIssues.length > 0 &&
-  group.visibleIssues.every((i) => selectedIssueIds.value.has(i.id));
+  groupSelection(group).fullySelected;
 
 const isGroupPartiallySelected = (group: TypeGroup): boolean =>
-  !isGroupFullySelected(group) &&
-  group.visibleIssues.some((i) => selectedIssueIds.value.has(i.id));
+  groupSelection(group).partiallySelected;
 
 const toggleIssueSelected = (issueId: number) => {
   if (selectedIssueIds.value.has(issueId)) {
@@ -671,34 +738,6 @@ const bulkResolve = async (issueType: string) => {
   resolvingTypes.value.add(issueType);
   try {
     const result = await ConsistencyService.resolveByType(issueType);
-    const resolvedAudiobookIds = new Set(
-      issues.value
-        .filter((x) => x.issueType === issueType)
-        .map((x) => x.audiobookId),
-    );
-    issues.value = issues.value.filter((i) => {
-      if (issueType === "MissingMediaFile" || issueType === "WrongFilePath") {
-        return !resolvedAudiobookIds.has(i.audiobookId);
-      }
-      if (
-        issueType === "MissingDescTxt" ||
-        issueType === "IncorrectDescTxt" ||
-        issueType === "MissingReaderTxt" ||
-        issueType === "IncorrectReaderTxt"
-      ) {
-        const metadataTypes = [
-          "MissingDescTxt",
-          "IncorrectDescTxt",
-          "MissingReaderTxt",
-          "IncorrectReaderTxt",
-        ];
-        if (resolvedAudiobookIds.has(i.audiobookId)) {
-          return !metadataTypes.includes(i.issueType);
-        }
-        return true;
-      }
-      return i.issueType !== issueType;
-    });
     let msg = `Resolved ${result.resolved} issues`;
     if (result.failed > 0) {
       msg += ` (${result.failed} failed)`;
@@ -710,6 +749,10 @@ const bulkResolve = async (issueType: string) => {
     snackbar.value = true;
   } finally {
     resolvingTypes.value.delete(issueType);
+    // Re-read the authoritative list rather than removing the whole type optimistically: a
+    // bulk resolve reports `failed`, and the issues behind those failures are still real. The
+    // old client-side filter hid them until the next full check.
+    await loadIssues();
   }
 };
 
@@ -745,6 +788,9 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
   } catch {
     snackbarText.value = "Failed to resolve issue";
     snackbar.value = true;
+    // The optimistic removal above only runs on success, so on failure the list is unchanged -
+    // but the server may still have partially resolved, so re-read rather than guess.
+    await loadIssues();
   } finally {
     resolvingIds.value.delete(issue.id);
   }

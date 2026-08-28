@@ -65,6 +65,13 @@ public class SeriesRepository : ISeriesRepository
 
     public async Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks)
     {
+        // Deliberately the tracked path, not ExecuteDeleteAsync. Series.ExpectedBooks is an
+        // inverse navigation, so callers that already loaded the series (MatchSeriesCoreAsync
+        // reads the existing roster first) hold a tracked Series whose collection EF keeps
+        // fixed up. A set-based delete bypasses the change tracker, leaving the deleted rows
+        // both in that collection and in the identity map - and since SQLite reuses deleted
+        // rowids, the replacements can be resolved straight back to those ghosts. A roster is
+        // tens of rows, so the round trips this costs are not worth that risk.
         var existing = await _db.SeriesExpectedBooks
             .Where(b => b.SeriesId == seriesId)
             .ToListAsync();

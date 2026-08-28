@@ -4,16 +4,6 @@ import BaseHttpService from "./BaseHttpService";
 
 function toDto(data: Audiobook) {
   return {
-    ...toPathPreviewDto(data),
-    cover: data.cover,
-  };
-}
-
-// Same fields as toDto but without `cover`, whose base64 image data can be large. Used for
-// endpoints that only need text metadata to compute/check a path (generateNewPath,
-// checkTargetPath), so a debounced keystroke doesn't re-upload the cover on every call.
-function toPathPreviewDto(data: Audiobook) {
-  return {
     authors: data.authors.map((a) => a.name),
     narrators: data.narrators.map((n) => n.name),
     bookName: data.bookName,
@@ -28,6 +18,24 @@ function toPathPreviewDto(data: Audiobook) {
     rating: data.rating,
     asin: data.asin,
     www: data.www,
+    cover: data.cover,
+    filePath: data.fileInfo?.fullPath,
+    fileName: data.fileInfo?.fileName,
+    sizeInBytes: data.fileInfo?.sizeInBytes ?? 0,
+  };
+}
+
+// Only the fields AudiobookFileHandler.GenerateRelativeAudiobookPath actually reads. These
+// endpoints are called from a debounced keystroke watcher, so anything extra - the cover's
+// base64 payload, but also a multi-kilobyte description - is re-uploaded on every edit for a
+// value the server ignores.
+function toPathPreviewDto(data: Audiobook) {
+  return {
+    authors: data.authors.map((a) => a.name),
+    bookName: data.bookName,
+    series: data.series,
+    seriesPart: data.seriesPart,
+    year: data.year,
     filePath: data.fileInfo?.fullPath,
     fileName: data.fileInfo?.fileName,
     sizeInBytes: data.fileInfo?.sizeInBytes ?? 0,

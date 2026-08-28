@@ -58,3 +58,70 @@ describe("convertInputToAudiobook", () => {
     expect(result.genres).toEqual([]);
   });
 });
+
+describe("convertInputToAudiobook blank-field handling", () => {
+  const meta = {
+    durationInSeconds: 100,
+    fileInfo: {
+      fullPath: "/library/book.m4b",
+      fileName: "book.m4b",
+      sizeInBytes: 1,
+    },
+  };
+
+  it("maps an empty genres field to no genres rather than one blank genre", () => {
+    // Regression: "".split("/") yields [""], and the backend persisted that as a real Genre row
+    // with an empty name that every genre-less book then linked to.
+    const result = convertInputToAudiobook(
+      { bookName: "A Book", genres: "" },
+      meta,
+    );
+
+    expect(result.genres).toEqual([]);
+  });
+
+  it("maps an undefined genres field to no genres", () => {
+    const result = convertInputToAudiobook({ bookName: "A Book" }, meta);
+
+    expect(result.genres).toEqual([]);
+  });
+
+  it("drops blank entries between separators and trims the rest", () => {
+    const result = convertInputToAudiobook(
+      { bookName: "A Book", genres: " Fantasy / / Adventure " },
+      meta,
+    );
+
+    expect(result.genres).toEqual(["Fantasy", "Adventure"]);
+  });
+
+  it("maps an empty authors field to no authors rather than one blank author", () => {
+    const result = convertInputToAudiobook(
+      { bookName: "A Book", authors: "" },
+      meta,
+    );
+
+    expect(result.authors).toEqual([]);
+  });
+
+  it("drops blank author entries and trims the rest", () => {
+    const result = convertInputToAudiobook(
+      { bookName: "A Book", authors: "Author One, , Author Two " },
+      meta,
+    );
+
+    expect(result.authors).toEqual([
+      { name: "Author One" },
+      { name: "Author Two" },
+    ]);
+  });
+
+  it("drops blank narrator entries", () => {
+    const result = convertInputToAudiobook(
+      { bookName: "A Book", narrators: " , Narrator One" },
+      meta,
+    );
+
+    expect(result.narrators).toEqual([{ name: "Narrator One" }]);
+  });
+});

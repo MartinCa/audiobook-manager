@@ -78,12 +78,19 @@ public class LibraryController : ControllerBase
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
         var mapped = items.Select(item => new DiscoveredAudiobookDto(item)).ToList();
 
-        // Each duplicate check is an independent I/O call keyed by its own dto/item pair, so run
-        // them concurrently instead of one-at-a-time in the page.
-        var duplicateChecks = items.Zip(mapped, (item, dto) => (item, dto))
+        // Each duplicate check is an independent, synchronous filesystem probe. Run the page's
+        // probes in parallel off the request thread rather than wrapping them in Task.WhenAll,
+        // which - because the check never awaits - executed them one at a time inline.
+        var pairs = items.Zip(mapped, (item, dto) => (item, dto))
             .Where(pair => pair.dto.IsWellTagged)
-            .Select(async pair => pair.dto.IsDuplicate = await _libraryScanService.IsDuplicateTargetAsync(pair.item));
-        await Task.WhenAll(duplicateChecks);
+            .ToList();
+
+        if (pairs.Count > 0)
+        {
+            await Task.Run(() => Parallel.ForEach(
+                pairs,
+                pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item)));
+        }
 
         return new PaginatedResult<DiscoveredAudiobookDto>(mapped.Count, total, mapped);
     }

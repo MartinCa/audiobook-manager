@@ -93,40 +93,19 @@ beforeEach(() => {
   mockedGetOrphanDirectories.mockResolvedValue([]);
 });
 
-describe("LibraryConsistency bulkResolve filtering", () => {
-  it("removes only the audiobooks whose WrongFilePath issues were resolved, leaving other issue types for other books and untouched issue types for the same books", async () => {
-    // A reasonably sized mixed list: several audiobooks each with a WrongFilePath issue
-    // (which will be bulk-resolved) plus various other issues that must survive filtering
-    // exactly as before the fix (hoisting the Set construction must not change semantics).
-    const issues: ConsistencyIssue[] = [];
-    for (let audiobookId = 1; audiobookId <= 20; audiobookId++) {
-      issues.push(makeIssue(audiobookId * 10, audiobookId, "WrongFilePath"));
-    }
-    // Extra unrelated issues: two share an audiobookId with a WrongFilePath issue (and, per
-    // existing semantics, are removed alongside it since resolving a book's WrongFilePath
-    // implies the whole audiobook was reprocessed), one belongs to an untouched audiobook.
-    issues.push(makeIssue(9001, 1, "MissingCoverFile"));
-    issues.push(makeIssue(9002, 2, "TagMismatch"));
-    issues.push(makeIssue(9003, 999, "MissingCoverFile"));
-
-    mockedGetIssues.mockResolvedValue(issues);
-    mockedResolveByType.mockResolvedValue({ resolved: 20, failed: 0 });
-
-    const wrapper = mountComponent();
-    await flushPromises();
-
-    // Expand the WrongFilePath group panel so its (lazily-rendered) content mounts.
+describe("LibraryConsistency bulk resolve", () => {
+  // Helper: run the bulk-resolve flow for the WrongFilePath group.
+  async function bulkResolveWrongFilePaths(wrapper: any, groupSize: number) {
     const panelTitle = wrapper
       .findAll(".v-expansion-panel-title")
-      .find((t) => t.text().includes("Wrong File Paths"));
+      .find((t: any) => t.text().includes("Wrong File Paths"));
     expect(panelTitle).toBeTruthy();
     await panelTitle!.trigger("click");
     await flushPromises();
 
-    // Trigger the bulk resolve flow: click "Resolve All" for WrongFilePath, then confirm.
     const resolveAllBtn = wrapper
       .findAll("button")
-      .find((b) => b.text().includes("Resolve All 20"));
+      .find((b: any) => b.text().includes(`Resolve All ${groupSize}`));
     expect(resolveAllBtn).toBeTruthy();
     await resolveAllBtn!.trigger("click");
     await flushPromises();
@@ -138,18 +117,65 @@ describe("LibraryConsistency bulkResolve filtering", () => {
     expect(confirmBtn).toBeTruthy();
     confirmBtn!.dispatchEvent(new Event("click", { bubbles: true }));
     await flushPromises();
+  }
+
+  it("re-reads the issue list from the server instead of filtering it client-side", async () => {
+    const initial: ConsistencyIssue[] = [];
+    for (let audiobookId = 1; audiobookId <= 3; audiobookId++) {
+      initial.push(makeIssue(audiobookId * 10, audiobookId, "WrongFilePath"));
+    }
+    initial.push(makeIssue(9003, 999, "MissingCoverFile"));
+
+    mockedGetIssues.mockResolvedValue(initial);
+    mockedResolveByType.mockResolvedValue({ resolved: 3, failed: 0 });
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    // After the resolve, the server reports only the untouched issue.
+    mockedGetIssues.mockResolvedValue([
+      makeIssue(9003, 999, "MissingCoverFile"),
+    ]);
+
+    await bulkResolveWrongFilePaths(wrapper, 3);
 
     expect(mockedResolveByType).toHaveBeenCalledWith("WrongFilePath");
-
-    // All 20 WrongFilePath issues gone (its whole group section disappears), and per the
-    // existing (preserved) semantics, other issue types for the same now-resolved
-    // audiobooks are cleared out too.
+    // Once on mount, once after the bulk resolve.
+    expect(mockedGetIssues).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).not.toContain("Wrong File Paths");
-    expect(wrapper.text()).not.toContain("Issue 9001");
-    expect(wrapper.text()).not.toContain("Issue 9002");
-    // An issue for an audiobook that had no WrongFilePath issue is untouched.
     expect(wrapper.text()).toContain("Issue 9003");
     expect(wrapper.text()).toContain("Issues (1)");
+
+    wrapper.unmount();
+  });
+
+  it("keeps issues the server reported as failed visible instead of hiding the whole type", async () => {
+    // Regression guard: the old client-side filter removed every issue of the resolved type
+    // regardless of `failed`, so genuinely unresolved books silently vanished from the list
+    // until the next full consistency check.
+    const initial: ConsistencyIssue[] = [
+      makeIssue(10, 1, "WrongFilePath"),
+      makeIssue(20, 2, "WrongFilePath"),
+      makeIssue(30, 3, "WrongFilePath"),
+    ];
+
+    mockedGetIssues.mockResolvedValue(initial);
+    mockedResolveByType.mockResolvedValue({ resolved: 2, failed: 1 });
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    // The server resolved two and still holds the third.
+    const stillFailing = makeIssue(30, 3, "WrongFilePath");
+    mockedGetIssues.mockResolvedValue([stillFailing]);
+
+    await bulkResolveWrongFilePaths(wrapper, 3);
+
+    expect(wrapper.text()).toContain("Wrong File Paths");
+    expect(wrapper.text()).toContain("Issues (1)");
+    expect(wrapper.text()).toContain("Issue 30");
+    // The snackbar is teleported out of the component's own tree.
+    expect(document.body.textContent).toContain("Resolved 2 issues (1 failed)");
 
     wrapper.unmount();
   });

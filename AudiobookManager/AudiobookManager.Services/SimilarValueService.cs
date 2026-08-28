@@ -31,21 +31,21 @@ public class SimilarValueService : ISimilarValueService
 
     public async Task<List<SimilarValueGroup>> DetectSimilarAuthorsAsync()
     {
-        var authors = await _personRepository.GetAllAuthorsAsync();
-        var names = authors.Select(a => a.Name).Distinct().ToList();
+        // Only the author names and each one's book id/title are needed, so this projects them
+        // rather than loading every audiobook entity the authors point at.
+        var booksByAuthorName = await _personRepository.GetAuthorBookRefsAsync();
+        var names = booksByAuthorName.Keys.ToList();
 
         var clusters = SimilarityGrouper.GroupSimilarValues(names, _settings);
-        var authorsByName = authors.ToLookup(a => a.Name);
 
         return clusters.Select(cluster => new SimilarValueGroup
         {
             Candidates = cluster.Select(name => new SimilarValueCandidate
             {
                 Value = name,
-                Books = authorsByName[name]
-                    .SelectMany(a => a.BooksAuthored.Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }))
-                    .DistinctBy(b => b.Id)
-                    .ToList()
+                Books = booksByAuthorName.TryGetValue(name, out var books)
+                    ? books.Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }).ToList()
+                    : new List<SimilarValueBook>()
             }).ToList()
         }).ToList();
     }

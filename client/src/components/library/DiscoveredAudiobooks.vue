@@ -122,8 +122,9 @@
           v-model="discoveredActivePanel"
         >
           <v-expansion-panel
-            v-for="(book, i) in discoveredBooks"
-            :key="i"
+            v-for="book in discoveredBooks"
+            :key="book.fullPath"
+            :value="book.fullPath"
           >
             <v-expansion-panel-title>
               <v-row align="center">
@@ -265,7 +266,10 @@ const limit = 50;
 
 const discoveredBooks: Ref<DiscoveredAudiobook[]> = ref([]);
 const discoveredSearchQuery: Ref<string> = ref("");
-const discoveredActivePanel: Ref<any> = ref(null);
+// The open panel is tracked by the book's path, not its index: the list is mutated while it is
+// open (a finished import removes a row), and an index-keyed panel would silently re-point at
+// whichever book shifted into that slot - with Vue reusing the open BookOrganize form for it.
+const discoveredActivePanel: Ref<string | null> = ref(null);
 const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
 
@@ -340,6 +344,9 @@ const onUpdateProgress = (arg: ProgressUpdate) => {
     discoveredBooks.value = discoveredBooks.value.filter((b) => b !== book);
     selectedPaths.value.delete(book.fullPath);
     selectedPaths.value = new Set(selectedPaths.value);
+    if (discoveredActivePanel.value === book.fullPath) {
+      discoveredActivePanel.value = null;
+    }
   }
 };
 
@@ -363,6 +370,8 @@ onUnmounted(() => {
   signalR.off(UpdateProgress, onUpdateProgress);
   signalR.off(QueueErrorToken, onQueueError);
   signalR.offReconnected(loadDiscoveredBooks);
+  // A pending debounce would fire after unmount, mutating dead refs and issuing a wasted request.
+  debouncedDiscoveredSearch.cancel();
 });
 
 const discoveredTotalPages = computed((): number =>
@@ -437,12 +446,20 @@ const startScan = async () => {
   await LibraryService.startLibraryScan();
 };
 
+// Only the newest request may write to the list: filter keystrokes and page changes overlap,
+// and an older response landing last would render a page the user has already moved off.
+let loadRequestId = 0;
+
 const loadDiscoveredBooks = async () => {
+  const requestId = ++loadRequestId;
   const result = await LibraryService.getDiscoveredBooks(
     limit,
     (discoveredCurrentPage.value - 1) * limit,
     discoveredSearchQuery.value || undefined,
   );
+
+  if (requestId !== loadRequestId) return;
+
   discoveredTotalItems.value = result.total;
   discoveredBooks.value = result.items;
 };
@@ -467,8 +484,7 @@ const markDiscoveredAsQueued = (book: DiscoveredAudiobook, queueId: string) => {
   // place to retry or resolve instead of disappearing based on a SignalR event that might be
   // missed by a disconnected client.
   book.queueId = queueId;
-  var bookIdx = discoveredBooks.value.indexOf(book);
-  if (bookIdx === discoveredActivePanel.value) {
+  if (discoveredActivePanel.value === book.fullPath) {
     discoveredActivePanel.value = null;
   }
   selectedPaths.value.delete(book.fullPath);
@@ -476,14 +492,11 @@ const markDiscoveredAsQueued = (book: DiscoveredAudiobook, queueId: string) => {
 };
 
 const removeDiscoveredBook = (book: DiscoveredAudiobook) => {
-  var bookIdx = discoveredBooks.value.indexOf(book);
-  var currentlyOpen = bookIdx === discoveredActivePanel.value;
-
   discoveredBooks.value = discoveredBooks.value.filter((b) => b != book);
   selectedPaths.value.delete(book.fullPath);
   selectedPaths.value = new Set(selectedPaths.value);
 
-  if (currentlyOpen) {
+  if (discoveredActivePanel.value === book.fullPath) {
     discoveredActivePanel.value = null;
   }
 

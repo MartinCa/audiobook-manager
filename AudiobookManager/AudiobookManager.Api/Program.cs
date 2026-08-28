@@ -98,7 +98,11 @@ internal class Program
 
         app.MapHub<OrganizeHub>("/hubs/organize");
 
-        using (var scope = builder.Services.BuildServiceProvider().CreateScope())
+        // Use the application's own provider, not a second one built from the service
+        // collection: BuildServiceProvider() here would create a duplicate, never-disposed set of
+        // singletons, so the HardcoverRateLimiter validated below would not be the instance the
+        // app actually rate-limits with, and its replenishment timer would leak.
+        using (var scope = app.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
 

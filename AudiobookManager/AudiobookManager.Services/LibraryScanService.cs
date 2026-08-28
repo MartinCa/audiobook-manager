@@ -44,7 +44,10 @@ public class LibraryScanService : ILibraryScanService
             _settings.AudiobookLibraryPath,
             AudiobookTagHandler.IsSupported);
 
-        var knownPaths = await _audiobookRepository.GetAllFilePathsAsync();
+        // Paths must be matched the way the file system matches them: a case-only difference is
+        // the same file on Windows/macOS, and treating it as new would re-discover (and let the
+        // user re-import) a book that is already tracked.
+        var knownPaths = await _audiobookRepository.GetAllFilePathsAsync(AudiobookFileHandler.PathComparer);
 
         var totalFiles = files.Count;
         var filesScanned = 0;
@@ -63,7 +66,8 @@ public class LibraryScanService : ILibraryScanService
             try
             {
                 var fileInfo = new FileInfo(file.FullPath);
-                var parsed = _tagHandler.ParseAudiobook(fileInfo);
+                // The discovered row stores no cover, so don't pay to encode one per file.
+                var parsed = _tagHandler.ParseAudiobook(fileInfo, includeCoverData: false);
 
                 var discovered = new DiscoveredAudiobook(
                     parsed.BookName ?? file.FileName,
@@ -140,7 +144,13 @@ public class LibraryScanService : ILibraryScanService
             progressAction);
     }
 
-    public async Task<bool> IsDuplicateTargetAsync(DiscoveredAudiobook entry)
+    /// <summary>
+    /// Whether the discovered file's computed target path is already occupied by a *different*
+    /// file. Deliberately synchronous: the work is a path computation plus one File.Exists, and
+    /// declaring it async only misled callers into wrapping it in Task.WhenAll for a concurrency
+    /// it could never provide.
+    /// </summary>
+    public bool IsDuplicateTarget(DiscoveredAudiobook entry)
     {
         try
         {

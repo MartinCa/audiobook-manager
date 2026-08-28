@@ -28,11 +28,11 @@ public class AudiobookService : IAudiobookService
         _logger = logger;
     }
 
-    public Audiobook ParseAudiobook(string filePath)
+    public Audiobook ParseAudiobook(string filePath, bool includeCoverData = true)
     {
         var fileInfo = new FileInfo(filePath);
 
-        return _tagHandler.ParseAudiobook(fileInfo);
+        return _tagHandler.ParseAudiobook(fileInfo, includeCoverData);
     }
 
     public string GenerateLibraryPath(Audiobook audiobook)
@@ -108,6 +108,9 @@ public class AudiobookService : IAudiobookService
         const int afterTagsProgress = 70;
         int lastProgressNotified = 0;
 
+        // ATL calls this synchronously from the save, so the async progressAction cannot be
+        // awaited here. Observe the returned Task explicitly rather than discarding it: a hub
+        // failure would otherwise surface only as an unobserved task exception.
         Action<float> saveTagsProgressAction = (float progress) =>
         {
             var modifiedProgress = (int)(afterTagsProgress * progress);
@@ -115,7 +118,13 @@ public class AudiobookService : IAudiobookService
             {
                 lastProgressNotified = modifiedProgress;
                 _logger.LogInformation("({audiobookFile}) saving tags progress {progress}, full progress {modifiedProgress}", audiobook.FileInfo.FullPath, progress, modifiedProgress);
-                progressAction("Saving tags", modifiedProgress);
+
+                _ = progressAction("Saving tags", modifiedProgress)
+                    .ContinueWith(
+                        t => _logger.LogWarning(t.Exception, "({audiobookFile}) Failed to report tag-save progress", audiobook.FileInfo.FullPath),
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted,
+                        TaskScheduler.Default);
             }
         };
 
@@ -142,7 +151,8 @@ public class AudiobookService : IAudiobookService
         // really on disk. Checking here, at the original location and before any move, turns a
         // silent desync into a visible save failure instead of leaving a relocated file with stale
         // tags for the consistency check to discover later.
-        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath);
+        // The verification compares text tags only, so skip encoding the cover we just wrote.
+        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath, includeCoverData: false);
         var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
         if (mismatches.Count > 0)
         {
@@ -213,7 +223,7 @@ public class AudiobookService : IAudiobookService
     private async Task<string> RelocateIfPathChangedAsync(
         Audiobook audiobook,
         string newFullPath,
-        string oldDirectory,
+        string? oldDirectory,
         Stopwatch? sw = null,
         Func<string, int, Task>? progressAction = null,
         int relocatingProgress = 0,
@@ -249,7 +259,15 @@ public class AudiobookService : IAudiobookService
             await progressAction("Relocated", relocatedProgress);
         }
 
-        if (oldDirectory != Path.GetDirectoryName(newFullPath))
+        // Compare the directories the way the file system does, not as raw strings. Defensive
+        // rather than a live bug fix: both the generated directory and the generated file name
+        // derive from the same fields, so equal directories imply an equal full path and the
+        // PathsEqual short-circuit above has already returned. Should that ever stop holding, a
+        // textual comparison here would delete the sidecars out of the directory the file just
+        // moved into - and reader.txt is only rewritten when the book has narrators, so it would
+        // be lost outright. Keeping the two comparisons consistent removes that trap.
+        var newDirectory = Path.GetDirectoryName(newFullPath);
+        if (oldDirectory is not null && newDirectory is not null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);

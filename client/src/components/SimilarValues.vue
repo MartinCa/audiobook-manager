@@ -405,10 +405,11 @@ const onApplyClick = (
   if (!selection.target) return;
 
   pending.value = { valueType, group, selection };
-  const sourceValues = group.candidates.map((c) => c.value);
-  pendingBookCount.value = group.candidates
-    .filter((c) => sourceValues.includes(c.value))
-    .reduce((sum, c) => sum + c.bookCount, 0);
+  // Every candidate in the group is aligned, so this is just the group's total book count.
+  pendingBookCount.value = group.candidates.reduce(
+    (sum, c) => sum + c.bookCount,
+    0,
+  );
   confirmDialog.value = true;
 };
 

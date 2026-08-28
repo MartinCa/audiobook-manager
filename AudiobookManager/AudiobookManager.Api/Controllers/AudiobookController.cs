@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Api.Async;
+﻿using System.Collections.Concurrent;
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
@@ -10,6 +11,21 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class AudiobookController : ControllerBase
 {
+    /// <summary>
+    /// The audiobook ids with a save currently in flight. UpdateAudiobook rewrites the m4b tags
+    /// and relocates the file, so two concurrent saves for the same book (a double-clicked Save,
+    /// or a save racing a similar-value alignment) would both read the same pre-move path: the
+    /// first moves the file, and the second then writes tags to a path that no longer exists, or
+    /// fails with a spurious "already exists". Every other long-running operation is gated the
+    /// same way via BackgroundOperationRunner; this endpoint runs its own work, so it carries its
+    /// own gate.
+    ///
+    /// A set rather than a dictionary of semaphores: the check is non-blocking (a second save is
+    /// rejected, never queued), so TryAdd/TryRemove expresses it exactly - and unlike a
+    /// per-id semaphore it does not accumulate one entry per book ever saved.
+    /// </summary>
+    private static readonly ConcurrentDictionary<long, byte> _savesInFlight = new();
+
     private readonly IAudiobookService _audiobookService;
     private readonly IQueuedOrganizeTaskService _organizeTaskService;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
@@ -68,6 +84,11 @@ public class AudiobookController : ControllerBase
     {
         var book = MapToDomain(dto);
 
+        if (!_savesInFlight.TryAdd(id, 0))
+        {
+            return Conflict($"A save for audiobook {id} is already in progress");
+        }
+
         _ = Task.Run(async () =>
         {
             try
@@ -104,15 +125,27 @@ public class AudiobookController : ControllerBase
                     _logger.LogError(hubEx, "Failed to send save-error notification over SignalR for audiobook {AudiobookId}", id);
                 }
             }
+            finally
+            {
+                _savesInFlight.TryRemove(id, out _);
+            }
         });
 
         return Ok();
     }
 
+    private static List<string> CleanNames(IEnumerable<string>? values) =>
+        (values ?? Enumerable.Empty<string>())
+            .Select(v => v?.Trim() ?? string.Empty)
+            .Where(v => v.Length > 0)
+            .ToList();
+
     private static Audiobook MapToDomain(OrganizeAudiobookDto dto)
     {
-        var authors = dto.Authors.Select(a => new Person(a)).ToList();
-        var narrators = dto.Narrators.Select(n => new Person(n)).ToList();
+        // The client splits free-text author/narrator/genre fields, so blank entries reach us for
+        // an empty field. Drop them here rather than persisting Person/Genre rows with no name.
+        var authors = CleanNames(dto.Authors).Select(a => new Person(a)).ToList();
+        var narrators = CleanNames(dto.Narrators).Select(n => new Person(n)).ToList();
         var fileInfo = new AudiobookFileInfo(dto.FilePath, dto.FileName, dto.SizeInBytes);
 
         AudiobookImage? cover = null;
@@ -127,7 +160,7 @@ public class AudiobookController : ControllerBase
             Subtitle = dto.Subtitle,
             Series = dto.Series,
             SeriesPart = dto.SeriesPart,
-            Genres = dto.Genres,
+            Genres = CleanNames(dto.Genres),
             Description = dto.Description,
             Copyright = dto.Copyright,
             Publisher = dto.Publisher,

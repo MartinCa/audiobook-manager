@@ -283,4 +283,131 @@ public class AudiobookControllerTests
         _organizeClient.Verify(c => c.AudiobookSaveComplete(It.Is<AudiobookSaveComplete>(r => r.AudiobookId == 1)), Times.Once);
         _organizeClient.Verify(c => c.AudiobookSaveError(It.IsAny<AudiobookSaveError>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_SecondSaveForTheSameBookWhileTheFirstIsRunning_IsRejectedAsAConflict()
+    {
+        // Regression: the endpoint ran its work in a bare Task.Run with no gate, so two saves for
+        // the same book (a double-clicked Save, or a save racing a similar-value alignment) both
+        // read the same pre-move path - the first relocates the file and the second then writes
+        // tags to a path that no longer exists, or fails with a spurious "already exists".
+        var dto = MakeDto();
+        var updated = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000));
+
+        var firstSaveStarted = new TaskCompletionSource();
+        var releaseFirstSave = new TaskCompletionSource();
+
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns(async () =>
+            {
+                firstSaveStarted.TrySetResult();
+                await releaseFirstSave.Task;
+                return updated;
+            });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(101))
+            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+
+        try
+        {
+            var first = _controller.UpdateAudiobook(101, dto);
+            Assert.IsInstanceOfType(first, typeof(OkResult));
+
+            // Wait for the real condition - the save being in flight - rather than a fixed delay.
+            await firstSaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var second = _controller.UpdateAudiobook(101, dto);
+            Assert.IsInstanceOfType(second, typeof(ConflictObjectResult));
+        }
+        finally
+        {
+            releaseFirstSave.TrySetResult();
+        }
+
+        await WaitUntilAsync(
+            () => _audiobookService.Invocations.Count(i => i.Method.Name == nameof(IAudiobookService.UpdateAudiobook)) == 1,
+            TimeSpan.FromSeconds(5));
+
+        _audiobookService.Verify(
+            s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()),
+            Times.Once);
+
+        // Poll the real condition (the gate being free) rather than assuming the background
+        // task's finally block has already run - see OperationGate for the same reasoning.
+        await WaitUntilAsync(
+            () => _controller.UpdateAudiobook(101, dto) is OkResult,
+            TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_ConcurrentSavesForDifferentBooks_BothProceed()
+    {
+        // The gate is per-audiobook: unrelated books touch unrelated files and must not block
+        // each other the way a single global lock would.
+        var dto = MakeDto();
+        var updated = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000));
+
+        var bookOneStarted = new TaskCompletionSource();
+        var releaseBookOne = new TaskCompletionSource();
+
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(102, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns(async () =>
+            {
+                bookOneStarted.TrySetResult();
+                await releaseBookOne.Task;
+                return updated;
+            });
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(103, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync(updated);
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
+            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+
+        try
+        {
+            Assert.IsInstanceOfType(_controller.UpdateAudiobook(102, dto), typeof(OkResult));
+            await bookOneStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.IsInstanceOfType(_controller.UpdateAudiobook(103, dto), typeof(OkResult));
+
+            await WaitUntilAsync(
+                () => _audiobookService.Invocations.Any(i =>
+                    i.Method.Name == nameof(IAudiobookService.UpdateAudiobook) && (long)i.Arguments[0] == 103L),
+                TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            releaseBookOne.TrySetResult();
+        }
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_AfterAFailedSave_TheGateIsReleasedSoTheBookCanBeSavedAgain()
+    {
+        var dto = MakeDto();
+
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(104, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ThrowsAsync(new Exception("save blew up"));
+
+        Assert.IsInstanceOfType(_controller.UpdateAudiobook(104, dto), typeof(OkResult));
+
+        await WaitUntilAsync(
+            () => _organizeClient.Invocations.Any(i => i.Method.Name == nameof(IOrganize.AudiobookSaveError)),
+            TimeSpan.FromSeconds(5));
+
+        // A save that threw must not leave the book permanently un-saveable.
+        await WaitUntilAsync(
+            () => _controller.UpdateAudiobook(104, dto) is OkResult,
+            TimeSpan.FromSeconds(5));
+    }
 }

@@ -9,6 +9,12 @@ namespace AudiobookManager.Services;
 
 public class LibraryConsistencyService : ILibraryConsistencyService
 {
+    /// <summary>Issues accumulated before a single batched insert.</summary>
+    private const int InsertBatchSize = 500;
+
+    /// <summary>Books checked between SignalR progress broadcasts during a full check.</summary>
+    private const int ProgressBroadcastInterval = 25;
+
     private readonly AudiobookManagerSettings _settings;
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IConsistencyIssueRepository _issueRepository;
@@ -47,18 +53,40 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var booksChecked = 0;
         var issuesFound = 0;
 
+        // The issue table was just cleared, so this path needs neither the per-book delete nor a
+        // SaveChanges per book: detection is pure, and the findings are inserted in batches. It
+        // also broadcasts progress every ProgressBroadcastInterval books rather than every book -
+        // the client throttles the bar to ~4fps anyway, so one message per book is thousands of
+        // hub sends nobody can see.
+        var pending = new List<ConsistencyIssue>(InsertBatchSize);
+
         foreach (var audiobook in audiobooks)
         {
             booksChecked++;
             var bookLabel = $"{string.Join(", ", audiobook.Authors.Select(a => a.Name))} — {audiobook.BookName}";
 
-            var issues = await DetectIssuesForAudiobookAsync(audiobook);
+            var issues = DetectIssuesForAudiobook(audiobook);
             issuesFound += issues.Count;
+            pending.AddRange(issues);
 
-            var message = issues.Any(i => i.IssueType == ConsistencyIssueType.MissingMediaFile)
-                ? $"Missing: {bookLabel}"
-                : $"Checked: {bookLabel}";
-            await progressAction(message, booksChecked, totalBooks, issuesFound);
+            if (pending.Count >= InsertBatchSize)
+            {
+                await _issueRepository.InsertRangeAsync(pending);
+                pending.Clear();
+            }
+
+            if (booksChecked % ProgressBroadcastInterval == 0 || booksChecked == totalBooks)
+            {
+                var message = issues.Any(i => i.IssueType == ConsistencyIssueType.MissingMediaFile)
+                    ? $"Missing: {bookLabel}"
+                    : $"Checked: {bookLabel}";
+                await progressAction(message, booksChecked, totalBooks, issuesFound);
+            }
+        }
+
+        if (pending.Count > 0)
+        {
+            await _issueRepository.InsertRangeAsync(pending);
         }
 
         issuesFound = await CheckForOrphanDirectories(progressAction, totalBooks, issuesFound);
@@ -81,15 +109,16 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var allDirectories = Directory.EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories).ToList();
         var parentDirectories = new HashSet<string>(
             allDirectories.Select(Path.GetDirectoryName).OfType<string>(),
-            StringComparer.Ordinal);
+            AudiobookFileHandler.PathComparer);
         var leafDirectories = allDirectories.Where(directory => !parentDirectories.Contains(directory));
 
+        var orphans = new List<OrphanDirectory>();
         foreach (var directory in leafDirectories)
         {
             var hasAudioFile = Directory.GetFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
             if (!hasAudioFile)
             {
-                await _orphanDirectoryRepository.InsertAsync(new OrphanDirectory
+                orphans.Add(new OrphanDirectory
                 {
                     DirectoryPath = directory,
                     DetectedAt = DateTime.UtcNow
@@ -97,6 +126,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 issuesFound++;
             }
         }
+
+        // One insert for the whole sweep rather than a SaveChanges per orphaned folder.
+        await _orphanDirectoryRepository.InsertRangeAsync(orphans);
 
         await progressAction("Checked library directories for orphaned folders", totalBooks, totalBooks, issuesFound);
 
@@ -197,7 +229,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _audiobookRepository.UpdateFilePathAsync(audiobook.Id, expectedFullPath, newFileName);
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
-        if (oldDirectory != null && oldDirectory != Path.GetDirectoryName(expectedFullPath))
+        // OS-aware for consistency with the path check above; see the equivalent note in
+        // AudiobookService.RelocateIfPathChangedAsync for why this is defensive rather than a
+        // live bug fix.
+        var newDirectory = Path.GetDirectoryName(expectedFullPath);
+        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
@@ -346,10 +382,31 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return await DetectIssuesForAudiobookAsync(audiobook);
     }
 
+    /// <summary>
+    /// Replaces the stored issues for a single audiobook. Used by the single-book recheck, where
+    /// the rest of the table must be left alone; the full check uses <see cref="DetectIssuesForAudiobook"/>
+    /// with batched inserts instead, since it already cleared the table up front.
+    /// </summary>
     private async Task<List<ConsistencyIssue>> DetectIssuesForAudiobookAsync(Audiobook audiobook)
     {
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
 
+        // Detection is blocking work - an ATL parse of the whole m4b, plus several file reads -
+        // and this path is awaited directly by a controller action, so it must not run on the
+        // request thread. (The full check needs no such wrapper: BackgroundOperationRunner
+        // already puts it on the thread pool.)
+        var issues = await Task.Run(() => DetectIssuesForAudiobook(audiobook));
+
+        await _issueRepository.InsertRangeAsync(issues);
+        return issues;
+    }
+
+    /// <summary>
+    /// Pure detection: inspects the file on disk against the library metadata and returns the
+    /// issues found, without touching the database.
+    /// </summary>
+    private List<ConsistencyIssue> DetectIssuesForAudiobook(Audiobook audiobook)
+    {
         var issues = new List<ConsistencyIssue>();
 
         if (!File.Exists(audiobook.FileInfoFullPath))
@@ -357,14 +414,15 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
                 $"Media file not found: {audiobook.FileInfoFileName}",
                 audiobook.FileInfoFullPath, null));
-            await _issueRepository.InsertRangeAsync(issues);
             return issues;
         }
 
         try
         {
             var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
-            var parsed = _tagHandler.ParseAudiobook(fileInfo);
+            // Detection only asks whether a cover exists (parsed.Cover is not null), never for
+            // its bytes - encoding them for every book in the library is wasted work.
+            var parsed = _tagHandler.ParseAudiobook(fileInfo, includeCoverData: false);
 
             // Check file path
             var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
@@ -400,7 +458,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 }
                 else
                 {
-                    var descContent = await File.ReadAllTextAsync(descPath);
+                    var descContent = File.ReadAllText(descPath);
                     if (!string.Equals(descContent, parsed.Description, StringComparison.Ordinal))
                     {
                         issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
@@ -423,7 +481,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 }
                 else
                 {
-                    var readerContent = await File.ReadAllTextAsync(readerPath);
+                    var readerContent = File.ReadAllText(readerPath);
                     if (!string.Equals(readerContent, expectedNarrators, StringComparison.Ordinal))
                     {
                         issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
@@ -451,7 +509,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
         }
 
-        await _issueRepository.InsertRangeAsync(issues);
         return issues;
     }
 }

@@ -40,9 +40,21 @@ public static class TagConsistencyChecker
         return mismatches;
     }
 
+    // Both formatters must normalize the same way the tag writer does, or the round-trip
+    // verification in AudiobookService reports a mismatch that no amount of re-saving can clear.
+    // AudiobookTagHandler.GetStringFromListOfPersons de-duplicates names before writing them, and
+    // an empty genre string round-trips as no genres at all - so a repeated author or a blank
+    // genre entry must not be treated as a difference here.
     private static string FormatGenres(IEnumerable<string> genres) =>
-        string.Join(", ", genres.OrderBy(g => g, StringComparer.Ordinal));
+        string.Join(", ", genres
+            .Select(g => g?.Trim() ?? "")
+            .Where(g => g.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(g => g, StringComparer.Ordinal));
 
     private static string FormatPersons(IEnumerable<Person> persons) =>
-        string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+        string.Join(", ", persons
+            .Select(p => p.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.Ordinal));
 }

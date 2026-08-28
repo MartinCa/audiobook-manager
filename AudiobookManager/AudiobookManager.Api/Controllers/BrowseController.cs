@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -36,7 +37,7 @@ public class BrowseController : ControllerBase
         }
 
         var (books, _) = await _audiobookRepo.SearchAsync(q, limit, 0);
-        var authors = await _personRepo.SearchAuthorsAsync(q, limit);
+        var authors = await _personRepo.SearchAuthorSummariesAsync(q, limit);
         var series = await _audiobookRepo.SearchSeriesAsync(q, limit);
 
         var bookHits = RankByRelevance(books, q, a => a.BookName ?? "")
@@ -51,7 +52,7 @@ public class BrowseController : ControllerBase
             .ToList();
 
         var authorHits = RankByRelevance(authors, q, p => p.Name)
-            .Select(p => new LibraryAuthorHitDto(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(p => new LibraryAuthorHitDto(p.Id, p.Name, p.BookCount))
             .ToList();
 
         var seriesHits = RankByRelevance(series, q, s => s.Series)
@@ -83,33 +84,27 @@ public class BrowseController : ControllerBase
     [HttpGet("authors")]
     public async Task<List<AuthorSummaryDto>> GetAuthors()
     {
-        var authors = await _personRepo.GetAllAuthorsAsync();
-        return authors.Select(a => new AuthorSummaryDto(a.Id, a.Name, a.BooksAuthored.Count)).ToList();
+        var authors = await _personRepo.GetAllAuthorSummariesAsync();
+        return authors.Select(a => new AuthorSummaryDto(a.Id, a.Name, a.BookCount)).ToList();
     }
 
     [HttpGet("authors/{authorId}")]
     public async Task<ActionResult<AuthorDetailDto>> GetAuthorDetail(long authorId)
     {
-        var author = await _personRepo.GetAuthorWithBooksAsync(authorId);
+        // Three narrow queries rather than one that materializes the author's entire catalogue:
+        // the series section only needs a name and a count, so those books are never loaded.
+        var author = await _personRepo.GetAuthorSummaryAsync(authorId);
         if (author == null)
         {
             return NotFound();
         }
 
-        var summary = new AuthorSummaryDto(author.Id, author.Name, author.BooksAuthored.Count);
+        var seriesCounts = await _audiobookRepo.GetSeriesCountsByAuthorAsync(authorId);
+        var standalone = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(authorId);
 
-        var series = author.BooksAuthored
-            .Where(b => !string.IsNullOrEmpty(b.Series))
-            .GroupBy(b => b.Series!)
-            .Select(g => new SeriesInfo(g.Key, g.Count()))
-            .OrderBy(s => s.SeriesName)
-            .ToList();
-
-        var standaloneBooks = author.BooksAuthored
-            .Where(b => string.IsNullOrEmpty(b.Series))
-            .Select(MapToSummaryDto)
-            .OrderBy(b => b.BookName)
-            .ToList();
+        var summary = new AuthorSummaryDto(author.Id, author.Name, author.BookCount);
+        var series = seriesCounts.Select(s => new SeriesInfo(s.Series, s.BookCount)).ToList();
+        var standaloneBooks = standalone.Select(MapToSummaryDto).ToList();
 
         return new AuthorDetailDto(summary, series, standaloneBooks);
     }
@@ -150,18 +145,26 @@ public class BrowseController : ControllerBase
     [HttpGet("audiobooks/{id}/cover")]
     public async Task<IActionResult> GetAudiobookCover(long id)
     {
-        var audiobook = await _audiobookRepo.GetByIdWithIncludesAsync(id);
-        if (audiobook == null || string.IsNullOrEmpty(audiobook.CoverFilePath))
+        var coverFilePath = await _audiobookRepo.GetCoverFilePathAsync(id);
+        if (string.IsNullOrEmpty(coverFilePath) || !System.IO.File.Exists(coverFilePath))
             return NotFound();
 
-        if (!System.IO.File.Exists(audiobook.CoverFilePath))
-            return NotFound();
-
-        var mimeType = audiobook.CoverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+        var mimeType = coverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
             ? "image/png"
             : "image/jpeg";
-        var bytes = await System.IO.File.ReadAllBytesAsync(audiobook.CoverFilePath);
-        return File(bytes, mimeType);
+
+        // Stream the file instead of buffering it, and let the browser revalidate rather than
+        // re-download: a 50-row library page requests 50 of these. Deliberately no max-age -
+        // a cover is rewritten in place whenever the book is saved, and nothing in the URL
+        // changes when it is, so a freshness window would serve a stale image for its duration.
+        // The ETag/Last-Modified pair makes the repeat request a cheap 304 instead.
+        var fullPath = Path.GetFullPath(coverFilePath);
+        var lastModified = new DateTimeOffset(System.IO.File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero);
+        var length = new FileInfo(fullPath).Length;
+        var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
+
+        Response.Headers.CacheControl = "private, no-cache";
+        return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 
     [HttpGet("series/{seriesName}")]

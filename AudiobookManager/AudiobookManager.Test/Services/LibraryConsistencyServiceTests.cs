@@ -124,7 +124,7 @@ public class LibraryConsistencyServiceTests
             // Since the generated path won't match our tempFile, this will create a WrongFilePath issue.
             // For a true "all good" test we'd need the paths to match, which is hard with static methods.
             // Instead, we verify no MissingMediaFile issue is created (file exists) and the check completes.
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
                 .Returns(parsed);
 
             var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
@@ -254,7 +254,7 @@ public class LibraryConsistencyServiceTests
                 Description = "A description"
             };
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
             await _service.ResolveIssue(20);
 
@@ -312,7 +312,7 @@ public class LibraryConsistencyServiceTests
                 SeriesPart = "0"
             };
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
             var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
             Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
@@ -377,7 +377,7 @@ public class LibraryConsistencyServiceTests
                 Genres = new List<string> { "Fantasy" }
             };
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
             var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
             Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
@@ -497,9 +497,9 @@ public class LibraryConsistencyServiceTests
                 Narrators = new List<Domain.Person> { new Domain.Person("New Narrator") }
             };
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == oldFile)))
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == oldFile), It.IsAny<bool>()))
                 .Returns(parsedOld);
-            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == expectedFullPath)))
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == expectedFullPath), It.IsAny<bool>()))
                 .Returns(parsedNew);
 
             var dbAudiobook = new DbAudiobook(
@@ -601,7 +601,7 @@ public class LibraryConsistencyServiceTests
                 2024,
                 new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
             var dbAudiobook = new DbAudiobook(
                 1, "Book", null, null, null, 2024,
@@ -658,9 +658,10 @@ public class LibraryConsistencyServiceTests
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
-            OrphanDirectory? insertedDirectory = null;
-            _orphanDirectoryRepository.Setup(r => r.InsertAsync(It.IsAny<OrphanDirectory>()))
-                .Callback<OrphanDirectory>(d => insertedDirectory = d)
+            // The sweep inserts all orphans in one batch rather than one SaveChanges per folder.
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
                 .Returns(Task.CompletedTask);
 
             var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
@@ -672,9 +673,11 @@ public class LibraryConsistencyServiceTests
 
             await service.RunConsistencyCheck(progressAction);
 
-            _orphanDirectoryRepository.Verify(r => r.InsertAsync(It.IsAny<OrphanDirectory>()), Times.Once);
-            Assert.IsNotNull(insertedDirectory);
-            Assert.AreEqual(orphanDir, insertedDirectory!.DirectoryPath);
+            _orphanDirectoryRepository.Verify(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()), Times.Once);
+            _orphanDirectoryRepository.Verify(r => r.InsertAsync(It.IsAny<OrphanDirectory>()), Times.Never);
+            CollectionAssert.AreEqual(
+                new List<string> { orphanDir },
+                insertedDirectories.Select(d => d.DirectoryPath).ToList());
             Assert.IsTrue(progressCalls.Exists(c => c.issues == 1));
         }
         finally
@@ -819,7 +822,7 @@ public class LibraryConsistencyServiceTests
                 2024,
                 new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
 
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>())).Returns(parsed);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
             var dbAudiobook = new DbAudiobook(
                 1, "Book", null, null, null, 2024,

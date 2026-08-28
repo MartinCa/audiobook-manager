@@ -1,56 +1,26 @@
 import apiClient from "../http-common";
 
+// Thin typed wrapper over axios. Deliberately not wrapping the axios promise in `new Promise`:
+// that indirection swallowed synchronous throws and added a microtask hop per request without
+// changing behaviour otherwise.
 class BaseHttpService {
-  getData<T>(url: string): Promise<T> {
-    return new Promise((resolve, reject) => {
-      apiClient
-        .get(url)
-        .then((response) => {
-          resolve(response.data);
-        })
-        .catch((reason) => {
-          reject(reason);
-        });
-    });
+  async getData<T>(url: string): Promise<T> {
+    const response = await apiClient.get<T>(url);
+    return response.data;
   }
 
-  postData<T>(url: string, data?: any): Promise<T> {
-    return new Promise((resolve, reject) => {
-      apiClient
-        .post(url, data)
-        .then((response) => {
-          resolve(response.data);
-        })
-        .catch((reason) => {
-          reject(reason);
-        });
-    });
+  async postData<T>(url: string, data?: any): Promise<T> {
+    const response = await apiClient.post<T>(url, data);
+    return response.data;
   }
 
-  putData<T>(url: string, data?: any): Promise<T> {
-    return new Promise((resolve, reject) => {
-      apiClient
-        .put(url, data)
-        .then((response) => {
-          resolve(response.data);
-        })
-        .catch((reason) => {
-          reject(reason);
-        });
-    });
+  async putData<T>(url: string, data?: any): Promise<T> {
+    const response = await apiClient.put<T>(url, data);
+    return response.data;
   }
 
-  delete(url: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      apiClient
-        .delete(url)
-        .then((response) => {
-          resolve();
-        })
-        .catch((reason) => {
-          reject(reason);
-        });
-    });
+  async delete(url: string): Promise<void> {
+    await apiClient.delete(url);
   }
 }
 

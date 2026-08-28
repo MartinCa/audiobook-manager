@@ -44,8 +44,8 @@ public class BrowseControllerTests
 
         _audiobookRepo.Setup(r => r.SearchAsync("mist", 5, 0))
             .ReturnsAsync((new List<Audiobook> { book }, 1));
-        _personRepo.Setup(r => r.SearchAuthorsAsync("mist", 5))
-            .ReturnsAsync(new List<Person>());
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("mist", 5))
+            .ReturnsAsync(new List<AuthorSummaryRow>());
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("mist", 5))
             .ReturnsAsync(new List<(string Series, int BookCount)> { ("Mistborn", 3) });
 
@@ -63,13 +63,13 @@ public class BrowseControllerTests
     [TestMethod]
     public async Task SearchLibrary_RanksExactPrefixMatchesFirst()
     {
-        var prefixMatch = new Person(1, "San Diego") { BooksAuthored = new List<Audiobook> { MakeBook(1, "Book A") } };
-        var substringMatch = new Person(2, "Brandon Sanderson") { BooksAuthored = new List<Audiobook> { MakeBook(2, "Book B") } };
+        var prefixMatch = new AuthorSummaryRow(1, "San Diego", 1);
+        var substringMatch = new AuthorSummaryRow(2, "Brandon Sanderson", 1);
 
         _audiobookRepo.Setup(r => r.SearchAsync("san", 5, 0)).ReturnsAsync((new List<Audiobook>(), 0));
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("san", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
-        _personRepo.Setup(r => r.SearchAuthorsAsync("san", 5))
-            .ReturnsAsync(new List<Person> { substringMatch, prefixMatch });
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("san", 5))
+            .ReturnsAsync(new List<AuthorSummaryRow> { substringMatch, prefixMatch });
 
         var result = await _controller.SearchLibrary("san");
 
