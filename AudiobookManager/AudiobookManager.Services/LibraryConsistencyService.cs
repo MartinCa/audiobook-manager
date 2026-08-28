@@ -321,42 +321,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
     private static List<(string Field, string Expected, string Actual)> FindTagMismatches(Audiobook audiobook, AudiobookManager.Domain.Audiobook parsed)
     {
-        var mismatches = new List<(string Field, string Expected, string Actual)>();
-
-        void Compare(string field, string? expected, string? actual)
-        {
-            if (!string.Equals(expected ?? "", actual ?? "", StringComparison.Ordinal))
-            {
-                mismatches.Add((field, expected ?? "", actual ?? ""));
-            }
-        }
-
-        Compare("Author", FormatPersons(audiobook.Authors), FormatPersons(parsed.Authors));
-        Compare("Narrators", FormatPersons(audiobook.Narrators), FormatPersons(parsed.Narrators));
-        Compare("Book Name", audiobook.BookName, parsed.BookName);
-        Compare("Subtitle", audiobook.Subtitle, parsed.Subtitle);
-        Compare("Series", audiobook.Series, parsed.Series);
-        Compare("Series Part", audiobook.SeriesPart, parsed.SeriesPart);
-        Compare("Year", audiobook.Year.ToString(), parsed.Year?.ToString());
-        Compare("Description", audiobook.Description, parsed.Description);
-        Compare("Copyright", audiobook.Copyright, parsed.Copyright);
-        Compare("Publisher", audiobook.Publisher, parsed.Publisher);
-        Compare("Rating", audiobook.Rating, parsed.Rating);
-        Compare("Asin", audiobook.Asin, parsed.Asin);
-        Compare("Www", audiobook.Www, parsed.Www);
-        Compare("Genres", FormatGenres(audiobook.Genres.Select(g => g.Name)), FormatGenres(parsed.Genres));
-
-        return mismatches;
+        return TagConsistencyChecker.FindMismatches(AudiobookService.FromDb(audiobook), parsed);
     }
-
-    private static string FormatGenres(IEnumerable<string> genres) =>
-        string.Join(", ", genres.OrderBy(g => g, StringComparer.Ordinal));
-
-    private static string FormatPersons(IEnumerable<Person> persons) =>
-        string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
-
-    private static string FormatPersons(IEnumerable<AudiobookManager.Domain.Person> persons) =>
-        string.Join(", ", persons.Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
 
     private static ConsistencyIssue BuildIssue(long audiobookId, ConsistencyIssueType issueType, string description, string? expectedValue, string? actualValue)
     {

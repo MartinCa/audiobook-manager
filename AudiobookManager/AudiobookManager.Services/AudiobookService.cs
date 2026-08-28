@@ -258,6 +258,21 @@ public class AudiobookService : IAudiobookService
         audiobook.FileInfo = new AudiobookFileInfo(existing.FileInfoFullPath, existing.FileInfoFileName, existing.FileInfoSizeInBytes);
         _tagHandler.SaveAudiobookTagsToFile(audiobook, _ => { });
 
+        // Verify the tags we just asked to be written actually round-tripped, before relocating
+        // the file or touching the DB. Writing tags can silently fail to persist a subset of
+        // fields for some m4b files (an ATL/tag-container quirk), which would otherwise leave
+        // the DB record - and the file's new library path, generated from these same fields -
+        // out of sync with what's really on disk. Checking here, at the original location and
+        // before any move, turns a silent desync into a visible save failure instead of leaving
+        // a relocated file with stale tags for the consistency check to discover later.
+        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath);
+        var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
+        if (mismatches.Count > 0)
+        {
+            throw new Exception(
+                $"Saved tags did not match the requested metadata for '{audiobook.FileInfo.FullPath}': {string.Join(", ", mismatches.Select(m => m.Field))}");
+        }
+
         // Check if the file needs to be relocated
         var newFullPath = GenerateLibraryPath(audiobook);
         newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
