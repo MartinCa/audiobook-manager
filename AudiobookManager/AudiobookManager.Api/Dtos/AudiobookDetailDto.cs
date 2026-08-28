@@ -13,6 +13,7 @@ public record AudiobookDetailDto(
     string? Description,
     string? Copyright,
     string? Publisher,
+    string? Language,
     string? Rating,
     string? Asin,
     string? Www,

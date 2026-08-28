@@ -67,6 +67,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             Description = track.Description,
             Copyright = track.Copyright,
             Publisher = track.Publisher,
+            Language = track.Language,
             Rating = track.ReadSpecialTag(SpecialTagField.Rating),
             Asin = track.ReadSpecialTag(SpecialTagField.ASIN),
             Www = track.ReadSpecialTag(SpecialTagField.Www),
@@ -120,6 +121,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.Description = audiobook.Description;
         track.Copyright = audiobook.Copyright;
         track.Publisher = audiobook.Publisher;
+        track.Language = audiobook.Language;
         track.WriteSpecialTag(SpecialTagField.Rating, audiobook.Rating);
         track.WriteSpecialTag(SpecialTagField.ASIN, audiobook.Asin);
         track.WriteSpecialTag(SpecialTagField.Www, audiobook.Www);

@@ -207,6 +207,13 @@ const fields = computed((): FieldDiff[] => {
       changed: (cur.publisher ?? "") !== (res.publisher ?? ""),
     },
     {
+      key: "language",
+      label: "Language",
+      currentValue: cur.language ?? "",
+      newValue: res.language ?? "",
+      changed: (cur.language ?? "") !== (res.language ?? ""),
+    },
+    {
       key: "copyright",
       label: "Copyright",
       currentValue: cur.copyright ?? "",

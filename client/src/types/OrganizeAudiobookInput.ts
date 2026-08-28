@@ -14,6 +14,7 @@ export default interface OrganizeAudiobookInput {
   description?: string;
   copyright?: string;
   publisher?: string;
+  language?: string;
   www?: string;
   rating?: number;
   asin?: string;

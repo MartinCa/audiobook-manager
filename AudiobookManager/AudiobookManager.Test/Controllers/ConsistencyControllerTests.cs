@@ -48,7 +48,7 @@ public class ConsistencyControllerTests
     {
         var dbAudiobook = new Database.Models.Audiobook(
             1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/path/test.m4b", "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
@@ -128,7 +128,7 @@ public class ConsistencyControllerTests
     {
         var dbAudiobook = new Database.Models.Audiobook(
             1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/path/test.m4b", "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }

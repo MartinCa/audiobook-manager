@@ -15,6 +15,7 @@ function toDto(data: Audiobook) {
     description: data.description,
     copyright: data.copyright,
     publisher: data.publisher,
+    language: data.language,
     rating: data.rating,
     asin: data.asin,
     www: data.www,

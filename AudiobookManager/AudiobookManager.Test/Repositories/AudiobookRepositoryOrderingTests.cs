@@ -50,7 +50,7 @@ public class AudiobookRepositoryOrderingTests
 
         var audiobook = new Audiobook(
             default, bookName, null, series, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = new List<Person> { author ?? _defaultAuthor }

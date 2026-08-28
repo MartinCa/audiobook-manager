@@ -352,16 +352,96 @@ public class AudiobookFileHandlerTests
 
             var descPath = Path.Combine(tempDir, "desc.txt");
             var readerPath = Path.Combine(tempDir, "reader.txt");
+            var opfPath = Path.Combine(tempDir, "metadata.opf");
 
             Assert.IsTrue(File.Exists(descPath));
             Assert.IsTrue(File.Exists(readerPath));
             Assert.AreEqual("A wonderful description", File.ReadAllText(descPath));
             Assert.AreEqual("Narrator One, Narrator Two", File.ReadAllText(readerPath));
+
+            // WriteMetadata always writes metadata.opf alongside desc.txt/reader.txt, unlike those
+            // two which are conditional on Description/Narrators being set.
+            Assert.IsTrue(File.Exists(opfPath));
+            Assert.AreEqual(AudiobookFileHandler.BuildOpfContent(audiobook), File.ReadAllText(opfPath));
         }
         finally
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [TestMethod]
+    public void BuildOpfContent_IncludesAuthorsNarratorsSeriesGenresAndAsin()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Brandon Sanderson") },
+            "The Way of Kings",
+            2010,
+            new AudiobookFileInfo("/library/book.m4b", "book.m4b", 100))
+        {
+            Narrators = new List<Person> { new Person("Michael Kramer") },
+            Series = "The Stormlight Archive",
+            SeriesPart = "1",
+            Genres = new List<string> { "Fantasy", "Adventure" },
+            Description = "An epic fantasy novel",
+            Publisher = "Tor Books",
+            Language = "English",
+            Asin = "B0041D2NGE"
+        };
+
+        var opf = AudiobookFileHandler.BuildOpfContent(audiobook);
+
+        Assert.IsTrue(opf.Contains("<dc:title>The Way of Kings</dc:title>"));
+        Assert.IsTrue(opf.Contains(">Brandon Sanderson<"));
+        Assert.IsTrue(opf.Contains(">Michael Kramer<"));
+        Assert.IsTrue(opf.Contains(">An epic fantasy novel<"));
+        Assert.IsTrue(opf.Contains(">Tor Books<"));
+        Assert.IsTrue(opf.Contains(">2010<"));
+        Assert.IsTrue(opf.Contains(">English<"));
+        Assert.IsTrue(opf.Contains(">Fantasy<"));
+        Assert.IsTrue(opf.Contains(">Adventure<"));
+        Assert.IsTrue(opf.Contains(">B0041D2NGE<"));
+        Assert.IsTrue(opf.Contains("name=\"calibre:series\""));
+        Assert.IsTrue(opf.Contains("content=\"The Stormlight Archive\""));
+        Assert.IsTrue(opf.Contains("name=\"calibre:series_index\""));
+        Assert.IsTrue(opf.Contains("content=\"1\""));
+    }
+
+    [TestMethod]
+    public void BuildOpfContent_MinimalBook_OmitsEmptyOptionalFields()
+    {
+        var audiobook = new Audiobook(
+            new List<Person>(),
+            "Bare Book",
+            null,
+            new AudiobookFileInfo("/library/bare.m4b", "bare.m4b", 100));
+
+        var opf = AudiobookFileHandler.BuildOpfContent(audiobook);
+
+        Assert.IsFalse(opf.Contains("calibre:series"));
+        Assert.IsFalse(opf.Contains("dc:contributor"));
+        Assert.IsFalse(opf.Contains("dc:creator"));
+        Assert.IsFalse(opf.Contains("dc:identifier"));
+    }
+
+    [TestMethod]
+    public void BuildOpfContent_CalledTwiceWithSameData_ProducesIdenticalContent()
+    {
+        // The consistency checker compares BuildOpfContent's output against what's on disk, so
+        // this has to be deterministic for the same input or every book would falsely drift.
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/library/book.m4b", "book.m4b", 100))
+        {
+            Genres = new List<string> { "Fiction" }
+        };
+
+        var first = AudiobookFileHandler.BuildOpfContent(audiobook);
+        var second = AudiobookFileHandler.BuildOpfContent(audiobook);
+
+        Assert.AreEqual(first, second);
     }
 
     [TestMethod]
@@ -443,6 +523,7 @@ public class AudiobookFileHandlerTests
             File.WriteAllText(Path.Combine(tempDir, "desc.txt"), "desc");
             File.WriteAllText(Path.Combine(tempDir, "reader.txt"), "reader");
             File.WriteAllBytes(Path.Combine(tempDir, "cover.jpg"), new byte[] { 0xFF, 0xD8 });
+            File.WriteAllText(Path.Combine(tempDir, "metadata.opf"), "<package/>");
             File.WriteAllText(Path.Combine(tempDir, "keep.me"), "unrelated file");
 
             AudiobookFileHandler.RemoveSidecarFiles(tempDir);
@@ -450,6 +531,7 @@ public class AudiobookFileHandlerTests
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")));
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "reader.txt")));
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "cover.jpg")));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "metadata.opf")));
             Assert.IsTrue(File.Exists(Path.Combine(tempDir, "keep.me")));
         }
         finally

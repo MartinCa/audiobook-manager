@@ -15,7 +15,8 @@ public class TagConsistencyCheckerTests
     private static Audiobook MakeBook(
         IEnumerable<string>? authors = null,
         IEnumerable<string>? narrators = null,
-        IEnumerable<string>? genres = null) =>
+        IEnumerable<string>? genres = null,
+        string? language = null) =>
         new(
             (authors ?? new[] { "Author" }).Select(a => new Person(a)).ToList(),
             "A Book",
@@ -24,6 +25,7 @@ public class TagConsistencyCheckerTests
         {
             Narrators = (narrators ?? Array.Empty<string>()).Select(n => new Person(n)).ToList(),
             Genres = (genres ?? Array.Empty<string>()).ToList(),
+            Language = language,
         };
 
     [TestMethod]
@@ -100,5 +102,18 @@ public class TagConsistencyCheckerTests
         var mismatches = TagConsistencyChecker.FindMismatches(requested, readBack);
 
         CollectionAssert.AreEqual(new List<string> { "Genres" }, mismatches.Select(m => m.Field).ToList());
+    }
+
+    [TestMethod]
+    public void FindMismatches_GenuinelyDifferentLanguage_IsStillReported()
+    {
+        var requested = MakeBook(language: "English");
+        var readBack = MakeBook(language: "German");
+
+        var mismatches = TagConsistencyChecker.FindMismatches(requested, readBack);
+
+        CollectionAssert.AreEqual(new List<string> { "Language" }, mismatches.Select(m => m.Field).ToList());
+        Assert.AreEqual("English", mismatches[0].Expected);
+        Assert.AreEqual("German", mismatches[0].Actual);
     }
 }

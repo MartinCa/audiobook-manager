@@ -41,7 +41,7 @@ public class PersonRepositorySearchTests
     {
         var audiobook = new Audiobook(
             default, bookName, null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = new List<Person> { new Person(default, authorName) }

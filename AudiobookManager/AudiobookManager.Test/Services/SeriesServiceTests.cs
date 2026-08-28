@@ -36,7 +36,7 @@ public class SeriesServiceTests
         string? seriesPart = null,
         string? author = null)
     {
-        var book = new DbAudiobook(id, bookName, null, series, seriesPart, 2024, null, null, null, null, null, null,
+        var book = new DbAudiobook(id, bookName, null, series, seriesPart, 2024, null, null, null, null, null, null, null,
             null, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
 
         if (author is not null)

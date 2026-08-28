@@ -51,7 +51,7 @@ public class LibraryConsistencyServiceTests
     {
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/nonexistent/path/test.m4b", "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
@@ -100,7 +100,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Test Book", null, null, null, 2024,
-                "A great book", null, null, null, null, null, null, null,
+                "A great book", null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000)
             {
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
@@ -155,7 +155,7 @@ public class LibraryConsistencyServiceTests
     {
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/some/path/test.m4b", "test.m4b", 1000);
 
         var issue = new ConsistencyIssue
@@ -189,7 +189,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Test Book", null, null, null, 2024,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
             var issue = new ConsistencyIssue
@@ -230,7 +230,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Test Book", null, null, null, 2024,
-                "desc", null, null, null, null, null, null, null,
+                "desc", null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
             var issue = new ConsistencyIssue
@@ -290,7 +290,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Test Book", null, "Series", "0.5", 2024,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000)
             {
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
@@ -350,7 +350,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Test Book", null, null, null, 2024,
-                "DB description", "DB copyright", "DB publisher", "DB rating", "DB asin", "DB www", null, null,
+                "DB description", "DB copyright", "DB publisher", "DB language", "DB rating", "DB asin", "DB www", null, null,
                 tempFile, "test.m4b", 1000)
             {
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") },
@@ -413,7 +413,7 @@ public class LibraryConsistencyServiceTests
     {
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, "Series", "0.5", 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/library/test.m4b", "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
@@ -504,7 +504,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Book", null, null, null, 2024,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
                 oldFile, "test.m4b", 1000);
 
             var issue = new ConsistencyIssue
@@ -547,7 +547,7 @@ public class LibraryConsistencyServiceTests
     {
         var dbAudiobook = new DbAudiobook(
             1, "Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/nonexistent/path/test.m4b", "test.m4b", 1000);
 
         var issue = new ConsistencyIssue
@@ -605,7 +605,7 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Book", null, null, null, 2024,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
                 currentFile, Path.GetFileName(currentFile), 1000);
 
             var issue = new ConsistencyIssue
@@ -768,7 +768,7 @@ public class LibraryConsistencyServiceTests
     {
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             "/nonexistent/path/test.m4b", "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
@@ -826,7 +826,70 @@ public class LibraryConsistencyServiceTests
 
             var dbAudiobook = new DbAudiobook(
                 1, "Book", null, null, null, 2024,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                currentFile, Path.GetFileName(currentFile), 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+            // metadata.opf is expected unconditionally once the book has tags, so a "no issues"
+            // clean state needs it present and matching what the parsed book would produce.
+            var opfPath = AudiobookFileHandler.JoinPaths(Path.GetDirectoryName(currentFile)!, "metadata.opf");
+            await File.WriteAllTextAsync(opfPath, AudiobookFileHandler.BuildOpfContent(parsed));
+
+            var issues = await service.RecheckAudiobookAsync(1);
+
+            Assert.AreEqual(0, issues.Count);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RecheckAudiobookAsync_MissingOpfFile_ReportsMissingOpfFileIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _audiobookService.Object,
+                _logger.Object);
+
+            var placeholderParsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed);
+            var currentFile = AudiobookFileHandler.JoinPaths(tempDir, expectedRelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
+            await File.WriteAllTextAsync(currentFile, "fake audio content");
+            // No metadata.opf written for this book.
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
                 currentFile, Path.GetFileName(currentFile), 1000)
             {
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
@@ -836,8 +899,122 @@ public class LibraryConsistencyServiceTests
 
             var issues = await service.RecheckAudiobookAsync(1);
 
-            Assert.AreEqual(0, issues.Count);
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            Assert.IsTrue(issues.Any(i => i.IssueType == ConsistencyIssueType.MissingOpfFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RecheckAudiobookAsync_StaleOpfFile_ReportsIncorrectOpfFileIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _audiobookService.Object,
+                _logger.Object);
+
+            var placeholderParsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed);
+            var currentFile = AudiobookFileHandler.JoinPaths(tempDir, expectedRelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
+            await File.WriteAllTextAsync(currentFile, "fake audio content");
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                currentFile, Path.GetFileName(currentFile), 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+            // Stale content: does not match what BuildOpfContent(parsed) would produce.
+            var opfPath = AudiobookFileHandler.JoinPaths(Path.GetDirectoryName(currentFile)!, "metadata.opf");
+            await File.WriteAllTextAsync(opfPath, "<package><metadata><dc:title>Stale</dc:title></metadata></package>");
+
+            var issues = await service.RecheckAudiobookAsync(1);
+
+            Assert.IsTrue(issues.Any(i => i.IssueType == ConsistencyIssueType.IncorrectOpfFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_MissingOpfFile_WritesOpfAndClearsIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "fake audio content");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000));
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 20,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingOpfFile,
+                Description = "metadata.opf missing",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(20)).ReturnsAsync(issue);
+
+            await _service.ResolveIssue(20);
+
+            var opfPath = Path.Combine(tempDir, "metadata.opf");
+            Assert.IsTrue(File.Exists(opfPath));
+            Assert.AreEqual(AudiobookFileHandler.BuildOpfContent(parsed), File.ReadAllText(opfPath));
+
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1, It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                types.Contains(ConsistencyIssueType.MissingOpfFile) &&
+                types.Contains(ConsistencyIssueType.IncorrectOpfFile)
+            )), Times.Once);
         }
         finally
         {

@@ -155,6 +155,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.IncorrectDescTxt:
             case ConsistencyIssueType.MissingReaderTxt:
             case ConsistencyIssueType.IncorrectReaderTxt:
+            case ConsistencyIssueType.MissingOpfFile:
+            case ConsistencyIssueType.IncorrectOpfFile:
                 await ResolveMetadataIssue(issue);
                 break;
 
@@ -251,11 +253,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         AudiobookFileHandler.WriteMetadata(parsed);
 
-        // Delete all desc/reader issues for this book since WriteMetadata writes both
+        // Delete all desc/reader/opf issues for this book since WriteMetadata writes all three
         await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, new[]
         {
             ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
-            ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt
+            ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt,
+            ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
         });
     }
 
@@ -488,6 +491,27 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                             "reader.txt content does not match Narrators tag",
                             expectedNarrators, readerContent));
                     }
+                }
+            }
+
+            // Check metadata.opf - unlike desc.txt/reader.txt, this is expected unconditionally
+            // once the book has tags at all, since it always carries at least the title/authors.
+            var opfPath = AudiobookFileHandler.JoinPaths(directoryPath, "metadata.opf");
+            var expectedOpfContent = AudiobookFileHandler.BuildOpfContent(parsed);
+            if (!File.Exists(opfPath))
+            {
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingOpfFile,
+                    "metadata.opf missing",
+                    expectedOpfContent, null));
+            }
+            else
+            {
+                var opfContent = File.ReadAllText(opfPath);
+                if (!string.Equals(opfContent, expectedOpfContent, StringComparison.Ordinal))
+                {
+                    issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectOpfFile,
+                        "metadata.opf content does not match library metadata",
+                        expectedOpfContent, opfContent));
                 }
             }
 

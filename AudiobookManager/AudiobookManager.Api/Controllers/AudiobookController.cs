@@ -164,6 +164,7 @@ public class AudiobookController : ControllerBase
             Description = dto.Description,
             Copyright = dto.Copyright,
             Publisher = dto.Publisher,
+            Language = dto.Language,
             Rating = dto.Rating,
             Asin = dto.Asin,
             Www = dto.Www,

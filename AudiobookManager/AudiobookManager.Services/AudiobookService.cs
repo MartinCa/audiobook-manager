@@ -307,6 +307,7 @@ public class AudiobookService : IAudiobookService
             audiobook.Description,
             audiobook.Copyright,
             audiobook.Publisher,
+            audiobook.Language,
             audiobook.Rating,
             audiobook.Asin,
             audiobook.Www,
@@ -361,6 +362,7 @@ public class AudiobookService : IAudiobookService
         existing.Description = audiobook.Description;
         existing.Copyright = audiobook.Copyright;
         existing.Publisher = audiobook.Publisher;
+        existing.Language = audiobook.Language;
         existing.Rating = audiobook.Rating;
         existing.Asin = audiobook.Asin;
         existing.Www = audiobook.Www;
@@ -397,6 +399,7 @@ public class AudiobookService : IAudiobookService
             Description = audiobookDb.Description,
             Copyright = audiobookDb.Copyright,
             Publisher = audiobookDb.Publisher,
+            Language = audiobookDb.Language,
             Rating = audiobookDb.Rating,
             Asin = audiobookDb.Asin,
             Www = audiobookDb.Www,

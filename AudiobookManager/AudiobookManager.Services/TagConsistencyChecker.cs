@@ -32,6 +32,7 @@ public static class TagConsistencyChecker
         Compare("Description", expected.Description, actual.Description);
         Compare("Copyright", expected.Copyright, actual.Copyright);
         Compare("Publisher", expected.Publisher, actual.Publisher);
+        Compare("Language", expected.Language, actual.Language);
         Compare("Rating", expected.Rating, actual.Rating);
         Compare("Asin", expected.Asin, actual.Asin);
         Compare("Www", expected.Www, actual.Www);

@@ -43,6 +43,9 @@ public class Audiobook
     [Column("publisher")]
     public string? Publisher { get; set; }
 
+    [Column("language")]
+    public string? Language { get; set; }
+
     [Column("rating")]
     public string? Rating { get; set; }
 
@@ -67,7 +70,7 @@ public class Audiobook
     [Column("file_info_size_in_bytes")]
     public long FileInfoSizeInBytes { get; set; }
 
-    public Audiobook(long id, string bookName, string? subtitle, string? series, string? seriesPart, int year, string? description, string? copyright, string? publisher, string? rating, string? asin, string? www, string? coverFilePath, int? durationInSeconds, string fileInfoFullPath, string fileInfoFileName, long fileInfoSizeInBytes)
+    public Audiobook(long id, string bookName, string? subtitle, string? series, string? seriesPart, int year, string? description, string? copyright, string? publisher, string? language, string? rating, string? asin, string? www, string? coverFilePath, int? durationInSeconds, string fileInfoFullPath, string fileInfoFileName, long fileInfoSizeInBytes)
     {
         Id = id;
         BookName = bookName;
@@ -78,6 +81,7 @@ public class Audiobook
         Description = description;
         Copyright = copyright;
         Publisher = publisher;
+        Language = language;
         Rating = rating;
         Asin = asin;
         Www = www;

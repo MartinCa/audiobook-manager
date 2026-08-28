@@ -39,7 +39,7 @@ public class AudiobookRepositorySearchTests
     {
         await _repository.InsertAudiobook(new Audiobook(
             default, bookName, null, series, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000));
     }
 

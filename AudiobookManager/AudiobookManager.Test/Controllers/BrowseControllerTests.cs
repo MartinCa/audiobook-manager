@@ -22,7 +22,7 @@ public class BrowseControllerTests
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>
         new(id, bookName, null, series, null, 2024,
-            null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
 
     [TestMethod]
