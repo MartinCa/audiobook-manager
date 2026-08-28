@@ -269,12 +269,20 @@ public class AudiobookService : IAudiobookService
         var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
         if (mismatches.Count > 0)
         {
+            foreach (var (field, expected, actual) in mismatches)
+            {
+                _logger.LogWarning(
+                    "({audiobookFile}) Tag round-trip mismatch on field {field}: requested '{expected}', file has '{actual}' after save",
+                    audiobook.FileInfo.FullPath, field, expected, actual);
+            }
+
             throw new Exception(
                 $"Saved tags did not match the requested metadata for '{audiobook.FileInfo.FullPath}': {string.Join(", ", mismatches.Select(m => m.Field))}");
         }
 
         // Check if the file needs to be relocated
         var newFullPath = GenerateLibraryPath(audiobook);
+        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath}", audiobook.FileInfo.FullPath, newFullPath);
         newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
         audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
 
