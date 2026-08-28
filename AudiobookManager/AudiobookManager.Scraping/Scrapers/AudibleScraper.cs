@@ -213,7 +213,12 @@ public partial class AudibleScraper : IScraper
             .Distinct()
             .ToList();
 
-        var series = await ParseBookSeries(doc.Body);
+        var seriesResults = ParseBookSeriesFromDetailsJson(doc);
+        if (seriesResults.Count == 0)
+        {
+            seriesResults = ParseBookSeriesFromLegacyMarkup(doc.Body);
+        }
+        var series = await _bookSeriesMapper.MapBookSeries(seriesResults);
 
         var imgUrl = GetJsonString(audiobook, "image");
 
@@ -475,6 +480,11 @@ public partial class AudibleScraper : IScraper
 
     private async Task<IList<MetadataSeriesSearchResult>> ParseBookSeries(IElement? elem)
     {
+        return await _bookSeriesMapper.MapBookSeries(ParseBookSeriesFromLegacyMarkup(elem));
+    }
+
+    private static IList<MetadataSeriesSearchResult> ParseBookSeriesFromLegacyMarkup(IElement? elem)
+    {
         var result = new List<MetadataSeriesSearchResult>();
         var seriesTag = elem?.QuerySelector("li.bc-list-item.seriesLabel");
         if (seriesTag is not null)
@@ -502,6 +512,62 @@ public partial class AudibleScraper : IScraper
             }
         }
 
-        return await _bookSeriesMapper.MapBookSeries(result);
+        return result;
+    }
+
+    /// <summary>
+    /// The detail page's series line ("Jack Reacher, Book 1") isn't in the DOM as text/links (unlike the
+    /// search-result markup) - it's only present as JSON inside a script tag nested in the
+    /// &lt;adbl-product-details&gt; metadata block: {"series":[{"part":"Book 1","name":"Jack Reacher",...}]}.
+    /// </summary>
+    private static IList<MetadataSeriesSearchResult> ParseBookSeriesFromDetailsJson(IDocument doc)
+    {
+        var result = new List<MetadataSeriesSearchResult>();
+
+        var script = doc.QuerySelector("adbl-product-details adbl-product-metadata script[type='application/json']");
+        var text = script?.TextContent;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return result;
+        }
+
+        JsonDocument jsonDoc;
+        try
+        {
+            jsonDoc = JsonDocument.Parse(text);
+        }
+        catch (JsonException)
+        {
+            return result;
+        }
+
+        using (jsonDoc)
+        {
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Object
+                && jsonDoc.RootElement.TryGetProperty("series", out var seriesProp)
+                && seriesProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in seriesProp.EnumerateArray())
+                {
+                    var name = GetJsonString(item, "name");
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    var part = GetJsonString(item, "part");
+                    string? seriesPart = null;
+                    if (!string.IsNullOrEmpty(part))
+                    {
+                        var match = ReSeriesPart().Match(part);
+                        seriesPart = match.Success ? match.Groups[1].Value.Trim() : part.Trim();
+                    }
+
+                    result.Add(new MetadataSeriesSearchResult(name.Trim()) { SeriesPart = seriesPart });
+                }
+            }
+        }
+
+        return result;
     }
 }

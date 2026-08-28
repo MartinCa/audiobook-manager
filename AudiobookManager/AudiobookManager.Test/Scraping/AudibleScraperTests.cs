@@ -1,3 +1,4 @@
+using System.Linq;
 using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.Scrapers;
@@ -114,5 +115,25 @@ public class AudibleScraperTests
 
         await Assert.ThrowsExactlyAsync<Exception>(
             () => target.ParseAudibleDetails(html, "https://www.audible.com/pd/Not-A-Book/B0000000"));
+    }
+
+    // Regression test: on the current Audible detail-page markup, the series line ("Jack Reacher, Book 1")
+    // is not rendered as the old `li.bc-list-item.seriesLabel` link markup - it only exists as JSON inside
+    // a <script> tag nested under <adbl-product-details>. Before the fix, ParseAudibleDetails only looked
+    // for the legacy markup and always returned an empty series list for pages using the new layout.
+    [TestMethod]
+    public async Task ParseAudibleDetails_KillingFloor_ParsesSeriesFromDetailsJson()
+    {
+        var target = CreateScraper();
+        var html = await File.ReadAllTextAsync("Scraping/TestData/audible-killing-floor.html");
+        var bookUrl = "https://www.audible.com/pd/Killing-Floor-Audiobook/B015RQON6I";
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        Assert.AreEqual("Killing Floor", result.BookName);
+
+        Assert.AreEqual(1, result.Series.Count);
+        Assert.AreEqual("Jack Reacher", result.Series.Single().SeriesName);
+        Assert.AreEqual("1", result.Series.Single().SeriesPart);
     }
 }
