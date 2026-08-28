@@ -56,39 +56,66 @@ public class PersonRepository : IPersonRepository
         return result;
     }
 
-    public async Task<List<Person>> GetAllAuthorsAsync()
+    public async Task<List<string>> GetAuthorNamesAsync()
     {
         return await _db.Persons
             .AsNoTracking()
-            .Include(p => p.BooksAuthored)
             .Where(p => p.BooksAuthored.Any())
-            .OrderBy(p => p.Name)
+            .Select(p => p.Name)
+            .Distinct()
+            .OrderBy(n => n)
             .ToListAsync();
     }
 
-    public async Task<List<Person>> SearchAuthorsAsync(string query, int limit)
+    public async Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync()
+    {
+        return await _db.Persons
+            .AsNoTracking()
+            .Where(p => p.BooksAuthored.Any())
+            .OrderBy(p => p.Name)
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .ToListAsync();
+    }
+
+    public async Task<List<AuthorSummaryRow>> SearchAuthorSummariesAsync(string query, int limit)
     {
         var pattern = $"%{query}%";
 
         return await _db.Persons
             .AsNoTracking()
-            .Include(p => p.BooksAuthored)
             .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.Name, pattern))
             .OrderBy(p => p.Name)
             .Take(limit)
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
             .ToListAsync();
     }
 
-    public async Task<Person?> GetAuthorWithBooksAsync(long authorId)
+    public async Task<AuthorSummaryRow?> GetAuthorSummaryAsync(long authorId)
     {
         return await _db.Persons
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Authors)
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Narrators)
-            .Include(p => p.BooksAuthored)
-                .ThenInclude(a => a.Genres)
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(p => p.Id == authorId);
+            .AsNoTracking()
+            .Where(p => p.Id == authorId)
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<Dictionary<string, List<AuthorBookRef>>> GetAuthorBookRefsAsync()
+    {
+        var rows = await _db.Persons
+            .AsNoTracking()
+            .Where(p => p.BooksAuthored.Any())
+            .Select(p => new
+            {
+                p.Name,
+                Books = p.BooksAuthored.Select(b => new AuthorBookRef(b.Id, b.BookName)).ToList(),
+            })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.Name, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.SelectMany(r => r.Books).DistinctBy(b => b.Id).ToList(),
+                StringComparer.Ordinal);
     }
 }

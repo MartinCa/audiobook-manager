@@ -51,12 +51,20 @@ public class MetadataSearchController : ControllerBase
         }
 
         var client = _httpClientFactory.CreateClient();
-        var response = await client.GetAsync(uri);
+
+        // Stream the response through instead of buffering the whole image, and honour the
+        // client's cancellation so an abandoned request doesn't keep fetching upstream.
+        var cancellationToken = HttpContext.RequestAborted;
+        var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
+        {
+            response.Dispose();
             return StatusCode((int)response.StatusCode);
+        }
 
         var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-        var bytes = await response.Content.ReadAsByteArrayAsync();
-        return File(bytes, contentType);
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        HttpContext.Response.RegisterForDispose(response);
+        return File(stream, contentType);
     }
 }

@@ -183,7 +183,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, Ref, ref, watch } from "vue";
+import { computed, onUnmounted, Ref, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { debounce } from "lodash";
 import AudiobookDetail from "../../types/AudiobookDetail";
@@ -384,6 +384,11 @@ const updateNewBookPath = debounce(async () => {
     }
   }
 }, 300);
+
+// A pending path regeneration would otherwise fire after the component is gone.
+onUnmounted(() => {
+  updateNewBookPath.cancel();
+});
 
 // Issue helpers
 const getIssueTypeLabel = (issueType: string): string => {

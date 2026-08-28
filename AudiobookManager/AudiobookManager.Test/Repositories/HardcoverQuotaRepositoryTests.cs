@@ -133,4 +133,59 @@ public class HardcoverQuotaRepositoryTests
         Assert.IsTrue(consumed);
         Assert.AreEqual(3, await freshRepository.GetCountAsync(date));
     }
+
+    [TestMethod]
+    public async Task TryConsumeAsync_ConcurrentCallers_NeverExceedTheDailyLimit()
+    {
+        // Regression: the counter used a read-modify-write in C#, so two callers could both read
+        // the same count and write count+1 - a lost update that silently overran the daily budget.
+        // Hardcover requests really are concurrent (SearchMultiple fans out across sources, and
+        // the retry handler re-enters), so the compare-and-increment has to be one SQL statement.
+        const int dailyLimit = 25;
+        const int attempts = 100;
+        var date = new DateOnly(2026, 3, 1);
+
+        // Each caller gets its own DbContext, the way a per-request DI scope would.
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        var contexts = new List<DatabaseContext>();
+        try
+        {
+            var tasks = new List<Task<bool>>();
+            for (var i = 0; i < attempts; i++)
+            {
+                var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+                contexts.Add(context);
+                var repository = new HardcoverQuotaRepository(context);
+                tasks.Add(Task.Run(() => repository.TryConsumeAsync(date, dailyLimit)));
+            }
+
+            var results = await Task.WhenAll(tasks);
+
+            Assert.AreEqual(dailyLimit, results.Count(granted => granted),
+                "exactly the daily limit worth of requests should have been granted");
+            Assert.AreEqual(dailyLimit, await _repository.GetCountAsync(date),
+                "the persisted counter must match the number of grants");
+        }
+        finally
+        {
+            foreach (var context in contexts)
+            {
+                await context.DisposeAsync();
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task TryConsumeAsync_SameRepositoryInstance_ReportsTheDatabaseCountNotAStaleTrackedRow()
+    {
+        // The increment is a set-based ExecuteUpdate, which bypasses the change tracker: a row
+        // left tracked by the insert path would keep reporting the count it had at insert time.
+        var date = new DateOnly(2026, 3, 2);
+
+        await _repository.TryConsumeAsync(date, 10);
+        await _repository.TryConsumeAsync(date, 10);
+        await _repository.TryConsumeAsync(date, 10);
+
+        Assert.AreEqual(3, await _repository.GetCountAsync(date));
+    }
 }

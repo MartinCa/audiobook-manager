@@ -40,7 +40,8 @@ function makeBook(overrides: Partial<Audiobook> = {}): Audiobook {
   };
 }
 
-const expectedPathPreviewDto = {
+// The save DTO carries the full metadata (plus the cover).
+const expectedSaveFields = {
   authors: ["Author One", "Author Two"],
   narrators: ["Narrator One"],
   bookName: "Some Book",
@@ -60,8 +61,22 @@ const expectedPathPreviewDto = {
   sizeInBytes: 12345,
 };
 
+// The path-preview DTO carries only the fields the generated path is built from. It is sent on
+// every debounced keystroke, so anything beyond these - the cover, but also the description -
+// would be re-uploaded constantly for a value the endpoint never reads.
+const expectedPathPreviewDto = {
+  authors: ["Author One", "Author Two"],
+  bookName: "Some Book",
+  series: "A Series",
+  seriesPart: "1",
+  year: 2020,
+  filePath: "/library/author/book.m4b",
+  fileName: "book.m4b",
+  sizeInBytes: 12345,
+};
+
 const expectedDto = {
-  ...expectedPathPreviewDto,
+  ...expectedSaveFields,
   cover: { base64Data: "abc123", mimeType: "image/jpeg" },
 };
 
@@ -126,7 +141,7 @@ describe("AudiobookService", () => {
   });
 
   describe("generateNewPath", () => {
-    it("POSTs the mapped DTO (without cover data) to /audiobook/generate_path", async () => {
+    it("POSTs only the path-shaping fields to /audiobook/generate_path", async () => {
       const book = makeBook();
       mockedApiClient.post.mockResolvedValueOnce({ data: "generated/path" });
 
@@ -146,7 +161,7 @@ describe("AudiobookService", () => {
   });
 
   describe("checkTargetPath", () => {
-    it("POSTs the mapped DTO (without cover data) to /audiobook/check_target_path and resolves the response", async () => {
+    it("POSTs only the path-shaping fields to /audiobook/check_target_path and resolves the response", async () => {
       const book = makeBook();
       const checkResult = {
         targetPath: "/library/author/2020 - Some Book/book.m4b",

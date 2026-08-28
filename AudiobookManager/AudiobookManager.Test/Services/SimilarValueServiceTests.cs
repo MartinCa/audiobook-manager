@@ -50,15 +50,13 @@ public class SimilarValueServiceTests
     [TestMethod]
     public async Task DetectSimilarAuthorsAsync_GroupsNearDuplicateAuthorNames()
     {
-        var book1 = MakeDbAudiobook(1, "Book One");
-        var book2 = MakeDbAudiobook(2, "Book Two");
-        var authors = new List<DbPerson>
-        {
-            new(1, "J.K. Rowling") { BooksAuthored = new List<DbAudiobook> { book1 } },
-            new(2, "JK Rowling") { BooksAuthored = new List<DbAudiobook> { book2 } },
-            new(3, "Brandon Sanderson") { BooksAuthored = new List<DbAudiobook>() }
-        };
-        _personRepository.Setup(r => r.GetAllAuthorsAsync()).ReturnsAsync(authors);
+        _personRepository.Setup(r => r.GetAuthorBookRefsAsync()).ReturnsAsync(
+            new Dictionary<string, List<AuthorBookRef>>
+            {
+                ["J.K. Rowling"] = new() { new AuthorBookRef(1, "Book One") },
+                ["JK Rowling"] = new() { new AuthorBookRef(2, "Book Two") },
+                ["Brandon Sanderson"] = new() { new AuthorBookRef(3, "Book Three") },
+            });
 
         var groups = await _service.DetectSimilarAuthorsAsync();
 

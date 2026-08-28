@@ -61,15 +61,13 @@ public class SimilarValuesController : ControllerBase
     [HttpGet("author-names")]
     public async Task<List<string>> GetAuthorNames()
     {
-        var authors = await _personRepository.GetAllAuthorsAsync();
-        return authors.Select(a => a.Name).Distinct().OrderBy(n => n).ToList();
+        return await _personRepository.GetAuthorNamesAsync();
     }
 
     [HttpGet("series-names")]
     public async Task<List<string>> GetSeriesNames()
     {
-        var seriesMap = await _audiobookRepository.GetDistinctSeriesAsync();
-        return seriesMap.Keys.OrderBy(n => n).ToList();
+        return await _audiobookRepository.GetSeriesNamesAsync();
     }
 
     [HttpPost("align")]

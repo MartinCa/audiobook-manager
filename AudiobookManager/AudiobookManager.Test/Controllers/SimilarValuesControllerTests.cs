@@ -123,12 +123,8 @@ public class SimilarValuesControllerTests
     [TestMethod]
     public async Task GetAuthorNames_ReturnsDistinctSortedNames()
     {
-        _personRepository.Setup(r => r.GetAllAuthorsAsync()).ReturnsAsync(new List<DbPerson>
-        {
-            new DbPerson(1, "Zed Author"),
-            new DbPerson(2, "Amy Author"),
-            new DbPerson(3, "Amy Author")
-        });
+        _personRepository.Setup(r => r.GetAuthorNamesAsync())
+            .ReturnsAsync(new List<string> { "Amy Author", "Zed Author" });
 
         var result = await _controller.GetAuthorNames();
 
@@ -138,12 +134,8 @@ public class SimilarValuesControllerTests
     [TestMethod]
     public async Task GetSeriesNames_ReturnsSortedKeys()
     {
-        _audiobookRepository.Setup(r => r.GetDistinctSeriesAsync()).ReturnsAsync(
-            new Dictionary<string, List<(long Id, string BookName)>>
-            {
-                ["Zeta Series"] = new List<(long, string)> { (1, "Book") },
-                ["Alpha Series"] = new List<(long, string)> { (2, "Book") }
-            });
+        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync())
+            .ReturnsAsync(new List<string> { "Alpha Series", "Zeta Series" });
 
         var result = await _controller.GetSeriesNames();
 

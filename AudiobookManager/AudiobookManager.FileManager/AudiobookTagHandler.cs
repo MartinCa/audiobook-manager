@@ -7,7 +7,11 @@ namespace AudiobookManager.FileManager;
 
 public class AudiobookTagHandler : IAudiobookTagHandler
 {
-    private static readonly List<string> _supportedExtensions = new List<string> { ".m4b" };
+    // Case-insensitive: a "Book.M4B" is the same supported format as "book.m4b", and treating
+    // it as unsupported would hide it from both scans and - worse - from the orphan-directory
+    // safety net that decides whether a folder can be deleted.
+    private static readonly HashSet<string> _supportedExtensions =
+        new(new[] { ".m4b" }, StringComparer.OrdinalIgnoreCase);
     private static readonly Regex _re_multple_part = new Regex(@"^(\d+\.?\d?)-(\d+\.?\d?)$", RegexOptions.Compiled);
     private static readonly Regex _re_float = new Regex(@"^(\d+)\.(\d+)$", RegexOptions.Compiled);
 
@@ -25,7 +29,14 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         return _supportedExtensions.Contains(fileInfo.Extension);
     }
 
-    public Audiobook ParseAudiobook(FileInfo fileInfo)
+    /// <summary>
+    /// Reads an audiobook's tags. <paramref name="includeCoverData"/> controls whether the
+    /// embedded cover's bytes are base64-encoded into the result: callers that only need to know
+    /// whether a cover exists (the consistency check, the save round-trip verification) should
+    /// pass false, because encoding a multi-megabyte picture allocates the bytes plus a string
+    /// ~1.4x their size, once per book, for a value they never read.
+    /// </summary>
+    public Audiobook ParseAudiobook(FileInfo fileInfo, bool includeCoverData = true)
     {
         var track = new Track(fileInfo.FullName);
 
@@ -41,9 +52,9 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         AudiobookImage? cover = null;
         if (embeddedPicture is not null)
         {
-            cover = new AudiobookImage(
-                Convert.ToBase64String(embeddedPicture.PictureData),
-                embeddedPicture.MimeType);
+            cover = includeCoverData
+                ? new AudiobookImage(Convert.ToBase64String(embeddedPicture.PictureData), embeddedPicture.MimeType)
+                : new AudiobookImage(string.Empty, embeddedPicture.MimeType);
         }
 
         return new Audiobook(authors, track.Album, track.Year, new AudiobookFileInfo(fileInfo))
@@ -52,7 +63,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             Subtitle = track.ReadSpecialTag(SpecialTagField.Subtitle),
             Series = track.GetSeries(),
             SeriesPart = track.GetSeriesPart(),
-            Genres = track.Genre.Split("/").ToList(),
+            Genres = ParseGenresFromString(track.Genre),
             Description = track.Description,
             Copyright = track.Copyright,
             Publisher = track.Publisher,
@@ -151,9 +162,24 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         _logger.LogInformation("({audiobookFile}) tags saved", audiobook.FileInfo.FullPath);
     }
 
-    public static List<Person> ParsePersonsFromString(string str)
+    /// <summary>
+    /// Splits a "/"-joined genre tag. An unset tag reads back as an empty string, and a naive
+    /// Split would turn that into a single empty-named genre - which then gets persisted as a
+    /// real Genre row that every genre-less book links to.
+    /// </summary>
+    public static List<string> ParseGenresFromString(string? genreTag) =>
+        (genreTag ?? string.Empty)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+    public static List<Person> ParsePersonsFromString(string? str)
     {
-        return str.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(x => new Person(x.Trim())).ToList();
+        // Whitespace-only entries ("A, , B") must be dropped too, not just empty ones - otherwise
+        // they become Person rows with a blank name.
+        return (str ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => new Person(x))
+            .ToList();
     }
 
     public static string GetStringFromListOfPersons(IEnumerable<Person> persons)

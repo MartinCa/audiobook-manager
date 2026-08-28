@@ -92,6 +92,43 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void PathStartsWith_SiblingDirectoryWithPrefixAsNamePrefix_ReturnsFalse()
+    {
+        // Regression: PathStartsWith used a bare string StartsWith, so "/data/library-backup"
+        // reported as being inside "/data/library". FileService.ValidatePathWithinAllowedBases
+        // relies on this for access control in front of a recursive delete.
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+        var sibling = Path.Combine(Path.GetTempPath(), "library-backup", "Author", "Book.m4b");
+
+        Assert.IsFalse(AudiobookFileHandler.PathStartsWith(sibling, prefix));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PrefixItself_ReturnsTrue()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library");
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(prefix, prefix));
+    }
+
+    [TestMethod]
+    public void PathStartsWith_PrefixWithTrailingSeparator_StillMatchesPathsUnderneath()
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "library") + Path.DirectorySeparatorChar;
+        var path = Path.Combine(Path.GetTempPath(), "library", "Author", "Book.m4b");
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(path, prefix));
+    }
+
+    [TestMethod]
+    public void PathComparer_MatchesPlatformCaseSensitivity()
+    {
+        var expected = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        Assert.AreEqual(expected, AudiobookFileHandler.PathComparer.Equals("/library/a.m4b", "/LIBRARY/A.M4B"));
+    }
+
+    [TestMethod]
     public void GenerateRelativeAudiobookPath_WithSeries_IncludesSeriesDirectory()
     {
         var audiobook = new Audiobook(

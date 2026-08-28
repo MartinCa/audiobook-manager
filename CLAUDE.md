@@ -134,6 +134,95 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 
 `AudiobookFileHandler.GenerateRelativeAudiobookPath()` builds: `Author / [Series /] [BookNN - ] Year - BookName / filename.m4b`. All path parts are sanitized via `GetSafeFileName()` and `GetSafeCompletePath()`. The library root is prepended by the service layer using settings.
 
+### Comparing file paths — always OS-aware, never raw strings
+
+**Invariant: never compare two file paths with `==`, `!=`, `string.Equals`, or `StartsWith`, and
+never key a path-based `HashSet`/`Dictionary` with the default comparer.** Path comparison has
+bitten this codebase repeatedly (the duplicate-detection self-match, the sidecar cleanup, the
+allowed-base check, the library scan's known-path set), because two things are easy to forget:
+paths need normalizing (`.`/`..`/`//`/mixed separators), and case-sensitivity is a property of the
+*file system*, not of the string. Use the helpers on `AudiobookFileHandler`:
+
+- `PathsEqual(a, b)` — do these denote the same file?
+- `PathStartsWith(path, prefix)` — is `path` inside `prefix`? This checks the **path boundary**, so
+  `/data/library-backup` is correctly *not* inside `/data/library`. A bare `StartsWith` here once
+  let `FileService.DeleteDirectory` — which deletes recursively — reach a sibling directory.
+- `PathComparison` / `PathComparer` — the `StringComparison`/`StringComparer` to hand to anything
+  that compares or hashes paths itself (`ToHashSet`, `GroupBy`, `Distinct`, `OrderBy`).
+
+When a repository returns a set of paths for membership testing, it takes the comparer from the
+caller (`GetAllFilePathsAsync(AudiobookFileHandler.PathComparer)`) rather than defaulting.
+
+### Tag round-trip normalization must mirror the tag writer
+
+`AudiobookService` verifies that saved tags read back as requested before it relocates the file or
+touches the DB, comparing via `TagConsistencyChecker.FindMismatches`. **Any normalization the tag
+writer applies has to be mirrored in the checker**, or a book becomes permanently un-saveable: the
+save throws every time, with a misleading "non-contiguous QuickTime chapters" message. Known
+normalizations: `GetStringFromListOfPersons` de-duplicates names (so `["King", "King"]` writes as
+`"King"`), and an empty genre tag reads back as no genres at all.
+
+Relatedly, **splitting a free-text tag field never uses a bare `Split`**: `"".Split("/")` yields
+`[""]`, not `[]`, and that blank entry used to be persisted as a real `Person`/`Genre` row with an
+empty name that every untagged book linked to. Use `AudiobookTagHandler.ParseGenresFromString` /
+`ParsePersonsFromString` on the backend and the `splitList` helper in
+`helpers/organizeAudiobookInput.ts` on the frontend; both use
+`StringSplitOptions.RemoveEmptyEntries | TrimEntries` semantics. `AudiobookController.MapToDomain`
+also scrubs blank names off incoming DTOs, since the client splits these fields itself.
+
+### Bulk EF operations and the change tracker
+
+`ExecuteDeleteAsync`/`ExecuteUpdateAsync` are strongly preferred over `RemoveRange(dbSet)` +
+`SaveChanges` for clearing or bulk-updating a table — the latter fetches and tracks every row just
+to issue one statement per id. But they **bypass the change tracker**, which has two consequences:
+
+1. Rows this context already loaded stay in the identity map. SQLite reuses deleted rowids, so a
+   *newly inserted* row can be handed an id a ghost still holds, and EF resolves it back to the
+   stale entity. After a set-based delete, detach the affected entries (see
+   `ConsistencyIssueRepository.DetachTracked`), and read with `AsNoTracking()`.
+2. **Do not use them where the entity has an inverse navigation the caller holds.**
+   `SeriesRepository.ReplaceExpectedBooksAsync` deliberately stays on the tracked
+   `RemoveRange` path, because callers hold a tracked `Series` whose `ExpectedBooks` collection EF
+   keeps fixed up — a set-based delete would leave the deleted rows in that collection.
+
+A read-modify-write across `await` is not safe for a counter either: `HardcoverQuotaRepository`
+does its compare-and-increment in a single `ExecuteUpdateAsync` statement, because Hardcover
+requests genuinely run concurrently (`SearchMultiple` fans out; the retry handler re-enters) and a
+C#-side increment loses updates and overruns the daily budget.
+
+### Long-running and file-mutating endpoints need a concurrency gate
+
+Anything that rewrites m4b tags or relocates files must not be able to run twice concurrently for
+the same book. Use `BackgroundOperationRunner` (a process-static `SemaphoreSlim` plus
+`IOperationStatusRegistry`) for whole-library operations, and a per-entity gate for per-book work:
+`AudiobookController.UpdateAudiobook` keys a `ConcurrentDictionary<long, SemaphoreSlim>` by
+audiobook id and returns `409 Conflict` when a save for that book is already in flight. Without it,
+two saves both read the same pre-move path, the first relocates the file, and the second writes
+tags to a path that no longer exists.
+
+Resolve DI services for background work from `_serviceScopeFactory.CreateScope()`, never from the
+controller's own request-scoped instances. At startup, use `app.Services.CreateScope()` — never
+`builder.Services.BuildServiceProvider()`, which builds a second, never-disposed container whose
+singletons are not the ones the app runs with (the compiler flags this as `ASP0000`).
+
+### Reading only what the response needs
+
+Repository methods project in SQL rather than materializing entity graphs the caller then reduces.
+The recurring mistake is `Include`-ing a collection to read `.Count` off it — `GET /browse/authors`
+once loaded every audiobook row, `Description` blobs included, once per author. Prefer a projection
+type (`AuthorSummaryRow`, `AuthorBookRef`) or a scalar query (`GetCoverFilePathAsync`,
+`GetSeriesNamesAsync`) over `Include` + in-memory reduction, and add `AsNoTracking()` to every
+read-only query.
+
+Two more rules for query shape:
+- **A paged query needs a total order.** `OrderBy(a => a.BookName)` is not one — books sharing a
+  title have an undefined relative order, so the same row can appear on two pages while another is
+  skipped, and with `AsSplitQuery()` the `Skip`/`Take` runs in *each* query, so they can disagree
+  about the page's contents. Always add `.ThenBy(a => a.Id)`.
+- **`ParseAudiobook(fileInfo, includeCoverData: false)`** for any caller that only needs to know
+  whether a cover exists (the consistency check, the save round-trip verification, the library
+  scan). Encoding the picture allocates the bytes plus a base64 string ~1.4x their size, per book.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description) and `reader.txt` (narrators). `WriteCover()` extracts embedded cover art to `cover.jpg` or `cover.png`.
@@ -160,6 +249,64 @@ Adding a new source (or changing an existing one's name/availability) requires t
 4. The frontend's source picker and the remembered-source-selection composable (`useSelectedSearchSources.ts`) derive their list of sources from `GET /metadata-search/services` live — **neither hardcodes source names**, and neither should be edited when a scraper is added, removed, or renamed. Do not reintroduce a hardcoded fallback source list on the frontend (one existed in `BookSearchDialog.vue` and was removed for exactly this reason — it silently drifted from the real backend list).
 
 `BookSearchDialog.vue`'s single search field doubles as "add by URL": on submit, an absolute `http(s)` value goes straight to `MetadataSearchService.getBookDetails()` (skipping source selection entirely) instead of the multi-source search, so pasting a book URL from any configured source adds it directly. There is no separate "Add by URL" dialog/button.
+
+## Frontend Patterns
+
+### Async list loads need a request-sequence guard
+
+Any loader whose result overwrites shared state (`loadBooks`, `loadDiscoveredBooks`, `runSearch`)
+must ignore its own stale responses. Debounced search and pagination overlap constantly, and
+without this a slow `"har"` landing after a fast `"harry"` renders the wrong page:
+
+```ts
+let loadRequestId = 0;
+
+const load = async () => {
+  const requestId = ++loadRequestId;
+  const result = await Service.fetch(...);
+  if (requestId !== loadRequestId) return;   // a newer load won
+  items.value = result.items;
+};
+```
+
+### Cancel debounced callbacks on unmount
+
+Every `debounce(...)` in a component needs a matching `onUnmounted(() => fn.cancel())`, or it
+fires after the component is gone — mutating dead refs and issuing a request nobody reads. The
+same pairing rule as SignalR listeners, which is what `useSignalREvent`/`useSignalRReconnected`
+exist to enforce; prefer those over raw `on`/`off`.
+
+### Never key a mutating list by array index
+
+`v-for` over a list that is mutated at runtime must be keyed by a stable identity
+(`:key="book.fullPath"`), and any "which row is open/selected" state must hold that same
+identifier — not an index. `BookList.vue` and `DiscoveredAudiobooks.vue` both track the open
+expansion panel by path (`:value="book.fullPath"`), because removing a row above the open one
+used to silently re-point the panel at whichever book shifted into that slot, with Vue reusing
+the already-open form for a different file.
+
+### Optimistic UI must not outrun what the server reported
+
+A bulk operation returns `{ resolved, failed }`. Removing everything it touched from the list
+regardless of `failed` hides genuinely unresolved items until the next full check. Re-read the
+authoritative list in a `finally` instead of reproducing the server's resolution rules
+client-side (`LibraryConsistency.vue`'s `bulkResolve`/`resolveSelected`).
+
+### Keep O(n) work out of the template
+
+A plain function called from a template re-runs on every render, for every item. Where it scans a
+collection, hoist it into a `computed` that produces the whole lookup in one pass —
+`LibraryConsistency.vue`'s `groupSelectionState` replaced per-group helpers that made ticking one
+checkbox re-scan every group's full issue array four or more times.
+
+### Send only what the endpoint reads
+
+`AudiobookService.ts` keeps `toDto` (the full save payload, cover included) separate from
+`toPathPreviewDto` (only the fields `GenerateRelativeAudiobookPath` actually reads). The preview
+endpoints are called from a debounced keystroke watcher, so anything extra — the cover's base64
+payload, but also a multi-kilobyte description — is re-uploaded on every edit for a value the
+server ignores. Watchers that trigger those calls must also avoid *reading* the cover fields, or
+they track them as reactive dependencies and retrigger on cover edits.
 
 ## Key Configuration
 
@@ -203,6 +350,23 @@ Writing tests that actually catch regressions:
 - **Never wait on a fixed `Task.Delay`/`setTimeout` for background work to settle** — poll the
   real condition with a timeout instead (see `AudiobookManager.Test/Controllers/OperationGate.cs`).
   Fixed sleeps are flaky under CI contention and slow the suite down.
+- **Prove a regression test actually fails without the fix.** Revert the production change (or
+  break it), confirm the new test goes red, then restore. Several "regression" tests in this
+  repo's history asserted behavior that held before the fix too. If a test cannot be made to
+  fail, say so in the test's own comment rather than labelling it a regression guard — a fix can
+  be correct and defensive without being a live bug (see the sidecar-cleanup note in
+  `AudiobookService.RelocateIfPathChangedAsync`).
+- **Watch for tests that pass vacuously.** A setup that silently no-ops (an event whose id never
+  matches, a mock that is never hit) makes the assertions meaningless. Assert on the resulting
+  state, not just the field you set — e.g. also assert the list actually changed length.
+- **Widen mock setups when adding an optional parameter.** Moq matches
+  `ParseAudiobook(It.IsAny<FileInfo>())` as `(fileInfo, true)`, so a caller passing `false` gets
+  a null result instead of the configured one. Use `It.IsAny<bool>()` and, for callbacks, the
+  full arity: `.Returns((FileInfo fi, bool _) => ...)`.
+- **Give process-static state a distinct key per test.** The per-audiobook save gates and the
+  `BackgroundOperationRunner` semaphores outlive a single test; use a unique id per test and poll
+  the real release condition (see `OperationGate`) rather than assuming the background task's
+  `finally` has already run.
 - **Keep real sleeps out of the suite.** Collapse retry/backoff waits via the code's own
   levers (e.g. a `Retry-After` header) rather than letting a test sit through an exponential
   backoff.

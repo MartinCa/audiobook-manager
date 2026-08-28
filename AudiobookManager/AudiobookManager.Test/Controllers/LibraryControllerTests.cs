@@ -47,7 +47,7 @@ public class LibraryControllerTests
         var entry = MakeWellTagged("/import/book.m4b");
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
-        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(entry)).ReturnsAsync(true);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry)).Returns(true);
 
         var result = await _controller.GetDiscovered();
 
@@ -61,7 +61,7 @@ public class LibraryControllerTests
         var entry = MakeWellTagged("/import/book.m4b");
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
-        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(entry)).ReturnsAsync(false);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry)).Returns(false);
 
         var result = await _controller.GetDiscovered();
 
@@ -83,14 +83,14 @@ public class LibraryControllerTests
 
         Assert.IsFalse(result.Items[0].IsWellTagged);
         Assert.IsFalse(result.Items[0].IsDuplicate);
-        _libraryScanService.Verify(s => s.IsDuplicateTargetAsync(It.IsAny<DiscoveredAudiobook>()), Times.Never);
+        _libraryScanService.Verify(s => s.IsDuplicateTarget(It.IsAny<DiscoveredAudiobook>()), Times.Never);
     }
 
     [TestMethod]
-    public async Task GetDiscovered_MultipleWellTaggedEntries_EachGetsItsOwnDuplicateResultRegardlessOfConcurrentChecks()
+    public async Task GetDiscovered_MultipleWellTaggedEntries_EachGetsItsOwnDuplicateResultRegardlessOfParallelChecks()
     {
-        // Duplicate checks run concurrently now (Task.WhenAll), so each item's own result must
-        // still land on the correct dto rather than getting crossed with another item's.
+        // The page's duplicate checks run in parallel, so each item's own result must still land
+        // on the correct dto rather than getting crossed with another item's.
         var duplicateEntry = MakeWellTagged("/import/dup.m4b");
         var freeEntry = MakeWellTagged("/import/free.m4b");
         var notWellTagged = new DiscoveredAudiobook("Untagged", "/import/untagged.m4b", "untagged.m4b", 1000, DateTime.UtcNow)
@@ -101,8 +101,8 @@ public class LibraryControllerTests
 
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { duplicateEntry, freeEntry, notWellTagged }, 3));
-        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(duplicateEntry)).ReturnsAsync(true);
-        _libraryScanService.Setup(s => s.IsDuplicateTargetAsync(freeEntry)).ReturnsAsync(false);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(duplicateEntry)).Returns(true);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(freeEntry)).Returns(false);
 
         var result = await _controller.GetDiscovered();
 
@@ -110,6 +110,6 @@ public class LibraryControllerTests
         Assert.IsTrue(result.Items.Single(i => i.FullPath == "/import/dup.m4b").IsDuplicate);
         Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/free.m4b").IsDuplicate);
         Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/untagged.m4b").IsDuplicate);
-        _libraryScanService.Verify(s => s.IsDuplicateTargetAsync(notWellTagged), Times.Never);
+        _libraryScanService.Verify(s => s.IsDuplicateTarget(notWellTagged), Times.Never);
     }
 }

@@ -51,34 +51,34 @@ public class PersonRepositorySearchTests
     }
 
     [TestMethod]
-    public async Task SearchAuthorsAsync_ReturnsMatchingAuthorsWithBooks()
+    public async Task SearchAuthorSummariesAsync_ReturnsMatchingAuthorsWithBookCount()
     {
         await SeedBookWithAuthorAsync("Mistborn", "Brandon Sanderson");
         await SeedBookWithAuthorAsync("Dune", "Frank Herbert");
 
-        var results = await _repository.SearchAuthorsAsync("sander", 10);
+        var results = await _repository.SearchAuthorSummariesAsync("sander", 10);
 
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual("Brandon Sanderson", results[0].Name);
-        Assert.AreEqual(1, results[0].BooksAuthored.Count);
+        Assert.AreEqual(1, results[0].BookCount);
     }
 
     [TestMethod]
-    public async Task SearchAuthorsAsync_ExcludesAuthorsWithNoBooks()
+    public async Task SearchAuthorSummariesAsync_ExcludesAuthorsWithNoBooks()
     {
         await _repository.GetOrCreatePerson("Orphan Author");
 
-        var results = await _repository.SearchAuthorsAsync("orphan", 10);
+        var results = await _repository.SearchAuthorSummariesAsync("orphan", 10);
 
         Assert.AreEqual(0, results.Count);
     }
 
     [TestMethod]
-    public async Task SearchAuthorsAsync_ReturnsEmptyWhenNoAuthorMatches()
+    public async Task SearchAuthorSummariesAsync_ReturnsEmptyWhenNoAuthorMatches()
     {
         await SeedBookWithAuthorAsync("Dune", "Frank Herbert");
 
-        var results = await _repository.SearchAuthorsAsync("nonexistent", 10);
+        var results = await _repository.SearchAuthorSummariesAsync("nonexistent", 10);
 
         Assert.AreEqual(0, results.Count);
     }

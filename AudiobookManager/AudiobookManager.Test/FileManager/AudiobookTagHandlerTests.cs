@@ -304,4 +304,41 @@ public class AudiobookTagHandlerTests
     {
         Assert.IsNull(AudiobookTagHandler.PadSeriesPart(null));
     }
+
+    [TestMethod]
+    public void ParseGenresFromString_EmptyTag_ReturnsNoGenres()
+    {
+        // Regression: "".Split("/") yields [""], which was persisted as a real Genre row with an
+        // empty name that every genre-less book then linked to.
+        CollectionAssert.AreEqual(new List<string>(), AudiobookTagHandler.ParseGenresFromString(""));
+        CollectionAssert.AreEqual(new List<string>(), AudiobookTagHandler.ParseGenresFromString(null));
+        CollectionAssert.AreEqual(new List<string>(), AudiobookTagHandler.ParseGenresFromString("  "));
+    }
+
+    [TestMethod]
+    public void ParseGenresFromString_TrimsAndDropsBlankEntries()
+    {
+        CollectionAssert.AreEqual(
+            new List<string> { "Fantasy", "Adventure" },
+            AudiobookTagHandler.ParseGenresFromString(" Fantasy / / Adventure "));
+    }
+
+    [TestMethod]
+    public void ParsePersonsFromString_BlankAndWhitespaceOnlyEntries_AreDropped()
+    {
+        // Regression: the old filter only removed empty strings, so "A, , B" produced a Person
+        // with a whitespace-only (effectively blank) name.
+        var persons = AudiobookTagHandler.ParsePersonsFromString("Author One, , Author Two");
+
+        CollectionAssert.AreEqual(
+            new List<string> { "Author One", "Author Two" },
+            persons.Select(p => p.Name).ToList());
+    }
+
+    [TestMethod]
+    public void ParsePersonsFromString_EmptyString_ReturnsNoPersons()
+    {
+        Assert.AreEqual(0, AudiobookTagHandler.ParsePersonsFromString("").Count);
+        Assert.AreEqual(0, AudiobookTagHandler.ParsePersonsFromString(null).Count);
+    }
 }

@@ -20,8 +20,9 @@
         <template v-if="books.length">
           <v-expansion-panels v-model="activePanel">
             <v-expansion-panel
-              v-for="(book, i) in books"
-              :key="i"
+              v-for="book in books"
+              :key="book.fullPath"
+              :value="book.fullPath"
             >
               <v-expansion-panel-title>
                 <v-row>
@@ -120,30 +121,44 @@ onUnmounted(() => {
 const limit = 50;
 
 const books: Ref<BookFileInfo[]> = ref([]);
-const activePanel: Ref<any> = ref(null);
+// Keyed by path, not index: removeBook mutates the array while a panel is open, and an
+// index-keyed panel would re-point at whichever book shifted into that slot.
+const activePanel: Ref<string | null> = ref(null);
 const currentPage: Ref<number> = ref(1);
 const totalItems: Ref<number> = ref(0);
 const loadingBooks: Ref<boolean> = ref(false);
 
 const totalPages = computed((): number => Math.ceil(totalItems.value / limit));
 
-watch(currentPage, (newPage, oldPage) => {
+watch(currentPage, () => {
   loadBooks();
 });
 
+// Only the newest load may write to the list: the button and the page watcher can both be in
+// flight, and an older response landing last would show the wrong page.
+let loadRequestId = 0;
+
 const loadBooks = async () => {
+  const requestId = ++loadRequestId;
   loadingBooks.value = true;
   books.value = [];
 
-  const result = await UntaggedService.getUntagged(
-    limit,
-    (currentPage.value - 1) * limit,
-  );
-  const queuedBooks = await QueueService.getQueuedBooks();
-  totalItems.value = result.total;
-  books.value = enhanceBooksWithQueueInfo(result.items, queuedBooks);
+  try {
+    const result = await UntaggedService.getUntagged(
+      limit,
+      (currentPage.value - 1) * limit,
+    );
+    const queuedBooks = await QueueService.getQueuedBooks();
 
-  loadingBooks.value = false;
+    if (requestId !== loadRequestId) return;
+
+    totalItems.value = result.total;
+    books.value = enhanceBooksWithQueueInfo(result.items, queuedBooks);
+  } finally {
+    if (requestId === loadRequestId) {
+      loadingBooks.value = false;
+    }
+  }
 };
 
 // A queued book's UpdateProgress/QueueError events can be missed while disconnected (e.g. a
@@ -165,20 +180,16 @@ const enhanceBooksWithQueueInfo = (
 };
 
 const markBookAsQueued = (book: BookFileInfo, queueId: string) => {
-  var bookIdx = books.value.indexOf(book);
   book.queueId = queueId;
-  if (bookIdx === activePanel.value) {
+  if (activePanel.value === book.fullPath) {
     activePanel.value = null;
   }
 };
 
 const removeBook = (book: BookFileInfo) => {
-  var bookIdx = books.value.indexOf(book);
-  var currentlyOpen = bookIdx === activePanel.value;
-
   books.value = books.value.filter((b) => b != book);
 
-  if (currentlyOpen) {
+  if (activePanel.value === book.fullPath) {
     activePanel.value = null;
   }
 };

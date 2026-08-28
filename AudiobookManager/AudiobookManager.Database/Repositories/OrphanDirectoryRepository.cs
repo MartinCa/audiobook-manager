@@ -14,7 +14,7 @@ public class OrphanDirectoryRepository : IOrphanDirectoryRepository
 
     public async Task<List<OrphanDirectory>> GetAllAsync()
     {
-        return await _db.OrphanDirectories.OrderBy(d => d.DirectoryPath).ToListAsync();
+        return await _db.OrphanDirectories.AsNoTracking().OrderBy(d => d.DirectoryPath).ToListAsync();
     }
 
     public async Task<OrphanDirectory?> GetByIdAsync(long id)
@@ -28,10 +28,26 @@ public class OrphanDirectoryRepository : IOrphanDirectoryRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task InsertRangeAsync(IEnumerable<OrphanDirectory> directories)
+    {
+        var list = directories as ICollection<OrphanDirectory> ?? directories.ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+
+        _db.AddRange(list);
+        await _db.SaveChangesAsync();
+    }
+
     public async Task ClearAllAsync()
     {
-        _db.OrphanDirectories.RemoveRange(_db.OrphanDirectories);
-        await _db.SaveChangesAsync();
+        await _db.OrphanDirectories.ExecuteDeleteAsync();
+
+        foreach (var entry in _db.ChangeTracker.Entries<OrphanDirectory>().ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
     }
 
     public async Task DeleteAsync(long id)

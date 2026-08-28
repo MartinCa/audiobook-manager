@@ -25,7 +25,7 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
 
     public async Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset, string? search = null)
     {
-        var query = _db.DiscoveredAudiobooks.OrderBy(d => d.FileInfoFullPath).AsQueryable();
+        var query = _db.DiscoveredAudiobooks.AsNoTracking().OrderBy(d => d.FileInfoFullPath).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
             query = query.Where(d => d.FileInfoFileName.Contains(search));
@@ -52,17 +52,29 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
 
     public async Task DeleteByPathAsync(string fullPath)
     {
-        var entity = await _db.DiscoveredAudiobooks.FirstOrDefaultAsync(d => d.FileInfoFullPath == fullPath);
-        if (entity != null)
+        await _db.DiscoveredAudiobooks
+            .Where(d => d.FileInfoFullPath == fullPath)
+            .ExecuteDeleteAsync();
+
+        foreach (var entry in _db.ChangeTracker.Entries<DiscoveredAudiobook>()
+                     .Where(e => e.Entity.FileInfoFullPath == fullPath)
+                     .ToList())
         {
-            _db.DiscoveredAudiobooks.Remove(entity);
-            await _db.SaveChangesAsync();
+            entry.State = EntityState.Detached;
         }
     }
 
     public async Task ClearAllAsync()
     {
-        _db.DiscoveredAudiobooks.RemoveRange(_db.DiscoveredAudiobooks);
-        await _db.SaveChangesAsync();
+        // One DELETE rather than fetch-track-delete per row: a scan that just discovered
+        // thousands of files would otherwise pay for all of them at the start of the next scan.
+        await _db.DiscoveredAudiobooks.ExecuteDeleteAsync();
+
+        // ExecuteDeleteAsync bypasses the change tracker; detach so a row inserted by the scan
+        // that follows cannot be resolved back to a stale entity holding a reused rowid.
+        foreach (var entry in _db.ChangeTracker.Entries<DiscoveredAudiobook>().ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
     }
 }

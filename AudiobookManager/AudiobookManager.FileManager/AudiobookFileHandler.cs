@@ -15,11 +15,38 @@ public static class AudiobookFileHandler
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
 
+    /// <summary>
+    /// Comparer form of <see cref="PathComparison"/>, for hash sets/dictionaries keyed by path.
+    /// Any collection that decides "have I already seen this path?" must use this rather than the
+    /// default (always case-sensitive) comparer - see the path-comparison invariant in CLAUDE.md.
+    /// </summary>
+    public static readonly StringComparer PathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
     public static bool PathsEqual(string pathA, string pathB) =>
         string.Equals(Path.GetFullPath(pathA), Path.GetFullPath(pathB), PathComparison);
 
-    public static bool PathStartsWith(string path, string prefix) =>
-        Path.GetFullPath(path).StartsWith(Path.GetFullPath(prefix), PathComparison);
+    /// <summary>
+    /// Whether <paramref name="path"/> is <paramref name="prefix"/> itself or sits underneath it.
+    /// The boundary check matters: a bare string StartsWith would report "/data/library-backup"
+    /// as being inside "/data/library", which would let a caller relying on this for access
+    /// control (FileService.ValidatePathWithinAllowedBases) reach a sibling directory.
+    /// </summary>
+    public static bool PathStartsWith(string path, string prefix)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var fullPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(prefix));
+
+        if (string.Equals(fullPath, fullPrefix, PathComparison))
+        {
+            return true;
+        }
+
+        return fullPath.Length > fullPrefix.Length
+            && fullPath.StartsWith(fullPrefix, PathComparison)
+            && _systemDirectorySeparators.Contains(fullPath[fullPrefix.Length]);
+    }
 
     public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
     {
