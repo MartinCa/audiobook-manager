@@ -29,7 +29,7 @@ public partial class AudibleScraper : IScraper
     [GeneratedRegex(@"\(?([\d,]+) ratings\)?")]
     private static partial Regex ReNumRatings();
 
-    private static readonly Dictionary<string, string> _audibleCommonQueryParameters = new()
+    private static readonly Dictionary<string, string?> _audibleCommonQueryParameters = new()
     {
         ["skip_spell_correction"] = "true",
         ["overrideBaseCountry"] = "true",
@@ -53,7 +53,7 @@ public partial class AudibleScraper : IScraper
 
     public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
-        var queryParameters = new Dictionary<string, string>(_audibleCommonQueryParameters)
+        var queryParameters = new Dictionary<string, string?>(_audibleCommonQueryParameters)
         {
             { "keywords", searchTerm }
         };
@@ -81,7 +81,7 @@ public partial class AudibleScraper : IScraper
 
         return searchResultTasks
             .Select(task => task.Result)
-            .Where(result => result is not null).ToList();
+            .OfType<MetadataSearchResult>().ToList();
     }
 
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
@@ -155,7 +155,7 @@ public partial class AudibleScraper : IScraper
 
         var ratingResult = ParseRating(resultElem);
 
-        return new MetadataSearchResult(link, titleTag.Text().Trim())
+        return new MetadataSearchResult(link, titleTag!.Text().Trim())
         {
             Authors = authors,
             Narrators = narrators ?? new List<Person>(),

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace AudiobookManager.Database;
 public class DatabaseContext : DbContext
 {
-    private readonly AudiobookManagerSettings _settings;
+    private readonly AudiobookManagerSettings? _settings;
 
     public DatabaseContext()
     {

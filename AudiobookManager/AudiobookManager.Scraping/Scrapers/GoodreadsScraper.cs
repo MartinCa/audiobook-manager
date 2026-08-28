@@ -71,7 +71,7 @@ public partial class GoodreadsScraper : IScraper
 
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
-        Dictionary<string, string> queryParameters = new()
+        Dictionary<string, string?> queryParameters = new()
         {
             ["utf8"] = "✓"
         };
@@ -135,7 +135,7 @@ public partial class GoodreadsScraper : IScraper
 
     private async Task<IList<MetadataSearchResult>> SearchViaAutocomplete(HttpClient httpClient, string searchTerm)
     {
-        var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/book/auto_complete", new Dictionary<string, string>
+        var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/book/auto_complete", new Dictionary<string, string?>
         {
             ["format"] = "json",
             ["q"] = searchTerm
@@ -219,7 +219,7 @@ public partial class GoodreadsScraper : IScraper
     {
         var termTokens = searchTerm.Split(" ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        Dictionary<string, string> queryParameters = new()
+        Dictionary<string, string?> queryParameters = new()
         {
             ["utf8"] = "✓",
             ["search_type"] = "books"
@@ -400,7 +400,7 @@ public partial class GoodreadsScraper : IScraper
             _logger.LogWarning(ex, "Failed to parse publisher/language/isbn/asin for {BookUrl}", bookUrl);
         }
 
-        return new MetadataSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName ?? string.Empty)
         {
             Authors = authors,
             Narrators = narrators,
@@ -529,7 +529,7 @@ public partial class GoodreadsScraper : IScraper
 
     private async Task<MetadataSearchResult> ParseLegacyBookDetails(IHtmlDocument doc, string bookUrl)
     {
-        var mainElem = doc.QuerySelector("div#topcol");
+        var mainElem = doc.QuerySelector("div#topcol")!;
         var allAuthors = ParseAuthors(mainElem);
         var narrators = allAuthors.Where(x => string.Equals(x.Role, "Narrator", StringComparison.InvariantCultureIgnoreCase)).ToList();
         var authors = FilterAuthors(allAuthors.Except(narrators));
@@ -569,7 +569,7 @@ public partial class GoodreadsScraper : IScraper
 
         var genres = ParseGenres(doc);
 
-        return new MetadataSearchResult(bookUrl, bookName)
+        return new MetadataSearchResult(bookUrl, bookName ?? string.Empty)
         {
             Authors = authors,
             Narrators = narrators,
@@ -673,13 +673,15 @@ public partial class GoodreadsScraper : IScraper
             contributorEdges.AddRange(secondaryContributorElement.EnumerateArray());
         }
 
-        var contributorRoleMap = contributorEdges.Select(x => new { Ref = x.GetNestedProperty("node", "__ref").GetString().Substring(12), Role = x.GetProperty("role").GetString() });
+        var contributorRoleMap = contributorEdges.Select(x => new { Ref = x.GetNestedProperty("node", "__ref").GetString()?.Substring(12), Role = x.GetProperty("role").GetString() });
 
-        var contributorNameMap = contributorElements.ToDictionary(x => x.GetProperty("id").GetString(), x => x.GetPropertyValueOrNull("name"));
+        var contributorNameMap = contributorElements
+            .Where(x => x.GetProperty("id").GetString() is not null)
+            .ToDictionary(x => x.GetProperty("id").GetString()!, x => x.GetPropertyValueOrNull("name"));
 
         return contributorRoleMap.Select(x =>
         {
-            if (contributorNameMap.TryGetValue(x.Ref, out var result))
+            if (x.Ref is not null && contributorNameMap.TryGetValue(x.Ref, out var result) && result is not null)
             {
                 return new Person(result)
                 {
@@ -689,6 +691,8 @@ public partial class GoodreadsScraper : IScraper
 
             return null;
         })
+            .Where(p => p is not null)
+            .Cast<Person>()
             .ToList();
     }
 
