@@ -391,7 +391,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     {
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
 
-        var issues = DetectIssuesForAudiobook(audiobook);
+        // Detection is blocking work - an ATL parse of the whole m4b, plus several file reads -
+        // and this path is awaited directly by a controller action, so it must not run on the
+        // request thread. (The full check needs no such wrapper: BackgroundOperationRunner
+        // already puts it on the thread pool.)
+        var issues = await Task.Run(() => DetectIssuesForAudiobook(audiobook));
 
         await _issueRepository.InsertRangeAsync(issues);
         return issues;

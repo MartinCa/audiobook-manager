@@ -130,4 +130,37 @@ public class PersonRepositorySearchTests
 
         Assert.AreEqual(0, result.Count);
     }
+
+    [TestMethod]
+    public async Task GetAuthorNamesAsync_OrdersForAReaderNotByCodePoint()
+    {
+        // Regression: this list was moved from an in-memory OrderBy into a SQL ORDER BY, which
+        // silently swapped .NET's culture-aware comparison for SQLite's BINARY collation. That
+        // orders by code point, so every capitalized name sorts before every lowercase one
+        // ("Zadie" before "alice") and accented names land after "Z" - visible nonsense in the
+        // autocomplete this endpoint feeds.
+        await SeedBookWithAuthorAsync("Book A", "alice munro");
+        await SeedBookWithAuthorAsync("Book B", "Zadie Smith");
+        await SeedBookWithAuthorAsync("Book C", "Avila Author");
+        await SeedBookWithAuthorAsync("Book D", "brandon Sanderson");
+
+        var names = await _repository.GetAuthorNamesAsync();
+
+        CollectionAssert.AreEqual(
+            new List<string> { "alice munro", "Avila Author", "brandon Sanderson", "Zadie Smith" },
+            names);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorNamesAsync_ExcludesAuthorsWithNoBooks()
+    {
+        // persons.name is unique, so a name can never appear on two Person rows - the Distinct()
+        // in the query is belt-and-braces, and cannot be exercised from here.
+        await SeedBookWithAuthorAsync("Book A", "Authoring Author");
+        await _repository.GetOrCreatePerson("Orphan Author");
+
+        var names = await _repository.GetAuthorNamesAsync();
+
+        CollectionAssert.AreEqual(new List<string> { "Authoring Author" }, names);
+    }
 }

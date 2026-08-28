@@ -131,7 +131,7 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
 
         return rows
-            .OrderBy(r => r.Series, StringComparer.Ordinal)
+            .OrderBy(r => r.Series, StringComparer.InvariantCulture)
             .Select(r => (r.Series, r.BookCount))
             .ToList();
     }
@@ -139,15 +139,20 @@ public class AudiobookRepository : IAudiobookRepository
     /// <summary>The author's books that belong to no series - the only ones rendered in full.</summary>
     public async Task<List<Audiobook>> GetStandaloneBooksByAuthorAsync(long authorId)
     {
-        return await _db.Audiobooks
+        var books = await _db.Audiobooks
             .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
             .AsSplitQuery()
             .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId))
-            .OrderBy(a => a.BookName).ThenBy(a => a.Id)
             .ToListAsync();
+
+        // Title order for a human, so sorted in memory rather than by SQL's BINARY collation.
+        return books
+            .OrderBy(a => a.BookName, StringComparer.InvariantCulture)
+            .ThenBy(a => a.Id)
+            .ToList();
     }
 
     public async Task<Audiobook?> GetByIdWithIncludesAsync(long id)
@@ -197,13 +202,17 @@ public class AudiobookRepository : IAudiobookRepository
     /// </summary>
     public async Task<List<string>> GetSeriesNamesAsync()
     {
-        return await _db.Audiobooks
+        // Sorted in memory rather than by SQL - see GetAuthorNamesAsync for why SQLite's BINARY
+        // collation is the wrong order for a name list a human reads.
+        var series = await _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.Series != null && a.Series != "")
             .Select(a => a.Series!)
             .Distinct()
-            .OrderBy(s => s)
             .ToListAsync();
+
+        series.Sort(StringComparer.InvariantCulture);
+        return series;
     }
 
     public async Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync()

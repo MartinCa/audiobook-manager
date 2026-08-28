@@ -58,13 +58,19 @@ public class PersonRepository : IPersonRepository
 
     public async Task<List<string>> GetAuthorNamesAsync()
     {
-        return await _db.Persons
+        // Project in SQL, but sort in memory. SQLite's default BINARY collation orders by code
+        // point, so "Zadie" sorts before "alice" and every accented name lands after "Z" - which
+        // is user-visible nonsense in the pick-from-a-list autocomplete this feeds. The row set
+        // is a flat list of distinct names, so sorting it here costs nothing.
+        var names = await _db.Persons
             .AsNoTracking()
             .Where(p => p.BooksAuthored.Any())
             .Select(p => p.Name)
             .Distinct()
-            .OrderBy(n => n)
             .ToListAsync();
+
+        names.Sort(StringComparer.InvariantCulture);
+        return names;
     }
 
     public async Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync()

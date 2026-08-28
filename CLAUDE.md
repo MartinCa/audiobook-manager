@@ -214,6 +214,19 @@ type (`AuthorSummaryRow`, `AuthorBookRef`) or a scalar query (`GetCoverFilePathA
 `GetSeriesNamesAsync`) over `Include` + in-memory reduction, and add `AsNoTracking()` to every
 read-only query.
 
+Two caveats when moving work into SQL:
+- **Moving an `OrderBy` into SQL changes the collation.** SQLite's default is BINARY, i.e. by
+  code point: `"Zadie"` sorts before `"alice"`, and every accented name lands after `"Z"`. That
+  is the wrong order for anything a person reads — the autocomplete name lists
+  (`GetAuthorNamesAsync`, `GetSeriesNamesAsync`) and the author-detail sections deliberately
+  project in SQL but `Sort`/`OrderBy` in memory with `StringComparer.InvariantCulture`. Push the
+  *projection* down; keep presentation ordering in .NET unless the query is also paged (a paged
+  query has to order in SQL — see below — so it gets BINARY order and there is no way around it).
+- **Blocking work does not belong on a request thread.** `DetectIssuesForAudiobook` is
+  synchronous (an ATL parse of the whole m4b plus several file reads), so the single-book
+  recheck wraps it in `Task.Run`. The full check needs no wrapper — `BackgroundOperationRunner`
+  already runs it on the thread pool.
+
 Two more rules for query shape:
 - **A paged query needs a total order.** `OrderBy(a => a.BookName)` is not one — books sharing a
   title have an undefined relative order, so the same row can appear on two pages while another is
