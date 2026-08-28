@@ -70,6 +70,41 @@ public class AudiobookRepositorySearchTests
     }
 
     [TestMethod]
+    public async Task SearchSeriesAsync_UnaccentedQueryMatchesAccentedSeriesName()
+    {
+        // SQLite's default BINARY collation (which LIKE uses) never folds diacritics, so typing
+        // "cafe" for "Café" would otherwise return nothing.
+        await SeedBookAsync("Café Noir 1", "Café Noir");
+
+        var results = await _repository.SearchSeriesAsync("cafe", 10);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("Café Noir", results[0].Series);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_UnaccentedQueryMatchesAccentedBookName()
+    {
+        await SeedBookAsync("Émigré", null);
+
+        var (items, total) = await _repository.SearchAsync("emigre", 10, 0);
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Émigré", items[0].BookName);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_AccentedQueryMatchesUnaccentedBookName()
+    {
+        await SeedBookAsync("Emigre", null);
+
+        var (items, total) = await _repository.SearchAsync("émigré", 10, 0);
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Emigre", items[0].BookName);
+    }
+
+    [TestMethod]
     public async Task SearchSeriesAsync_RespectsLimit()
     {
         await SeedBookAsync("Book A", "Series Alpha");

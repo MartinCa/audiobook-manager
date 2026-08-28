@@ -153,6 +153,39 @@ paths need normalizing (`.`/`..`/`//`/mixed separators), and case-sensitivity is
 When a repository returns a set of paths for membership testing, it takes the comparer from the
 caller (`GetAllFilePathsAsync(AudiobookFileHandler.PathComparer)`) rather than defaulting.
 
+### Search and type-ahead matching must be accent-insensitive
+
+**Invariant: every text search, filter, or autocomplete path a user types into must match
+regardless of diacritics** — typing `Rene` has to find `René`, and typing `René` has to find
+`Rene`. Neither SQLite's default BINARY collation (used by every `LIKE`/`Contains` in this
+codebase — there is no ICU/custom collation registered) nor plain JavaScript string comparison
+folds accents on its own, so this doesn't happen for free; it was audited and found completely
+missing (backend and frontend) before the fix that added the helpers below. When adding a new
+search/filter/autocomplete code path, route it through the existing accent-folding helper for
+its layer rather than comparing raw strings:
+
+- **Backend SQL search** (`AudiobookRepository.SearchAsync`/`SearchSeriesAsync`,
+  `PersonRepository.SearchAuthorSummariesAsync`, `DiscoveredAudiobookRepository.GetPaginatedAsync`)
+  — wrap both the column and the query pattern in `AudiobookManager.Database.Search.AccentFolding`:
+  `EF.Functions.Like(AccentFolding.Fold(column), $"%{AccentFolding.FoldPlain(query)}%")`.
+  `Fold(string?)` is a marker method EF Core translates to a call to the `fold_accents` SQLite
+  scalar function (registered per-connection by `AccentFoldingConnectionInterceptor`, since the
+  connection object doesn't exist yet inside `DbContext.OnConfiguring` — see that class's
+  comment for why a connection interceptor is the correct hook and not `Database.GetDbConnection()`
+  directly). `FoldPlain(string?)` is the real CLR implementation, used both as that SQL function's
+  body and to fold the C#-side query string before it goes into the LIKE pattern.
+- **Frontend filtering/autocomplete** (list-narrowing `computed`s, `narrowByQuery`,
+  `normalizeForMatch`/`isNearMatch` in `client/src/helpers/similarValueMatcher.ts`) — wrap both
+  sides of the comparison in `foldAccents` from that same file
+  (`value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")`, i.e. Unicode NFD decomposition
+  followed by stripping combining marks).
+
+This is orthogonal to `NameNormalizer`/`SimilarityGrouper` (the similar-author/series duplicate
+*detection* feature) — that normalizer is intentionally accent-naive today (`"René"` and `"Rene"`
+cluster only if close enough by edit distance, not because they're treated as equal), since it
+serves a different purpose (flagging likely-duplicate *stored* values) with its own thresholds
+tuned around that behavior. Don't assume fixing one fixes the other.
+
 ### Tag round-trip normalization must mirror the tag writer
 
 `AudiobookService` verifies that saved tags read back as requested before it relocates the file or

@@ -1,4 +1,5 @@
 using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -28,7 +29,8 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         var query = _db.DiscoveredAudiobooks.AsNoTracking().OrderBy(d => d.FileInfoFullPath).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(d => d.FileInfoFileName.Contains(search));
+            var pattern = $"%{AccentFolding.FoldPlain(search)}%";
+            query = query.Where(d => EF.Functions.Like(AccentFolding.Fold(d.FileInfoFileName), pattern));
         }
         var total = await query.CountAsync();
         var items = await query.Skip(offset).Take(limit).ToListAsync();

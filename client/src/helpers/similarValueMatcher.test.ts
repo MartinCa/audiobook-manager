@@ -4,7 +4,20 @@ import {
   isNearMatch,
   findSimilarExisting,
   narrowByQuery,
+  foldAccents,
 } from "./similarValueMatcher";
+
+describe("foldAccents", () => {
+  it("strips combining diacritics", () => {
+    expect(foldAccents("René")).toBe("Rene");
+    expect(foldAccents("Café")).toBe("Cafe");
+    expect(foldAccents("Saint-Exupéry")).toBe("Saint-Exupery");
+  });
+
+  it("leaves unaccented text unchanged", () => {
+    expect(foldAccents("Rene")).toBe("Rene");
+  });
+});
 
 describe("normalizeForMatch", () => {
   it("returns empty string for null/undefined/empty input", () => {
@@ -36,6 +49,12 @@ describe("normalizeForMatch", () => {
 
   it("keeps trailing initials merged when they end the string", () => {
     expect(normalizeForMatch("Rowling J K")).toBe("rowling jk");
+  });
+
+  it("folds diacritics so accented and unaccented spellings normalize identically", () => {
+    expect(normalizeForMatch("René Descartes")).toBe(
+      normalizeForMatch("Rene Descartes"),
+    );
   });
 });
 
@@ -121,5 +140,15 @@ describe("narrowByQuery", () => {
   it("respects the limit parameter", () => {
     const many = ["Anna", "Anne", "Annie", "Annette"];
     expect(narrowByQuery("ann", many, 2)).toEqual(["Anna", "Anne"]);
+  });
+
+  it("matches an unaccented query against an accented value", () => {
+    expect(narrowByQuery("rene", ["René Descartes"])).toEqual([
+      "René Descartes",
+    ]);
+  });
+
+  it("matches an accented query against an unaccented value", () => {
+    expect(narrowByQuery("café", ["Cafe Noir"])).toEqual(["Cafe Noir"]);
   });
 });

@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -50,7 +51,9 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset)
     {
-        var pattern = $"%{query}%";
+        // Fold both sides so an unaccented query (e.g. "Rene") still matches an accented value
+        // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
+        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
 
         var dbQuery = _db.Audiobooks
             .AsNoTracking()
@@ -59,11 +62,11 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Genres)
             .AsSplitQuery()
             .Where(a =>
-                (a.BookName != null && EF.Functions.Like(a.BookName, pattern)) ||
-                (a.Subtitle != null && EF.Functions.Like(a.Subtitle, pattern)) ||
-                (a.Description != null && EF.Functions.Like(a.Description, pattern)) ||
-                (a.Series != null && EF.Functions.Like(a.Series, pattern)) ||
-                a.Authors.Any(p => EF.Functions.Like(p.Name, pattern))
+                (a.BookName != null && EF.Functions.Like(AccentFolding.Fold(a.BookName), pattern)) ||
+                (a.Subtitle != null && EF.Functions.Like(AccentFolding.Fold(a.Subtitle), pattern)) ||
+                (a.Description != null && EF.Functions.Like(AccentFolding.Fold(a.Description), pattern)) ||
+                (a.Series != null && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern)) ||
+                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), pattern))
             )
             .OrderBy(a => a.BookName).ThenBy(a => a.Id);
 
@@ -74,10 +77,10 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit)
     {
-        var pattern = $"%{query}%";
+        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
 
         var rows = await _db.Audiobooks
-            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.Series, pattern))
+            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern))
             .GroupBy(a => a.Series!)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
             .OrderBy(g => g.Series)

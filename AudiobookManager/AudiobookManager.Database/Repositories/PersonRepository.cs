@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -85,11 +86,11 @@ public class PersonRepository : IPersonRepository
 
     public async Task<List<AuthorSummaryRow>> SearchAuthorSummariesAsync(string query, int limit)
     {
-        var pattern = $"%{query}%";
+        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
 
         return await _db.Persons
             .AsNoTracking()
-            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.Name, pattern))
+            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(AccentFolding.Fold(p.Name), pattern))
             .OrderBy(p => p.Name)
             .Take(limit)
             .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))

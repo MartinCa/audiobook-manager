@@ -184,6 +184,7 @@ import { HubEventToken } from "@/signalr/hub";
 import { useOperationProgress } from "../../composables/useOperationProgress";
 import { SeriesRefreshProgress } from "../../signalr/SeriesRefreshProgress";
 import { SeriesRefreshComplete } from "../../signalr/SeriesRefreshComplete";
+import { foldAccents } from "../../helpers/similarValueMatcher";
 
 const SeriesRefreshProgressToken: HubEventToken<SeriesRefreshProgress> =
   "SeriesRefreshProgress";
@@ -207,11 +208,11 @@ const busy = computed(() => loading.value || refreshing.value);
 
 const filteredSeries = computed(() => {
   if (!filter.value) return series.value;
-  const q = filter.value.toLowerCase();
+  const q = foldAccents(filter.value.toLowerCase());
   return series.value.filter(
     (s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.authors.some((a) => a.toLowerCase().includes(q)),
+      foldAccents(s.name.toLowerCase()).includes(q) ||
+      s.authors.some((a) => foldAccents(a.toLowerCase()).includes(q)),
   );
 });
 

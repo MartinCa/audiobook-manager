@@ -1,6 +1,7 @@
 ﻿using System.Reflection;
 using AudiobookManager.Database.EntityMappings;
 using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Search;
 using AudiobookManager.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -22,6 +23,8 @@ public class DatabaseContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SeriesMappingMapping).Assembly);
+        modelBuilder.HasDbFunction(typeof(AccentFolding).GetMethod(nameof(AccentFolding.Fold))!)
+            .HasName(AccentFolding.SqlFunctionName);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -29,7 +32,8 @@ public class DatabaseContext : DbContext
         var dbPath = _settings?.DbLocation ?? "testdb.db";
         var connectionString = $"Data Source={dbPath}";
         optionsBuilder.UseSqlite(connectionString, options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
-            .UseSnakeCaseNamingConvention();
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(new AccentFoldingConnectionInterceptor());
     }
 
     public DbSet<SeriesMapping> SeriesMappings { get; set; }

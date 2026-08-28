@@ -6,9 +6,18 @@
  * the bulk-align feature.
  */
 
+/**
+ * Strips combining diacritics (e.g. "é" -> "e") so accent-insensitive comparisons can be done
+ * with a plain equality/substring check. JS string comparison never folds accents on its own -
+ * "rene".includes("rené") is false without this.
+ */
+export function foldAccents(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 export function normalizeForMatch(value: string | null | undefined): string {
   if (!value) return "";
-  let normalized = value.trim().toLowerCase();
+  let normalized = foldAccents(value.trim().toLowerCase());
   normalized = normalized.replace(/&/g, " and ");
   normalized = normalized.replace(/\./g, " ");
   normalized = normalized.replace(/\s+/g, " ").trim();
@@ -102,9 +111,9 @@ export function narrowByQuery(
   existingValues: string[],
   limit = 10,
 ): string[] {
-  const trimmed = query.trim().toLowerCase();
+  const trimmed = foldAccents(query.trim().toLowerCase());
   if (!trimmed) return [];
   return existingValues
-    .filter((v) => v.toLowerCase().includes(trimmed))
+    .filter((v) => foldAccents(v.toLowerCase()).includes(trimmed))
     .slice(0, limit);
 }
