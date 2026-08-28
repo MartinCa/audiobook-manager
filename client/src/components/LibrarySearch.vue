@@ -9,6 +9,7 @@
     <template v-slot:activator="{ props }">
       <v-text-field
         v-bind="props"
+        ref="searchField"
         v-model="query"
         placeholder="Search books, authors, series"
         prepend-inner-icon="mdi-magnify"
@@ -19,7 +20,7 @@
         flat
         style="max-width: 360px"
         @focus="onFocus"
-        @keydown.esc="menuOpen = false"
+        @keydown.esc="closeSearch"
       />
     </template>
 
@@ -32,7 +33,7 @@
             :key="`book-${book.id}`"
             :to="`/library/book/${book.id}`"
             prepend-icon="mdi-book"
-            @click="menuOpen = false"
+            @click="closeSearch"
           >
             <v-list-item-title>{{ book.bookName }}</v-list-item-title>
             <v-list-item-subtitle>
@@ -51,7 +52,7 @@
             :key="`author-${author.id}`"
             :to="`/library/authors/${author.id}`"
             prepend-icon="mdi-account"
-            @click="menuOpen = false"
+            @click="closeSearch"
           >
             <v-list-item-title>{{ author.name }}</v-list-item-title>
             <v-list-item-subtitle>
@@ -68,7 +69,7 @@
             :key="`series-${series.name}`"
             :to="`/library/series/${encodeURIComponent(series.name)}`"
             prepend-icon="mdi-bookshelf"
-            @click="menuOpen = false"
+            @click="closeSearch"
           >
             <v-list-item-title>{{ series.name }}</v-list-item-title>
             <v-list-item-subtitle>
@@ -84,16 +85,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { debounce } from "lodash";
 import LibrarySearchService from "../services/LibrarySearchService";
 import LibrarySearchResult from "../types/LibrarySearchResult";
 
 const MIN_QUERY_LENGTH = 2;
 
+const route = useRoute();
 const query = ref("");
 const menuOpen = ref(false);
 const searched = ref(false);
+const searchField = ref();
 const results = ref<LibrarySearchResult>({
   books: [],
   authors: [],
@@ -141,4 +145,30 @@ const onFocus = () => {
     menuOpen.value = true;
   }
 };
+
+const resetSearch = () => {
+  requestId++;
+  query.value = "";
+  results.value = { books: [], authors: [], series: [] };
+  searched.value = false;
+  menuOpen.value = false;
+};
+
+const closeSearch = () => {
+  resetSearch();
+  searchField.value?.blur();
+};
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (menuOpen.value) {
+      resetSearch();
+    }
+  },
+);
+
+onUnmounted(() => {
+  debouncedSearch.cancel();
+});
 </script>
