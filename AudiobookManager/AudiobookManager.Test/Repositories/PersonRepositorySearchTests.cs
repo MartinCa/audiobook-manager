@@ -84,6 +84,19 @@ public class PersonRepositorySearchTests
     }
 
     [TestMethod]
+    public async Task SearchAuthorSummariesAsync_UnaccentedQueryMatchesAccentedAuthorName()
+    {
+        // SQLite's default BINARY collation (which LIKE uses) never folds diacritics, so typing
+        // "rene" for "René" would otherwise return nothing - unfriendly for a name search.
+        await SeedBookWithAuthorAsync("Le Petit Prince", "Antoine de Saint-Exupéry");
+
+        var results = await _repository.SearchAuthorSummariesAsync("exupery", 10);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("Antoine de Saint-Exupéry", results[0].Name);
+    }
+
+    [TestMethod]
     public async Task GetOrCreatePersons_AllNamesNew_CreatesEveryOneInASingleBatch()
     {
         var result = await _repository.GetOrCreatePersons(new[] { "Brandon Sanderson", "Frank Herbert" });

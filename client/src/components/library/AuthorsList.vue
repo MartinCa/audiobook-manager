@@ -70,6 +70,7 @@
 import { computed, onMounted, ref } from "vue";
 import BrowseService from "../../services/BrowseService";
 import AuthorSummary from "../../types/AuthorSummary";
+import { foldAccents } from "../../helpers/similarValueMatcher";
 
 const authors = ref<AuthorSummary[]>([]);
 const filter = ref("");
@@ -77,8 +78,10 @@ const loading = ref(false);
 
 const filteredAuthors = computed(() => {
   if (!filter.value) return authors.value;
-  const q = filter.value.toLowerCase();
-  return authors.value.filter((a) => a.name.toLowerCase().includes(q));
+  const q = foldAccents(filter.value.toLowerCase());
+  return authors.value.filter((a) =>
+    foldAccents(a.name.toLowerCase()).includes(q),
+  );
 });
 
 onMounted(async () => {
