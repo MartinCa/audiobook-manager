@@ -13,7 +13,7 @@ public interface IAudiobookService
 
     Task<TargetPathCollisionResult> CheckTargetPathCollision(Audiobook audiobook);
 
-    Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook);
+    Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null);
 
     Task<Audiobook?> GetAudiobookById(long id);
 }

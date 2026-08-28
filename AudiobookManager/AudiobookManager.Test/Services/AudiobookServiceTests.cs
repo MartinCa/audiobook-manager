@@ -438,6 +438,113 @@ public class AudiobookServiceTests
 
     #endregion
 
+    #region OrganizeAudiobook
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_MovesFileWritesSidecarsAndInsertsAudiobook_ReportsProgressPhasesInOrder()
+    {
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var author = new Person("New Author");
+        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000))
+        {
+            Narrators = new List<Person> { new Person("New Narrator") }
+        };
+
+        var expectedPath = _service.GenerateLibraryPath(audiobook);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Narrators = new List<Person> { new Person("New Narrator") }
+            });
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 5;
+                return db;
+            });
+
+        var progressLog = new List<(string Message, int Progress)>();
+        Task ProgressAction(string message, int progress)
+        {
+            progressLog.Add((message, progress));
+            return Task.CompletedTask;
+        }
+
+        var result = await _service.OrganizeAudiobook(audiobook, ProgressAction);
+
+        Assert.AreEqual(expectedPath, result.FileInfo.FullPath);
+        Assert.IsTrue(File.Exists(expectedPath), "File should have been relocated into the library");
+        Assert.IsFalse(File.Exists(importPath), "File should no longer exist at the import path");
+        Assert.IsFalse(Directory.Exists(Path.GetDirectoryName(importPath)), "Now-empty import directory should be removed");
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.FileInfoFullPath == expectedPath)), Times.Once);
+
+        // Asserts the shared pipeline reports the same phase names/percentages OrganizeAudiobook
+        // always has, so a future divergence from UpdateAudiobook's phases would fail this test.
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                ("Started", 0),
+                ("Saved tags", 70),
+                ("Generated new path, relocating", 75),
+                ("Relocated", 80),
+                ("Reparsed", 85),
+                ("Written metadata files", 90),
+                ("Written cover", 95),
+                ("Done", 100)
+            },
+            progressLog);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_TagsDoNotRoundTripAfterSave_ThrowsAndDoesNotInsertOrRelocate()
+    {
+        // Regression test: the shared pipeline's tag round-trip verification (previously present
+        // only in UpdateAudiobook - see the identically-named UpdateAudiobook test above) must also
+        // guard OrganizeAudiobook now that both flows share it, so an organize can never silently
+        // insert a DB record whose tags don't match what's really on disk.
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var author = new Person("New Author");
+        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000))
+        {
+            Narrators = new List<Person> { new Person("New Narrator") }
+        };
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        // Simulate the tag write not actually persisting the narrator, even though
+        // SaveAudiobookTagsToFile reported success.
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            .Returns((FileInfo fi) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Narrators = new List<Person> { new Person("Stale Narrator") }
+            });
+
+        await Assert.ThrowsExactlyAsync<Exception>(() => _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask));
+
+        Assert.IsTrue(File.Exists(importPath), "File must not have been relocated since the round-trip check failed before relocation");
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()), Times.Never);
+    }
+
+    #endregion
+
     #region CheckTargetPathCollision
 
     private static Audiobook MakeAudiobookForCollisionCheck(string bookName = "Children of Time", int year = 2016, string sourcePath = "/import/book.m4b") =>

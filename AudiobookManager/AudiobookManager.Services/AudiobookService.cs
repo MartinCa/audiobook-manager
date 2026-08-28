@@ -82,6 +82,25 @@ public class AudiobookService : IAudiobookService
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
+        var newParsed = await WriteTagsRelocateAndWriteSidecarsAsync(audiobook, oldDirectory, progressAction);
+
+        await InsertAudiobook(newParsed);
+
+        await progressAction("Done", 100);
+
+        return newParsed;
+    }
+
+    /// <summary>
+    /// Shared "write tags -> verify round-trip -> relocate -> write sidecars" pipeline used by
+    /// both <see cref="OrganizeAudiobook"/> and <see cref="UpdateAudiobook"/>. Keeping this in one
+    /// place means the two flows can't silently diverge in behavior (as happened previously, e.g.
+    /// when only one of them verified the tag round-trip) - only the DB insert-vs-update step is
+    /// left to the caller. Reports progress through the same phase names/percentages for both
+    /// callers so their UIs stay in sync.
+    /// </summary>
+    private async Task<Audiobook> WriteTagsRelocateAndWriteSidecarsAsync(Audiobook audiobook, string? oldDirectory, Func<string, int, Task> progressAction)
+    {
         var sw = new Stopwatch();
         sw.Start();
 
@@ -100,15 +119,58 @@ public class AudiobookService : IAudiobookService
             }
         };
 
-        _tagHandler.SaveAudiobookTagsToFile(audiobook, saveTagsProgressAction);
+        try
+        {
+            _tagHandler.SaveAudiobookTagsToFile(audiobook, saveTagsProgressAction);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw WrapPermissionException(ex, audiobook.FileInfo.FullPath);
+        }
 
         _logger.LogInformation("({audiobookFile}) Saving tags to file took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
 
         await progressAction("Saved tags", afterTagsProgress);
 
+        // Verify the tags we just asked to be written actually round-tripped, before relocating
+        // the file or touching the DB. Writing tags can silently fail to persist a subset of
+        // fields for some m4b files - most commonly a file with non-contiguous QuickTime chapters,
+        // which ATL cannot rewrite in place (look for an "ignoring Quicktime chapters" ATL warning
+        // in the log around this time; remuxing the file, e.g. `ffmpeg -i in.m4b -c copy
+        // -map_metadata 0 out.m4b`, resolves it) - which would otherwise leave the DB record - and
+        // the file's new library path, generated from these same fields - out of sync with what's
+        // really on disk. Checking here, at the original location and before any move, turns a
+        // silent desync into a visible save failure instead of leaving a relocated file with stale
+        // tags for the consistency check to discover later.
+        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath);
+        var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
+        if (mismatches.Count > 0)
+        {
+            foreach (var (field, expected, actual) in mismatches)
+            {
+                _logger.LogWarning(
+                    "({audiobookFile}) Tag round-trip mismatch on field {field}: requested '{expected}', file has '{actual}' after save",
+                    audiobook.FileInfo.FullPath, field, expected, actual);
+            }
+
+            throw new Exception(
+                $"Saved tags did not match the requested metadata for '{audiobook.FileInfo.FullPath}': " +
+                $"{string.Join(", ", mismatches.Select(m => m.Field))}. This can happen when the file has " +
+                "non-contiguous QuickTime chapters that ATL cannot rewrite in place (check the app log around " +
+                "this time for an ATL warning about \"ignoring Quicktime chapters\"); remuxing the file " +
+                "(e.g. `ffmpeg -i in.m4b -c copy -map_metadata 0 out.m4b`) resolves it in that case.");
+        }
+
         var newFullPath = GenerateLibraryPath(audiobook);
 
-        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory, sw, progressAction, relocatingProgress: 75, relocatedProgress: 80);
+        try
+        {
+            newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory, sw, progressAction, relocatingProgress: 75, relocatedProgress: 80);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw WrapPermissionException(ex, newFullPath);
+        }
 
         var newParsed = ParseAudiobook(newFullPath);
 
@@ -123,10 +185,6 @@ public class AudiobookService : IAudiobookService
         await progressAction("Written cover", 95);
 
         _logger.LogInformation("({audiobookFile}) Writing metadata files took {timeTakenInMs} ms", audiobook.FileInfo.FullPath, sw.ElapsedMilliseconds);
-
-        await InsertAudiobook(newParsed);
-
-        await progressAction("Done", 100);
 
         return newParsed;
     }
@@ -260,75 +318,19 @@ public class AudiobookService : IAudiobookService
         return domain;
     }
 
-    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook)
+    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null)
     {
+        progressAction ??= (_, _) => Task.CompletedTask;
+
         var existing = await _audiobookRepository.GetByIdWithIncludesAsync(id);
         if (existing == null)
             throw new Exception($"Audiobook with id {id} not found");
 
-        var oldFilePath = existing.FileInfoFullPath;
-        var oldDirectory = Path.GetDirectoryName(oldFilePath);
+        var oldDirectory = Path.GetDirectoryName(existing.FileInfoFullPath);
 
-        // Save tags to the m4b file
         audiobook.FileInfo = new AudiobookFileInfo(existing.FileInfoFullPath, existing.FileInfoFileName, existing.FileInfoSizeInBytes);
-        try
-        {
-            _tagHandler.SaveAudiobookTagsToFile(audiobook, _ => { });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw WrapPermissionException(ex, audiobook.FileInfo.FullPath);
-        }
 
-        // Verify the tags we just asked to be written actually round-tripped, before relocating
-        // the file or touching the DB. Writing tags can silently fail to persist a subset of
-        // fields for some m4b files - most commonly a file with non-contiguous QuickTime chapters,
-        // which ATL cannot rewrite in place (look for an "ignoring Quicktime chapters" ATL warning
-        // in the log around this time; remuxing the file, e.g. `ffmpeg -i in.m4b -c copy
-        // -map_metadata 0 out.m4b`, resolves it) - which would otherwise leave the DB record - and
-        // the file's new library path, generated from these same fields - out of sync with what's
-        // really on disk. Checking here, at the original location and before any move, turns a
-        // silent desync into a visible save failure instead of leaving a relocated file with stale
-        // tags for the consistency check to discover later.
-        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath);
-        var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
-        if (mismatches.Count > 0)
-        {
-            foreach (var (field, expected, actual) in mismatches)
-            {
-                _logger.LogWarning(
-                    "({audiobookFile}) Tag round-trip mismatch on field {field}: requested '{expected}', file has '{actual}' after save",
-                    audiobook.FileInfo.FullPath, field, expected, actual);
-            }
-
-            throw new Exception(
-                $"Saved tags did not match the requested metadata for '{audiobook.FileInfo.FullPath}': " +
-                $"{string.Join(", ", mismatches.Select(m => m.Field))}. This can happen when the file has " +
-                "non-contiguous QuickTime chapters that ATL cannot rewrite in place (check the app log around " +
-                "this time for an ATL warning about \"ignoring Quicktime chapters\"); remuxing the file " +
-                "(e.g. `ffmpeg -i in.m4b -c copy -map_metadata 0 out.m4b`) resolves it in that case.");
-        }
-
-        // Check if the file needs to be relocated
-        var newFullPath = GenerateLibraryPath(audiobook);
-        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath}", audiobook.FileInfo.FullPath, newFullPath);
-        try
-        {
-            newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw WrapPermissionException(ex, newFullPath);
-        }
-        audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
-
-        // Re-parse from current location to get updated metadata
-        var currentPath = audiobook.FileInfo.FullPath;
-        var newParsed = ParseAudiobook(currentPath);
-
-        // Write sidecar files
-        AudiobookFileHandler.WriteMetadata(newParsed);
-        newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
+        var newParsed = await WriteTagsRelocateAndWriteSidecarsAsync(audiobook, oldDirectory, progressAction);
 
         // Update DB record
         var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
@@ -346,14 +348,16 @@ public class AudiobookService : IAudiobookService
         existing.Www = audiobook.Www;
         existing.CoverFilePath = newParsed.CoverFilePath;
         existing.DurationInSeconds = newParsed.DurationInSeconds;
-        existing.FileInfoFullPath = audiobook.FileInfo.FullPath;
-        existing.FileInfoFileName = audiobook.FileInfo.FileName;
-        existing.FileInfoSizeInBytes = audiobook.FileInfo.SizeInBytes;
+        existing.FileInfoFullPath = newParsed.FileInfo.FullPath;
+        existing.FileInfoFileName = newParsed.FileInfo.FileName;
+        existing.FileInfoSizeInBytes = newParsed.FileInfo.SizeInBytes;
         existing.Authors = authors;
         existing.Narrators = narrators;
         existing.Genres = genres;
 
         await _audiobookRepository.UpdateAudiobookAsync(existing);
+
+        await progressAction("Done", 100);
 
         return FromDb(existing);
     }
