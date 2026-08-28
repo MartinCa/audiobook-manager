@@ -132,6 +132,21 @@ public class AudiobookService : IAudiobookService
     }
 
     /// <summary>
+    /// Wraps a permission-denied failure from a tag write or file relocation with a clearer,
+    /// actionable message. Permission drift on the library's files (a different owner/group than
+    /// the one this application runs as) is a common source of confusing raw .NET exception text,
+    /// particularly on setups like unRAID where the mover process, other containers, or manual
+    /// host-side changes can leave files owned by someone other than this app's configured user.
+    /// </summary>
+    private static Exception WrapPermissionException(UnauthorizedAccessException ex, string path)
+    {
+        return new Exception(
+            $"Permission denied writing to '{path}'. This usually means the file (or its directory) " +
+            "is owned by a different user/group than the one this application runs as - check the " +
+            "file's ownership and permissions match what the container expects.", ex);
+    }
+
+    /// <summary>
     /// Moves the audiobook's file to <paramref name="newFullPath"/> if it differs from its current path,
     /// throwing if a file already occupies the destination, and cleans up sidecar files left behind in
     /// <paramref name="oldDirectory"/> when it moved to a different directory. No-ops (no exists-check,
@@ -256,11 +271,55 @@ public class AudiobookService : IAudiobookService
 
         // Save tags to the m4b file
         audiobook.FileInfo = new AudiobookFileInfo(existing.FileInfoFullPath, existing.FileInfoFileName, existing.FileInfoSizeInBytes);
-        _tagHandler.SaveAudiobookTagsToFile(audiobook, _ => { });
+        try
+        {
+            _tagHandler.SaveAudiobookTagsToFile(audiobook, _ => { });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw WrapPermissionException(ex, audiobook.FileInfo.FullPath);
+        }
+
+        // Verify the tags we just asked to be written actually round-tripped, before relocating
+        // the file or touching the DB. Writing tags can silently fail to persist a subset of
+        // fields for some m4b files - most commonly a file with non-contiguous QuickTime chapters,
+        // which ATL cannot rewrite in place (look for an "ignoring Quicktime chapters" ATL warning
+        // in the log around this time; remuxing the file, e.g. `ffmpeg -i in.m4b -c copy
+        // -map_metadata 0 out.m4b`, resolves it) - which would otherwise leave the DB record - and
+        // the file's new library path, generated from these same fields - out of sync with what's
+        // really on disk. Checking here, at the original location and before any move, turns a
+        // silent desync into a visible save failure instead of leaving a relocated file with stale
+        // tags for the consistency check to discover later.
+        var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath);
+        var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
+        if (mismatches.Count > 0)
+        {
+            foreach (var (field, expected, actual) in mismatches)
+            {
+                _logger.LogWarning(
+                    "({audiobookFile}) Tag round-trip mismatch on field {field}: requested '{expected}', file has '{actual}' after save",
+                    audiobook.FileInfo.FullPath, field, expected, actual);
+            }
+
+            throw new Exception(
+                $"Saved tags did not match the requested metadata for '{audiobook.FileInfo.FullPath}': " +
+                $"{string.Join(", ", mismatches.Select(m => m.Field))}. This can happen when the file has " +
+                "non-contiguous QuickTime chapters that ATL cannot rewrite in place (check the app log around " +
+                "this time for an ATL warning about \"ignoring Quicktime chapters\"); remuxing the file " +
+                "(e.g. `ffmpeg -i in.m4b -c copy -map_metadata 0 out.m4b`) resolves it in that case.");
+        }
 
         // Check if the file needs to be relocated
         var newFullPath = GenerateLibraryPath(audiobook);
-        newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
+        _logger.LogInformation("({audiobookFile}) Relocating to {newFullPath}", audiobook.FileInfo.FullPath, newFullPath);
+        try
+        {
+            newFullPath = await RelocateIfPathChangedAsync(audiobook, newFullPath, oldDirectory);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw WrapPermissionException(ex, newFullPath);
+        }
         audiobook.FileInfo = new AudiobookFileInfo(newFullPath, Path.GetFileName(newFullPath), audiobook.FileInfo.SizeInBytes);
 
         // Re-parse from current location to get updated metadata

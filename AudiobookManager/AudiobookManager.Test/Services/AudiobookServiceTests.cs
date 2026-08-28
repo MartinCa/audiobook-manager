@@ -374,6 +374,68 @@ public class AudiobookServiceTests
         _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
     }
 
+    [TestMethod]
+    public async Task UpdateAudiobook_TagWriteThrowsUnauthorizedAccess_WrapsWithActionableMessage()
+    {
+        // Regression test: a raw UnauthorizedAccessException (e.g. from a file owned by a
+        // different user/group than the app runs as - common on unRAID/Linux setups) must not
+        // reach the caller as opaque .NET exception text; it should be wrapped with guidance
+        // pointing at the permission mismatch.
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Throws(new UnauthorizedAccessException("Access to the path is denied."));
+
+        var updateDto = new Audiobook(new List<Person> { new Person("Old Author") }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        var ex = await Assert.ThrowsExactlyAsync<Exception>(() => _service.UpdateAudiobook(1, updateDto));
+
+        Assert.IsInstanceOfType<UnauthorizedAccessException>(ex.InnerException);
+        StringAssert.Contains(ex.Message, "Permission denied");
+        StringAssert.Contains(ex.Message, oldFilePath);
+        Assert.IsTrue(File.Exists(oldFilePath), "File must not have been relocated since tag write failed before relocation");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_TagsDoNotRoundTripAfterSave_ThrowsAndDoesNotUpdateDbOrRelocate()
+    {
+        // Regression test: a save must not silently succeed when the tags actually written to
+        // the m4b (as re-parsed from disk) don't match what was requested - that desync is
+        // exactly what immediately re-surfaces as "Wrong File Path"/"Tag Mismatch" consistency
+        // issues right after a save, even though the save reported success.
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var newAuthor = new Person("New Author");
+        var updateDto = new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Narrators = new List<Person> { new Person("New Narrator") }
+        };
+
+        // Simulate the tag write not actually persisting the narrator (leaving a stale value on
+        // disk) even though SaveAudiobookTagsToFile reported success.
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>()))
+            .Returns((FileInfo fi) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Narrators = new List<Person> { new Person("Stale Old Narrator") }
+            });
+
+        await Assert.ThrowsExactlyAsync<Exception>(() => _service.UpdateAudiobook(1, updateDto));
+
+        Assert.IsTrue(File.Exists(oldFilePath), "File must not have been relocated since the round-trip check failed before relocation");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
+    }
+
     #endregion
 
     #region CheckTargetPathCollision
