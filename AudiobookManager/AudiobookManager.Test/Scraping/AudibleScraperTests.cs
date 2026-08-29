@@ -272,4 +272,31 @@ public class AudibleScraperTests
 
         Assert.IsNull(result);
     }
+
+    // Regression test: the regex that extracts ASIN from the URL failed to match on this non-/pd/ URL.
+    // The previous code checked `if (match is null)`, which is always false for `Regex.Match()`,
+    // causing it to evaluate `match.Groups[1].Value` and return "" instead of null.
+    [TestMethod]
+    public async Task ParseAudibleDetails_UrlWithoutAsin_SetsAsinToNull()
+    {
+        var target = CreateScraper();
+        var html = """
+            <html><body>
+            <script type="application/ld+json">
+            {
+                "@context": "http://schema.org",
+                "@type": "Audiobook",
+                "name": "A Standalone Book",
+                "author": [ { "@type": "Person", "name": "Some Author" } ],
+                "duration": "PT45M"
+            }
+            </script>
+            </body></html>
+            """;
+        var bookUrl = "https://www.audible.com/author/Some-Author/B0000";
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        Assert.IsNull(result.Asin);
+    }
 }

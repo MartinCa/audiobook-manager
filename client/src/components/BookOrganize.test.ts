@@ -128,3 +128,22 @@ describe("BookOrganize path regeneration debounce", () => {
     expect(mockedGenerateNewPath.mock.calls.length).toBe(callsBeforeUnmount);
   });
 });
+
+describe("BookOrganize error handling", () => {
+  it("_ThrowsUserNotificationErrorWhenOrganizingWithoutBookDetails", async () => {
+    mockedParseBookDetails.mockReturnValue(new Promise(() => {}));
+    // We intentionally do not wait for parseBookDetails to populate bookDetails
+    const wrapper = mountComponent();
+    const vm = wrapper.vm as any;
+
+    // We mock the form validation to pass so we can reach the organizeBook logic
+    wrapper.getCurrentComponent().setupState.bookEditForm = {
+      validate: vi.fn().mockResolvedValue(true),
+    };
+
+    // The method should throw UserNotificationError
+    await expect(vm.organizeBook()).rejects.toThrow(
+      "Failed to convert input to audiobook data.",
+    );
+  });
+});
