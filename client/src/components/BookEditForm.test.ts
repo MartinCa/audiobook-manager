@@ -420,12 +420,15 @@ describe("BookEditForm similar-entries hint", () => {
       props: {
         input: { bookName: "Original", language: undefined },
         defaultEmptyLanguage: false,
+        searchBookDetails: {} as any,
+        currentPath: "current.m4b",
+        newPath: "new.m4b",
       },
     });
 
     await flushPromises();
 
-    const vm = wrapper.vm;
+    const vm = wrapper.vm as any;
     vm.applyPreviewedTags(searchResult, new Set(["language", "bookName"]));
     await flushPromises();
     expect(vm.input.language).toBeUndefined();

@@ -137,7 +137,7 @@ describe("BookOrganize error handling", () => {
     const vm = wrapper.vm as any;
 
     // We mock the form validation to pass so we can reach the organizeBook logic
-    wrapper.getCurrentComponent().setupState.bookEditForm = {
+    (wrapper.getCurrentComponent() as any).setupState.bookEditForm = {
       validate: vi.fn().mockResolvedValue(true),
     };
 
