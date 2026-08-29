@@ -86,8 +86,10 @@ public class LibraryScanServiceTests
         Assert.AreEqual(1, newFiles);
         Assert.AreEqual(0, trackedFiles);
 
-        _discoveredAudiobookRepository.Verify(r => r.InsertAsync(It.Is<DiscoveredAudiobook>(d =>
-            d.FileInfoFullPath == filePath && d.BookName == "A Book")), Times.Once);
+        // Inserted as part of a batch rather than one transaction per file.
+        _discoveredAudiobookRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<DiscoveredAudiobook>>(batch =>
+            batch.Count(d => d.FileInfoFullPath == filePath && d.BookName == "A Book") == 1)), Times.Once);
+        _discoveredAudiobookRepository.Verify(r => r.InsertAsync(It.IsAny<DiscoveredAudiobook>()), Times.Never);
 
         Assert.AreEqual(1, progressCalls.Count);
         Assert.IsTrue(progressCalls[0].message.StartsWith("Discovered:"));
@@ -196,7 +198,7 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_MultipleFiles_ProgressReportsIncrementingScannedCountAgainstFixedTotal()
+    public async Task ScanLibrary_MultipleFiles_ReportsFinalProgressAgainstFixedTotal()
     {
         var file1 = Path.Combine(_libraryPath, "a.m4b");
         var file2 = Path.Combine(_libraryPath, "b.m4b");
@@ -215,9 +217,72 @@ public class LibraryScanServiceTests
 
         await _service.ScanLibrary(progressAction);
 
-        Assert.AreEqual(2, progressCalls.Count);
-        CollectionAssert.AreEquivalent(new[] { 1, 2 }, progressCalls.Select(c => c.scanned).ToList());
-        Assert.IsTrue(progressCalls.All(c => c.total == 2));
+        // Progress is broadcast every 25 files plus once at the end, so a two-file scan reports
+        // exactly once - at completion, against the fixed total.
+        Assert.AreEqual(1, progressCalls.Count);
+        Assert.AreEqual(2, progressCalls[0].scanned);
+        Assert.AreEqual(2, progressCalls[0].total);
+    }
+
+    // Regression test: the scan used to await a SignalR broadcast for every single file (and on
+    // the already-tracked branch too), so a large library sent one hub message per book -
+    // thousands the client throttles away unseen. Fails against the unbatched code, which
+    // reported 60 times here.
+    [TestMethod]
+    public async Task ScanLibrary_ManyFiles_DoesNotBroadcastProgressPerFile()
+    {
+        const int fileCount = 60;
+        for (var i = 0; i < fileCount; i++)
+        {
+            await File.WriteAllTextAsync(Path.Combine(_libraryPath, $"book-{i:D3}.m4b"), "fake audio");
+        }
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => MakeParsedAudiobook(fi.FullName));
+
+        var progressCalls = new List<int>();
+        Func<string, int, int, Task> progressAction = (_, scanned, _) =>
+        {
+            progressCalls.Add(scanned);
+            return Task.CompletedTask;
+        };
+
+        var (totalFiles, newFiles, _) = await _service.ScanLibrary(progressAction);
+
+        Assert.AreEqual(fileCount, totalFiles);
+        Assert.AreEqual(fileCount, newFiles);
+
+        // Every 25th file, then the final one: 25, 50, 60.
+        CollectionAssert.AreEqual(new[] { 25, 50, 60 }, progressCalls);
+    }
+
+    // Regression test: one InsertAsync (and therefore one SaveChanges/transaction) per file
+    // meant a first scan of a large library ran a transaction per book. Fails against the
+    // unbatched code, which never called InsertRangeAsync at all.
+    [TestMethod]
+    public async Task ScanLibrary_ManyFiles_InsertsInBatchesRatherThanOneTransactionPerFile()
+    {
+        const int fileCount = 60;
+        for (var i = 0; i < fileCount; i++)
+        {
+            await File.WriteAllTextAsync(Path.Combine(_libraryPath, $"book-{i:D3}.m4b"), "fake audio");
+        }
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => MakeParsedAudiobook(fi.FullName));
+
+        var batchSizes = new List<int>();
+        _discoveredAudiobookRepository
+            .Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<DiscoveredAudiobook>>()))
+            .Callback((IEnumerable<DiscoveredAudiobook> batch) => batchSizes.Add(batch.Count()))
+            .Returns(Task.CompletedTask);
+
+        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+
+        _discoveredAudiobookRepository.Verify(r => r.InsertAsync(It.IsAny<DiscoveredAudiobook>()), Times.Never);
+        Assert.AreEqual(fileCount, batchSizes.Sum());
+        // Well under one write per file - 60 books fit in a single 200-row batch.
+        Assert.AreEqual(1, batchSizes.Count);
     }
 
     [TestMethod]

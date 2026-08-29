@@ -93,9 +93,9 @@ public class SeriesService : ISeriesService
         var expected = (catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>())
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
             .ToList();
-        var ownedKeys = books.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
+        var ownedBooks = new OwnedBookIndex(books.Select(b => BookKey.From(b.SeriesPart, b.BookName)));
         var missing = expected
-            .Where(e => !e.IsIgnored && !IsOwned(e, ownedKeys))
+            .Where(e => !e.IsIgnored && !IsOwned(e, ownedBooks))
             .Select(ToExpectedInfo)
             .OrderBy(e => PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
@@ -270,7 +270,13 @@ public class SeriesService : ISeriesService
     /// Matches the series to a source and replaces its stored roster, returning the catalog
     /// row. Does no read-side projection work.
     /// </summary>
-    private async Task<Series> MatchSeriesCoreAsync(string seriesName, string sourceName, string sourceSeriesId, double? confidence, bool includeOmnibusEditions)
+    private async Task<Series> MatchSeriesCoreAsync(
+        string seriesName,
+        string sourceName,
+        string sourceSeriesId,
+        double? confidence,
+        bool includeOmnibusEditions,
+        Series? existingRow = null)
     {
         var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
             ?? throw new ArgumentException($"No series-capable scraper for source {sourceName}");
@@ -278,7 +284,10 @@ public class SeriesService : ISeriesService
         var roster = await scraper.GetSeriesBooks(sourceSeriesId)
             ?? throw new Exception($"Source {sourceName} returned no series for id {sourceSeriesId}");
 
-        var existing = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+        // A caller that already read this row (RefreshManyAsync checks it is matched before
+        // getting here) passes it in, so refreshing N series costs N reads rather than 2N -
+        // each one pulling a full roster.
+        var existing = existingRow ?? await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
 
         var saved = await _seriesRepository.UpsertSeriesAsync(new Series
         {
@@ -395,7 +404,8 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesCoreAsync(name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence, row.IncludeOmnibusEditions);
+            await MatchSeriesCoreAsync(
+                name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence, row.IncludeOmnibusEditions, row);
             return true;
         });
     }
@@ -471,7 +481,7 @@ public class SeriesService : ISeriesService
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
             .ToList();
         var active = expected.Where(e => !e.IsIgnored).ToList();
-        var ownedKeys = ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)).ToList();
+        var ownedIndex = new OwnedBookIndex(ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)));
 
         return new SeriesOverview
         {
@@ -493,7 +503,7 @@ public class SeriesService : ISeriesService
             LastRefreshedAt = catalogRow?.LastRefreshedAt,
             ExpectedBookCount = active.Count,
             IgnoredBookCount = expected.Count - active.Count,
-            MissingBookCount = active.Count(e => !IsOwned(e, ownedKeys)),
+            MissingBookCount = active.Count(e => !IsOwned(e, ownedIndex)),
             IncludeOmnibusEditions = includeOmnibusEditions,
         };
     }
@@ -519,15 +529,95 @@ public class SeriesService : ISeriesService
     }
 
     /// <summary>
+    /// The owned books of a series, indexed for repeated owned/expected matching. Building this
+    /// once per series turns the match from a scan of every owned book per roster entry into a
+    /// dictionary hit for the common case (source and library agree on the position), which
+    /// matters because the matching loop is O(expected x owned) and each miss pays for a
+    /// Levenshtein matrix - and the series overview runs it for every series in the library.
+    /// </summary>
+    private sealed class OwnedBookIndex
+    {
+        private readonly ILookup<string, BookKey> _byPosition;
+        private readonly List<BookKey> _withoutPosition;
+
+        public OwnedBookIndex(IEnumerable<BookKey> ownedKeys)
+        {
+            var keys = ownedKeys.ToList();
+            _byPosition = keys
+                .Where(k => !string.IsNullOrWhiteSpace(k.Position))
+                .ToLookup(k => NormalizePosition(k.Position!), StringComparer.OrdinalIgnoreCase);
+            _withoutPosition = keys.Where(k => string.IsNullOrWhiteSpace(k.Position)).ToList();
+        }
+
+        public bool Contains(BookKey expected)
+        {
+            if (!string.IsNullOrWhiteSpace(expected.Position))
+            {
+                foreach (var owned in _byPosition[NormalizePosition(expected.Position!)])
+                {
+                    if (IsSameBook(expected, owned))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // A position match is only one of the two ways IsSameBook can succeed, so anything
+            // the index could not settle still has to be compared on title. That is every owned
+            // book whose position is blank, plus - when the expected entry has a position that
+            // matched nothing - the ones whose position simply disagrees.
+            foreach (var owned in _withoutPosition)
+            {
+                if (IsSameBook(expected, owned))
+                {
+                    return true;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(expected.Position))
+            {
+                return false;
+            }
+
+            var expectedPosition = NormalizePosition(expected.Position!);
+            foreach (var group in _byPosition)
+            {
+                if (string.Equals(group.Key, expectedPosition, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;   // already checked above
+                }
+
+                foreach (var owned in group)
+                {
+                    if (IsSameBook(expected, owned))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Positions are free text that may or may not parse as a number ("2", "2.0", "2.5",
+        /// "Book 2"). Numeric ones are keyed by their invariant round-trip so the index groups
+        /// them exactly as <see cref="PositionsEqual"/> compares them; the rest key on their
+        /// trimmed text, which is the fallback that method uses too.
+        /// </summary>
+        private static string NormalizePosition(string position) =>
+            double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric)
+                ? numeric.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                : position.Trim();
+    }
+
+    /// <summary>
     /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
     /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
     /// are compared fuzzily.
     /// </summary>
-    private static bool IsOwned(SeriesExpectedBook expected, IReadOnlyCollection<BookKey> ownedKeys)
-    {
-        var expectedKey = BookKey.From(expected.Position, expected.Title);
-        return ownedKeys.Any(owned => IsSameBook(expectedKey, owned));
-    }
+    private static bool IsOwned(SeriesExpectedBook expected, OwnedBookIndex ownedBooks) =>
+        ownedBooks.Contains(BookKey.From(expected.Position, expected.Title));
 
     private static bool IsSameBook(BookKey expected, BookKey owned)
     {

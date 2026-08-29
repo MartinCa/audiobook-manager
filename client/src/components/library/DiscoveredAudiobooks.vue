@@ -273,6 +273,10 @@ const discoveredActivePanel: Ref<string | null> = ref(null);
 const discoveredCurrentPage: Ref<number> = ref(1);
 const discoveredTotalItems: Ref<number> = ref(0);
 
+// A Set behind a ref is a reactive proxy in Vue 3 - add/delete already notify dependents, so
+// this is mutated in place. Reassigning a clone (as this used to, at five call sites) copied
+// every selected path on each checkbox tick and invalidated the dependent computeds by
+// identity rather than by key.
 const selectedPaths: Ref<Set<string>> = ref(new Set());
 const importConfirmDialog: Ref<boolean> = ref(false);
 const snackbar: Ref<boolean> = ref(false);
@@ -343,7 +347,6 @@ const onUpdateProgress = (arg: ProgressUpdate) => {
   if (arg.progress >= 100) {
     discoveredBooks.value = discoveredBooks.value.filter((b) => b !== book);
     selectedPaths.value.delete(book.fullPath);
-    selectedPaths.value = new Set(selectedPaths.value);
     if (discoveredActivePanel.value === book.fullPath) {
       discoveredActivePanel.value = null;
     }
@@ -404,7 +407,6 @@ const toggleSelectAllWellTagged = () => {
       selectedPaths.value.add(book.fullPath);
     }
   }
-  selectedPaths.value = new Set(selectedPaths.value);
 };
 
 const toggleBookSelected = (book: DiscoveredAudiobook) => {
@@ -416,7 +418,6 @@ const toggleBookSelected = (book: DiscoveredAudiobook) => {
   } else {
     selectedPaths.value.add(book.fullPath);
   }
-  selectedPaths.value = new Set(selectedPaths.value);
 };
 
 const onImportSelectedClick = () => {
@@ -452,16 +453,24 @@ let loadRequestId = 0;
 
 const loadDiscoveredBooks = async () => {
   const requestId = ++loadRequestId;
-  const result = await LibraryService.getDiscoveredBooks(
-    limit,
-    (discoveredCurrentPage.value - 1) * limit,
-    discoveredSearchQuery.value || undefined,
-  );
+  try {
+    const result = await LibraryService.getDiscoveredBooks(
+      limit,
+      (discoveredCurrentPage.value - 1) * limit,
+      discoveredSearchQuery.value || undefined,
+    );
 
-  if (requestId !== loadRequestId) return;
+    if (requestId !== loadRequestId) return;
 
-  discoveredTotalItems.value = result.total;
-  discoveredBooks.value = result.items;
+    discoveredTotalItems.value = result.total;
+    discoveredBooks.value = result.items;
+  } catch {
+    // This is called from SignalR completion callbacks and the reconnect handler as well as
+    // from click handlers, so an unhandled rejection here escapes into a hub callback with
+    // nothing to catch it - and the stale list gives the user no sign anything went wrong.
+    snackbarText.value = "Failed to refresh the discovered books list";
+    snackbar.value = true;
+  }
 };
 
 // A queued book's UpdateProgress/QueueError events can be missed while disconnected (e.g. a
@@ -470,8 +479,14 @@ const loadDiscoveredBooks = async () => {
 signalR.onReconnected(loadDiscoveredBooks);
 
 const debouncedDiscoveredSearch = debounce(() => {
-  discoveredCurrentPage.value = 1;
-  loadDiscoveredBooks();
+  // Resetting the page already triggers the `discoveredCurrentPage` watcher, so calling the
+  // loader as well issued two overlapping requests per search from any page but the first.
+  // (The loadRequestId guard meant only one ever rendered, so this was wasted work, not a bug.)
+  if (discoveredCurrentPage.value !== 1) {
+    discoveredCurrentPage.value = 1;
+  } else {
+    loadDiscoveredBooks();
+  }
 }, 300);
 
 watch(discoveredSearchQuery, () => {
@@ -488,13 +503,11 @@ const markDiscoveredAsQueued = (book: DiscoveredAudiobook, queueId: string) => {
     discoveredActivePanel.value = null;
   }
   selectedPaths.value.delete(book.fullPath);
-  selectedPaths.value = new Set(selectedPaths.value);
 };
 
 const removeDiscoveredBook = (book: DiscoveredAudiobook) => {
   discoveredBooks.value = discoveredBooks.value.filter((b) => b != book);
   selectedPaths.value.delete(book.fullPath);
-  selectedPaths.value = new Set(selectedPaths.value);
 
   if (discoveredActivePanel.value === book.fullPath) {
     discoveredActivePanel.value = null;

@@ -134,6 +134,17 @@ public class AudiobookController : ControllerBase
         return Ok();
     }
 
+    /// <summary>
+    /// Whether a save for this book is still running. Progress/complete events are broadcast
+    /// over SignalR, so a client that was disconnected while the save finished never sees the
+    /// completion and would otherwise sit disabled forever - the editor re-reads this on
+    /// reconnect to recover. Reads the same in-flight set the PUT gate uses, so there is no
+    /// second source of truth to drift.
+    /// </summary>
+    [HttpGet("{id}/save-status")]
+    public AudiobookSaveStatusDto GetSaveStatus(long id) =>
+        new(id, _savesInFlight.ContainsKey(id));
+
     private static List<string> CleanNames(IEnumerable<string>? values) =>
         (values ?? Enumerable.Empty<string>())
             .Select(v => v?.Trim() ?? string.Empty)

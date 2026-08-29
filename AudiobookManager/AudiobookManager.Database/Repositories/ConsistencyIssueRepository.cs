@@ -103,6 +103,29 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Loads a whole selection in one query. The bulk resolve used to re-fetch each issue by id
+    /// inside its loop - with the same Include/ThenInclude graph it had just discarded - which
+    /// made resolving N issues cost N+1 queries.
+    /// </summary>
+    public async Task<List<ConsistencyIssue>> GetByIdsAsync(IReadOnlyCollection<long> ids)
+    {
+        if (ids.Count == 0)
+        {
+            return new List<ConsistencyIssue>();
+        }
+
+        return await _db.ConsistencyIssues
+            .AsNoTracking()
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Authors)
+            .AsSplitQuery()
+            .Where(ci => ids.Contains(ci.Id))
+            .OrderBy(ci => ci.AudiobookId)
+            .ThenBy(ci => ci.Id)
+            .ToListAsync();
+    }
+
     public async Task<Dictionary<long, int>> GetIssueSummaryAsync()
     {
         return await _db.ConsistencyIssues

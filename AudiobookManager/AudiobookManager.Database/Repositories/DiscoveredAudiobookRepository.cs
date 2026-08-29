@@ -19,6 +19,22 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         await _db.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// One transaction for a batch of discovered rows. A first scan of a large library inserts
+    /// tens of thousands of them, and a SaveChanges per file made that a transaction per file.
+    /// </summary>
+    public async Task InsertRangeAsync(IEnumerable<DiscoveredAudiobook> discovered)
+    {
+        var list = discovered as ICollection<DiscoveredAudiobook> ?? discovered.ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+
+        _db.AddRange(list);
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<List<DiscoveredAudiobook>> GetAllAsync()
     {
         return await _db.DiscoveredAudiobooks.ToListAsync();

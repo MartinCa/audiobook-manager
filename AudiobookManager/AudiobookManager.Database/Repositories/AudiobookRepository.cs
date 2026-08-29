@@ -25,10 +25,48 @@ public class AudiobookRepository : IAudiobookRepository
         return paths.ToHashSet(comparer ?? StringComparer.Ordinal);
     }
 
-    public async Task<Audiobook?> GetByFullPathAsync(string fullPath)
+    /// <summary>
+    /// The tracked book at <paramref name="fullPath"/>, if any.
+    ///
+    /// Path comparison is a property of the file system, not of the string, so it cannot be done
+    /// in SQL - SQLite's BINARY collation would treat a case-only difference as a different file
+    /// even on Windows/macOS, and it normalizes nothing. This narrows in SQL on the file name
+    /// (indexed) and settles it in memory with the caller's own comparison, exactly as
+    /// <see cref="GetAllFilePathsAsync"/> takes its comparer from the caller. The Database layer
+    /// deliberately has no reference to FileManager, so the predicate comes in rather than being
+    /// hard-coded to AudiobookFileHandler.PathsEqual.
+    /// </summary>
+    public async Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null)
     {
-        return await _db.Audiobooks.FirstOrDefaultAsync(a => a.FileInfoFullPath == fullPath);
+        var fileName = Path.GetFileName(fullPath);
+
+        // LIKE with no wildcards is an equality test that SQLite evaluates case-insensitively
+        // for ASCII, which is what catches a case-only difference on a case-insensitive volume.
+        // The escape keeps a literal '_' or '%' in a file name (both common) from turning into
+        // a wildcard; a slightly wider candidate set would be harmless - the predicate below
+        // still decides - but not a free one.
+        var likePattern = EscapeLikePattern(fileName);
+
+        var candidates = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.FileInfoFileName == fileName
+                || EF.Functions.Like(a.FileInfoFileName, likePattern, LikeEscapeCharacter))
+            .ToListAsync();
+
+        if (pathsEqual is null)
+        {
+            return candidates.FirstOrDefault(a => string.Equals(a.FileInfoFullPath, fullPath, StringComparison.Ordinal));
+        }
+
+        return candidates.FirstOrDefault(a => pathsEqual(a.FileInfoFullPath, fullPath));
     }
+
+    private const string LikeEscapeCharacter = "\\";
+
+    private static string EscapeLikePattern(string value) => value
+        .Replace("\\", "\\\\")
+        .Replace("%", "\\%")
+        .Replace("_", "\\_");
 
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {
@@ -53,7 +91,9 @@ public class AudiobookRepository : IAudiobookRepository
     {
         // Fold both sides so an unaccented query (e.g. "Rene") still matches an accented value
         // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
-        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
+        var folded = AccentFolding.FoldPlain(query);
+        var pattern = $"%{folded}%";
+        var prefixPattern = $"{folded}%";
 
         var dbQuery = _db.Audiobooks
             .AsNoTracking()
@@ -61,14 +101,28 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
             .AsSplitQuery()
+            // fold_accents is an application-defined scalar function, so every term here costs a
+            // callback into managed code per row. SQLite evaluates an OR chain left to right and
+            // stops at the first true, so the cheap, most-selective columns come first and
+            // Description - by far the largest, and the least likely to be what the user meant -
+            // comes last, where most rows never reach it.
             .Where(a =>
                 (a.BookName != null && EF.Functions.Like(AccentFolding.Fold(a.BookName), pattern)) ||
                 (a.Subtitle != null && EF.Functions.Like(AccentFolding.Fold(a.Subtitle), pattern)) ||
-                (a.Description != null && EF.Functions.Like(AccentFolding.Fold(a.Description), pattern)) ||
                 (a.Series != null && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern)) ||
-                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), pattern))
+                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), pattern)) ||
+                (a.Description != null && EF.Functions.Like(AccentFolding.Fold(a.Description), pattern))
             )
-            .OrderBy(a => a.BookName).ThenBy(a => a.Id);
+            // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
+            // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
+            // matches and re-ranked those - so searching "harry" in a library holding "Alex
+            // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
+            // it. ThenBy(Id) keeps the order total, which a paged split query requires.
+            .OrderByDescending(a =>
+                (a.BookName != null && EF.Functions.Like(AccentFolding.Fold(a.BookName), prefixPattern)) ||
+                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), prefixPattern)))
+            .ThenBy(a => a.BookName)
+            .ThenBy(a => a.Id);
 
         var total = await dbQuery.CountAsync();
         var items = await dbQuery.Skip(offset).Take(limit).ToListAsync();
@@ -77,13 +131,19 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit)
     {
-        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
+        var folded = AccentFolding.FoldPlain(query);
+        var pattern = $"%{folded}%";
+        var prefixPattern = $"{folded}%";
 
         var rows = await _db.Audiobooks
+            .AsNoTracking()
             .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern))
             .GroupBy(a => a.Series!)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
-            .OrderBy(g => g.Series)
+            // Rank before the limit, not after it - see SearchAsync for what ranking the
+            // survivors of an alphabetical Take costs.
+            .OrderByDescending(g => EF.Functions.Like(AccentFolding.Fold(g.Series), prefixPattern))
+            .ThenBy(g => g.Series)
             .Take(limit)
             .ToListAsync();
 
@@ -288,7 +348,17 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task UpdateAudiobookAsync(Audiobook audiobook)
     {
-        _db.Audiobooks.Update(audiobook);
+        // Update() only for a detached entity. Callers normally hand back the graph they loaded
+        // from GetByIdWithIncludesAsync, which is already tracked and whose changes the change
+        // tracker has already worked out - calling Update() on that forces every reachable
+        // entity to Modified, so saving one book also emitted a pointless UPDATE for each of its
+        // authors, narrators and genres (shared persons/genres rows, rewritten for nothing, once
+        // per book in a several-hundred-book alignment run).
+        if (_db.Entry(audiobook).State == EntityState.Detached)
+        {
+            _db.Audiobooks.Update(audiobook);
+        }
+
         await _db.SaveChangesAsync();
     }
 }

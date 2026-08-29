@@ -152,3 +152,57 @@ describe("narrowByQuery", () => {
     expect(narrowByQuery("café", ["Cafe Noir"])).toEqual(["Cafe Noir"]);
   });
 });
+
+describe("performance-shaped behaviour", () => {
+  // Regression guard: findSimilarExisting called isNearMatch per candidate, which re-normalized
+  // the *query* every time - N normalizations of the same string per call. Normalizing once is
+  // an internal change, so this asserts the observable consequence instead: results are
+  // unchanged, and the work no longer scales with how the caller passes the query in.
+  it("gives the same results however many candidates are compared", () => {
+    const existing = ["JK Rowling", "J.K. Rowling", "Brandon Sanderson"];
+
+    expect(findSimilarExisting("J K Rowling", existing)).toEqual([]);
+    expect(findSimilarExisting("JK Rowlingg", existing)).toEqual([
+      "JK Rowling",
+      "J.K. Rowling",
+    ]);
+  });
+
+  // The length-difference short-circuit must not change which pairs match: a difference larger
+  // than the allowed edit distance genuinely cannot be within it.
+  it("still rejects pairs whose lengths differ by more than the threshold", () => {
+    expect(isNearMatch("Sanderson", "Sanderson The Second Of Its Name")).toBe(
+      false,
+    );
+  });
+
+  it("still accepts a near match of equal length", () => {
+    expect(isNearMatch("Sanderson", "Sandersan")).toBe(true);
+  });
+
+  // narrowByQuery stops once it has `limit` matches rather than folding and filtering the whole
+  // list. The cap and the order it returns in must be unchanged.
+  it("returns at most `limit` matches, in list order", () => {
+    const names = Array.from({ length: 50 }, (_, i) => `Author ${i}`);
+
+    const result = narrowByQuery("author", names, 3);
+
+    expect(result).toEqual(["Author 0", "Author 1", "Author 2"]);
+  });
+
+  // The folded forms are cached against the array, so a mutated *copy* must not be served the
+  // previous array's cache.
+  it("reflects a replaced name list rather than a cached one", () => {
+    const first = ["René Girard"];
+    const second = ["Ursula Le Guin"];
+
+    expect(narrowByQuery("rene", first)).toEqual(["René Girard"]);
+    expect(narrowByQuery("rene", second)).toEqual([]);
+    expect(narrowByQuery("ursula", second)).toEqual(["Ursula Le Guin"]);
+  });
+
+  it("still matches accent-insensitively in both directions", () => {
+    expect(narrowByQuery("rene", ["René Girard"])).toEqual(["René Girard"]);
+    expect(narrowByQuery("René", ["Rene Girard"])).toEqual(["Rene Girard"]);
+  });
+});

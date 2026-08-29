@@ -68,6 +68,23 @@ function levenshtein(a: string, b: string): number {
   return distances[rows - 1][cols - 1];
 }
 
+/**
+ * Folded forms of a name list, cached against the array itself. Autocomplete narrowing runs on
+ * every keystroke over the whole list, and folding is an NFD normalize plus a regex per value -
+ * so it is done once per list rather than once per list per character typed. Keyed on array
+ * identity, so it invalidates for free when SimilarValueService swaps in a refreshed list.
+ */
+const foldedListCache = new WeakMap<readonly string[], string[]>();
+
+function foldedList(values: string[]): string[] {
+  let folded = foldedListCache.get(values);
+  if (!folded) {
+    folded = values.map((v) => foldAccents(v.toLowerCase()));
+    foldedListCache.set(values, folded);
+  }
+  return folded;
+}
+
 function maxDistanceForLength(length: number): number {
   if (length <= 4) return 0;
   if (length <= 8) return 1;
@@ -75,11 +92,12 @@ function maxDistanceForLength(length: number): number {
 }
 
 /**
- * Returns true if `value` is a near-duplicate (but not identical) to `existing`.
+ * Whether two already-normalized values are near-duplicates (but not identical).
  */
-export function isNearMatch(value: string, existing: string): boolean {
-  const normValue = normalizeForMatch(value);
-  const normExisting = normalizeForMatch(existing);
+function isNearMatchNormalized(
+  normValue: string,
+  normExisting: string,
+): boolean {
   if (!normValue || !normExisting) return false;
   if (normValue === normExisting) return false; // exact match isn't a "similar" hint
 
@@ -88,7 +106,23 @@ export function isNearMatch(value: string, existing: string): boolean {
   );
   if (threshold <= 0) return false;
 
+  // The length difference is a lower bound on the edit distance, so it rules a pair out
+  // before the O(n*m) matrix is built. Mirrors the same short-circuit the backend's
+  // SeriesService.NormalizedSimilarity applies.
+  if (Math.abs(normValue.length - normExisting.length) > threshold)
+    return false;
+
   return levenshtein(normValue, normExisting) <= threshold;
+}
+
+/**
+ * Returns true if `value` is a near-duplicate (but not identical) to `existing`.
+ */
+export function isNearMatch(value: string, existing: string): boolean {
+  return isNearMatchNormalized(
+    normalizeForMatch(value),
+    normalizeForMatch(existing),
+  );
 }
 
 /**
@@ -99,7 +133,14 @@ export function findSimilarExisting(
   existingValues: string[],
 ): string[] {
   if (!value) return [];
-  return existingValues.filter((existing) => isNearMatch(value, existing));
+
+  // Normalize the query once, not once per candidate.
+  const normValue = normalizeForMatch(value);
+  if (!normValue) return [];
+
+  return existingValues.filter((existing) =>
+    isNearMatchNormalized(normValue, normalizeForMatch(existing)),
+  );
 }
 
 /**
@@ -113,7 +154,14 @@ export function narrowByQuery(
 ): string[] {
   const trimmed = foldAccents(query.trim().toLowerCase());
   if (!trimmed) return [];
-  return existingValues
-    .filter((v) => foldAccents(v.toLowerCase()).includes(trimmed))
-    .slice(0, limit);
+
+  const folded = foldedList(existingValues);
+  const matches: string[] = [];
+  // Stops at `limit` instead of folding and filtering the entire list first.
+  for (let i = 0; i < existingValues.length && matches.length < limit; i++) {
+    if (folded[i].includes(trimmed)) {
+      matches.push(existingValues[i]);
+    }
+  }
+  return matches;
 }

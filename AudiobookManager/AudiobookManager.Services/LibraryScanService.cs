@@ -11,6 +11,12 @@ namespace AudiobookManager.Services;
 
 public class LibraryScanService : ILibraryScanService
 {
+    /// <summary>Discovered rows accumulated before a single batched insert.</summary>
+    private const int InsertBatchSize = 200;
+
+    /// <summary>Files scanned between SignalR progress broadcasts.</summary>
+    private const int ProgressBroadcastInterval = 25;
+
     private readonly AudiobookManagerSettings _settings;
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IDiscoveredAudiobookRepository _discoveredAudiobookRepository;
@@ -53,13 +59,21 @@ public class LibraryScanService : ILibraryScanService
         var filesScanned = 0;
         var newFilesDiscovered = 0;
 
+        // Batch both the writes and the progress reports, the same way LibraryConsistencyService
+        // does. Previously this was one transaction *and* one SignalR broadcast per file: a
+        // 20,000-book library meant 20,000 of each, and the client throttles the progress bar to
+        // ~4fps regardless, so almost all of those messages were invisible.
+        var pending = new List<DiscoveredAudiobook>(InsertBatchSize);
+        var lastMessage = string.Empty;
+
         foreach (var file in files)
         {
             filesScanned++;
 
             if (knownPaths.Contains(file.FullPath))
             {
-                await progressAction($"Already tracked: {file.FileName}", filesScanned, totalFiles);
+                lastMessage = $"Already tracked: {file.FileName}";
+                await ReportScanProgressAsync(progressAction, lastMessage, filesScanned, totalFiles);
                 continue;
             }
 
@@ -92,22 +106,46 @@ public class LibraryScanService : ILibraryScanService
                     DurationInSeconds = parsed.DurationInSeconds
                 };
 
-                await _discoveredAudiobookRepository.InsertAsync(discovered);
+                pending.Add(discovered);
                 newFilesDiscovered++;
 
-                await progressAction($"Discovered: {file.FileName}", filesScanned, totalFiles);
+                if (pending.Count >= InsertBatchSize)
+                {
+                    await _discoveredAudiobookRepository.InsertRangeAsync(pending);
+                    pending.Clear();
+                }
+
+                lastMessage = $"Discovered: {file.FileName}";
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to parse audiobook at {FilePath}", file.FullPath);
-                await progressAction($"Error parsing: {file.FileName}", filesScanned, totalFiles);
+                lastMessage = $"Error parsing: {file.FileName}";
             }
+
+            await ReportScanProgressAsync(progressAction, lastMessage, filesScanned, totalFiles);
+        }
+
+        if (pending.Count > 0)
+        {
+            await _discoveredAudiobookRepository.InsertRangeAsync(pending);
         }
 
         _logger.LogInformation("Library scan complete. Total: {Total}, New: {New}, Tracked: {Tracked}",
             totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
 
         return (totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
+    }
+
+    private static Task ReportScanProgressAsync(
+        Func<string, int, int, Task> progressAction, string message, int filesScanned, int totalFiles)
+    {
+        if (filesScanned % ProgressBroadcastInterval != 0 && filesScanned != totalFiles)
+        {
+            return Task.CompletedTask;
+        }
+
+        return progressAction(message, filesScanned, totalFiles);
     }
 
     public async Task<(int Processed, int Succeeded, int Failed)> BulkImportAsync(

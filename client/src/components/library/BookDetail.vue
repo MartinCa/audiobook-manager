@@ -197,7 +197,11 @@ import BookEditForm from "../BookEditForm.vue";
 import DiffDisplay from "../DiffDisplay.vue";
 import { convertInputToAudiobook as buildAudiobook } from "../../helpers/organizeAudiobookInput";
 import { getIssueIcon } from "../../helpers/consistencyIssueDisplay";
-import { HubEventToken, useSignalREvent } from "@/signalr/hub";
+import {
+  HubEventToken,
+  useSignalREvent,
+  useSignalRReconnected,
+} from "@/signalr/hub";
 import { AudiobookSaveProgress } from "../../signalr/AudiobookSaveProgress";
 import { AudiobookSaveComplete } from "../../signalr/AudiobookSaveComplete";
 import { AudiobookSaveError } from "../../signalr/AudiobookSaveError";
@@ -349,31 +353,44 @@ useSignalREvent(AudiobookSaveProgressToken, onSaveProgress);
 useSignalREvent(AudiobookSaveCompleteToken, onSaveComplete);
 useSignalREvent(AudiobookSaveErrorToken, onSaveError);
 
-// Watches only the fields path generation actually depends on. Deliberately never reads
-// cover_base64/cover_mime here: a getter that read them (even to overwrite them afterwards)
-// would still track them as reactive dependencies, so editing the cover would keep
-// retriggering this debounced call and deep-diffing the large cover string for nothing.
+// A save's completion event is broadcast over SignalR and is simply lost if the connection
+// dropped while it was in flight (a backgrounded mobile tab is enough). Without this the form
+// stayed `saving` - every control disabled - until the page was reloaded. Every other
+// long-running operation recovers the same way, via useOperationProgress's refreshStatus.
+useSignalRReconnected(async () => {
+  if (!saving.value) return;
+
+  try {
+    const status = await AudiobookService.getSaveStatus(bookId.value);
+    if (status.isSaving) return; // still running - the completion event is still coming
+
+    saving.value = false;
+    await Promise.all([loadBook(), loadIssues()]);
+  } catch {
+    // Leave the saving state alone rather than unlocking the form on a failed status check.
+  }
+});
+
+// Exactly the fields AudiobookService.toPathPreviewDto sends, which are exactly the ones
+// GenerateRelativeAudiobookPath reads. Watching more than that meant typing a paragraph into
+// Description fired a debounced request every 300ms for a path that provably cannot change.
+// Deliberately never reads cover_base64/cover_mime either: a getter that read them (even to
+// overwrite them afterwards) would still track them as reactive dependencies, so editing the
+// cover would keep retriggering this call and diffing the large cover string for nothing.
+// An array of primitives compares element-wise, so no `deep` is needed - and `deep` on a getter
+// that builds a fresh object each run only adds a traversal, since the new object never
+// compares equal to the previous one anyway.
 watch(
-  () => ({
-    authors: input.value.authors,
-    narrators: input.value.narrators,
-    bookName: input.value.bookName,
-    subtitle: input.value.subtitle,
-    series: input.value.series,
-    seriesPart: input.value.seriesPart,
-    year: input.value.year,
-    genres: input.value.genres,
-    description: input.value.description,
-    copyright: input.value.copyright,
-    publisher: input.value.publisher,
-    asin: input.value.asin,
-    www: input.value.www,
-    rating: input.value.rating,
-  }),
-  async () => {
-    await updateNewBookPath();
+  () => [
+    input.value.authors,
+    input.value.bookName,
+    input.value.series,
+    input.value.seriesPart,
+    input.value.year,
+  ],
+  () => {
+    updateNewBookPath();
   },
-  { deep: true },
 );
 
 const updateNewBookPath = debounce(async () => {

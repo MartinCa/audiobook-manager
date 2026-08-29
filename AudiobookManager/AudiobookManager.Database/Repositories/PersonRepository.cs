@@ -1,5 +1,6 @@
 ﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -46,7 +47,43 @@ public class PersonRepository : IPersonRepository
         {
             var newPersons = missingNames.Select(n => new Person(default, n)).ToList();
             _db.Persons.AddRange(newPersons);
-            await _db.SaveChangesAsync();
+
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                // persons.name is unique, and this method reads then inserts across an await
+                // from a request-scoped context. Organizes genuinely run concurrently (the bulk
+                // import fans out, OrganizeWorker runs alongside an interactive save), so two
+                // of them can both see a new author as missing and both insert it. The loser of
+                // that race must adopt the winner's row rather than failing the whole organize
+                // and leaving the file half-processed.
+                foreach (var entry in _db.ChangeTracker.Entries<Person>()
+                             .Where(e => e.State == EntityState.Added)
+                             .ToList())
+                {
+                    entry.State = EntityState.Detached;
+                }
+
+                var raced = await _db.Persons
+                    .Where(p => missingNames.Contains(p.Name))
+                    .ToListAsync();
+
+                foreach (var person in raced)
+                {
+                    result[person.Name] = person;
+                }
+
+                if (missingNames.Any(n => !result.ContainsKey(n)))
+                {
+                    // Some other constraint failed - not the race this handler is for.
+                    throw;
+                }
+
+                return result;
+            }
 
             foreach (var person in newPersons)
             {
@@ -56,6 +93,11 @@ public class PersonRepository : IPersonRepository
 
         return result;
     }
+
+    /// <summary>SQLITE_CONSTRAINT_UNIQUE (2067) / SQLITE_CONSTRAINT_PRIMARYKEY (1555).</summary>
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is SqliteException sqlite &&
+        (sqlite.SqliteExtendedErrorCode == 2067 || sqlite.SqliteExtendedErrorCode == 1555);
 
     public async Task<List<string>> GetAuthorNamesAsync()
     {
@@ -76,25 +118,38 @@ public class PersonRepository : IPersonRepository
 
     public async Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync()
     {
-        return await _db.Persons
+        var rows = await _db.Persons
             .AsNoTracking()
             .Where(p => p.BooksAuthored.Any())
-            .OrderBy(p => p.Name)
             .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
             .ToListAsync();
+
+        // Project in SQL, order in memory. This list is unpaged, so nothing forces the sort
+        // into SQL - and SQLite's BINARY collation would order it by code point, putting
+        // "Zadie" before "alice" and every accented surname after "Z". Same reasoning (and the
+        // same comparer) as GetAuthorNamesAsync.
+        return rows.OrderBy(r => r.Name, StringComparer.InvariantCulture).ToList();
     }
 
     public async Task<List<AuthorSummaryRow>> SearchAuthorSummariesAsync(string query, int limit)
     {
-        var pattern = $"%{AccentFolding.FoldPlain(query)}%";
+        var folded = AccentFolding.FoldPlain(query);
+        var pattern = $"%{folded}%";
+        var prefixPattern = $"{folded}%";
 
-        return await _db.Persons
+        var rows = await _db.Persons
             .AsNoTracking()
             .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(AccentFolding.Fold(p.Name), pattern))
-            .OrderBy(p => p.Name)
+            // Rank before the limit. This query is capped at `limit` rows, so ordering
+            // alphabetically and re-ranking the survivors in the controller discarded the
+            // prefix matches the user was most likely reaching for - see SearchAsync.
+            .OrderByDescending(p => EF.Functions.Like(AccentFolding.Fold(p.Name), prefixPattern))
+            .ThenBy(p => p.Name)
             .Take(limit)
             .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
             .ToListAsync();
+
+        return rows;
     }
 
     public async Task<AuthorSummaryRow?> GetAuthorSummaryAsync(long authorId)

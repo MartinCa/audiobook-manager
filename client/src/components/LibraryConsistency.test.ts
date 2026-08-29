@@ -197,3 +197,86 @@ describe("LibraryConsistency OPF issue grouping", () => {
     wrapper.unmount();
   });
 });
+
+describe("LibraryConsistency single-issue resolve", () => {
+  // Regression test: this reproduced the server's cascade rules client-side - which issue types
+  // invalidate which others for the same book - and the copy drifted: TagMismatch cascades
+  // exactly like WrongFilePath and was never in the list. The component must now remove only
+  // the row it resolved and re-read the authoritative list for the rest. Fails against the
+  // pre-fix component, which leaves the cascaded sibling on screen after a TagMismatch resolve.
+  it("re-reads the list after a TagMismatch resolve so cascaded siblings disappear", async () => {
+    const tagMismatch = makeIssue(1, 7, "TagMismatch");
+    const opfIssue = makeIssue(2, 7, "MissingOpfFile");
+
+    // The server cascades: resolving the tag mismatch removes every issue for book 7.
+    mockedGetIssues
+      .mockResolvedValueOnce([tagMismatch, opfIssue])
+      .mockResolvedValue([]);
+    vi.mocked(ConsistencyService.resolveIssue).mockResolvedValue(undefined);
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.issues.length).toBe(2);
+
+    await vm.resolveIssue(tagMismatch);
+    await flushPromises();
+
+    expect(vm.issues.length).toBe(0);
+    expect(mockedGetIssues).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+  });
+
+  // A failed resolve must also re-read, since the server may have partially resolved.
+  it("re-reads the list when the resolve fails", async () => {
+    const issue = makeIssue(1, 7, "MissingCoverFile");
+
+    mockedGetIssues.mockResolvedValue([issue]);
+    vi.mocked(ConsistencyService.resolveIssue).mockRejectedValue(
+      new Error("nope"),
+    );
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    await vm.resolveIssue(issue);
+    await flushPromises();
+
+    expect(vm.snackbarText).toBe("Failed to resolve issue");
+    expect(mockedGetIssues).toHaveBeenCalledTimes(2);
+    expect(vm.issues.length).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  // Regression test: selections were never pruned, so a resolved issue's id sat in the set
+  // forever and inflated the "N selected" counts. Fails against the pre-fix component.
+  it("drops selections for issues the server no longer reports", async () => {
+    const resolved = makeIssue(1, 7, "MissingCoverFile");
+    const survivor = makeIssue(2, 8, "MissingCoverFile");
+
+    mockedGetIssues
+      .mockResolvedValueOnce([resolved, survivor])
+      .mockResolvedValue([survivor]);
+    vi.mocked(ConsistencyService.resolveIssue).mockResolvedValue(undefined);
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    vm.toggleIssueSelected(1);
+    vm.toggleIssueSelected(2);
+    await flushPromises();
+    expect(vm.selectedIssueIds.size).toBe(2);
+
+    await vm.resolveIssue(resolved);
+    await flushPromises();
+
+    expect([...vm.selectedIssueIds]).toEqual([2]);
+
+    wrapper.unmount();
+  });
+});
