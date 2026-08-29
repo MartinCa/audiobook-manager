@@ -40,7 +40,12 @@ public class BrowseController : ControllerBase
         var authors = await _personRepo.SearchAuthorSummariesAsync(q, limit);
         var series = await _audiobookRepo.SearchSeriesAsync(q, limit);
 
-        var bookHits = RankByRelevance(books, q, a => a.BookName ?? "")
+        // No client-side re-ranking: the repositories now rank prefix matches in SQL, before
+        // their LIMIT, so the rows that arrive are already the best ones in the right order. The
+        // old RankByRelevance pass also compared with a plain OrdinalIgnoreCase StartsWith,
+        // which is not accent-insensitive - it demoted a "René" row that had correctly
+        // prefix-matched a "Rene" query.
+        var bookHits = books
             .Select(a => new LibraryBookHitDto(
                 a.Id,
                 a.BookName,
@@ -51,22 +56,16 @@ public class BrowseController : ControllerBase
                 a.CoverFilePath))
             .ToList();
 
-        var authorHits = RankByRelevance(authors, q, p => p.Name)
+        var authorHits = authors
             .Select(p => new LibraryAuthorHitDto(p.Id, p.Name, p.BookCount))
             .ToList();
 
-        var seriesHits = RankByRelevance(series, q, s => s.Series)
+        var seriesHits = series
             .Select(s => new LibrarySeriesHitDto(s.Series, s.BookCount))
             .ToList();
 
         return new LibrarySearchResultDto(bookHits, authorHits, seriesHits);
     }
-
-    private static List<T> RankByRelevance<T>(List<T> items, string query, Func<T, string> keySelector) =>
-        items
-            .OrderByDescending(i => keySelector(i).StartsWith(query, StringComparison.OrdinalIgnoreCase))
-            .ThenBy(keySelector)
-            .ToList();
 
     [HttpGet("audiobooks/search")]
     public async Task<PaginatedResult<AudiobookSummaryDto>> SearchAudiobooks([FromQuery] string q, int limit = 20, int offset = 0)

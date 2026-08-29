@@ -284,6 +284,64 @@ public class AudiobookControllerTests
         _organizeClient.Verify(c => c.AudiobookSaveError(It.IsAny<AudiobookSaveError>()), Times.Never);
     }
 
+    // A save's progress and completion are broadcast over SignalR, so a client that was
+    // disconnected while it finished never sees the completion and would sit disabled forever.
+    // This endpoint is how the editor recovers on reconnect. Distinct ids per test, since the
+    // in-flight set is process-static and outlives a single test.
+    [TestMethod]
+    public async Task GetSaveStatus_WhileASaveIsRunning_ReportsSaving()
+    {
+        var dto = MakeDto();
+        var updated = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000));
+
+        var saveStarted = new TaskCompletionSource();
+        var releaseSave = new TaskCompletionSource();
+
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(202, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns(async () =>
+            {
+                saveStarted.TrySetResult();
+                await releaseSave.Task;
+                return updated;
+            });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(202))
+            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+
+        Assert.IsFalse(_controller.GetSaveStatus(202).IsSaving, "nothing in flight before the save starts");
+
+        try
+        {
+            _controller.UpdateAudiobook(202, dto);
+            await saveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var status = _controller.GetSaveStatus(202);
+            Assert.AreEqual(202, status.AudiobookId);
+            Assert.IsTrue(status.IsSaving);
+        }
+        finally
+        {
+            releaseSave.TrySetResult();
+        }
+
+        // Poll the real release condition rather than assuming the background finally has run.
+        await WaitUntilAsync(() => !_controller.GetSaveStatus(202).IsSaving, TimeSpan.FromSeconds(5));
+        Assert.IsFalse(_controller.GetSaveStatus(202).IsSaving);
+    }
+
+    [TestMethod]
+    public void GetSaveStatus_ForABookWithNoSaveInFlight_ReportsNotSaving()
+    {
+        var status = _controller.GetSaveStatus(9999);
+
+        Assert.AreEqual(9999, status.AudiobookId);
+        Assert.IsFalse(status.IsSaving);
+    }
+
     [TestMethod]
     public async Task UpdateAudiobook_SecondSaveForTheSameBookWhileTheFirstIsRunning_IsRejectedAsAConflict()
     {

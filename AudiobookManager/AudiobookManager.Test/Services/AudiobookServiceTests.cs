@@ -700,7 +700,7 @@ public class AudiobookServiceTests
             asin: null, www: null, coverFilePath: null, durationInSeconds: 39600,
             fileInfoFullPath: targetPath, fileInfoFileName: Path.GetFileName(targetPath), fileInfoSizeInBytes: 598_000_000);
 
-        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath)).ReturnsAsync(existingDbBook);
+        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath, It.IsAny<Func<string, string, bool>?>())).ReturnsAsync(existingDbBook);
 
         var result = await _service.CheckTargetPathCollision(book);
 
@@ -720,7 +720,7 @@ public class AudiobookServiceTests
         var content = "orphaned file contents";
         await File.WriteAllTextAsync(targetPath, content);
 
-        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath)).ReturnsAsync((DbAudiobook?)null);
+        _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath, It.IsAny<Func<string, string, bool>?>())).ReturnsAsync((DbAudiobook?)null);
 
         var result = await _service.CheckTargetPathCollision(book);
 

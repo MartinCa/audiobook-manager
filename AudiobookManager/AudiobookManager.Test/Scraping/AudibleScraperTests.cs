@@ -169,6 +169,7 @@ public class AudibleScraperTests
 
         Assert.AreEqual("Killing Floor", result.BookName);
 
+        Assert.IsNotNull(result.Series);
         Assert.AreEqual(1, result.Series.Count);
         Assert.AreEqual("Jack Reacher", result.Series.Single().SeriesName);
         Assert.AreEqual("1", result.Series.Single().SeriesPart);

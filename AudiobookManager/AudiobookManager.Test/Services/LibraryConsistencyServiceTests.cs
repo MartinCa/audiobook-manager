@@ -46,6 +46,173 @@ public class LibraryConsistencyServiceTests
             _logger.Object);
     }
 
+    #region Bulk resolve cascades
+
+    private static DbAudiobook MakeMissingFileBook(long id, string path) => new(
+        id, $"Book {id}", null, null, null, 2024,
+        null, null, null, null, null, null, null, null, null,
+        path, Path.GetFileName(path), 1000)
+    {
+        Authors = new List<Database.Models.Person> { new(1, "Author") }
+    };
+
+    // Regression test: resolving one issue deletes every *other* stored issue for the same book
+    // (a path change or tag rewrite invalidates all of them). The bulk resolve re-fetched each
+    // id inside its loop, found the sibling already gone, threw KeyNotFoundException, and
+    // BulkOperationRunner counted that as a failure - so a batch that fully succeeded reported
+    // "Resolved 1 issues (1 failed)". Fails against the pre-fix service, which reports (1, 1).
+    [TestMethod]
+    public async Task ResolveIssues_SiblingIssueCascadedAwayByAnEarlierResolve_IsNotCountedAsAFailure()
+    {
+        const long audiobookId = 7;
+        var book = MakeMissingFileBook(audiobookId, "/library/gone/missing.m4b");
+
+        var missingFileIssue = new ConsistencyIssue
+        {
+            Id = 1,
+            AudiobookId = audiobookId,
+            Audiobook = book,
+            IssueType = ConsistencyIssueType.MissingMediaFile,
+            Description = "missing",
+        };
+        var opfIssue = new ConsistencyIssue
+        {
+            Id = 2,
+            AudiobookId = audiobookId,
+            Audiobook = book,
+            IssueType = ConsistencyIssueType.MissingOpfFile,
+            Description = "no opf",
+        };
+
+        _issueRepository
+            .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<ConsistencyIssue> { missingFileIssue, opfIssue });
+
+        var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
+
+        Assert.AreEqual(1, resolved, "the missing-media resolve removed the book and all its issues");
+        Assert.AreEqual(0, failed, "the sibling it cascaded away is not a failure");
+
+        // The cascaded sibling must not have been attempted at all.
+        _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    // The same shape for the narrower sidecar cascade: WriteMetadata writes desc.txt, reader.txt
+    // and metadata.opf together, so resolving any one of them settles the other two.
+    [TestMethod]
+    public async Task ResolveIssues_SidecarSiblingsForOneBook_ResolveOnceAndReportNoFailures()
+    {
+        const long audiobookId = 9;
+        var path = Path.Combine(Path.GetTempPath(), $"consistency-{Guid.NewGuid():N}.m4b");
+        await File.WriteAllTextAsync(path, "fake audio");
+
+        try
+        {
+            var book = MakeMissingFileBook(audiobookId, path);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Book 9", 2024,
+                    new Domain.AudiobookFileInfo(path, Path.GetFileName(path), 1000)));
+
+            var descIssue = new ConsistencyIssue
+            {
+                Id = 1,
+                AudiobookId = audiobookId,
+                Audiobook = book,
+                IssueType = ConsistencyIssueType.MissingDescTxt,
+                Description = "no desc",
+            };
+            var opfIssue = new ConsistencyIssue
+            {
+                Id = 2,
+                AudiobookId = audiobookId,
+                Audiobook = book,
+                IssueType = ConsistencyIssueType.MissingOpfFile,
+                Description = "no opf",
+            };
+
+            _issueRepository
+                .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+                .ReturnsAsync(new List<ConsistencyIssue> { descIssue, opfIssue });
+
+            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
+
+            Assert.AreEqual(1, resolved);
+            Assert.AreEqual(0, failed);
+        }
+        finally
+        {
+            var directory = Path.GetDirectoryName(path)!;
+            foreach (var sidecar in new[] { "desc.txt", "reader.txt", "metadata.opf" })
+            {
+                var sidecarPath = Path.Combine(directory, sidecar);
+                if (File.Exists(sidecarPath)) File.Delete(sidecarPath);
+            }
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    // An unrelated book in the same batch must still be resolved - the skip is per audiobook,
+    // not a blanket stop. Guards against "fixing" the false failure by simply bailing out.
+    [TestMethod]
+    public async Task ResolveIssues_OtherBooksInTheBatch_AreStillResolved()
+    {
+        var bookA = MakeMissingFileBook(1, "/library/gone/a.m4b");
+        var bookB = MakeMissingFileBook(2, "/library/gone/b.m4b");
+
+        var issues = new List<ConsistencyIssue>
+        {
+            new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
+            new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
+            new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+        };
+
+        _issueRepository
+            .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(issues);
+
+        var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L, 3L });
+
+        Assert.AreEqual(2, resolved);
+        Assert.AreEqual(0, failed);
+        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
+        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(2), Times.Once);
+    }
+
+    // Regression test for the N+1: ResolveIssuesByType loaded every issue *with* its audiobook
+    // graph, threw that away, and re-fetched each one by id with the same includes. Fails
+    // against the pre-fix service, which calls GetByIdAsync once per issue.
+    [TestMethod]
+    public async Task ResolveIssuesByType_DoesNotRefetchEachIssueById()
+    {
+        var issues = new List<ConsistencyIssue>
+        {
+            new() { Id = 1, AudiobookId = 1, Audiobook = MakeMissingFileBook(1, "/library/gone/a.m4b"), IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
+            new() { Id = 2, AudiobookId = 2, Audiobook = MakeMissingFileBook(2, "/library/gone/b.m4b"), IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+        };
+
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile))
+            .ReturnsAsync(issues);
+
+        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+
+        Assert.AreEqual(2, resolved);
+        Assert.AreEqual(0, failed);
+        _issueRepository.Verify(r => r.GetByIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    // The single-issue endpoint must still 404 on an id that genuinely does not exist - the
+    // tolerance above is scoped to the bulk path.
+    [TestMethod]
+    public async Task ResolveIssue_UnknownId_StillThrows()
+    {
+        _issueRepository.Setup(r => r.GetByIdAsync(It.IsAny<long>())).ReturnsAsync((ConsistencyIssue?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => _service.ResolveIssue(404));
+    }
+
+    #endregion
+
     [TestMethod]
     public async Task RunConsistencyCheck_MissingFile_ReportsIssue()
     {
@@ -629,6 +796,127 @@ public class LibraryConsistencyServiceTests
         finally
         {
             Directory.Delete(tempRoot, true);
+        }
+    }
+
+    // Regression test: the sweep only ever examined *leaf* directories, so a deleted series was
+    // cleaned up one level per run - the check flagged "Author/Series/Book", resolving it made
+    // "Author/Series" a leaf, and only the next full check noticed. The user had to run the
+    // check once per level. Fails against the pre-fix service, which reports the deepest folder
+    // rather than the whole reclaimable subtree.
+    [TestMethod]
+    public async Task RunConsistencyCheck_NestedOrphanedFolders_ReportsTheTopmostReclaimableOneInASinglePass()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var keptBookDir = Path.Combine(libraryPath, "Kept Author", "Kept Book");
+        var orphanBookDir = Path.Combine(libraryPath, "Gone Author", "Gone Series", "Gone Book");
+        Directory.CreateDirectory(keptBookDir);
+        Directory.CreateDirectory(orphanBookDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(keptBookDir, "book.m4b"), "fake audio");
+            await File.WriteAllTextAsync(Path.Combine(orphanBookDir, "desc.txt"), "leftover");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings, _audiobookRepository.Object, _issueRepository.Object,
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            // The whole "Gone Author" subtree is reclaimable, so that is what is offered - not
+            // just its deepest folder, and not each level as a separate issue to resolve.
+            CollectionAssert.AreEqual(
+                new List<string> { Path.Combine(libraryPath, "Gone Author") },
+                insertedDirectories.Select(d => d.DirectoryPath).ToList());
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
+        }
+    }
+
+    // The subtree answer is derived from the children's answers rather than by re-walking the
+    // subtree, so it has to propagate up through more than one level.
+    [TestMethod]
+    public async Task RunConsistencyCheck_AudioDeepInASubtree_KeepsEveryAncestor()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var deepBookDir = Path.Combine(libraryPath, "Author", "Series", "Sub", "Book");
+        Directory.CreateDirectory(deepBookDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(deepBookDir, "book.m4b"), "fake audio");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings, _audiobookRepository.Object, _issueRepository.Object,
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            Assert.AreEqual(0, insertedDirectories.Count,
+                "no ancestor of a directory holding audio is reclaimable");
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
+        }
+    }
+
+    // A parent holding a real book must never be swept up with an orphaned sibling folder.
+    [TestMethod]
+    public async Task RunConsistencyCheck_ParentHoldingAudio_IsNotReportedWithItsOrphanedChild()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var authorDir = Path.Combine(libraryPath, "Author");
+        var bookDir = Path.Combine(authorDir, "Real Book");
+        var orphanDir = Path.Combine(authorDir, "Leftovers");
+        Directory.CreateDirectory(bookDir);
+        Directory.CreateDirectory(orphanDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(bookDir, "book.m4b"), "fake audio");
+            await File.WriteAllTextAsync(Path.Combine(orphanDir, "desc.txt"), "leftover");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings, _audiobookRepository.Object, _issueRepository.Object,
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            CollectionAssert.AreEqual(
+                new List<string> { orphanDir },
+                insertedDirectories.Select(d => d.DirectoryPath).ToList());
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
         }
     }
 

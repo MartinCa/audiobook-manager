@@ -13,6 +13,7 @@ public interface IConsistencyIssueRepository
     Task DeleteByAudiobookIdAsync(long audiobookId);
     Task DeleteByAudiobookIdAndTypesAsync(long audiobookId, IEnumerable<ConsistencyIssueType> types);
     Task<List<ConsistencyIssue>> GetByTypeAsync(ConsistencyIssueType issueType);
+    Task<List<ConsistencyIssue>> GetByIdsAsync(IReadOnlyCollection<long> ids);
     Task<Dictionary<long, int>> GetIssueSummaryAsync();
     Task<List<ConsistencyIssue>> GetByAudiobookIdAsync(long audiobookId);
 }

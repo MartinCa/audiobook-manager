@@ -50,6 +50,44 @@ public class SeriesServiceTests
     private static SeriesExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
         new() { Id = id, SeriesId = 1, Title = title, Position = position, IsIgnored = ignored };
 
+    // Regression test: a roster entry with no position must still be matched on title against
+    // owned books that *do* have one. IsSameBook falls back to a fuzzy title comparison whenever
+    // the positions don't settle it, so partitioning the owned books by position must not stop
+    // those pairs from ever being compared - or a book the user owns is reported missing.
+    [TestMethod]
+    public async Task GetSeriesDetailAsync_ExpectedBookWithNoPosition_MatchesAnOwnedBookThatHasOne()
+    {
+        var owned = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+        };
+
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                // The source lists it without a position at all.
+                MakeExpected(10, "The Final Empire", null),
+            },
+        };
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+
+        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+
+        Assert.IsNotNull(detail);
+        CollectionAssert.AreEqual(
+            new List<string>(),
+            detail.MissingBooks.Select(b => b.Title).ToList(),
+            "the owned book matches the positionless roster entry on title");
+        Assert.AreEqual(0, detail.Overview.MissingBookCount);
+    }
+
     [TestMethod]
     public async Task GetSeriesDetailAsync_ReportsOnlyUnownedNonIgnoredBooksAsMissing()
     {
@@ -599,6 +637,94 @@ public class SeriesServiceTests
         Assert.IsNotNull(stopReason);
         Assert.AreEqual(1, progressCalls.Count);
         scraper.Verify(s => s.GetSeriesBooks(It.IsAny<string>()), Times.Exactly(2));
+    }
+
+    // Regression test: RefreshManyAsync read the series row to check it was matched, then
+    // MatchSeriesCoreAsync immediately read the very same row again to carry the ignore flags
+    // across - so refreshing N series cost 2N reads, each pulling a full roster. Fails against
+    // the pre-fix service, which reads it twice.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_ReadsTheSeriesRowOnce()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn"));
+
+        var (processed, succeeded, failed, _) = await MakeService(scraper.Object)
+            .RefreshSeriesAsync("Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        _seriesRepository.Verify(r => r.GetByNameWithExpectedBooksAsync("Mistborn"), Times.Once);
+    }
+
+    // The ignore flags a refresh carries across still have to survive the row being passed in
+    // rather than re-read - guards against "fixing" the double read by dropping the roster.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_CarriesPreviouslyIgnoredEntriesAcross()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "Secret History", "3.5", ignored: true),
+            },
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+
+        List<SeriesExpectedBook> replaced = new();
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Callback((long _, List<SeriesExpectedBook> books) => replaced = books)
+            .Returns(Task.CompletedTask);
+
+        var roster = new SeriesSearchResult("42", "Mistborn")
+        {
+            Books = new List<SeriesExpectedBookResult>
+            {
+                new("The Final Empire") { Position = "1" },
+                new("Secret History") { Position = "3.5" },
+            },
+        };
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>())).ReturnsAsync(roster);
+
+        await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(2, replaced.Count);
+        Assert.IsFalse(replaced.Single(b => b.Title == "The Final Empire").IsIgnored);
+        Assert.IsTrue(replaced.Single(b => b.Title == "Secret History").IsIgnored);
     }
 
     [TestMethod]

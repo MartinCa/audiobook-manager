@@ -12,9 +12,16 @@ public class SeriesRepository : ISeriesRepository
         _db = db;
     }
 
+    /// <summary>
+    /// Read-only projection source for the series overview. No tracking: the overview never
+    /// mutates these, and tracking every series plus its full roster for the request's lifetime
+    /// is pure change-detection overhead. Writers use the tracked
+    /// <see cref="GetByNameWithExpectedBooksAsync"/> / <see cref="UpsertSeriesAsync"/> path.
+    /// </summary>
     public async Task<List<Series>> GetAllWithExpectedBooksAsync()
     {
         return await _db.Series
+            .AsNoTracking()
             .Include(s => s.ExpectedBooks)
             .AsSplitQuery()
             .ToListAsync();

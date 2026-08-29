@@ -37,6 +37,83 @@ public class PersonRepositorySearchTests
         }
     }
 
+    // Regression test: GetOrCreatePersons reads the existing names then inserts the missing ones
+    // across an await, and persons.name is unique - so two organizes running concurrently (the
+    // bulk import fans out; OrganizeWorker runs alongside an interactive save) can both see a
+    // new author as missing and both insert it. The loser used to die on the UNIQUE constraint,
+    // failing the whole organize with the file half-processed. It must adopt the winner's row
+    // instead. Fails against the pre-fix repository with a DbUpdateException.
+    [TestMethod]
+    public async Task GetOrCreatePersons_AnotherWriterInsertsTheSameNameFirst_AdoptsTheExistingRow()
+    {
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+
+        // Simulate the concurrent writer committing in the window between this repository's
+        // read and its insert, by racing it in at exactly that point.
+        void InsertConcurrently(object? sender, SavingChangesEventArgs args)
+        {
+            _db.SavingChanges -= InsertConcurrently;   // only race the first save
+            using var otherContext = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+            otherContext.Persons.Add(new Person(default, "Adrian Tchaikovsky"));
+            otherContext.SaveChanges();
+        }
+
+        _db.SavingChanges += InsertConcurrently;
+        try
+        {
+            var result = await _repository.GetOrCreatePersons(new[] { "Adrian Tchaikovsky" });
+
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(result.ContainsKey("Adrian Tchaikovsky"));
+            Assert.AreNotEqual(default, result["Adrian Tchaikovsky"].Id, "should have adopted the persisted row");
+        }
+        finally
+        {
+            _db.SavingChanges -= InsertConcurrently;
+        }
+
+        // And exactly one row exists - the race must not have produced a duplicate.
+        using var verifyContext = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+        Assert.AreEqual(1, verifyContext.Persons.Count(p => p.Name == "Adrian Tchaikovsky"));
+    }
+
+    // Regression test: this ordered by Name in SQL, i.e. under SQLite's BINARY collation, which
+    // sorts by code point - "Zadie" before "alice", and every accented surname after "Z". The
+    // list is unpaged, so nothing forced the sort into SQL. Fails against the pre-fix
+    // repository, which returns Zadie first.
+    [TestMethod]
+    public async Task GetAllAuthorSummariesAsync_SortsForAReaderNotByCodePoint()
+    {
+        await SeedBookWithAuthorAsync("Book A", "Zadie Smith");
+        await SeedBookWithAuthorAsync("Book B", "alice Walker");
+        await SeedBookWithAuthorAsync("Book C", "Ólafur Arnalds");
+
+        var results = await _repository.GetAllAuthorSummariesAsync();
+
+        CollectionAssert.AreEqual(
+            new[] { "alice Walker", "Ólafur Arnalds", "Zadie Smith" },
+            results.Select(r => r.Name).ToList());
+    }
+
+    // Same rank-before-the-limit bug as the book/series searches: the controller ranked the
+    // survivors of an alphabetical Take, so a prefix match that sorted late was already gone.
+    [TestMethod]
+    public async Task SearchAuthorSummariesAsync_RanksPrefixMatchesBeforeApplyingTheLimit()
+    {
+        // All contain "san"; only "sandra Newman" starts with it, and its lowercase initial
+        // sorts after every uppercase name under BINARY collation.
+        foreach (var name in new[] { "Alec Sanders", "Bo Sanchez", "Cy Sanford", "Di Sansom", "Ed Santos" })
+        {
+            await SeedBookWithAuthorAsync($"Book by {name}", name);
+        }
+        await SeedBookWithAuthorAsync("Book by sandra", "sandra Newman");
+
+        var results = await _repository.SearchAuthorSummariesAsync("san", 5);
+
+        Assert.AreEqual(5, results.Count);
+        Assert.AreEqual("sandra Newman", results[0].Name);
+    }
+
     private async Task SeedBookWithAuthorAsync(string bookName, string authorName)
     {
         var audiobook = new Audiobook(

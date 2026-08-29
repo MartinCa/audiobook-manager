@@ -11,6 +11,12 @@ namespace AudiobookManager.Services;
 
 public class LibraryScanService : ILibraryScanService
 {
+    /// <summary>Discovered rows accumulated before a single batched insert.</summary>
+    private const int InsertBatchSize = 200;
+
+    /// <summary>Files scanned between SignalR progress broadcasts.</summary>
+    private const int ProgressBroadcastInterval = 25;
+
     private readonly AudiobookManagerSettings _settings;
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IDiscoveredAudiobookRepository _discoveredAudiobookRepository;
@@ -53,13 +59,21 @@ public class LibraryScanService : ILibraryScanService
         var filesScanned = 0;
         var newFilesDiscovered = 0;
 
+        // Batch both the writes and the progress reports, the same way LibraryConsistencyService
+        // does. Previously this was one transaction *and* one SignalR broadcast per file: a
+        // 20,000-book library meant 20,000 of each, and the client throttles the progress bar to
+        // ~4fps regardless, so almost all of those messages were invisible.
+        var pending = new List<DiscoveredAudiobook>(InsertBatchSize);
+        var lastMessage = string.Empty;
+
         foreach (var file in files)
         {
             filesScanned++;
 
             if (knownPaths.Contains(file.FullPath))
             {
-                await progressAction($"Already tracked: {file.FileName}", filesScanned, totalFiles);
+                lastMessage = $"Already tracked: {file.FileName}";
+                await ReportScanProgressAsync(progressAction, lastMessage, filesScanned, totalFiles);
                 continue;
             }
 
@@ -92,22 +106,80 @@ public class LibraryScanService : ILibraryScanService
                     DurationInSeconds = parsed.DurationInSeconds
                 };
 
-                await _discoveredAudiobookRepository.InsertAsync(discovered);
-                newFilesDiscovered++;
-
-                await progressAction($"Discovered: {file.FileName}", filesScanned, totalFiles);
+                pending.Add(discovered);
+                lastMessage = $"Discovered: {file.FileName}";
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to parse audiobook at {FilePath}", file.FullPath);
-                await progressAction($"Error parsing: {file.FileName}", filesScanned, totalFiles);
+                lastMessage = $"Error parsing: {file.FileName}";
             }
+
+            // Deliberately outside the per-file try: a batch insert failing is a database
+            // problem, not a parse failure of whichever file happened to fill the batch, and
+            // logging it as one blames a file that parsed fine. Flushing here also guarantees
+            // `pending` is cleared either way - left in place, a failing batch was re-attempted
+            // by every later flush and poisoned the rest of the scan.
+            if (pending.Count >= InsertBatchSize)
+            {
+                newFilesDiscovered += await FlushPendingAsync(pending);
+            }
+
+            await ReportScanProgressAsync(progressAction, lastMessage, filesScanned, totalFiles);
         }
+
+        newFilesDiscovered += await FlushPendingAsync(pending);
 
         _logger.LogInformation("Library scan complete. Total: {Total}, New: {New}, Tracked: {Tracked}",
             totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
 
         return (totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
+    }
+
+    /// <summary>
+    /// Writes the accumulated batch and empties it, returning how many rows were actually
+    /// persisted. A failure loses that batch - the alternative is aborting a scan of the whole
+    /// library over one bad write - so it is logged loudly and the discovered count reflects
+    /// only what really landed, rather than what was queued.
+    /// </summary>
+    private async Task<int> FlushPendingAsync(List<DiscoveredAudiobook> pending)
+    {
+        if (pending.Count == 0)
+        {
+            return 0;
+        }
+
+        // Hand over a snapshot, not the live buffer: this method clears `pending` in its finally,
+        // and anything the repository (or a test double) still holds a reference to would be
+        // emptied underneath it.
+        var batch = pending.ToList();
+
+        try
+        {
+            await _discoveredAudiobookRepository.InsertRangeAsync(batch);
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to insert a batch of {Count} discovered audiobooks; they will not appear until the next scan", batch.Count);
+            return 0;
+        }
+        finally
+        {
+            pending.Clear();
+        }
+    }
+
+    private static Task ReportScanProgressAsync(
+        Func<string, int, int, Task> progressAction, string message, int filesScanned, int totalFiles)
+    {
+        if (filesScanned % ProgressBroadcastInterval != 0 && filesScanned != totalFiles)
+        {
+            return Task.CompletedTask;
+        }
+
+        return progressAction(message, filesScanned, totalFiles);
     }
 
     public async Task<(int Processed, int Succeeded, int Failed)> BulkImportAsync(

@@ -545,6 +545,15 @@ const loadIssues = async () => {
     const loaded = await ConsistencyService.getIssues();
     if (requestId !== loadIssuesRequestId) return;
     issues.value = loaded;
+
+    // Drop selections for issues the server no longer has, so a resolved row's id cannot sit
+    // in the set forever and inflate the "N selected" counts.
+    if (selectedIssueIds.value.size > 0) {
+      const liveIds = new Set(loaded.map((i) => i.id));
+      for (const id of [...selectedIssueIds.value]) {
+        if (!liveIds.has(id)) selectedIssueIds.value.delete(id);
+      }
+    }
   } catch {
     // Keep the list we already have rather than blanking it on a transient failure.
     snackbarText.value = "Failed to refresh the issue list";
@@ -767,43 +776,22 @@ const resolveIssue = async (issue: ConsistencyIssue) => {
   resolvingIds.value.add(issue.id);
   try {
     await ConsistencyService.resolveIssue(issue.id);
-    issues.value = issues.value.filter((i) => {
-      if (
-        issue.issueType === "MissingMediaFile" ||
-        issue.issueType === "WrongFilePath"
-      ) {
-        return i.audiobookId !== issue.audiobookId;
-      }
-      if (
-        issue.issueType === "MissingDescTxt" ||
-        issue.issueType === "IncorrectDescTxt" ||
-        issue.issueType === "MissingReaderTxt" ||
-        issue.issueType === "IncorrectReaderTxt" ||
-        issue.issueType === "MissingOpfFile" ||
-        issue.issueType === "IncorrectOpfFile"
-      ) {
-        return !(
-          i.audiobookId === issue.audiobookId &&
-          (i.issueType === "MissingDescTxt" ||
-            i.issueType === "IncorrectDescTxt" ||
-            i.issueType === "MissingReaderTxt" ||
-            i.issueType === "IncorrectReaderTxt" ||
-            i.issueType === "MissingOpfFile" ||
-            i.issueType === "IncorrectOpfFile")
-        );
-      }
-      return i.id !== issue.id;
-    });
+    // Just the row that was resolved, for immediate feedback. Resolving one issue cascades to
+    // others on the same book (a path change or tag rewrite invalidates every check for it,
+    // and writing the sidecars fixes all three at once) - but those rules live in
+    // LibraryConsistencyService, and restating them here meant they drifted: TagMismatch
+    // cascades exactly like WrongFilePath and was never added to the list this replaced. The
+    // authoritative re-read below is what removes the rest.
+    issues.value = issues.value.filter((i) => i.id !== issue.id);
+    selectedIssueIds.value.delete(issue.id);
     snackbarText.value = "Issue resolved successfully";
     snackbar.value = true;
   } catch {
     snackbarText.value = "Failed to resolve issue";
     snackbar.value = true;
-    // The optimistic removal above only runs on success, so on failure the list is unchanged -
-    // but the server may still have partially resolved, so re-read rather than guess.
-    await loadIssues();
   } finally {
     resolvingIds.value.delete(issue.id);
+    await loadIssues();
   }
 };
 

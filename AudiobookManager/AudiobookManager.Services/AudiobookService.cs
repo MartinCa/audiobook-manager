@@ -56,7 +56,12 @@ public class AudiobookService : IAudiobookService
             return new TargetPathCollisionResult { TargetPath = targetPath, Exists = false };
         }
 
-        var existingAudiobook = await _audiobookRepository.GetByFullPathAsync(targetPath);
+        // OS-aware comparison, not a raw string match: on a case-insensitive volume the stored
+        // path can differ in case from the freshly generated target (an author's casing edited
+        // in the tags since import), and a string match would then miss the tracked book and
+        // report the collision as an untracked file with nothing but a byte size to go on.
+        var existingAudiobook = await _audiobookRepository.GetByFullPathAsync(
+            targetPath, AudiobookFileHandler.PathsEqual);
         if (existingAudiobook is not null)
         {
             return new TargetPathCollisionResult

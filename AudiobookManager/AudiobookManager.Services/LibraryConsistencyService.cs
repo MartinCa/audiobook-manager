@@ -103,28 +103,61 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             return issuesFound;
         }
 
-        // A single recursive enumeration, plus a set of every directory that has at least one
-        // subdirectory (its parent), lets us identify leaf directories without re-stat'ing the
-        // tree for each one via a second Directory.GetDirectories(dir) call per directory.
-        var allDirectories = Directory.EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories).ToList();
-        var parentDirectories = new HashSet<string>(
-            allDirectories.Select(Path.GetDirectoryName).OfType<string>(),
-            AudiobookFileHandler.PathComparer);
-        var leafDirectories = allDirectories.Where(directory => !parentDirectories.Contains(directory));
+        // A single recursive enumeration, walked deepest-first.
+        //
+        // Checking only leaf directories (which this used to do) meant a deleted series was
+        // cleaned up one level per run: the check flagged "Author/Series/Book", resolving it
+        // deleted that folder, and only the *next* full check noticed "Author/Series" had become
+        // a leaf - so the user had to run the check once per level. Bottom-up, a directory whose
+        // every subdirectory is itself being reclaimed is reported in the same pass.
+        //
+        // "Does this subtree hold audio?" is answered from the children's already-computed
+        // answers rather than by re-walking the subtree, so every file in the library is
+        // stat'ed once for the whole sweep. Asking Directory.EnumerateFiles(dir, "*",
+        // AllDirectories) per directory would re-walk each file once per ancestor level.
+        var allDirectories = Directory
+            .EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
+            .OrderByDescending(directory => directory.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
+            .ToList();
 
+        var subtreeHasAudio = new HashSet<string>(AudiobookFileHandler.PathComparer);
         var orphans = new List<OrphanDirectory>();
-        foreach (var directory in leafDirectories)
+        var orphansByPath = new Dictionary<string, OrphanDirectory>(AudiobookFileHandler.PathComparer);
+
+        foreach (var directory in allDirectories)
         {
-            var hasAudioFile = Directory.GetFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
-            if (!hasAudioFile)
+            var subdirectories = Directory.EnumerateDirectories(directory).ToList();
+
+            var hasAudioFile =
+                Directory.EnumerateFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)))
+                || subdirectories.Any(subtreeHasAudio.Contains);
+
+            if (hasAudioFile)
             {
-                orphans.Add(new OrphanDirectory
-                {
-                    DirectoryPath = directory,
-                    DetectedAt = DateTime.UtcNow
-                });
-                issuesFound++;
+                subtreeHasAudio.Add(directory);
+                continue;
             }
+
+            // Nothing under here is audio, so the whole subtree is reclaimable. Report only this
+            // directory: deleting it removes the children anyway, and listing both would make
+            // the user resolve the same folder twice.
+            foreach (var subdirectory in subdirectories)
+            {
+                if (orphansByPath.Remove(subdirectory, out var superseded))
+                {
+                    orphans.Remove(superseded);
+                    issuesFound--;
+                }
+            }
+
+            var orphan = new OrphanDirectory
+            {
+                DirectoryPath = directory,
+                DetectedAt = DateTime.UtcNow
+            };
+            orphans.Add(orphan);
+            orphansByPath[directory] = orphan;
+            issuesFound++;
         }
 
         // One insert for the whole sweep rather than a SaveChanges per orphaned folder.
@@ -135,21 +168,58 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return issuesFound;
     }
 
+    /// <summary>
+    /// How far a resolve reaches beyond the issue it was asked to fix. Resolving one issue
+    /// routinely deletes other stored issues for the same book, and a bulk resolve has to know
+    /// which of its remaining items that already took care of - see
+    /// <see cref="ResolveLoadedIssuesAsync"/>.
+    /// </summary>
+    private enum ResolveScope
+    {
+        /// <summary>Only this issue row was removed.</summary>
+        IssueOnly,
+
+        /// <summary>
+        /// Every stored issue for the book was removed - the path or the tags changed (or the
+        /// book was deleted outright), which invalidates every other check for it.
+        /// </summary>
+        AllForAudiobook,
+
+        /// <summary>
+        /// The book's sidecar-content issues were all removed, because WriteMetadata rewrites
+        /// desc.txt, reader.txt and metadata.opf together.
+        /// </summary>
+        SidecarsForAudiobook,
+    }
+
+    private static readonly ConsistencyIssueType[] _sidecarIssueTypes =
+    {
+        ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
+        ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt,
+        ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
+    };
+
+    private static bool IsSidecarIssue(ConsistencyIssueType issueType) =>
+        Array.IndexOf(_sidecarIssueTypes, issueType) >= 0;
+
     public async Task ResolveIssue(long issueId)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
             throw new KeyNotFoundException($"Issue {issueId} not found");
 
+        await ResolveLoadedIssue(issue);
+    }
+
+    private async Task<ResolveScope> ResolveLoadedIssue(ConsistencyIssue issue)
+    {
         switch (issue.IssueType)
         {
             case ConsistencyIssueType.MissingMediaFile:
-                await ResolveMissingMediaFile(issue);
-                break;
+                return await ResolveMissingMediaFile(issue);
 
             case ConsistencyIssueType.WrongFilePath:
-                await ResolveWrongFilePath(issue);
-                break;
+                return await ResolveWrongFilePath(issue);
 
             case ConsistencyIssueType.MissingDescTxt:
             case ConsistencyIssueType.IncorrectDescTxt:
@@ -157,20 +227,76 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.IncorrectReaderTxt:
             case ConsistencyIssueType.MissingOpfFile:
             case ConsistencyIssueType.IncorrectOpfFile:
-                await ResolveMetadataIssue(issue);
-                break;
+                return await ResolveMetadataIssue(issue);
 
             case ConsistencyIssueType.MissingCoverFile:
-                await ResolveMissingCover(issue);
-                break;
+                return await ResolveMissingCover(issue);
 
             case ConsistencyIssueType.TagMismatch:
-                await ResolveTagMismatch(issue);
-                break;
+                return await ResolveTagMismatch(issue);
+
+            default:
+                return ResolveScope.IssueOnly;
         }
     }
 
-    private async Task ResolveMissingMediaFile(ConsistencyIssue issue)
+    /// <summary>
+    /// Resolves an already-loaded batch, tolerating the cascades the handlers perform.
+    ///
+    /// Resolving one issue deletes other stored issues for the same book - a path change or a
+    /// tag rewrite invalidates every check for it, and writing the sidecars fixes all three at
+    /// once - so an item later in the batch is routinely already gone by the time the loop
+    /// reaches it. Re-fetching it by id (as this used to) found nothing and threw
+    /// KeyNotFoundException, which BulkOperationRunner counted as a failure: a batch that
+    /// succeeded completely reported "Resolved 1 issues (1 failed)". Those entries are skipped
+    /// instead, and counted in neither total.
+    ///
+    /// The scope each handler reports is what drives the skipping, so the cascade rules stay in
+    /// the handlers that perform them rather than being restated here (or, worse, in the client).
+    /// </summary>
+    private async Task<(int resolved, int failed)> ResolveLoadedIssuesAsync(IReadOnlyList<ConsistencyIssue> issues)
+    {
+        var succeeded = 0;
+        var failed = 0;
+        var cascadedAll = new HashSet<long>();
+        var cascadedSidecars = new HashSet<long>();
+
+        foreach (var issue in issues)
+        {
+            if (cascadedAll.Contains(issue.AudiobookId) ||
+                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)))
+            {
+                _logger.LogDebug(
+                    "Skipping issue {IssueId} ({IssueType}): an earlier resolve in this batch already covered audiobook {AudiobookId}",
+                    issue.Id, issue.IssueType, issue.AudiobookId);
+                continue;
+            }
+
+            try
+            {
+                var scope = await ResolveLoadedIssue(issue);
+                succeeded++;
+
+                if (scope == ResolveScope.AllForAudiobook)
+                {
+                    cascadedAll.Add(issue.AudiobookId);
+                }
+                else if (scope == ResolveScope.SidecarsForAudiobook)
+                {
+                    cascadedSidecars.Add(issue.AudiobookId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during bulk resolve", issue.Id);
+                failed++;
+            }
+        }
+
+        return (succeeded, failed);
+    }
+
+    private async Task<ResolveScope> ResolveMissingMediaFile(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -178,7 +304,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         {
             // The file has reappeared since the issue was detected; the audiobook is no longer missing.
             await _issueRepository.DeleteAsync(issue.Id);
-            return;
+            return ResolveScope.IssueOnly;
         }
 
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath);
@@ -190,9 +316,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         {
             AudiobookFileHandler.RemoveDirIfEmpty(directoryPath);
         }
+
+        return ResolveScope.AllForAudiobook;
     }
 
-    private async Task ResolveWrongFilePath(ConsistencyIssue issue)
+    private async Task<ResolveScope> ResolveWrongFilePath(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -213,7 +341,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         {
             // The path already matches; the issue is no longer valid.
             await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-            return;
+            return ResolveScope.AllForAudiobook;
         }
 
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
@@ -243,9 +371,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         // Path change invalidates all other checks for this book
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+
+        return ResolveScope.AllForAudiobook;
     }
 
-    private async Task ResolveMetadataIssue(ConsistencyIssue issue)
+    private async Task<ResolveScope> ResolveMetadataIssue(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -254,15 +384,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         AudiobookFileHandler.WriteMetadata(parsed);
 
         // Delete all desc/reader/opf issues for this book since WriteMetadata writes all three
-        await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, new[]
-        {
-            ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
-            ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt,
-            ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
-        });
+        await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _sidecarIssueTypes);
+
+        return ResolveScope.SidecarsForAudiobook;
     }
 
-    private async Task ResolveTagMismatch(ConsistencyIssue issue)
+    private async Task<ResolveScope> ResolveTagMismatch(ConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
@@ -276,9 +403,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         // Tags (and potentially the file path) changed, invalidating all other checks for this book
         await _issueRepository.DeleteByAudiobookIdAsync(issue.AudiobookId);
+
+        return ResolveScope.AllForAudiobook;
     }
 
-    private async Task ResolveMissingCover(ConsistencyIssue issue)
+    private async Task<ResolveScope> ResolveMissingCover(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -288,6 +417,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
         await _issueRepository.DeleteAsync(issue.Id);
+
+        return ResolveScope.IssueOnly;
     }
 
     public async Task ResolveOrphanDirectory(long orphanDirectoryId)
@@ -336,26 +467,19 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         if (!Enum.TryParse<ConsistencyIssueType>(issueType, out var parsedType))
             throw new ArgumentException($"Unknown issue type: {issueType}");
 
+        // GetByTypeAsync already returns each issue with the audiobook graph the resolve
+        // handlers need, so resolve those entities directly instead of throwing them away and
+        // re-fetching each one by id (which cost N+1 queries with the same includes).
         var issues = await _issueRepository.GetByTypeAsync(parsedType);
 
-        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
-            issues,
-            issue => ResolveIssue(issue.Id),
-            _logger,
-            issue => $"Failed to resolve issue {issue.Id} during bulk resolve");
-
-        return (succeeded, failed);
+        return await ResolveLoadedIssuesAsync(issues);
     }
 
     public async Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds)
     {
-        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
-            issueIds.ToList(),
-            ResolveIssue,
-            _logger,
-            issueId => $"Failed to resolve issue {issueId} during selected bulk resolve");
+        var issues = await _issueRepository.GetByIdsAsync(issueIds.ToList());
 
-        return (succeeded, failed);
+        return await ResolveLoadedIssuesAsync(issues);
     }
 
     private static List<(string Field, string Expected, string Actual)> FindTagMismatches(Audiobook audiobook, AudiobookManager.Domain.Audiobook parsed)

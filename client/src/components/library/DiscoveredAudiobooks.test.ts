@@ -187,3 +187,135 @@ describe("DiscoveredAudiobooks stale-response handling", () => {
     wrapper.unmount();
   });
 });
+
+describe("DiscoveredAudiobooks list loading", () => {
+  // Regression test: loadDiscoveredBooks had no try/catch, unlike its sibling loadIssues in
+  // LibraryConsistency.vue. It is called from SignalR completion callbacks and the reconnect
+  // handler, so a rejection escaped into a hub callback with nothing to catch it, and the stale
+  // list gave the user no sign anything had failed. Fails against the pre-fix component with an
+  // unhandled rejection and no snackbar.
+  it("surfaces a load failure instead of rejecting, and keeps the list it already had", async () => {
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.discoveredBooks.length).toBe(3);
+
+    mockedGetDiscoveredBooks.mockRejectedValueOnce(new Error("network down"));
+    await expect(vm.loadDiscoveredBooks()).resolves.toBeUndefined();
+    await flushPromises();
+
+    expect(vm.discoveredBooks.length).toBe(3);
+    expect(vm.snackbar).toBe(true);
+    expect(vm.snackbarText).toBe("Failed to refresh the discovered books list");
+
+    wrapper.unmount();
+  });
+
+  // Regression test: the debounced search reset the page *and* called the loader, so from any
+  // page but the first it issued two overlapping requests per search. Fails against the pre-fix
+  // component, which makes two calls here.
+  it("issues a single request when searching from a page other than the first", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      await vi.advanceTimersByTimeAsync(50);
+
+      const vm = wrapper.vm as any;
+      vm.discoveredCurrentPage = 2;
+      await vi.advanceTimersByTimeAsync(50);
+
+      const callsBeforeSearch = mockedGetDiscoveredBooks.mock.calls.length;
+
+      vm.discoveredSearchQuery = "harry";
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(mockedGetDiscoveredBooks.mock.calls.length).toBe(
+        callsBeforeSearch + 1,
+      );
+      // ...and it asked for the first page of the new query.
+      const lastCall = mockedGetDiscoveredBooks.mock.calls.at(-1)!;
+      expect(lastCall[1]).toBe(0);
+      expect(lastCall[2]).toBe("harry");
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still issues one request when searching from the first page", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      await vi.advanceTimersByTimeAsync(50);
+
+      const vm = wrapper.vm as any;
+      const callsBeforeSearch = mockedGetDiscoveredBooks.mock.calls.length;
+
+      vm.discoveredSearchQuery = "harry";
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(mockedGetDiscoveredBooks.mock.calls.length).toBe(
+        callsBeforeSearch + 1,
+      );
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("DiscoveredAudiobooks selection", () => {
+  // The clone-on-every-mutation was removed because a ref'd Set is already reactive. These
+  // guard that the dependent computeds still update from in-place mutation.
+  it("updates the select-all state when individual books are ticked in place", async () => {
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.isAllWellTaggedSelected).toBe(false);
+    expect(vm.isSomeWellTaggedSelected).toBe(false);
+
+    vm.toggleBookSelected(vm.discoveredBooks[0]);
+    await flushPromises();
+
+    expect(vm.selectedPaths.has("/library/a.m4b")).toBe(true);
+    expect(vm.isSomeWellTaggedSelected).toBe(true);
+    expect(vm.isAllWellTaggedSelected).toBe(false);
+
+    vm.toggleSelectAllWellTagged();
+    await flushPromises();
+
+    expect(vm.isAllWellTaggedSelected).toBe(true);
+    expect(vm.selectedPaths.size).toBe(3);
+
+    vm.toggleSelectAllWellTagged();
+    await flushPromises();
+
+    expect(vm.isAllWellTaggedSelected).toBe(false);
+    expect(vm.selectedPaths.size).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it("deselects a book that leaves the list after finishing its organize", async () => {
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    const book = vm.discoveredBooks[0];
+    vm.toggleBookSelected(book);
+    await flushPromises();
+    expect(vm.selectedPaths.size).toBe(1);
+
+    vm.markDiscoveredAsQueued(book, book.fullPath);
+    await flushPromises();
+
+    expect(vm.selectedPaths.size).toBe(0);
+    expect(vm.isSomeWellTaggedSelected).toBe(false);
+
+    wrapper.unmount();
+  });
+});

@@ -60,8 +60,14 @@ public class BrowseControllerTests
         Assert.AreEqual(0, result.Authors.Count);
     }
 
+    // Ranking moved into the repositories, which order prefix matches first *before* their
+    // LIMIT - the controller must now pass that order through untouched. Re-ranking here was
+    // both redundant and wrong: it compared with a plain OrdinalIgnoreCase StartsWith, which is
+    // not accent-insensitive, so it demoted a "René" row that had correctly prefix-matched a
+    // "Rene" query. (The truncation bug this used to paper over is covered by
+    // AudiobookRepositorySearchTests/PersonRepositorySearchTests.)
     [TestMethod]
-    public async Task SearchLibrary_RanksExactPrefixMatchesFirst()
+    public async Task SearchLibrary_PreservesTheOrderTheRepositoryRankedIn()
     {
         var prefixMatch = new AuthorSummaryRow(1, "San Diego", 1);
         var substringMatch = new AuthorSummaryRow(2, "Brandon Sanderson", 1);
@@ -69,12 +75,32 @@ public class BrowseControllerTests
         _audiobookRepo.Setup(r => r.SearchAsync("san", 5, 0)).ReturnsAsync((new List<Audiobook>(), 0));
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("san", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
         _personRepo.Setup(r => r.SearchAuthorSummariesAsync("san", 5))
-            .ReturnsAsync(new List<AuthorSummaryRow> { substringMatch, prefixMatch });
+            .ReturnsAsync(new List<AuthorSummaryRow> { prefixMatch, substringMatch });
 
         var result = await _controller.SearchLibrary("san");
 
         Assert.AreEqual(2, result.Authors.Count);
         Assert.AreEqual("San Diego", result.Authors[0].Name);
         Assert.AreEqual("Brandon Sanderson", result.Authors[1].Name);
+    }
+
+    // Regression test for the accent case the removed client-side ranking got wrong: an
+    // accent-folded prefix hit ranked first by the repository must not be reordered here.
+    [TestMethod]
+    public async Task SearchLibrary_DoesNotDemoteAnAccentFoldedPrefixMatch()
+    {
+        var accentedPrefixMatch = new AuthorSummaryRow(1, "Réne Girard", 1);
+        var substringMatch = new AuthorSummaryRow(2, "Marie Irene", 1);
+
+        _audiobookRepo.Setup(r => r.SearchAsync("rene", 5, 0)).ReturnsAsync((new List<Audiobook>(), 0));
+        _audiobookRepo.Setup(r => r.SearchSeriesAsync("rene", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("rene", 5))
+            .ReturnsAsync(new List<AuthorSummaryRow> { accentedPrefixMatch, substringMatch });
+
+        var result = await _controller.SearchLibrary("rene");
+
+        Assert.AreEqual(2, result.Authors.Count);
+        Assert.AreEqual("Réne Girard", result.Authors[0].Name);
+        Assert.AreEqual("Marie Irene", result.Authors[1].Name);
     }
 }

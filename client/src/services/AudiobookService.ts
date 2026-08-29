@@ -66,6 +66,15 @@ class AudiobookService extends BaseHttpService {
   updateBook(id: number, data: Audiobook): Promise<void> {
     return this.putData(`/audiobook/${id}`, toDto(data));
   }
+
+  // Whether a save for this book is still running server-side. The save reports progress and
+  // completion over SignalR, so a client that was disconnected when it finished never sees the
+  // completion event - this is how the editor recovers on reconnect instead of staying disabled.
+  getSaveStatus(
+    id: number,
+  ): Promise<{ audiobookId: number; isSaving: boolean }> {
+    return this.getData(`/audiobook/${id}/save-status`);
+  }
 }
 
 export default new AudiobookService();

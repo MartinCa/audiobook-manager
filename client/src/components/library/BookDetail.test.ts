@@ -34,6 +34,7 @@ vi.mock("../../services/AudiobookService", () => ({
   default: {
     generateNewPath: vi.fn(),
     updateBook: vi.fn(),
+    getSaveStatus: vi.fn(),
   },
 }));
 
@@ -70,6 +71,13 @@ const mockedGetIssues = vi.mocked(ConsistencyService.getIssuesByAudiobook);
 const mockedGenerateNewPath = vi.mocked(AudiobookService.generateNewPath);
 const mockedRecheckAudiobook = vi.mocked(ConsistencyService.recheckAudiobook);
 const mockedUpdateBook = vi.mocked(AudiobookService.updateBook);
+const mockedGetSaveStatus = vi.mocked(AudiobookService.getSaveStatus);
+
+function getReconnectHandler(): () => Promise<void> | void {
+  const call = fakeSignalR.onReconnected.mock.calls.at(-1);
+  if (!call) throw new Error("No reconnect handler registered");
+  return call[0];
+}
 
 function makeBook(id: number, bookName: string): AudiobookDetail {
   return {
@@ -124,6 +132,7 @@ beforeEach(() => {
   mockedGenerateNewPath.mockResolvedValue("generated/path.m4b");
   mockedRecheckAudiobook.mockResolvedValue([]);
   mockedUpdateBook.mockResolvedValue(undefined);
+  mockedGetSaveStatus.mockResolvedValue({ audiobookId: 1, isSaving: false });
 });
 
 describe("BookDetail route param reactivity", () => {
@@ -426,6 +435,156 @@ describe("BookDetail save flow (fire-and-forget over SignalR)", () => {
     expect(vm.saving).toBe(true);
     expect(vm.saveMessage).toBe("Started");
     expect(mockedGetBookDetail.mock.calls.length).toBe(callsBeforeEvents);
+
+    wrapper.unmount();
+  });
+});
+
+describe("BookDetail save recovery after a SignalR reconnect", () => {
+  async function startASave() {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+
+    expect((wrapper.vm as any).saving).toBe(true);
+    return wrapper;
+  }
+
+  // Regression test: the save's completion arrives only over SignalR, so a client that was
+  // disconnected when it finished never saw it and the form stayed `saving` - every control
+  // disabled - until the page was reloaded. Fails against the pre-fix component, which
+  // registers no reconnect handler at all.
+  it("clears the saving state when the server reports the save already finished", async () => {
+    const wrapper = await startASave();
+
+    mockedGetSaveStatus.mockResolvedValue({ audiobookId: 1, isSaving: false });
+    await getReconnectHandler()();
+    await flushPromises();
+
+    expect(mockedGetSaveStatus).toHaveBeenCalledWith(1);
+    expect((wrapper.vm as any).saving).toBe(false);
+    // The completion it missed also means the book may have changed on disk.
+    expect(mockedGetBookDetail.mock.calls.length).toBeGreaterThan(1);
+
+    wrapper.unmount();
+  });
+
+  it("keeps waiting when the save is still running server-side", async () => {
+    const wrapper = await startASave();
+
+    mockedGetSaveStatus.mockResolvedValue({ audiobookId: 1, isSaving: true });
+    await getReconnectHandler()();
+    await flushPromises();
+
+    expect((wrapper.vm as any).saving).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it("does not unlock the form when the status check itself fails", async () => {
+    const wrapper = await startASave();
+
+    mockedGetSaveStatus.mockRejectedValue(new Error("offline"));
+    await getReconnectHandler()();
+    await flushPromises();
+
+    expect((wrapper.vm as any).saving).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it("does not query save status on a reconnect with no save in flight", async () => {
+    mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    await getReconnectHandler()();
+    await flushPromises();
+
+    expect(mockedGetSaveStatus).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+});
+
+describe("BookDetail path preview requests", () => {
+  // Regression test: the watcher tracked fourteen fields while the preview endpoint reads five,
+  // so typing a paragraph into Description fired a debounced request every 300ms for a path that
+  // provably cannot change. Fails against the pre-fix component, which issues a second call.
+  it("does not regenerate the path when a field the endpoint ignores changes", async () => {
+    vi.useFakeTimers();
+    try {
+      mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+      const wrapper = mountDetail();
+      await vi.advanceTimersByTimeAsync(500);
+
+      const callsAfterLoad = mockedGenerateNewPath.mock.calls.length;
+
+      const vm = wrapper.vm as any;
+      vm.input.description = "a much longer description being typed out";
+      vm.input.publisher = "Some Publisher";
+      vm.input.www = "https://example.com";
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(mockedGenerateNewPath.mock.calls.length).toBe(callsAfterLoad);
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still regenerates the path when a field the endpoint reads changes", async () => {
+    vi.useFakeTimers();
+    try {
+      mockedGetBookDetail.mockResolvedValue(makeBook(1, "First Book"));
+      const wrapper = mountDetail();
+      await vi.advanceTimersByTimeAsync(500);
+
+      const callsAfterLoad = mockedGenerateNewPath.mock.calls.length;
+
+      (wrapper.vm as any).input.series = "A New Series";
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(mockedGenerateNewPath.mock.calls.length).toBe(callsAfterLoad + 1);
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("BookDetail navigation while saving", () => {
+  // Regression test: `saving` was never reset when the route param changed, and the completion
+  // event is filtered by audiobookId - so navigating away mid-save left the *next* book's form
+  // disabled indefinitely. Fails against the pre-fix component, where saving stays true.
+  it("clears the save state when navigating to a different book", async () => {
+    mockedGetBookDetail
+      .mockResolvedValueOnce(makeBook(1, "First Book"))
+      .mockResolvedValueOnce(makeBook(2, "Second Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+    expect((wrapper.vm as any).saving).toBe(true);
+
+    route.params.bookId = "2";
+    await flushPromises();
+    await flushPromises();
+
+    expect((wrapper.vm as any).saving).toBe(false);
 
     wrapper.unmount();
   });
