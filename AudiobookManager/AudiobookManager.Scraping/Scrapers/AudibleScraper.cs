@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -727,7 +727,7 @@ public partial class AudibleScraper : IScraper
     private static string? ParseAsinFromUrl(string url)
     {
         var match = ReAsin().Match(url);
-        if (match is null)
+        if (!match.Success)
         {
             return null;
         }

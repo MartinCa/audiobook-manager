@@ -394,6 +394,46 @@ describe("BookEditForm similar-entries hint", () => {
 
     wrapper.unmount();
   });
+
+  it("_DoesNotOverwriteEmptyLanguageWithDefaultWhenScrapedTagIsEmpty", async () => {
+    const searchResult = {
+      bookName: "No Language Scraped",
+      year: 2020,
+    };
+
+    const wrapper = mount(BookEditForm, {
+      global: {
+        plugins: [vuetify],
+        stubs: {
+          TagPreviewDialog: {
+            template:
+              '<button class="stub-apply-tags" @click="$emit(\'apply\', searchResult, fields)"></button>',
+            data() {
+              return {
+                searchResult,
+                fields: new Set(["language", "bookName"]),
+              };
+            },
+          },
+        },
+      },
+      props: {
+        input: { bookName: "Original", language: undefined },
+        defaultEmptyLanguage: false,
+        searchBookDetails: {} as any,
+        currentPath: "current.m4b",
+        newPath: "new.m4b",
+      },
+    });
+
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    vm.applyPreviewedTags(searchResult, new Set(["language", "bookName"]));
+    await flushPromises();
+    expect(vm.input.language).toBeUndefined();
+    expect(vm.input.bookName).toBe("No Language Scraped");
+  });
 });
 
 function flushPromises() {
