@@ -344,6 +344,61 @@ public class LibraryScanServiceTests
         _discoveredAudiobookRepository.Verify(r => r.DeleteAsync(5), Times.Once);
     }
 
+    // Regression: the discovered row had no language column, so importing built a domain object
+    // with Language == null. SaveAudiobookTagsToFile assigns track.Language unconditionally, so
+    // the import wiped the language tag the scan had just read off the file.
+    [TestMethod]
+    public async Task BulkImportAsync_PreservesLanguageTagCapturedAtScanTime()
+    {
+        var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 7,
+            Authors = "Author One",
+            Year = 2022,
+            Language = "English"
+        };
+
+        _discoveredAudiobookRepository.Setup(r => r.GetByPathsAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook> { discovered });
+
+        DomainAudiobook? organized = null;
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Callback((DomainAudiobook a, Func<string, int, Task> _) => organized = a)
+            .ReturnsAsync((DomainAudiobook a, Func<string, int, Task> _) => a);
+
+        var (_, succeeded, failed) = await _service.BulkImportAsync(
+            new List<string> { "/import/book.m4b" },
+            (_, __, ___, ____) => Task.CompletedTask);
+
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNotNull(organized);
+        Assert.AreEqual("English", organized!.Language);
+    }
+
+    // The other half of the same round trip: the scan has to record the tag in the first place.
+    [TestMethod]
+    public async Task ScanLibrary_RecordsTheLanguageTagOnTheDiscoveredRow()
+    {
+        var filePath = Path.Combine(_libraryPath, "with-language.m4b");
+        await File.WriteAllTextAsync(filePath, "fake audio");
+
+        var parsed = MakeParsedAudiobook(filePath);
+        parsed.Language = "German";
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+        var inserted = new List<DiscoveredAudiobook>();
+        _discoveredAudiobookRepository
+            .Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<DiscoveredAudiobook>>()))
+            .Callback((IEnumerable<DiscoveredAudiobook> batch) => inserted.AddRange(batch))
+            .Returns(Task.CompletedTask);
+
+        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, inserted.Count);
+        Assert.AreEqual("German", inserted[0].Language);
+    }
+
     [TestMethod]
     public async Task BulkImportAsync_DiscoveredEntryMissingRequiredTags_IsCountedAsFailedWithoutAborting()
     {

@@ -1,6 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -52,7 +51,7 @@ public class PersonRepository : IPersonRepository
             {
                 await _db.SaveChangesAsync();
             }
-            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
             {
                 // persons.name is unique, and this method reads then inserts across an await
                 // from a request-scoped context. Organizes genuinely run concurrently (the bulk
@@ -93,11 +92,6 @@ public class PersonRepository : IPersonRepository
 
         return result;
     }
-
-    /// <summary>SQLITE_CONSTRAINT_UNIQUE (2067) / SQLITE_CONSTRAINT_PRIMARYKEY (1555).</summary>
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is SqliteException sqlite &&
-        (sqlite.SqliteExtendedErrorCode == 2067 || sqlite.SqliteExtendedErrorCode == 1555);
 
     public async Task<List<string>> GetAuthorNamesAsync()
     {

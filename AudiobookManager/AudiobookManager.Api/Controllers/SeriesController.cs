@@ -11,6 +11,13 @@ namespace AudiobookManager.Api.Controllers;
 /// Series are addressed by their free-text name rather than a catalog id: a series that has
 /// never been matched exists only as a value on audiobooks and has no catalog row (and so no
 /// id) yet, but still needs to be browsable and matchable.
+///
+/// That name travels in the query string, never as a path segment. A series value is a raw m4b
+/// tag, so it can contain any character - and a name with a "/" in it ("Sword Art Online /
+/// Progressive") is unaddressable in a path: ASP.NET Core leaves %2F encoded rather than
+/// decoding it into a segment separator, so the action received the literal "%2F" and every
+/// lookup missed. The series was listed on the overview page and then 404'd the moment it was
+/// opened, with no way to match, refresh or ignore anything in it.
 /// </summary>
 [Route("api/[controller]")]
 [ApiController]
@@ -52,8 +59,8 @@ public class SeriesController : ControllerBase
         return overviews.Select(ToDto).ToList();
     }
 
-    [HttpGet("{seriesName}")]
-    public async Task<ActionResult<SeriesDetailDto>> GetSeriesDetail(string seriesName)
+    [HttpGet("detail")]
+    public async Task<ActionResult<SeriesDetailDto>> GetSeriesDetail([FromQuery] string seriesName)
     {
         var detail = await _seriesService.GetSeriesDetailAsync(seriesName);
         if (detail is null)
@@ -69,8 +76,8 @@ public class SeriesController : ControllerBase
             detail.IgnoredBooks.Select(ToDto).ToList());
     }
 
-    [HttpGet("{seriesName}/match-candidates")]
-    public async Task<ActionResult<List<SeriesMatchCandidateDto>>> GetMatchCandidates(string seriesName)
+    [HttpGet("match-candidates")]
+    public async Task<ActionResult<List<SeriesMatchCandidateDto>>> GetMatchCandidates([FromQuery] string seriesName)
     {
         try
         {
@@ -85,8 +92,8 @@ public class SeriesController : ControllerBase
         }
     }
 
-    [HttpGet("{seriesName}/match-candidates/search")]
-    public async Task<ActionResult<List<SeriesMatchCandidateDto>>> SearchMatchCandidates(string seriesName, [FromQuery] string query)
+    [HttpGet("match-candidates/search")]
+    public async Task<ActionResult<List<SeriesMatchCandidateDto>>> SearchMatchCandidates([FromQuery] string seriesName, [FromQuery] string query)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -106,8 +113,8 @@ public class SeriesController : ControllerBase
         }
     }
 
-    [HttpPost("{seriesName}/match")]
-    public async Task<ActionResult<SeriesOverviewDto>> MatchSeries(string seriesName, [FromBody] MatchSeriesDto dto)
+    [HttpPost("match")]
+    public async Task<ActionResult<SeriesOverviewDto>> MatchSeries([FromQuery] string seriesName, [FromBody] MatchSeriesDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto?.SourceName) || string.IsNullOrWhiteSpace(dto.SourceId))
         {
@@ -130,8 +137,8 @@ public class SeriesController : ControllerBase
         }
     }
 
-    [HttpPost("{seriesName}/include-omnibus-editions")]
-    public async Task<ActionResult<SeriesOverviewDto>> SetIncludeOmnibusEditions(string seriesName, [FromBody] IncludeOmnibusEditionsDto dto)
+    [HttpPost("include-omnibus-editions")]
+    public async Task<ActionResult<SeriesOverviewDto>> SetIncludeOmnibusEditions([FromQuery] string seriesName, [FromBody] IncludeOmnibusEditionsDto dto)
     {
         try
         {
@@ -183,8 +190,8 @@ public class SeriesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
-    [HttpPost("{seriesName}/refresh")]
-    public IActionResult StartRefreshSeries(string seriesName)
+    [HttpPost("refresh")]
+    public IActionResult StartRefreshSeries([FromQuery] string seriesName)
     {
         return StartRefresh(service => service.RefreshSeriesAsync(seriesName, RefreshProgressAction));
     }
@@ -198,12 +205,12 @@ public class SeriesController : ControllerBase
     // Roster entries are addressed by their natural key (series name plus position and/or
     // title), not by row id: matching and refreshing delete and re-insert the whole roster,
     // so an id a client cached earlier can point at a different book by the time it is used.
-    [HttpPost("{seriesName}/expected-books/ignore")]
-    public Task<IActionResult> IgnoreExpectedBook(string seriesName, [FromBody] ExpectedBookRefDto dto) =>
+    [HttpPost("expected-books/ignore")]
+    public Task<IActionResult> IgnoreExpectedBook([FromQuery] string seriesName, [FromBody] ExpectedBookRefDto dto) =>
         SetIgnored(seriesName, dto, true);
 
-    [HttpPost("{seriesName}/expected-books/unignore")]
-    public Task<IActionResult> UnignoreExpectedBook(string seriesName, [FromBody] ExpectedBookRefDto dto) =>
+    [HttpPost("expected-books/unignore")]
+    public Task<IActionResult> UnignoreExpectedBook([FromQuery] string seriesName, [FromBody] ExpectedBookRefDto dto) =>
         SetIgnored(seriesName, dto, false);
 
     private async Task<IActionResult> SetIgnored(string seriesName, ExpectedBookRefDto? dto, bool ignored)

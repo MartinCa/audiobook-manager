@@ -45,7 +45,43 @@ public class GenreRepository : IGenreRepository
         {
             var newGenres = missingNames.Select(n => new Genre(default, n)).ToList();
             _db.Genres.AddRange(newGenres);
-            await _db.SaveChangesAsync();
+
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+            {
+                // genres.name is unique, and this reads then inserts across an await on a
+                // request-scoped context - the same race PersonRepository.GetOrCreatePersons
+                // handles, and for the same reason: organizes run concurrently with interactive
+                // saves and with the bulk operations, so two of them can both see a genre as
+                // missing and both insert it. The loser adopts the winner's row rather than
+                // failing the whole save.
+                foreach (var entry in _db.ChangeTracker.Entries<Genre>()
+                             .Where(e => e.State == EntityState.Added)
+                             .ToList())
+                {
+                    entry.State = EntityState.Detached;
+                }
+
+                var raced = await _db.Genres
+                    .Where(g => missingNames.Contains(g.Name))
+                    .ToListAsync();
+
+                foreach (var genre in raced)
+                {
+                    result[genre.Name] = genre;
+                }
+
+                if (missingNames.Any(n => !result.ContainsKey(n)))
+                {
+                    // Some other constraint failed - not the race this handler is for.
+                    throw;
+                }
+
+                return result;
+            }
 
             foreach (var genre in newGenres)
             {

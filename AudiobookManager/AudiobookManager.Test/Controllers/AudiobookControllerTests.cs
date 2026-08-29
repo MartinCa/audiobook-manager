@@ -50,6 +50,7 @@ public class AudiobookControllerTests
             _libraryConsistencyService.Object,
             organizeHub.Object,
             _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            new AudiobookSaveGate(),
             _logger.Object);
     }
 

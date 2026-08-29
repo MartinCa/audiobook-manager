@@ -200,6 +200,12 @@ public class ConsistencyController : ControllerBase
             await consistencyService.ResolveIssue(id);
             return Ok();
         }
+        catch (AudiobookBusyException ex)
+        {
+            // Resolving rewrites the book's files, so it takes the same per-audiobook gate a save
+            // does. Another operation holding it is a "try again", not a server error.
+            return Conflict(ex.Message);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving consistency issue {IssueId}", id);

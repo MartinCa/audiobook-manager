@@ -370,6 +370,117 @@ public class AudiobookFileHandlerTests
         }
     }
 
+    // Regression: clearing a book's description left the previous desc.txt on disk. WriteMetadata
+    // simply skipped the file when the field was empty, and the consistency check only looked at
+    // desc.txt when the tag was set - so the stale text survived every save and every check, and
+    // Audiobookshelf reads that file in preference to the m4b's own tag.
+    [TestMethod]
+    public void WriteMetadata_EmptyDescriptionAndNoNarrators_RemovesStaleDescAndReaderFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            File.WriteAllText(tempFile, "fake");
+
+            var descPath = Path.Combine(tempDir, "desc.txt");
+            var readerPath = Path.Combine(tempDir, "reader.txt");
+            File.WriteAllText(descPath, "the description this book used to have");
+            File.WriteAllText(readerPath, "Narrator Who Left");
+
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Test Book",
+                2024,
+                new AudiobookFileInfo(tempFile, "test.m4b", 100))
+            {
+                Description = null,
+                Narrators = new List<Person>()
+            };
+
+            AudiobookFileHandler.WriteMetadata(audiobook);
+
+            Assert.IsFalse(File.Exists(descPath));
+            Assert.IsFalse(File.Exists(readerPath));
+            // metadata.opf is unconditional and must still be written.
+            Assert.IsTrue(File.Exists(Path.Combine(tempDir, "metadata.opf")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public void WriteMetadata_NoStaleSidecars_LeavesTheDirectoryUntouched()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            File.WriteAllText(tempFile, "fake");
+
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Test Book",
+                2024,
+                new AudiobookFileInfo(tempFile, "test.m4b", 100));
+
+            AudiobookFileHandler.WriteMetadata(audiobook);
+
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "reader.txt")));
+            Assert.IsTrue(File.Exists(Path.Combine(tempDir, "metadata.opf")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Regression: switching a book's cover from PNG to JPEG (or back) left both files behind,
+    // so which image a reader picked up was undefined.
+    [TestMethod]
+    public void WriteCover_ReplacingACoverOfADifferentType_RemovesTheOtherCoverFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            File.WriteAllText(tempFile, "fake");
+
+            var pngPath = Path.Combine(tempDir, "cover.png");
+            File.WriteAllBytes(pngPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+
+            var jpegBytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 };
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Test Book",
+                2024,
+                new AudiobookFileInfo(tempFile, "test.m4b", 100))
+            {
+                Cover = new AudiobookImage(Convert.ToBase64String(jpegBytes), "image/jpeg")
+            };
+
+            var result = AudiobookFileHandler.WriteCover(audiobook);
+
+            Assert.IsNotNull(result);
+            Assert.IsTrue(File.Exists(Path.Combine(tempDir, "cover.jpg")));
+            Assert.IsFalse(File.Exists(pngPath));
+            CollectionAssert.AreEqual(jpegBytes, File.ReadAllBytes(result!));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     [TestMethod]
     public void BuildOpfContent_IncludesAuthorsNarratorsSeriesGenresAndAsin()
     {

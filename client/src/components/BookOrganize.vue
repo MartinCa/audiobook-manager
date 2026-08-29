@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, Ref, ref, watch } from "vue";
+import { onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import { Audiobook } from "../types/Audiobook";
 import { TargetPathCheckResult } from "../types/TargetPathCheck";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
@@ -179,6 +179,14 @@ const updateNewBookPath = debounce(async () => {
     }
   }
 }, 300);
+
+// A pending path regeneration would otherwise fire after the component is gone - mutating dead
+// refs and issuing a request nobody reads. This component is mounted inside an expansion panel
+// in the discovered-books list, whose rows are removed while open (an import finishing), so it
+// really does unmount mid-debounce.
+onUnmounted(() => {
+  updateNewBookPath.cancel();
+});
 
 const resetInput = () => {
   const book = bookDetails.value;

@@ -156,7 +156,7 @@
 
 <script setup lang="ts">
 import { debounce } from "lodash";
-import { nextTick, onMounted, Ref, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import MissingTagService from "../services/MissingTagService";
 import { AudiobookMissingTags, MissingTagField } from "../types/MissingTag";
 import { useMissingTagSelection } from "../composables/useMissingTagSelection";
@@ -186,26 +186,46 @@ const clearSelection = () => {
   selectedFields.value = [];
 };
 
+// Only the newest request may write to the list. Ticking chips debounces a scan of the whole
+// library, so a slower earlier request routinely lands after a faster later one - and rendering
+// its rows shows results for a field selection the user has already changed.
+let loadRequestId = 0;
+
 const loadResults = async () => {
+  const requestId = ++loadRequestId;
+
   if (selectedFields.value.length === 0) {
     results.value = [];
+    loading.value = false;
     return;
   }
 
   loading.value = true;
   try {
-    results.value = await MissingTagService.getAudiobooksMissingTags(
+    const loaded = await MissingTagService.getAudiobooksMissingTags(
       selectedFields.value,
     );
+    if (requestId !== loadRequestId) return;
+    results.value = loaded;
   } catch {
+    if (requestId !== loadRequestId) return;
     snackbarText.value = "Failed to load missing tags";
     snackbar.value = true;
   } finally {
-    loading.value = false;
+    // A superseded request must not clear the spinner the newer one is still showing.
+    if (requestId === loadRequestId) {
+      loading.value = false;
+    }
   }
 };
 
 const debouncedLoadResults = debounce(loadResults, 500);
+
+// Without this the debounced scan fires after the component is gone, mutating dead refs and
+// issuing a request nobody reads.
+onUnmounted(() => {
+  debouncedLoadResults.cancel();
+});
 
 watch(
   selectedFields,

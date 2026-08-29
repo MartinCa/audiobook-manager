@@ -9,6 +9,7 @@ public static class AudiobookFileHandler
     private const char _preferredDirectorySeparatorChar = '/';
     private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
     private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png", "metadata.opf" };
+    private static readonly string[] _coverExtensions = new[] { ".jpg", ".png" };
 
     private static readonly XNamespace _opfNamespace = "http://www.idpf.org/2007/opf";
     private static readonly XNamespace _dcNamespace = "http://purl.org/dc/elements/1.1/";
@@ -64,6 +65,17 @@ public static class AudiobookFileHandler
         File.Move(audiobook.FileInfo.FullPath, newFullPath);
     }
 
+    /// <summary>
+    /// Writes the sidecars this application owns (desc.txt, reader.txt, metadata.opf) from the
+    /// audiobook's tags.
+    ///
+    /// A field that is now empty removes its sidecar rather than leaving the previous one in
+    /// place. These files are generated, not user-authored - the consistency check requires
+    /// desc.txt to equal the Description tag byte for byte - so a leftover desc.txt after the
+    /// description is cleared is simply wrong, and it is the file Audiobookshelf reads in
+    /// preference to the m4b's own tag. Nothing rewrote or reported it, so the old text stayed
+    /// on disk indefinitely.
+    /// </summary>
     public static void WriteMetadata(Audiobook audiobook)
     {
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
@@ -72,9 +84,18 @@ public static class AudiobookFileHandler
         {
             MakeMetadataFile(directoryPath, "desc.txt", audiobook.Description);
         }
+        else
+        {
+            RemoveFileIfExists(JoinPaths(directoryPath, "desc.txt"));
+        }
+
         if (audiobook.Narrators.Any())
         {
             MakeMetadataFile(directoryPath, "reader.txt", string.Join(", ", audiobook.Narrators.Select(x => x.Name)));
+        }
+        else
+        {
+            RemoveFileIfExists(JoinPaths(directoryPath, "reader.txt"));
         }
 
         WriteOpf(audiobook);
@@ -178,13 +199,32 @@ public static class AudiobookFileHandler
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
             var coverExtension = GetMimeFileExt(audiobook.Cover.MimeType);
             var fileName = JoinPaths(directoryPath, $"cover{coverExtension}");
-            using var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write);
-            fs.Write(Convert.FromBase64String(audiobook.Cover.Base64Data));
+            using (var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write))
+            {
+                fs.Write(Convert.FromBase64String(audiobook.Cover.Base64Data));
+            }
+
+            // Replacing a JPEG cover with a PNG one (or the reverse) used to leave both files in
+            // the directory. Only one of them is the cover this book actually has, and which of
+            // the two a reader picks up is its own business - so the one we did not just write
+            // goes, rather than leaving a stale image behind to compete with the real one.
+            foreach (var otherExtension in _coverExtensions.Where(e => e != coverExtension))
+            {
+                RemoveFileIfExists(JoinPaths(directoryPath, $"cover{otherExtension}"));
+            }
 
             return fileName;
         }
 
         return null;
+    }
+
+    private static void RemoveFileIfExists(string filePath)
+    {
+        if (File.Exists(filePath))
+        {
+            File.Delete(filePath);
+        }
     }
 
     public static void RemoveDirIfEmpty(string directoryPath)

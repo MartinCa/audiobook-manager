@@ -6,19 +6,24 @@ import {
 } from "../types/Series";
 import BaseHttpService from "./BaseHttpService";
 
+// The series name goes in the query string, never in the path. A series value is a raw m4b tag,
+// so it can contain a "/" - and ASP.NET Core leaves %2F encoded in a path segment rather than
+// decoding it, so such a series was listed on the overview and then 404'd the moment it was
+// opened. See the note on SeriesController.
+const nameQuery = (seriesName: string) =>
+  `seriesName=${encodeURIComponent(seriesName)}`;
+
 class SeriesService extends BaseHttpService {
   getAllSeries(): Promise<SeriesOverview[]> {
     return this.getData("/series");
   }
 
   getSeriesDetail(seriesName: string): Promise<SeriesDetail> {
-    return this.getData(`/series/${encodeURIComponent(seriesName)}`);
+    return this.getData(`/series/detail?${nameQuery(seriesName)}`);
   }
 
   getMatchCandidates(seriesName: string): Promise<SeriesMatchCandidate[]> {
-    return this.getData(
-      `/series/${encodeURIComponent(seriesName)}/match-candidates`,
-    );
+    return this.getData(`/series/match-candidates?${nameQuery(seriesName)}`);
   }
 
   searchMatchCandidates(
@@ -26,7 +31,7 @@ class SeriesService extends BaseHttpService {
     query: string,
   ): Promise<SeriesMatchCandidate[]> {
     return this.getData(
-      `/series/${encodeURIComponent(seriesName)}/match-candidates/search?query=${encodeURIComponent(query)}`,
+      `/series/match-candidates/search?${nameQuery(seriesName)}&query=${encodeURIComponent(query)}`,
     );
   }
 
@@ -37,7 +42,7 @@ class SeriesService extends BaseHttpService {
     confidence?: number,
     includeOmnibusEditions?: boolean,
   ): Promise<SeriesOverview> {
-    return this.postData(`/series/${encodeURIComponent(seriesName)}/match`, {
+    return this.postData(`/series/match?${nameQuery(seriesName)}`, {
       sourceName,
       sourceId,
       confidence,
@@ -50,7 +55,7 @@ class SeriesService extends BaseHttpService {
     includeOmnibusEditions: boolean,
   ): Promise<SeriesOverview> {
     return this.postData(
-      `/series/${encodeURIComponent(seriesName)}/include-omnibus-editions`,
+      `/series/include-omnibus-editions?${nameQuery(seriesName)}`,
       { includeOmnibusEditions },
     );
   }
@@ -66,7 +71,7 @@ class SeriesService extends BaseHttpService {
   }
 
   startRefreshSeries(seriesName: string): Promise<void> {
-    return this.postData(`/series/${encodeURIComponent(seriesName)}/refresh`);
+    return this.postData(`/series/refresh?${nameQuery(seriesName)}`);
   }
 
   startRefreshAll(): Promise<void> {
@@ -81,7 +86,7 @@ class SeriesService extends BaseHttpService {
     book: SeriesExpectedBook,
   ): Promise<void> {
     return this.postData(
-      `/series/${encodeURIComponent(seriesName)}/expected-books/ignore`,
+      `/series/expected-books/ignore?${nameQuery(seriesName)}`,
       { position: book.position, title: book.title },
     );
   }
@@ -91,7 +96,7 @@ class SeriesService extends BaseHttpService {
     book: SeriesExpectedBook,
   ): Promise<void> {
     return this.postData(
-      `/series/${encodeURIComponent(seriesName)}/expected-books/unignore`,
+      `/series/expected-books/unignore?${nameQuery(seriesName)}`,
       { position: book.position, title: book.title },
     );
   }

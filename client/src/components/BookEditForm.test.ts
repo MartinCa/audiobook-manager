@@ -110,6 +110,43 @@ describe("BookEditForm autocomplete suggestions", () => {
     wrapper.unmount();
   });
 
+  // Regression: noteSavedNames() appended to the same array the matcher had cached a folded
+  // form of, so the next keystroke in the Authors field indexed a fold shorter than the list and
+  // threw "Cannot read properties of undefined (reading 'includes')" out of the computed.
+  it("_StillSuggestsAfterASaveIntroducesANewAuthorName", async () => {
+    const wrapper = mountForm(makeInput());
+    await flushPromises();
+
+    const authorField = wrapper.find('.author-field-wrap input[type="text"]');
+    await authorField.trigger("focus");
+    await authorField.setValue("Rowl");
+    await nextTick();
+    expect(
+      wrapper.findAll(".suggestion-menu .v-list-item").map((s) => s.text()),
+    ).toEqual(["J.K. Rowling"]);
+
+    // A save that introduces an author the fetched list did not have.
+    await authorField.setValue("Ursula Le Guin");
+    await nextTick();
+    (wrapper.vm as any).noteSavedNames();
+    await nextTick();
+
+    await authorField.setValue("Ursula");
+    await nextTick();
+    expect(
+      wrapper.findAll(".suggestion-menu .v-list-item").map((s) => s.text()),
+    ).toEqual(["Ursula Le Guin"]);
+
+    // The names that were there before must still be suggested.
+    await authorField.setValue("Rowl");
+    await nextTick();
+    expect(
+      wrapper.findAll(".suggestion-menu .v-list-item").map((s) => s.text()),
+    ).toEqual(["J.K. Rowling"]);
+
+    wrapper.unmount();
+  });
+
   it("clicking a suggestion fills the author field", async () => {
     const input = makeInput();
     const wrapper = mountForm(input);

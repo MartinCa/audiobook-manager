@@ -436,6 +436,11 @@ const loadNameLists = async () => {
   }
 };
 
+const mergeNames = (existing: string[], added: string[]): string[] => {
+  const missing = added.filter((name) => !existing.includes(name));
+  return missing.length > 0 ? [...existing, ...missing] : existing;
+};
+
 const noteSavedNames = () => {
   const authors = (input.value.authors ?? "")
     .split(",")
@@ -443,20 +448,16 @@ const noteSavedNames = () => {
     .filter(Boolean);
   const series = input.value.series?.trim();
 
+  // Reassign rather than push: the matcher caches each list's folded form against the array
+  // itself, so growing one in place leaves that cache describing a list that no longer exists.
   if (authors.length > 0) {
     SimilarValueService.addKnownAuthorNames(authors);
-    for (const name of authors) {
-      if (!authorNames.value.includes(name)) {
-        authorNames.value.push(name);
-      }
-    }
+    authorNames.value = mergeNames(authorNames.value, authors);
   }
 
   if (series) {
     SimilarValueService.addKnownSeriesNames([series]);
-    if (!seriesNames.value.includes(series)) {
-      seriesNames.value.push(series);
-    }
+    seriesNames.value = mergeNames(seriesNames.value, [series]);
   }
 };
 
