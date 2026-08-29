@@ -7,6 +7,7 @@ using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 internal partial class SlugifyParameterTransformer : IOutboundParameterTransformer
 {
@@ -104,6 +105,13 @@ internal class Program
         // app actually rate-limits with, and its replenishment timer would leak.
         using (var scope = app.Services.CreateScope())
         {
+            // Before anything touches the disk: the import path, the library path and the
+            // database's directory are what the application is built on, so a missing one is a
+            // startup failure with a message naming the setting - not a 500 from whichever
+            // screen happens to reach for it first.
+            SettingsValidation.EnsureRequiredPathsAreUsable(
+                scope.ServiceProvider.GetRequiredService<IOptions<AudiobookManagerSettings>>().Value);
+
             scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
 
             // Resolving the limiter validates the configured Hardcover burst/per-minute

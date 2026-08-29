@@ -12,6 +12,7 @@ public class SimilarValueService : ISimilarValueService
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPersonRepository _personRepository;
     private readonly IAudiobookService _audiobookService;
+    private readonly IAudiobookSaveGate _saveGate;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<SimilarValueService> _logger;
 
@@ -19,12 +20,14 @@ public class SimilarValueService : ISimilarValueService
         IAudiobookRepository audiobookRepository,
         IPersonRepository personRepository,
         IAudiobookService audiobookService,
+        IAudiobookSaveGate saveGate,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<SimilarValueService> logger)
     {
         _audiobookRepository = audiobookRepository;
         _personRepository = personRepository;
         _audiobookService = audiobookService;
+        _saveGate = saveGate;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -87,6 +90,12 @@ public class SimilarValueService : ISimilarValueService
             books,
             async dbBook =>
             {
+                // Alignment rewrites the book's tags and can relocate its file, so it takes the
+                // same per-audiobook gate an interactive save does. A book someone is saving
+                // right now fails just its own item - BulkOperationRunner counts it and the
+                // batch carries on.
+                using var lease = _saveGate.Acquire(dbBook.Id);
+
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
 
@@ -143,6 +152,9 @@ public class SimilarValueService : ISimilarValueService
             books,
             async dbBook =>
             {
+                // See AlignAuthorsAsync: the same per-audiobook gate, for the same reason.
+                using var lease = _saveGate.Acquire(dbBook.Id);
+
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
                 domain.Series = targetValue;

@@ -19,6 +19,7 @@ public class LibraryConsistencyServiceTests
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
+    private AudiobookSaveGate _saveGate = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private LibraryConsistencyService _service = null!;
 
@@ -31,6 +32,7 @@ public class LibraryConsistencyServiceTests
         _tagHandler = new Mock<IAudiobookTagHandler>();
         _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
+        _saveGate = new AudiobookSaveGate();
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookLibraryPath = "/library"
@@ -43,6 +45,7 @@ public class LibraryConsistencyServiceTests
             _orphanDirectoryRepository.Object,
             _tagHandler.Object,
             _audiobookService.Object,
+            _saveGate,
             _logger.Object);
     }
 
@@ -444,6 +447,127 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // Regression: resolving an issue rewrites the book's tags, moves its file, or rewrites its
+    // sidecars - the same work an interactive save does - but the two were gated separately, and
+    // `resolve-by-type` had no lock of its own at all. A bulk resolve could therefore be
+    // rewriting a book while the user's save of that same book was moving it. Both now take the
+    // one per-audiobook gate.
+    [TestMethod]
+    public async Task ResolveIssue_BookAlreadyBeingSaved_IsRefusedWithoutTouchingTheFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "fake");
+
+            var dbAudiobook = new DbAudiobook(
+                5101, "Test Book", null, null, null, 2024,
+                "desc", null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 21,
+                AudiobookId = 5101,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingDescTxt,
+                Description = "desc.txt missing",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(21)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new Domain.Person("Author") },
+                    "Test Book",
+                    2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000))
+                {
+                    Description = "A description"
+                });
+
+            using var lease = _saveGate.Acquire(5101);
+
+            await Assert.ThrowsExactlyAsync<AudiobookBusyException>(() => _service.ResolveIssue(21));
+
+            Assert.IsFalse(
+                File.Exists(Path.Combine(tempDir, "desc.txt")),
+                "no sidecar should be written for a book another operation is modifying");
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(It.IsAny<long>(), It.IsAny<IEnumerable<ConsistencyIssueType>>()),
+                Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // The bulk path must not abort over one busy book: it is counted as a failure, the rest are
+    // resolved, and the next check picks the skipped issue up again.
+    [TestMethod]
+    public async Task ResolveIssues_OneBookBusy_CountsItAsFailedAndResolvesTheRest()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var busyFile = Path.Combine(tempDir, "busy.m4b");
+            var freeDir = Path.Combine(tempDir, "free");
+            Directory.CreateDirectory(freeDir);
+            var freeFile = Path.Combine(freeDir, "free.m4b");
+            await File.WriteAllTextAsync(busyFile, "fake");
+            await File.WriteAllTextAsync(freeFile, "fake");
+
+            ConsistencyIssue MakeIssue(long id, long audiobookId, string path, string fileName) => new()
+            {
+                Id = id,
+                AudiobookId = audiobookId,
+                Audiobook = new DbAudiobook(
+                    audiobookId, "Book", null, null, null, 2024,
+                    "desc", null, null, null, null, null, null, null, null,
+                    path, fileName, 1000),
+                IssueType = ConsistencyIssueType.MissingDescTxt,
+                Description = "desc.txt missing",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            var issues = new List<ConsistencyIssue>
+            {
+                MakeIssue(31, 5201, busyFile, "busy.m4b"),
+                MakeIssue(32, 5202, freeFile, "free.m4b"),
+            };
+
+            _issueRepository.Setup(r => r.GetByIdsAsync(It.IsAny<List<long>>())).ReturnsAsync(issues);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns((FileInfo fi, bool _) => new Domain.Audiobook(
+                    new List<Domain.Person> { new Domain.Person("Author") },
+                    "Book",
+                    2024,
+                    new Domain.AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+                {
+                    Description = "A description"
+                });
+
+            using var lease = _saveGate.Acquire(5201);
+
+            var (resolved, failed) = await _service.ResolveIssues(new List<long> { 31, 32 });
+
+            Assert.AreEqual(1, resolved);
+            Assert.AreEqual(1, failed);
+            Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")), "the busy book is untouched");
+            Assert.IsTrue(File.Exists(Path.Combine(freeDir, "desc.txt")), "the free book is still resolved");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     [TestMethod]
     public async Task RunConsistencyCheck_TagValueDiffersFromFile_ReportsTagMismatch()
     {
@@ -637,6 +761,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var oldFile = Path.Combine(oldDir, "test.m4b");
@@ -750,6 +875,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -821,7 +947,8 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = new LibraryConsistencyService(
                 settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
+                _saveGate, _logger.Object);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -860,7 +987,8 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = new LibraryConsistencyService(
                 settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
+                _saveGate, _logger.Object);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -899,7 +1027,8 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = new LibraryConsistencyService(
                 settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
+                _saveGate, _logger.Object);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -942,6 +1071,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
@@ -1092,6 +1222,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -1154,6 +1285,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -1211,6 +1343,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -1274,6 +1407,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(
@@ -1344,6 +1478,7 @@ public class LibraryConsistencyServiceTests
                 _orphanDirectoryRepository.Object,
                 _tagHandler.Object,
                 _audiobookService.Object,
+                _saveGate,
                 _logger.Object);
 
             var placeholderParsed = new Domain.Audiobook(

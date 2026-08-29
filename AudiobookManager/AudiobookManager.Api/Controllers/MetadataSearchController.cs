@@ -41,6 +41,18 @@ public class MetadataSearchController : ControllerBase
         return _scrapingService.GetSearchServiceInfo();
     }
 
+    /// <summary>
+    /// Fetches a cover image server-side so the browser can display one from a source that
+    /// blocks hotlinking or serves it over http.
+    ///
+    /// KNOWN LIMITATION, accepted for now: this forwards to any http(s) URL the caller supplies,
+    /// with no allowlist of scraper hosts and no block on private/link-local addresses - so
+    /// anyone who can reach this API can use it to make the server issue requests on their
+    /// behalf, including to hosts only the server can reach. The application has no
+    /// authentication of its own and is meant to run on a trusted network, which is why it is
+    /// tolerable today; if that ever changes, restrict this to the domains the registered
+    /// scrapers use and reject resolved addresses outside public ranges.
+    /// </summary>
     [HttpGet("proxy-image")]
     public async Task<IActionResult> ProxyImage([FromQuery] string url)
     {

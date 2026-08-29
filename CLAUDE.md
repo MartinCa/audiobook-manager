@@ -221,10 +221,13 @@ to issue one statement per id. But they **bypass the change tracker**, which has
 **A read-then-insert on a uniquely-indexed column needs the same treatment.** Repositories that
 resolve "get this row or create it" span an `await` on a request-scoped context, so two callers
 can both find the row missing and both insert it. That is a live race, not a theoretical one -
-organizes run alongside interactive saves and bulk operations. `PersonRepository.GetOrCreatePersons`
-and `SeriesRepository.UpsertByNameAsync` (which backs both `UpsertSeriesAsync` and
-`SetIncludeOmnibusEditionsAsync`) catch it via `SqliteErrors.IsUniqueViolation`, detach the entity
-they added, re-read, and apply their change to the winner's row. Without it the loser failed the
+organizes run alongside interactive saves and bulk operations. `PersonRepository.GetOrCreatePersons`,
+`GenreRepository.GetOrCreateGenres` and `SeriesRepository.UpsertByNameAsync` (which backs both
+`UpsertSeriesAsync` and `SetIncludeOmnibusEditionsAsync`) catch it via
+`SqliteErrors.IsUniqueViolation`, detach the entity they added, re-read, and apply their change to
+the winner's row. The uniqueness has to exist for that to work at all: `genres.name` had no index,
+so the same race silently produced two rows for one genre instead — the index that closed it ships
+with a migration that collapses any duplicates an existing database already holds. Without it the loser failed the
 whole request with a raw `UNIQUE constraint failed` 500 - reproduced live with four concurrent
 first-time writes for one series, two of which 500'd.
 
@@ -237,11 +240,26 @@ C#-side increment loses updates and overruns the daily budget.
 
 Anything that rewrites m4b tags or relocates files must not be able to run twice concurrently for
 the same book. Use `BackgroundOperationRunner` (a process-static `SemaphoreSlim` plus
-`IOperationStatusRegistry`) for whole-library operations, and a per-entity gate for per-book work:
-`AudiobookController.UpdateAudiobook` keys a `ConcurrentDictionary<long, SemaphoreSlim>` by
-audiobook id and returns `409 Conflict` when a save for that book is already in flight. Without it,
-two saves both read the same pre-move path, the first relocates the file, and the second writes
-tags to a path that no longer exists.
+`IOperationStatusRegistry`) for whole-library operations, and `IAudiobookSaveGate` for per-book
+work. Without it, two writers both read the same pre-move path, the first relocates the file, and
+the second writes tags to a path that no longer exists (or fails with a spurious "already exists").
+
+**There is exactly one per-audiobook gate, and it is shared by every path that mutates a book's
+files.** It used to be a private set on `AudiobookController`, which meant it excluded only *other
+saves*: a consistency resolve and a similar-value alignment rewrite the same files through the same
+service and were gated against neither the save endpoint nor each other (`resolve-by-type` has no
+lock of its own at all). The three entry points that take it are:
+
+- `AudiobookController.UpdateAudiobook` — `TryAcquire`, returning `409 Conflict`, and hands the
+  lease to its background task. `GET {id}/save-status` reads the same gate, so there is no second
+  source of truth to drift.
+- `LibraryConsistencyService.ResolveLoadedIssue` — once, around whichever handler runs.
+- `SimilarValueService.AlignAuthorsAsync`/`AlignSeriesAsync` — per book.
+
+The gate is **non-reentrant**, so nothing below an entry point may take it again — in particular
+`AudiobookService.UpdateAudiobook` does *not*, because `ResolveTagMismatch` and the alignment
+loops reach it while already holding it. A busy book fails just its own item: the bulk callers'
+per-item try/catch counts it and the batch carries on.
 
 Resolve DI services for background work from `_serviceScopeFactory.CreateScope()`, never from the
 controller's own request-scoped instances. At startup, use `app.Services.CreateScope()` — never
@@ -394,6 +412,19 @@ they track them as reactive dependencies and retrigger on cover edits.
 
 ## Key Configuration
 
+- **`AudiobookImportPath`, `AudiobookLibraryPath` and `DbLocation` are validated at startup**
+  (`SettingsValidation.EnsureRequiredPathsAreUsable`, called from `Program.Main` before the EF
+  migration) and the app refuses to start if a directory is missing, listing every problem at
+  once. They are volume mounts in the normal deployment, so a typo or an unmounted volume used to
+  surface as unrelated per-feature failures instead — `FileScanner` throws
+  `DirectoryNotFoundException`, so a bad import path 500'd the organize page and a bad library path
+  500'd the library scan, while the consistency check quietly reported no orphans because it guards
+  with `Directory.Exists`. Only the database's *directory* is required; SQLite creates the file.
+- **`GET /api/metadata-search/proxy-image` is an unrestricted forwarding proxy** — a known,
+  accepted limitation, documented on the action. It fetches any http(s) URL with no host allowlist
+  and no private-address block. The app has no authentication and is meant for a trusted network;
+  if that changes, restrict it to the registered scrapers' domains and reject non-public resolved
+  addresses.
 - Swagger UI available in development at `/swagger/index.html`
 - Vite dev server on port 3000, API on port 5271
 - Audio metadata handled via `z440.atl.core` library (ATL)

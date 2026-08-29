@@ -18,6 +18,7 @@ public class SimilarValueServiceTests
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SimilarValueService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
+    private AudiobookSaveGate _saveGate = null!;
     private SimilarValueService _service = null!;
 
     [TestInitialize]
@@ -27,6 +28,7 @@ public class SimilarValueServiceTests
         _personRepository = new Mock<IPersonRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<SimilarValueService>>();
+        _saveGate = new AudiobookSaveGate();
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookImportPath = "/import",
@@ -37,6 +39,7 @@ public class SimilarValueServiceTests
             _audiobookRepository.Object,
             _personRepository.Object,
             _audiobookService.Object,
+            _saveGate,
             _settings,
             _logger.Object);
     }
@@ -116,6 +119,78 @@ public class SimilarValueServiceTests
         var last = progressCalls.Last();
         Assert.AreEqual(2, last.processed);
         Assert.AreEqual(2, last.total);
+        Assert.AreEqual(1, last.succeeded);
+        Assert.AreEqual(1, last.failed);
+    }
+
+    // Regression: alignment rewrites m4b tags and can relocate files, exactly like an interactive
+    // save, but the two were gated separately - the save endpoint held a private set of its own -
+    // so an alignment and a save could both be rewriting the same book at once. Both now take the
+    // one per-audiobook gate, and a book someone is already saving fails just its own item.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_BookAlreadyBeingSaved_IsCountedAsFailedWithoutTouchingIt()
+    {
+        var busy = MakeDbAudiobook(4001, "Busy Book");
+        busy.Authors = new List<DbPerson> { new(1, "JK Rowling") };
+        var free = MakeDbAudiobook(4002, "Free Book");
+        free.Authors = new List<DbPerson> { new(1, "JK Rowling") };
+
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { busy, free });
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+
+        // Someone is saving "Busy Book" right now.
+        using var lease = _saveGate.Acquire(4001);
+
+        var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" },
+            "J.K. Rowling",
+            (processed, total, succeeded, failed) =>
+            {
+                progressCalls.Add((processed, total, succeeded, failed));
+                return Task.CompletedTask;
+            });
+
+        _audiobookService.Verify(s => s.UpdateAudiobook(4001, It.IsAny<Audiobook>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(4002, It.IsAny<Audiobook>()), Times.Once);
+
+        var last = progressCalls.Last();
+        Assert.AreEqual(2, last.processed);
+        Assert.AreEqual(1, last.succeeded);
+        Assert.AreEqual(1, last.failed);
+    }
+
+    [TestMethod]
+    public async Task AlignSeriesAsync_BookAlreadyBeingSaved_IsCountedAsFailedWithoutTouchingIt()
+    {
+        var busy = MakeDbAudiobook(4011, "Busy Book", "Old Series");
+        var free = MakeDbAudiobook(4012, "Free Book", "Old Series");
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { busy, free });
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+
+        using var lease = _saveGate.Acquire(4011);
+
+        var progressCalls = new List<(int processed, int total, int succeeded, int failed)>();
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Old Series", "New Series" },
+            "New Series",
+            (processed, total, succeeded, failed) =>
+            {
+                progressCalls.Add((processed, total, succeeded, failed));
+                return Task.CompletedTask;
+            });
+
+        _audiobookService.Verify(s => s.UpdateAudiobook(4011, It.IsAny<Audiobook>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(4012, It.IsAny<Audiobook>()), Times.Once);
+
+        var last = progressCalls.Last();
         Assert.AreEqual(1, last.succeeded);
         Assert.AreEqual(1, last.failed);
     }

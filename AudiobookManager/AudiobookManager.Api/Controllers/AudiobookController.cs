@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using AudiobookManager.Api.Async;
+﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
@@ -11,26 +10,12 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class AudiobookController : ControllerBase
 {
-    /// <summary>
-    /// The audiobook ids with a save currently in flight. UpdateAudiobook rewrites the m4b tags
-    /// and relocates the file, so two concurrent saves for the same book (a double-clicked Save,
-    /// or a save racing a similar-value alignment) would both read the same pre-move path: the
-    /// first moves the file, and the second then writes tags to a path that no longer exists, or
-    /// fails with a spurious "already exists". Every other long-running operation is gated the
-    /// same way via BackgroundOperationRunner; this endpoint runs its own work, so it carries its
-    /// own gate.
-    ///
-    /// A set rather than a dictionary of semaphores: the check is non-blocking (a second save is
-    /// rejected, never queued), so TryAdd/TryRemove expresses it exactly - and unlike a
-    /// per-id semaphore it does not accumulate one entry per book ever saved.
-    /// </summary>
-    private static readonly ConcurrentDictionary<long, byte> _savesInFlight = new();
-
     private readonly IAudiobookService _audiobookService;
     private readonly IQueuedOrganizeTaskService _organizeTaskService;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IAudiobookSaveGate _saveGate;
     private readonly ILogger<AudiobookController> _logger;
 
     public AudiobookController(
@@ -39,6 +24,7 @@ public class AudiobookController : ControllerBase
         ILibraryConsistencyService libraryConsistencyService,
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
+        IAudiobookSaveGate saveGate,
         ILogger<AudiobookController> logger)
     {
         _audiobookService = audiobookService;
@@ -46,6 +32,7 @@ public class AudiobookController : ControllerBase
         _libraryConsistencyService = libraryConsistencyService;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
+        _saveGate = saveGate;
         _logger = logger;
     }
 
@@ -84,7 +71,10 @@ public class AudiobookController : ControllerBase
     {
         var book = MapToDomain(dto);
 
-        if (!_savesInFlight.TryAdd(id, 0))
+        // Taken here rather than inside the background task so the 409 - and the save-status
+        // endpoint below - are exact from the moment this action returns. The lease is handed to
+        // the task, which owns releasing it.
+        if (!_saveGate.TryAcquire(id, out var saveLease))
         {
             return Conflict($"A save for audiobook {id} is already in progress");
         }
@@ -127,7 +117,7 @@ public class AudiobookController : ControllerBase
             }
             finally
             {
-                _savesInFlight.TryRemove(id, out _);
+                saveLease.Dispose();
             }
         });
 
@@ -138,12 +128,13 @@ public class AudiobookController : ControllerBase
     /// Whether a save for this book is still running. Progress/complete events are broadcast
     /// over SignalR, so a client that was disconnected while the save finished never sees the
     /// completion and would otherwise sit disabled forever - the editor re-reads this on
-    /// reconnect to recover. Reads the same in-flight set the PUT gate uses, so there is no
-    /// second source of truth to drift.
+    /// reconnect to recover. Reads the same gate the PUT takes, so there is no second source of
+    /// truth to drift - which now also means a consistency resolve or an alignment touching this
+    /// book reports as busy, because for the editor's purposes it is.
     /// </summary>
     [HttpGet("{id}/save-status")]
     public AudiobookSaveStatusDto GetSaveStatus(long id) =>
-        new(id, _savesInFlight.ContainsKey(id));
+        new(id, _saveGate.IsBusy(id));
 
     private static List<string> CleanNames(IEnumerable<string>? values) =>
         (values ?? Enumerable.Empty<string>())

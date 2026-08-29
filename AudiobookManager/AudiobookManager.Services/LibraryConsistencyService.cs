@@ -21,6 +21,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly IAudiobookService _audiobookService;
+    private readonly IAudiobookSaveGate _saveGate;
     private readonly ILogger<LibraryConsistencyService> _logger;
 
     public LibraryConsistencyService(
@@ -30,6 +31,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IOrphanDirectoryRepository orphanDirectoryRepository,
         IAudiobookTagHandler tagHandler,
         IAudiobookService audiobookService,
+        IAudiobookSaveGate saveGate,
         ILogger<LibraryConsistencyService> logger)
     {
         _settings = settings.Value;
@@ -38,6 +40,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _orphanDirectoryRepository = orphanDirectoryRepository;
         _tagHandler = tagHandler;
         _audiobookService = audiobookService;
+        _saveGate = saveGate;
         _logger = logger;
     }
 
@@ -211,7 +214,21 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await ResolveLoadedIssue(issue);
     }
 
+    /// <summary>
+    /// Resolving an issue rewrites the book's tags, moves its file, or rewrites its sidecars, so
+    /// it takes the same per-audiobook gate an interactive save does. Nothing below this point
+    /// takes it again - the gate is non-reentrant, so it is held here, once, for whichever
+    /// handler runs. A book that is busy fails just this issue: the callers' per-item try/catch
+    /// counts it and carries on, and the next check picks the issue up again.
+    /// </summary>
     private async Task<ResolveScope> ResolveLoadedIssue(ConsistencyIssue issue)
+    {
+        using var lease = _saveGate.Acquire(issue.AudiobookId);
+
+        return await ResolveLoadedIssueCore(issue);
+    }
+
+    private async Task<ResolveScope> ResolveLoadedIssueCore(ConsistencyIssue issue)
     {
         switch (issue.IssueType)
         {
@@ -398,6 +415,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // Rewrite the m4b tags (and relocate/resync sidecars if the path changes) from the
         // library metadata that's already correct in the database - see the "Binding invariant"
         // in CLAUDE.md, UpdateAudiobook is the only place that's allowed to touch these fields.
+        // The per-audiobook gate is already held by ResolveLoadedIssue.
         var domain = AudiobookService.FromDb(dbAudiobook);
         await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);
 

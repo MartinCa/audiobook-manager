@@ -94,6 +94,37 @@ public class ConsistencyControllerTests
         Assert.IsInstanceOfType(result, typeof(NotFoundResult));
     }
 
+    // A resolve rewrites the book's files, so it takes the same per-audiobook gate a save does.
+    // Losing that race is "try again", not a 500 - which is what the catch-all produced.
+    [TestMethod]
+    public async Task ResolveIssue_BookIsBeingModifiedElsewhere_ReturnsConflict()
+    {
+        var issue = new ConsistencyIssue
+        {
+            Id = 1,
+            AudiobookId = 7,
+            IssueType = ConsistencyIssueType.MissingDescTxt,
+            Description = "test",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(issue);
+
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.ResolveIssue(1)).ThrowsAsync(new AudiobookBusyException(7));
+
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(mockConsistencyService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var result = await _controller.ResolveIssue(1);
+
+        Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
+    }
+
     [TestMethod]
     public async Task ResolveIssue_Success_ReturnsOk()
     {
