@@ -6,6 +6,7 @@ import * as directives from "vuetify/directives";
 import { nextTick } from "vue";
 import BookEditForm from "./BookEditForm.vue";
 import SimilarValueService from "../services/SimilarValueService";
+import LanguageService from "../services/LanguageService";
 import { Audiobook } from "../types/Audiobook";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import { MetadataSearchResult } from "../types/MetadataSearchResult";
@@ -16,6 +17,12 @@ vi.mock("../services/SimilarValueService", () => ({
     getSeriesNames: vi.fn(),
     addKnownAuthorNames: vi.fn(),
     addKnownSeriesNames: vi.fn(),
+  },
+}));
+
+vi.mock("../services/LanguageService", () => ({
+  default: {
+    getLanguageOptions: vi.fn(),
   },
 }));
 
@@ -44,7 +51,10 @@ function makeInput(
   };
 }
 
-function mountForm(input: OrganizeAudiobookInput) {
+function mountForm(
+  input: OrganizeAudiobookInput,
+  props: Record<string, unknown> = {},
+) {
   return mount(BookEditForm, {
     global: {
       plugins: [vuetify],
@@ -54,6 +64,7 @@ function mountForm(input: OrganizeAudiobookInput) {
       currentPath: "/library/Author/Book/file.m4b",
       newPath: "",
       input,
+      ...props,
     },
     attachTo: document.body,
   });
@@ -71,6 +82,88 @@ beforeEach(() => {
     "The Wheel of Time",
     "Mistborn",
   ]);
+  (LanguageService.getLanguageOptions as any).mockResolvedValue({
+    languages: [
+      { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
+      {
+        code: "da",
+        displayName: "Danish",
+        aliases: ["da", "dan", "danish", "dansk"],
+      },
+    ],
+    defaultCode: "en",
+  });
+});
+
+describe("BookEditForm language field", () => {
+  it("offers exactly the managed languages", async () => {
+    const wrapper = mountForm(makeInput());
+    await flushPromises();
+
+    expect((wrapper.vm as any).languageItems).toEqual([
+      { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
+      {
+        code: "da",
+        displayName: "Danish",
+        aliases: ["da", "dan", "danish", "dansk"],
+      },
+    ]);
+
+    wrapper.unmount();
+  });
+
+  it("folds a free-text language tag onto the matching option", async () => {
+    const input = makeInput({ language: "English" });
+    const wrapper = mountForm(input);
+    await flushPromises();
+
+    expect(input.language).toBe("en");
+
+    wrapper.unmount();
+  });
+
+  // A strict select renders empty for a value it cannot offer, and the next save then silently
+  // wipes a real language off the book.
+  it("keeps a language the library does not manage selectable", async () => {
+    const input = makeInput({ language: "German" });
+    const wrapper = mountForm(input);
+    await flushPromises();
+
+    expect(input.language).toBe("German");
+    expect((wrapper.vm as any).languageItems).toEqual([
+      { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
+      {
+        code: "da",
+        displayName: "Danish",
+        aliases: ["da", "dan", "danish", "dansk"],
+      },
+      { code: "German", displayName: "German (unrecognized)", aliases: [] },
+    ]);
+
+    wrapper.unmount();
+  });
+
+  it("seeds an untagged book being added with the default language", async () => {
+    const input = makeInput();
+    const wrapper = mountForm(input, { defaultEmptyLanguage: true });
+    await flushPromises();
+
+    expect(input.language).toBe("en");
+
+    wrapper.unmount();
+  });
+
+  // A library book that never had a language must stay empty, or it silently disappears from
+  // Missing Tags just because its edit page was opened.
+  it("leaves an existing library book without a language empty", async () => {
+    const input = makeInput();
+    const wrapper = mountForm(input);
+    await flushPromises();
+
+    expect(input.language).toBeUndefined();
+
+    wrapper.unmount();
+  });
 });
 
 describe("BookEditForm autocomplete suggestions", () => {

@@ -36,6 +36,43 @@
           class="mb-4"
         >
           <v-card-text>
+            <div class="d-flex align-center flex-wrap ga-3">
+              <v-btn
+                :disabled="backfillRunning"
+                :loading="backfillRunning"
+                @click="startBackfill()"
+                prepend-icon="mdi-translate"
+              >
+                Backfill language from file tags
+              </v-btn>
+              <div class="text-caption text-medium-emphasis flex-grow-1">
+                Reads the language already embedded in each m4b for books that
+                have none recorded, and stores it as a language code. Books
+                whose file has no usable language tag are left empty and stay in
+                the list below. The m4b files themselves aren't rewritten
+                &mdash; backfilled books will show up as tag mismatches in
+                <router-link to="/library/consistency">Consistency</router-link
+                >, where a bulk resolve updates the tags and metadata.opf.
+              </div>
+            </div>
+            <OperationProgressBar
+              v-if="backfillRunning"
+              class="mt-3"
+              :processed="backfillProcessed"
+              :total="backfillTotal"
+            />
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row>
+      <v-col cols="12">
+        <v-card
+          variant="outlined"
+          class="mb-4"
+        >
+          <v-card-text>
             <div class="d-flex align-center mb-2">
               <span class="text-subtitle-2 mr-3">Fields to check</span>
               <v-btn
@@ -158,6 +195,8 @@
 import { debounce } from "lodash";
 import { nextTick, onMounted, onUnmounted, Ref, ref, watch } from "vue";
 import MissingTagService from "../services/MissingTagService";
+import OperationsService from "../services/OperationsService";
+import OperationProgressBar from "./OperationProgressBar.vue";
 import { AudiobookMissingTags, MissingTagField } from "../types/MissingTag";
 import { useMissingTagSelection } from "../composables/useMissingTagSelection";
 
@@ -168,6 +207,69 @@ const selectedFields = useMissingTagSelection(fields);
 
 const snackbar: Ref<boolean> = ref(false);
 const snackbarText: Ref<string> = ref("");
+
+const BACKFILL_OPERATION_KEY = "language-backfill";
+const BACKFILL_POLL_INTERVAL_MS = 1000;
+
+const backfillRunning: Ref<boolean> = ref(false);
+const backfillProcessed: Ref<number> = ref(0);
+const backfillTotal: Ref<number> = ref(0);
+let backfillPollTimer: ReturnType<typeof setInterval> | null = null;
+
+const stopBackfillPolling = () => {
+  if (backfillPollTimer !== null) {
+    clearInterval(backfillPollTimer);
+    backfillPollTimer = null;
+  }
+};
+
+/**
+ * The backfill publishes no SignalR event (it's a one-shot maintenance pass), so its progress is
+ * read from the operation status registry the runner already maintains.
+ */
+const pollBackfillStatus = async () => {
+  try {
+    const status = await OperationsService.getStatus(BACKFILL_OPERATION_KEY);
+    backfillProcessed.value = status.processed;
+    backfillTotal.value = status.total;
+
+    if (!status.isRunning) {
+      stopBackfillPolling();
+      backfillRunning.value = false;
+      snackbarText.value = "Language backfill finished";
+      snackbar.value = true;
+      await loadResults();
+    }
+  } catch {
+    // A failed poll is not a failed backfill; stop following it rather than spinning forever.
+    stopBackfillPolling();
+    backfillRunning.value = false;
+    snackbarText.value =
+      "Lost track of the language backfill — refresh to see the result";
+    snackbar.value = true;
+  }
+};
+
+const startBackfill = async () => {
+  backfillRunning.value = true;
+  backfillProcessed.value = 0;
+  backfillTotal.value = 0;
+
+  try {
+    await MissingTagService.startLanguageBackfill();
+  } catch {
+    backfillRunning.value = false;
+    snackbarText.value = "Failed to start the language backfill";
+    snackbar.value = true;
+    return;
+  }
+
+  stopBackfillPolling();
+  backfillPollTimer = setInterval(
+    pollBackfillStatus,
+    BACKFILL_POLL_INTERVAL_MS,
+  );
+};
 
 const fieldLabel = (key: string): string =>
   fields.value.find((f) => f.key === key)?.label ?? key;
@@ -225,6 +327,9 @@ const debouncedLoadResults = debounce(loadResults, 500);
 // issuing a request nobody reads.
 onUnmounted(() => {
   debouncedLoadResults.cancel();
+  // Same pairing rule as the debounced load: left running, the poll keeps issuing requests and
+  // mutating refs after the component is gone.
+  stopBackfillPolling();
 });
 
 watch(
@@ -235,8 +340,31 @@ watch(
   { deep: true },
 );
 
+/**
+ * Pick a backfill that is already in flight back up — it outlives this page, so a reload (or a
+ * run started from another tab) must show its progress rather than offering to start a second.
+ */
+const resumeRunningBackfill = async () => {
+  try {
+    const status = await OperationsService.getStatus(BACKFILL_OPERATION_KEY);
+    if (!status.isRunning) {
+      return;
+    }
+    backfillRunning.value = true;
+    backfillProcessed.value = status.processed;
+    backfillTotal.value = status.total;
+    backfillPollTimer = setInterval(
+      pollBackfillStatus,
+      BACKFILL_POLL_INTERVAL_MS,
+    );
+  } catch {
+    // Non-critical: the button is simply available again.
+  }
+};
+
 onMounted(async () => {
   loading.value = true;
+  void resumeRunningBackfill();
   try {
     fields.value = await MissingTagService.getFields();
   } catch {

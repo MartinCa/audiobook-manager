@@ -335,6 +335,39 @@ public class AudiobookRepository : IAudiobookRepository
         }
     }
 
+    /// <summary>
+    /// Books with no language recorded, as (id, file path) pairs for the backfill to read the
+    /// embedded tag from. Ordered by id so a run is reproducible and its progress monotonic.
+    /// </summary>
+    public async Task<List<AudiobookLanguageRef>> GetBooksMissingLanguageAsync()
+    {
+        return await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Language == null || a.Language == "")
+            .OrderBy(a => a.Id)
+            .Select(a => new AudiobookLanguageRef(a.Id, a.FileInfoFullPath))
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Sets just the language column.
+    ///
+    /// A direct database write is deliberate and safe here, unlike for the fields the binding
+    /// invariant in CLAUDE.md covers: Language plays no part in
+    /// <c>GenerateRelativeAudiobookPath</c>, so nothing needs relocating, and the only caller
+    /// (the backfill) is copying the value *out of* the book's own m4b tag - it cannot desync a
+    /// file from its record, because it is reading what the file already says.
+    /// </summary>
+    public async Task UpdateLanguageAsync(long id, string? language)
+    {
+        var audiobook = await _db.Audiobooks.FindAsync(id);
+        if (audiobook != null)
+        {
+            audiobook.Language = language;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task UpdateCoverFilePathAsync(long id, string? coverFilePath)
     {
         var audiobook = await _db.Audiobooks.FindAsync(id);

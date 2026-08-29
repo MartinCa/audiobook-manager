@@ -16,6 +16,7 @@
       :search-book-details="bookDetails"
       :current-path="bookPath"
       :new-path="newPath"
+      default-empty-language
       @reset="resetInput"
     >
       <template #toolbar-actions>

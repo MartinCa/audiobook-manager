@@ -142,6 +142,23 @@ public class AudiobookController : ControllerBase
             .Where(v => v.Length > 0)
             .ToList();
 
+    /// <summary>
+    /// Folds an incoming language to its ISO 639-1 code, so a value that reached the client from a
+    /// scrape or an old free-text tag ("English", "eng") is stored the same way as one picked from
+    /// the select. A value naming a language the library does not manage is kept verbatim rather
+    /// than dropped - the strict select cannot produce a new one, but a book already carrying one
+    /// must not lose it on an unrelated edit.
+    /// </summary>
+    private static string? NormalizeLanguage(string? language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            return null;
+        }
+
+        return Languages.Normalize(language) ?? language.Trim();
+    }
+
     private static Audiobook MapToDomain(OrganizeAudiobookDto dto)
     {
         // The client splits free-text author/narrator/genre fields, so blank entries reach us for
@@ -166,7 +183,7 @@ public class AudiobookController : ControllerBase
             Description = dto.Description,
             Copyright = dto.Copyright,
             Publisher = dto.Publisher,
-            Language = dto.Language,
+            Language = NormalizeLanguage(dto.Language),
             Rating = dto.Rating,
             Asin = dto.Asin,
             Www = dto.Www,

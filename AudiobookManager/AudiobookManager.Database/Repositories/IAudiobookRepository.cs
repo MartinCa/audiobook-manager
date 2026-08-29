@@ -20,7 +20,9 @@ public interface IAudiobookRepository
     Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync();
     Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
     Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);
+    Task<List<AudiobookLanguageRef>> GetBooksMissingLanguageAsync();
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
+    Task UpdateLanguageAsync(long id, string? language);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);
     Task DeleteAudiobookAsync(long id);
     Task UpdateAudiobookAsync(Audiobook audiobook);

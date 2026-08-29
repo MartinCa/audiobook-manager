@@ -469,4 +469,60 @@ public class AudiobookControllerTests
             () => _controller.UpdateAudiobook(104, dto) is OkResult,
             TimeSpan.FromSeconds(5));
     }
+
+    [TestMethod]
+    [DataRow("English", "en")]
+    [DataRow("eng", "en")]
+    [DataRow("en-US", "en")]
+    [DataRow("Dansk", "da")]
+    [DataRow("da", "da")]
+    public async Task OrganizeAudiobook_FoldsAFreeTextLanguageToItsIsoCode(string posted, string expected)
+    {
+        var dto = MakeDto();
+        dto.Language = posted;
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        // A value that reached the client from a scrape or an old free-text tag has to be stored
+        // the same way as one picked from the language select.
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == expected)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_KeepsALanguageTheLibraryDoesNotManage()
+    {
+        var dto = MakeDto();
+        dto.Language = "  German  ";
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        // The strict select cannot produce a new one, but a book already carrying an unmanaged
+        // language must not lose it to an unrelated edit.
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == "German")), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow(null)]
+    public async Task OrganizeAudiobook_MapsAnEmptyLanguageToNull(string? posted)
+    {
+        var dto = MakeDto();
+        dto.Language = posted;
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        // A blank must not be persisted as a real value - it is what makes the book show up under
+        // Missing Tags.
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == null)), Times.Once);
+    }
 }

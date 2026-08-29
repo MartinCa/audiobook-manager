@@ -19,6 +19,7 @@ public class MissingTagService : IMissingTagService
         ("Subtitle", "Subtitle", false, a => string.IsNullOrWhiteSpace(a.Subtitle)),
         ("Description", "Description", false, a => string.IsNullOrWhiteSpace(a.Description)),
         ("Genres", "Genres", false, a => a.Genres.Count == 0),
+        ("Language", "Language", false, a => string.IsNullOrWhiteSpace(a.Language)),
         ("Cover", "Cover", false, a => string.IsNullOrWhiteSpace(a.CoverFilePath)),
     };
 

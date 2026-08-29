@@ -91,10 +91,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, Ref } from "vue";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import { MetadataSearchResult } from "../types/MetadataSearchResult";
+import { LanguageOption } from "../types/Language";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
+import { languageLabel, normalizeLanguage } from "../helpers/languages";
+import LanguageService from "../services/LanguageService";
 
 const props = defineProps<{
   dialogWidth: string;
@@ -115,6 +118,17 @@ interface FieldDiff {
   changed: boolean;
 }
 
+// Cached in LanguageService, so opening the preview costs no extra request after the first.
+const languages: Ref<LanguageOption[]> = ref([]);
+
+onMounted(async () => {
+  try {
+    languages.value = (await LanguageService.getLanguageOptions()).languages;
+  } catch {
+    // Non-critical: the diff falls back to showing the raw codes.
+  }
+});
+
 const truncate = (str: string, length: number): string => {
   if (str.length <= length) return str;
   return str.substring(0, length) + "...";
@@ -131,6 +145,15 @@ const fields = computed((): FieldDiff[] => {
     ? (res.series[0].seriesPart ?? "")
     : "";
   const newGenres = res.genres?.join("/") ?? "";
+
+  // The book's language is stored as a code while a source reports a display name, so both sides
+  // have to be folded before they can be compared - otherwise every scrape reports "en" changing
+  // to "English". A source value naming a language the library doesn't manage is no change at
+  // all, since applying it would leave the current selection alone.
+  const currentLanguage =
+    normalizeLanguage(cur.language, languages.value) ?? cur.language ?? "";
+  const newLanguage =
+    normalizeLanguage(res.language, languages.value) ?? currentLanguage;
 
   return [
     {
@@ -209,9 +232,9 @@ const fields = computed((): FieldDiff[] => {
     {
       key: "language",
       label: "Language",
-      currentValue: cur.language ?? "",
-      newValue: res.language ?? "",
-      changed: (cur.language ?? "") !== (res.language ?? ""),
+      currentValue: languageLabel(currentLanguage, languages.value),
+      newValue: languageLabel(newLanguage, languages.value),
+      changed: currentLanguage !== newLanguage,
     },
     {
       key: "copyright",

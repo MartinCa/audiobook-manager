@@ -12,6 +12,10 @@ class MissingTagService extends BaseHttpService {
       .join("&");
     return this.getData(`/missing-tags/audiobooks?${query}`);
   }
+
+  startLanguageBackfill(): Promise<void> {
+    return this.postData("/missing-tags/backfill-language");
+  }
 }
 
 export default new MissingTagService();

@@ -230,13 +230,17 @@
         cols="12"
         sm="6"
       >
-        <v-text-field
+        <v-select
           label="Language"
           hide-details="auto"
           density="comfortable"
+          clearable
+          :items="languageItems"
+          item-title="displayName"
+          item-value="code"
           v-model="input.language"
         >
-        </v-text-field>
+        </v-select>
       </v-col>
 
       <v-col
@@ -318,7 +322,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, Ref } from "vue";
+import { computed, onMounted, ref, Ref, watch } from "vue";
 import { Audiobook } from "../types/Audiobook";
 import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
 import BookSearchDialog from "./BookSearchDialog.vue";
@@ -329,17 +333,30 @@ import { MetadataSearchResult } from "../types/MetadataSearchResult";
 import { useDialogWidth } from "./dialog";
 import { joinPersons } from "../helpers/bookDetailsHelpers";
 import SimilarValueService from "../services/SimilarValueService";
+import LanguageService from "../services/LanguageService";
+import { LanguageOption } from "../types/Language";
+import { languageSelectItems, normalizeLanguage } from "../helpers/languages";
 import {
   findSimilarExisting,
   narrowByQuery,
 } from "../helpers/similarValueMatcher";
 
-const props = defineProps<{
-  searchBookDetails: Audiobook;
-  currentPath: string;
-  newPath: string;
-  coverUrl?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    searchBookDetails: Audiobook;
+    currentPath: string;
+    newPath: string;
+    coverUrl?: string;
+    /**
+     * Seed an empty language with the library default (English). Set for a book being added,
+     * where most of what is imported is English and an untagged file should not have to be
+     * filled in by hand. Deliberately off for a book already in the library: silently granting
+     * it a language just because its edit page was opened would hide it from Missing Tags.
+     */
+    defaultEmptyLanguage?: boolean;
+  }>(),
+  { defaultEmptyLanguage: false },
+);
 
 const emit = defineEmits<{
   (e: "reset"): void;
@@ -361,6 +378,53 @@ const seriesNames: Ref<string[]> = ref([]);
 const authorFieldFocused = ref(false);
 const authorHint: Ref<string | null> = ref(null);
 const seriesHint: Ref<string | null> = ref(null);
+
+// Managed language list. Empty until the fetch lands, which the select tolerates - and the
+// unrecognized-value guard below means a book's existing language is never dropped from the
+// options even before (or if) the list arrives.
+const languages: Ref<LanguageOption[]> = ref([]);
+const languageDefaultCode: Ref<string> = ref("");
+
+const languageItems = computed((): LanguageOption[] =>
+  languageSelectItems(input.value.language, languages.value),
+);
+
+/**
+ * A book may carry a free-text tag ("English", "eng") from whoever tagged it; fold it onto the
+ * matching option so the select shows it as chosen rather than as an "unrecognized" leftover.
+ * An unmanaged language is left exactly as it is.
+ */
+const applyLanguageDefaults = () => {
+  if (languages.value.length === 0) {
+    return;
+  }
+
+  const normalized = normalizeLanguage(input.value.language, languages.value);
+  if (normalized) {
+    input.value.language = normalized;
+  } else if (props.defaultEmptyLanguage && !input.value.language) {
+    input.value.language = languageDefaultCode.value || undefined;
+  }
+};
+
+const loadLanguages = async () => {
+  try {
+    const options = await LanguageService.getLanguageOptions();
+    languages.value = options.languages;
+    languageDefaultCode.value = options.defaultCode;
+    applyLanguageDefaults();
+  } catch {
+    // Non-critical: the select falls back to whatever the book already has.
+  }
+};
+
+// Reset replaces the whole input object from the parent, which puts the file's own raw tag back
+// (or nothing at all), so the fold and the default have to be re-applied. Watching the ref
+// itself rather than its contents is what makes that safe: assigning `input.value.language`
+// below mutates the object without changing its identity, so this cannot re-enter.
+watch(input, () => {
+  applyLanguageDefaults();
+});
 
 const authorSuggestions = computed((): string[] => {
   const parts = (input.value.authors ?? "").split(",");
@@ -536,7 +600,15 @@ const applyPreviewedTags = (
     input.value.publisher = result.publisher;
   }
   if (selectedFields.has("language")) {
-    input.value.language = result.language;
+    // Sources report a display name ("English") or nothing at all. A recognised value wins; one
+    // the library doesn't manage leaves the current selection alone rather than replacing a real
+    // value with something the select can't offer.
+    const scraped = normalizeLanguage(result.language, languages.value);
+    if (scraped) {
+      input.value.language = scraped;
+    } else if (!input.value.language) {
+      input.value.language = languageDefaultCode.value || undefined;
+    }
   }
   if (selectedFields.has("copyright")) {
     input.value.copyright = result.copyright;
@@ -567,7 +639,7 @@ const validate = async (): Promise<boolean> => {
 };
 
 onMounted(async () => {
-  await loadNameLists();
+  await Promise.all([loadNameLists(), loadLanguages()]);
 });
 
 defineExpose({ validate, noteSavedNames });

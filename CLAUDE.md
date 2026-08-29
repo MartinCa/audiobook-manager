@@ -318,6 +318,53 @@ template on either controller reintroduces `{seriesName}`.
 Vue Router is *not* affected - it decodes params after matching, so `/library/series/:seriesName`
 handles such a name correctly - which is why the series was clickable but its API calls were not.
 
+### Language is a managed value, not free text
+
+**Invariant: a book's language is stored as an ISO 639-1 code (`en`, `da`) — never a display
+name.** That code is what goes into the database, the m4b's language tag and `metadata.opf`'s
+`dc:language`, which is specified as an ISO 639 / RFC 5646 code rather than a name. The supported
+set lives in exactly one place, `AudiobookManager.Domain/Languages.cs`, and is served to the client
+over `GET /api/settings/languages` — **the frontend holds no list of its own**, for the same reason
+it holds no hardcoded scraper-source list.
+
+Free text still arrives from three directions and all of it is folded through
+`Languages.Normalize` (or its client twin `normalizeLanguage` in `helpers/languages.ts`): scrapers
+report a display name (Goodreads `details.language.name`, Audible's "Language:" label), older m4b
+tags carry anything from `eng` to `Dansk`, and the odd hand-edit. Two rules keep that from losing
+data:
+
+- **`AudiobookController.MapToDomain` keeps an unrecognized value verbatim.** The strict select
+  cannot produce a new one, but a book already carrying `German` must not lose it to an unrelated
+  edit — and for the same reason the client's select appends the current value as an
+  `"(unrecognized)"` option (`languageSelectItems`) rather than rendering empty and wiping it on
+  the next save.
+- **The alias table is served, not reimplemented.** `Languages.AliasesFor` puts every accepted
+  spelling in the endpoint payload because the endonym `Dansk` is derivable from neither the code
+  nor the English display name; a TypeScript copy of the table drifted from it immediately.
+  `SettingsControllerTests.GetLanguages_ServesEveryAliasThatNormalizeAccepts` guards the parity.
+
+Where the default applies is deliberately asymmetric: a book being **added** seeds an empty
+language with `Languages.DefaultCode` (`BookEditForm`'s `defaultEmptyLanguage` prop, set only by
+`BookOrganize.vue`), because most imports are English and an untagged file shouldn't need filling
+in by hand. A book **already in the library** never gets that default — silently granting it a
+language because its edit page was opened would hide it from Missing Tags.
+
+`TagConsistencyChecker` compares Language on every save, so anything the tag writer does to the
+value has to round-trip through ATL exactly (see the tag round-trip rule above) — hence the
+explicit `en`/`da` round-trip test in `AudiobookTagHandlerTests`.
+
+**Backfilling the language of existing books** (`LanguageBackfillService`, `POST
+api/missing-tags/backfill-language`) reads the tag already embedded in each m4b and writes only the
+database. A direct DB write is legitimate here, unlike for the fields the binding invariant covers:
+Language plays no part in `GenerateRelativeAudiobookPath`, and the value is being copied *out of*
+the file, so nothing can desync. A book whose file says `English` therefore becomes `en` in the
+database and shows up as a `TagMismatch` in the consistency check, where a bulk resolve rewrites
+the tag and `metadata.opf` — that sequence is intentional, and it is what keeps the backfill a read
+of each file's header instead of a rewrite of every m4b in the library. Books with no usable tag
+are left empty on purpose so they stay visible under Missing Tags. Unlike the other long-running
+operations this one publishes no SignalR event; the client follows it by polling
+`GET api/operations/{key}/status`.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)
