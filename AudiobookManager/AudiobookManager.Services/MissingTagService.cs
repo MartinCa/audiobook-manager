@@ -7,7 +7,8 @@ public class MissingTagService : IMissingTagService
 {
     private readonly IAudiobookRepository _audiobookRepository;
 
-    // Keys must match the frontend's field selection values. Order here is the display order.
+    // The frontend fetches these keys/labels from GET api/missing-tags/fields rather than
+    // hardcoding them, so this is the single source of truth. Order here is the display order.
     private static readonly List<(string Key, string Label, bool IsCriticalByDefault, Func<DbAudiobook, bool> IsMissing)> Fields = new()
     {
         ("Authors", "Author", true, a => a.Authors.Count == 0 || a.Authors.All(p => string.IsNullOrWhiteSpace(p.Name))),
@@ -21,6 +22,11 @@ public class MissingTagService : IMissingTagService
         ("Genres", "Genres", false, a => a.Genres.Count == 0),
         ("Language", "Language", false, a => string.IsNullOrWhiteSpace(a.Language)),
         ("Cover", "Cover", false, a => string.IsNullOrWhiteSpace(a.CoverFilePath)),
+        ("Copyright", "Copyright", false, a => string.IsNullOrWhiteSpace(a.Copyright)),
+        ("Publisher", "Publisher", false, a => string.IsNullOrWhiteSpace(a.Publisher)),
+        ("Rating", "Rating", false, a => string.IsNullOrWhiteSpace(a.Rating)),
+        ("Asin", "ASIN", false, a => string.IsNullOrWhiteSpace(a.Asin)),
+        ("Www", "Website", false, a => string.IsNullOrWhiteSpace(a.Www)),
     };
 
     public MissingTagService(IAudiobookRepository audiobookRepository)

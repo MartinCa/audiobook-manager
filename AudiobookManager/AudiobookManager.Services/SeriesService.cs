@@ -529,13 +529,6 @@ public class SeriesService : ISeriesService
     }
 
     /// <summary>
-    /// The owned books of a series, indexed for repeated owned/expected matching. Building this
-    /// once per series turns the match from a scan of every owned book per roster entry into a
-    /// dictionary hit for the common case (source and library agree on the position), which
-    /// matters because the matching loop is O(expected x owned) and each miss pays for a
-    /// Levenshtein matrix - and the series overview runs it for every series in the library.
-    /// </summary>
-    /// <summary>
     /// The owned books of a series, with an index over their positions. The matching loop is
     /// O(expected x owned) and every miss pays for a Levenshtein matrix, so the common case -
     /// source and library agreeing on the position - is settled by a dictionary hit before any
