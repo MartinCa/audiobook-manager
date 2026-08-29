@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Audiobook Manager is a full-stack web application that organizes m4b audiobook files from an import directory into a structured library, with metadata scraping and Audiobookshelf integration. Backend is ASP.NET Core (net10.0), frontend is Vue 3 + Vuetify 3 (TypeScript), database is SQLite via EF Core, deployed via Docker.
 
+### Audiobookshelf compatibility
+
+This project's directory structure, embedded m4b tags, and sidecar files are meant to track what Audiobookshelf expects — see README.md's "Audiobookshelf compatibility" section for the specific doc pages, or [audiobookshelf/audiobookshelf-docs](https://github.com/audiobookshelf/audiobookshelf-docs/tree/master/docs/documentation/libraries/book-library) on GitHub directly. **Any change to directory/file naming, embedded tag conventions, or sidecar file formats that could be incompatible with (or diverge from) what Audiobookshelf expects must be raised to the user for explicit confirmation before being implemented** — do not decide this unilaterally, even if the change looks like a clear improvement.
+
 ## Common Commands
 
 ### Backend (.NET)
