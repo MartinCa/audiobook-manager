@@ -233,7 +233,9 @@ const organizeBook = async () => {
 
   const data = convertInputToAudiobook();
   if (!data) {
-    throw new UserNotificationError("Failed to convert input to audiobook data.");
+    throw new UserNotificationError(
+      "Failed to convert input to audiobook data.",
+    );
   }
 
   organizing.value = true;
