@@ -85,6 +85,28 @@ describe("BookOrganize path regeneration debounce", () => {
     wrapper.unmount();
   });
 
+  it("does not call generateNewPath when non-path fields like description change", async () => {
+    mockedParseBookDetails.mockResolvedValue(makeBook());
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    // Wait out the initial debounce window from resetInput() populating `input`.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const callsAfterInitialLoad = mockedGenerateNewPath.mock.calls.length;
+
+    const vm = wrapper.vm as any;
+    vm.input.description =
+      "A long description that does not affect path generation";
+    vm.input.copyright = "2024 Copyright";
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(mockedGenerateNewPath).toHaveBeenCalledTimes(callsAfterInitialLoad);
+
+    wrapper.unmount();
+  });
+
   it("still calls generateNewPath when a non-cover field changes", async () => {
     mockedParseBookDetails.mockResolvedValue(makeBook());
 

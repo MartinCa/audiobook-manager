@@ -409,6 +409,40 @@ public class AudiobookServiceTests
         Assert.AreEqual("A Narrator", File.ReadAllText(readerInNewDirectory));
     }
 
+    [TestMethod]
+    public async Task UpdateAudiobook_Relocation_PreservesCoverArtSidecarWhenM4bHasNoEmbeddedCover()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var oldFilePath = Path.Combine(_libraryPath, "Same Author", "2020 - Old Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        var oldDirectory = Path.GetDirectoryName(oldFilePath)!;
+        var oldCover = Path.Combine(oldDirectory, "cover.jpg");
+        await File.WriteAllBytesAsync(oldCover, new byte[] { 0xFF, 0xD8 });
+
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        // Returns parsed audiobook WITHOUT embedded cover
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var expectedNewPath = _service.GenerateLibraryPath(
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)));
+        var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        var newCover = Path.Combine(newDirectory, "cover.jpg");
+        Assert.IsTrue(File.Exists(newCover), "cover.jpg must be preserved in the new directory");
+        Assert.IsFalse(File.Exists(oldCover), "old cover.jpg must be cleaned up from old directory");
+        Assert.AreEqual(newCover, result.CoverFilePath);
+    }
+
     // The other half of the sidecar contract: WriteMetadata owns these files, so a field that is
     // now empty removes its sidecar. Previously the write was simply skipped, leaving the value
     // the book had before the edit on disk - and Audiobookshelf reads desc.txt in preference to

@@ -382,6 +382,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var newDirectory = Path.GetDirectoryName(expectedFullPath);
         if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
+            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
@@ -675,16 +676,21 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             }
 
             // Check cover file
-            if (parsed.Cover is not null)
+            var coverJpgExists = File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.jpg"));
+            var coverPngExists = File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.png"));
+
+            if (coverJpgExists && coverPngExists)
             {
-                var coverExists = File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.jpg"))
-                    || File.Exists(AudiobookFileHandler.JoinPaths(directoryPath, "cover.png"));
-                if (!coverExists)
-                {
-                    issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
-                        "Cover file missing but m4b has embedded cover",
-                        "cover.jpg or cover.png", null));
-                }
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
+                    "Conflicting cover files (both cover.jpg and cover.png exist)",
+                    parsed.Cover?.MimeType == "image/png" ? "cover.png" : "cover.jpg",
+                    "both cover.jpg and cover.png exist"));
+            }
+            else if (parsed.Cover is not null && !coverJpgExists && !coverPngExists)
+            {
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.MissingCoverFile,
+                    "Cover file missing but m4b has embedded cover",
+                    "cover.jpg or cover.png", null));
             }
         }
         catch (Exception ex)
