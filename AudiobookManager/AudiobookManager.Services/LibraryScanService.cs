@@ -107,14 +107,6 @@ public class LibraryScanService : ILibraryScanService
                 };
 
                 pending.Add(discovered);
-                newFilesDiscovered++;
-
-                if (pending.Count >= InsertBatchSize)
-                {
-                    await _discoveredAudiobookRepository.InsertRangeAsync(pending);
-                    pending.Clear();
-                }
-
                 lastMessage = $"Discovered: {file.FileName}";
             }
             catch (Exception ex)
@@ -123,18 +115,60 @@ public class LibraryScanService : ILibraryScanService
                 lastMessage = $"Error parsing: {file.FileName}";
             }
 
+            // Deliberately outside the per-file try: a batch insert failing is a database
+            // problem, not a parse failure of whichever file happened to fill the batch, and
+            // logging it as one blames a file that parsed fine. Flushing here also guarantees
+            // `pending` is cleared either way - left in place, a failing batch was re-attempted
+            // by every later flush and poisoned the rest of the scan.
+            if (pending.Count >= InsertBatchSize)
+            {
+                newFilesDiscovered += await FlushPendingAsync(pending);
+            }
+
             await ReportScanProgressAsync(progressAction, lastMessage, filesScanned, totalFiles);
         }
 
-        if (pending.Count > 0)
-        {
-            await _discoveredAudiobookRepository.InsertRangeAsync(pending);
-        }
+        newFilesDiscovered += await FlushPendingAsync(pending);
 
         _logger.LogInformation("Library scan complete. Total: {Total}, New: {New}, Tracked: {Tracked}",
             totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
 
         return (totalFiles, newFilesDiscovered, totalFiles - newFilesDiscovered);
+    }
+
+    /// <summary>
+    /// Writes the accumulated batch and empties it, returning how many rows were actually
+    /// persisted. A failure loses that batch - the alternative is aborting a scan of the whole
+    /// library over one bad write - so it is logged loudly and the discovered count reflects
+    /// only what really landed, rather than what was queued.
+    /// </summary>
+    private async Task<int> FlushPendingAsync(List<DiscoveredAudiobook> pending)
+    {
+        if (pending.Count == 0)
+        {
+            return 0;
+        }
+
+        // Hand over a snapshot, not the live buffer: this method clears `pending` in its finally,
+        // and anything the repository (or a test double) still holds a reference to would be
+        // emptied underneath it.
+        var batch = pending.ToList();
+
+        try
+        {
+            await _discoveredAudiobookRepository.InsertRangeAsync(batch);
+            return batch.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to insert a batch of {Count} discovered audiobooks; they will not appear until the next scan", batch.Count);
+            return 0;
+        }
+        finally
+        {
+            pending.Clear();
+        }
     }
 
     private static Task ReportScanProgressAsync(

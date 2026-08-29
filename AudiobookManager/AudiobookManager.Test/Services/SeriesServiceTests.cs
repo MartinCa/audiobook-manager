@@ -50,6 +50,44 @@ public class SeriesServiceTests
     private static SeriesExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
         new() { Id = id, SeriesId = 1, Title = title, Position = position, IsIgnored = ignored };
 
+    // Regression test: a roster entry with no position must still be matched on title against
+    // owned books that *do* have one. IsSameBook falls back to a fuzzy title comparison whenever
+    // the positions don't settle it, so partitioning the owned books by position must not stop
+    // those pairs from ever being compared - or a book the user owns is reported missing.
+    [TestMethod]
+    public async Task GetSeriesDetailAsync_ExpectedBookWithNoPosition_MatchesAnOwnedBookThatHasOne()
+    {
+        var owned = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+        };
+
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                // The source lists it without a position at all.
+                MakeExpected(10, "The Final Empire", null),
+            },
+        };
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+
+        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+
+        Assert.IsNotNull(detail);
+        CollectionAssert.AreEqual(
+            new List<string>(),
+            detail.MissingBooks.Select(b => b.Title).ToList(),
+            "the owned book matches the positionless roster entry on title");
+        Assert.AreEqual(0, detail.Overview.MissingBookCount);
+    }
+
     [TestMethod]
     public async Task GetSeriesDetailAsync_ReportsOnlyUnownedNonIgnoredBooksAsMissing()
     {

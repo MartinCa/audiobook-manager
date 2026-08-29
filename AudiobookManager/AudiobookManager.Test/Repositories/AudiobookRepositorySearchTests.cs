@@ -98,6 +98,34 @@ public class AudiobookRepositorySearchTests
         Assert.AreEqual("Charm School", items[0].BookName);
     }
 
+    // The ranking ORDER BY includes a correlated subquery over the authors collection, and this
+    // query uses AsSplitQuery with Skip/Take - so the author branch needs exercising too, not
+    // just the BookName one.
+    [TestMethod]
+    public async Task SearchAsync_RanksAMatchOnAnAuthorNamePrefixAheadOfASubstringMatch()
+    {
+        var prefixAuthorBook = new Audiobook(
+            default, "zzz last by title", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/zzz.m4b", "zzz.m4b", 1000);
+        prefixAuthorBook.Authors.Add(new Person(default, "Sanderson Brandon"));
+        await _repository.InsertAudiobook(prefixAuthorBook);
+
+        var substringBook = new Audiobook(
+            default, "aaa first by title", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/aaa.m4b", "aaa.m4b", 1000);
+        substringBook.Authors.Add(new Person(default, "Brandon Sanderson"));
+        await _repository.InsertAudiobook(substringBook);
+
+        var (items, total) = await _repository.SearchAsync("sanderson", 10, 0);
+
+        Assert.AreEqual(2, total);
+        Assert.AreEqual("zzz last by title", items[0].BookName);
+        // The include graph still comes back intact alongside the ranked ordering.
+        Assert.AreEqual("Sanderson Brandon", items[0].Authors.Single().Name);
+    }
+
     // Regression test: this compared paths with a raw SQL `==`, which SQLite evaluates under its
     // BINARY collation - so on a case-insensitive volume a stored path differing only in case
     // from the generated target (an author's casing edited in the tags since import) was not

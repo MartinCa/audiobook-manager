@@ -47,18 +47,27 @@ public class AudiobookRepository : IAudiobookRepository
         // still decides - but not a free one.
         var likePattern = EscapeLikePattern(fileName);
 
+        // Only the id and the path, not the rows: file names are not unique (a library where
+        // every file is "audiobook.m4b" is unusual but perfectly legal), and materializing every
+        // same-named book - Description blobs and all - to compare one string would be a poor
+        // trade for the one row that matches.
         var candidates = await _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.FileInfoFileName == fileName
                 || EF.Functions.Like(a.FileInfoFileName, likePattern, LikeEscapeCharacter))
+            .Select(a => new { a.Id, a.FileInfoFullPath })
             .ToListAsync();
 
-        if (pathsEqual is null)
+        var match = pathsEqual is null
+            ? candidates.FirstOrDefault(a => string.Equals(a.FileInfoFullPath, fullPath, StringComparison.Ordinal))
+            : candidates.FirstOrDefault(a => pathsEqual(a.FileInfoFullPath, fullPath));
+
+        if (match is null)
         {
-            return candidates.FirstOrDefault(a => string.Equals(a.FileInfoFullPath, fullPath, StringComparison.Ordinal));
+            return null;
         }
 
-        return candidates.FirstOrDefault(a => pathsEqual(a.FileInfoFullPath, fullPath));
+        return await _db.Audiobooks.AsNoTracking().FirstOrDefaultAsync(a => a.Id == match.Id);
     }
 
     private const string LikeEscapeCharacter = "\\";

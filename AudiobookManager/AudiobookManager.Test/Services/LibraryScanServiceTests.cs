@@ -256,6 +256,35 @@ public class LibraryScanServiceTests
         CollectionAssert.AreEqual(new[] { 25, 50, 60 }, progressCalls);
     }
 
+    // Batching must not make one database failure poison the rest of the scan. The batch insert
+    // sat inside the per-file try/catch, so a failing batch was logged as "Failed to parse
+    // audiobook at <the current file>" - blaming a file that parsed fine - and `pending` was
+    // never cleared, so every subsequent batch retried the same rows and threw again.
+    [TestMethod]
+    public async Task ScanLibrary_BatchInsertFails_KeepsScanningAndDoesNotRetryTheFailedRows()
+    {
+        const int fileCount = 30;
+        for (var i = 0; i < fileCount; i++)
+        {
+            await File.WriteAllTextAsync(Path.Combine(_libraryPath, $"book-{i:D3}.m4b"), "fake audio");
+        }
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => MakeParsedAudiobook(fi.FullName));
+
+        var attemptedBatches = new List<int>();
+        _discoveredAudiobookRepository
+            .Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<DiscoveredAudiobook>>()))
+            .Callback((IEnumerable<DiscoveredAudiobook> batch) => attemptedBatches.Add(batch.Count()))
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+
+        var (totalFiles, _, _) = await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(fileCount, totalFiles, "the scan completes rather than aborting");
+        // Exactly one attempt: the rows are dropped after it fails, not retried forever.
+        Assert.AreEqual(1, attemptedBatches.Count);
+    }
+
     // Regression test: one InsertAsync (and therefore one SaveChanges/transaction) per file
     // meant a first scan of a large library ran a transaction per book. Fails against the
     // unbatched code, which never called InsertRangeAsync at all.

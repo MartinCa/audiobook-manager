@@ -560,3 +560,32 @@ describe("BookDetail path preview requests", () => {
     }
   });
 });
+
+describe("BookDetail navigation while saving", () => {
+  // Regression test: `saving` was never reset when the route param changed, and the completion
+  // event is filtered by audiobookId - so navigating away mid-save left the *next* book's form
+  // disabled indefinitely. Fails against the pre-fix component, where saving stays true.
+  it("clears the save state when navigating to a different book", async () => {
+    mockedGetBookDetail
+      .mockResolvedValueOnce(makeBook(1, "First Book"))
+      .mockResolvedValueOnce(makeBook(2, "Second Book"));
+
+    const wrapper = mountDetail();
+    await flushPromises();
+
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Save"));
+    await button!.trigger("click");
+    await flushPromises();
+    expect((wrapper.vm as any).saving).toBe(true);
+
+    route.params.bookId = "2";
+    await flushPromises();
+    await flushPromises();
+
+    expect((wrapper.vm as any).saving).toBe(false);
+
+    wrapper.unmount();
+  });
+});

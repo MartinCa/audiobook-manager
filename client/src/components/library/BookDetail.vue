@@ -490,6 +490,13 @@ const loadIssues = async () => {
 watch(
   bookId,
   async () => {
+    // The save state belongs to the book that was on screen. Its completion event is filtered
+    // by audiobookId, so after navigating away it is ignored and `saving` would otherwise stay
+    // true forever - leaving the next book's form disabled with no way back but a reload.
+    saving.value = false;
+    saveMessage.value = "";
+    saveProgress.value = 0;
+
     await Promise.all([loadBook(), loadIssues()]);
   },
   { immediate: true },

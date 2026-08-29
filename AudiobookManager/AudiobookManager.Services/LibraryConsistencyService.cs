@@ -103,54 +103,60 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             return issuesFound;
         }
 
-        // A single recursive enumeration, walked deepest-first. Checking only leaf directories
-        // (which this used to do) meant a deleted series was cleaned up one level per run: the
-        // check flagged "Author/Series/Book", resolving it deleted that folder, and only the
-        // *next* full check noticed "Author/Series" had become a leaf - so the user had to run
-        // the check once per level. Bottom-up, a directory whose every subdirectory is itself
-        // being reclaimed is reported in the same pass.
+        // A single recursive enumeration, walked deepest-first.
+        //
+        // Checking only leaf directories (which this used to do) meant a deleted series was
+        // cleaned up one level per run: the check flagged "Author/Series/Book", resolving it
+        // deleted that folder, and only the *next* full check noticed "Author/Series" had become
+        // a leaf - so the user had to run the check once per level. Bottom-up, a directory whose
+        // every subdirectory is itself being reclaimed is reported in the same pass.
+        //
+        // "Does this subtree hold audio?" is answered from the children's already-computed
+        // answers rather than by re-walking the subtree, so every file in the library is
+        // stat'ed once for the whole sweep. Asking Directory.EnumerateFiles(dir, "*",
+        // AllDirectories) per directory would re-walk each file once per ancestor level.
         var allDirectories = Directory
             .EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
             .OrderByDescending(directory => directory.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
             .ToList();
 
-        var reclaimed = new HashSet<string>(AudiobookFileHandler.PathComparer);
+        var subtreeHasAudio = new HashSet<string>(AudiobookFileHandler.PathComparer);
         var orphans = new List<OrphanDirectory>();
+        var orphansByPath = new Dictionary<string, OrphanDirectory>(AudiobookFileHandler.PathComparer);
 
         foreach (var directory in allDirectories)
         {
-            // Recursive: a parent is only orphaned if nothing anywhere beneath it is an audio
-            // file, and deleting it takes the whole subtree with it.
-            var hasAudioFile = Directory
-                .EnumerateFiles(directory, "*", SearchOption.AllDirectories)
-                .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
+            var subdirectories = Directory.EnumerateDirectories(directory).ToList();
+
+            var hasAudioFile =
+                Directory.EnumerateFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)))
+                || subdirectories.Any(subtreeHasAudio.Contains);
+
             if (hasAudioFile)
             {
+                subtreeHasAudio.Add(directory);
                 continue;
             }
 
-            var subdirectories = Directory.EnumerateDirectories(directory).ToList();
-            if (subdirectories.Count > 0 && !subdirectories.All(reclaimed.Contains))
-            {
-                // A subdirectory survived the check (it holds audio), so this one is not orphaned.
-                continue;
-            }
-
-            // Report the highest reclaimable directory only - deleting it removes the children
-            // anyway, and listing both would make the user resolve the same folder twice.
+            // Nothing under here is audio, so the whole subtree is reclaimable. Report only this
+            // directory: deleting it removes the children anyway, and listing both would make
+            // the user resolve the same folder twice.
             foreach (var subdirectory in subdirectories)
             {
-                reclaimed.Remove(subdirectory);
-                orphans.RemoveAll(o => AudiobookFileHandler.PathsEqual(o.DirectoryPath, subdirectory));
-                issuesFound--;
+                if (orphansByPath.Remove(subdirectory, out var superseded))
+                {
+                    orphans.Remove(superseded);
+                    issuesFound--;
+                }
             }
 
-            reclaimed.Add(directory);
-            orphans.Add(new OrphanDirectory
+            var orphan = new OrphanDirectory
             {
                 DirectoryPath = directory,
                 DetectedAt = DateTime.UtcNow
-            });
+            };
+            orphans.Add(orphan);
+            orphansByPath[directory] = orphan;
             issuesFound++;
         }
 

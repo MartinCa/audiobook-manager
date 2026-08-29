@@ -535,22 +535,32 @@ public class SeriesService : ISeriesService
     /// matters because the matching loop is O(expected x owned) and each miss pays for a
     /// Levenshtein matrix - and the series overview runs it for every series in the library.
     /// </summary>
+    /// <summary>
+    /// The owned books of a series, with an index over their positions. The matching loop is
+    /// O(expected x owned) and every miss pays for a Levenshtein matrix, so the common case -
+    /// source and library agreeing on the position - is settled by a dictionary hit before any
+    /// scanning starts. The scan itself is still over *every* owned book: a position match is
+    /// only one of the two ways <see cref="IsSameBook"/> can succeed, and a roster entry with no
+    /// position (or a position nobody else uses) must still be compared on title against books
+    /// that do have one. Partitioning the fallback by position instead of just short-circuiting
+    /// ahead of it silently reported owned books as missing.
+    /// </summary>
     private sealed class OwnedBookIndex
     {
+        private readonly List<BookKey> _keys;
         private readonly ILookup<string, BookKey> _byPosition;
-        private readonly List<BookKey> _withoutPosition;
 
         public OwnedBookIndex(IEnumerable<BookKey> ownedKeys)
         {
-            var keys = ownedKeys.ToList();
-            _byPosition = keys
+            _keys = ownedKeys.ToList();
+            _byPosition = _keys
                 .Where(k => !string.IsNullOrWhiteSpace(k.Position))
                 .ToLookup(k => NormalizePosition(k.Position!), StringComparer.OrdinalIgnoreCase);
-            _withoutPosition = keys.Where(k => string.IsNullOrWhiteSpace(k.Position)).ToList();
         }
 
         public bool Contains(BookKey expected)
         {
+            // Fast path only - never a substitute for the scan below.
             if (!string.IsNullOrWhiteSpace(expected.Position))
             {
                 foreach (var owned in _byPosition[NormalizePosition(expected.Position!)])
@@ -562,41 +572,7 @@ public class SeriesService : ISeriesService
                 }
             }
 
-            // A position match is only one of the two ways IsSameBook can succeed, so anything
-            // the index could not settle still has to be compared on title. That is every owned
-            // book whose position is blank, plus - when the expected entry has a position that
-            // matched nothing - the ones whose position simply disagrees.
-            foreach (var owned in _withoutPosition)
-            {
-                if (IsSameBook(expected, owned))
-                {
-                    return true;
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(expected.Position))
-            {
-                return false;
-            }
-
-            var expectedPosition = NormalizePosition(expected.Position!);
-            foreach (var group in _byPosition)
-            {
-                if (string.Equals(group.Key, expectedPosition, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;   // already checked above
-                }
-
-                foreach (var owned in group)
-                {
-                    if (IsSameBook(expected, owned))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            return _keys.Any(owned => IsSameBook(expected, owned));
         }
 
         /// <summary>

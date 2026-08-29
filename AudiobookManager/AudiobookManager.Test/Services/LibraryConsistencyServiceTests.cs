@@ -844,6 +844,42 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // The subtree answer is derived from the children's answers rather than by re-walking the
+    // subtree, so it has to propagate up through more than one level.
+    [TestMethod]
+    public async Task RunConsistencyCheck_AudioDeepInASubtree_KeepsEveryAncestor()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var deepBookDir = Path.Combine(libraryPath, "Author", "Series", "Sub", "Book");
+        Directory.CreateDirectory(deepBookDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(deepBookDir, "book.m4b"), "fake audio");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings, _audiobookRepository.Object, _issueRepository.Object,
+                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object, _logger.Object);
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            Assert.AreEqual(0, insertedDirectories.Count,
+                "no ancestor of a directory holding audio is reclaimable");
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
+        }
+    }
+
     // A parent holding a real book must never be swept up with an orphaned sibling folder.
     [TestMethod]
     public async Task RunConsistencyCheck_ParentHoldingAudio_IsNotReportedWithItsOrphanedChild()
