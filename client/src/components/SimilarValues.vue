@@ -405,11 +405,15 @@ const onApplyClick = (
   if (!selection.target) return;
 
   pending.value = { valueType, group, selection };
-  // Every candidate in the group is aligned, so this is just the group's total book count.
-  pendingBookCount.value = group.candidates.reduce(
-    (sum, c) => sum + c.bookCount,
-    0,
-  );
+  // Books that already carry the chosen target are not touched: AlignAuthorsAsync /
+  // AlignSeriesAsync drop the target from the source list before querying. Counting the whole
+  // group overstated the confirmation for the common case of picking an existing candidate -
+  // "this will update 12 books" for an operation that rewrites 2 - on a dialog that also says
+  // the m4b tags are rewritten and cannot be undone. A free-text target matches no candidate,
+  // so there the whole group really is aligned and the count is unchanged.
+  pendingBookCount.value = group.candidates
+    .filter((c) => c.value !== selection.target)
+    .reduce((sum, c) => sum + c.bookCount, 0);
   confirmDialog.value = true;
 };
 
