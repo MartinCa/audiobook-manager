@@ -144,31 +144,26 @@ const pendingOrganizeData: Ref<Audiobook | null> = ref(null);
 
 const { dialogWidth, mdAndDown } = useDialogWidth();
 
-// Watches only the fields path generation actually depends on. Deliberately never reads
-// cover_base64/cover_mime here: a getter that read them (even to overwrite them afterwards)
-// would still track them as reactive dependencies, so editing the cover would keep
-// retriggering this debounced call and deep-diffing the large cover string for nothing.
+// Exactly the fields AudiobookService.toPathPreviewDto sends, which are exactly the ones
+// GenerateRelativeAudiobookPath reads. Watching more than that meant typing into
+// Description fired a debounced request every 300ms for a path that provably cannot change.
+// Deliberately never reads cover_base64/cover_mime either: a getter that read them (even to
+// overwrite them afterwards) would still track them as reactive dependencies, so editing the
+// cover would keep retriggering this call and diffing the large cover string for nothing.
+// An array of primitives compares element-wise, so no `deep` is needed - and `deep` on a getter
+// that builds a fresh object each run only adds a traversal, since the new object never
+// compares equal to the previous one anyway.
 watch(
-  () => ({
-    authors: input.value.authors,
-    narrators: input.value.narrators,
-    bookName: input.value.bookName,
-    subtitle: input.value.subtitle,
-    series: input.value.series,
-    seriesPart: input.value.seriesPart,
-    year: input.value.year,
-    genres: input.value.genres,
-    description: input.value.description,
-    copyright: input.value.copyright,
-    publisher: input.value.publisher,
-    asin: input.value.asin,
-    www: input.value.www,
-    rating: input.value.rating,
-  }),
-  async () => {
-    await updateNewBookPath();
+  () => [
+    input.value.authors,
+    input.value.bookName,
+    input.value.series,
+    input.value.seriesPart,
+    input.value.year,
+  ],
+  () => {
+    updateNewBookPath();
   },
-  { deep: true },
 );
 
 const updateNewBookPath = debounce(async () => {

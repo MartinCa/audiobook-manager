@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using AudiobookManager.Domain;
 
 namespace AudiobookManager.FileManager;
@@ -194,9 +194,9 @@ public static class AudiobookFileHandler
 
     public static string? WriteCover(Audiobook audiobook)
     {
+        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
         if (audiobook.Cover is not null)
         {
-            var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
             var coverExtension = GetMimeFileExt(audiobook.Cover.MimeType);
             var fileName = JoinPaths(directoryPath, $"cover{coverExtension}");
             using (var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write))
@@ -216,7 +216,49 @@ public static class AudiobookFileHandler
             return fileName;
         }
 
+        var jpgPath = JoinPaths(directoryPath, "cover.jpg");
+        var pngPath = JoinPaths(directoryPath, "cover.png");
+        var jpgExists = File.Exists(jpgPath);
+        var pngExists = File.Exists(pngPath);
+
+        if (jpgExists && pngExists)
+        {
+            RemoveFileIfExists(pngPath);
+            return jpgPath;
+        }
+
+        if (jpgExists)
+        {
+            return jpgPath;
+        }
+
+        if (pngExists)
+        {
+            return pngPath;
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Moves existing cover sidecar files from <paramref name="oldDirectory"/> to
+    /// <paramref name="newDirectory"/> before <paramref name="oldDirectory"/> is cleaned up,
+    /// so a book without embedded artwork in its m4b does not lose its cover image on relocation.
+    /// </summary>
+    public static void MigrateSidecarFiles(string oldDirectory, string newDirectory)
+    {
+        if (Directory.Exists(oldDirectory) && Directory.Exists(newDirectory) && !PathsEqual(oldDirectory, newDirectory))
+        {
+            foreach (var coverExt in _coverExtensions)
+            {
+                var oldCover = JoinPaths(oldDirectory, $"cover{coverExt}");
+                var newCover = JoinPaths(newDirectory, $"cover{coverExt}");
+                if (File.Exists(oldCover) && !File.Exists(newCover))
+                {
+                    File.Move(oldCover, newCover);
+                }
+            }
+        }
     }
 
     private static void RemoveFileIfExists(string filePath)

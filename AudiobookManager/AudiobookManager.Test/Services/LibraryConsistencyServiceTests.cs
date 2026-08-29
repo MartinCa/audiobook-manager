@@ -321,6 +321,54 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task RunConsistencyCheck_BothCoverJpgAndPngExist_ReportsConflictingCoverIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "fake audio content");
+
+            var coverJpg = Path.Combine(tempDir, "cover.jpg");
+            var coverPng = Path.Combine(tempDir, "cover.png");
+            await File.WriteAllBytesAsync(coverJpg, new byte[] { 0xFF, 0xD8 });
+            await File.WriteAllBytesAsync(coverPng, new byte[] { 0x89, 0x50 });
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            await _service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
+                iss.IssueType == ConsistencyIssueType.MissingCoverFile &&
+                iss.Description.Contains("Conflicting cover files")
+            ))), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_MissingMediaFile_DeletesAudiobook()
     {
         var dbAudiobook = new DbAudiobook(
@@ -824,8 +872,10 @@ public class LibraryConsistencyServiceTests
             var newDir = Path.GetDirectoryName(expectedFullPath)!;
             Assert.AreEqual("New description", await File.ReadAllTextAsync(Path.Combine(newDir, "desc.txt")));
             Assert.AreEqual("New Narrator", await File.ReadAllTextAsync(Path.Combine(newDir, "reader.txt")));
+            Assert.IsTrue(File.Exists(Path.Combine(newDir, "cover.jpg")), "cover.jpg should be preserved in new dir");
 
             _audiobookRepository.Verify(r => r.UpdateFilePathAsync(1, expectedFullPath, Path.GetFileName(expectedFullPath)), Times.Once);
+            _audiobookRepository.Verify(r => r.UpdateCoverFilePathAsync(1, Path.Combine(newDir, "cover.jpg")), Times.Once);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
         }
         finally

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
@@ -274,6 +274,7 @@ public class AudiobookService : IAudiobookService
         var newDirectory = Path.GetDirectoryName(newFullPath);
         if (oldDirectory is not null && newDirectory is not null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
+            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }

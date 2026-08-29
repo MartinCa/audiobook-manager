@@ -233,6 +233,41 @@ public class HardcoverScraperTests
         Assert.IsTrue(body.Contains("\"id\":789"));
     }
 
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
+    {
+        var json = """
+            {
+              "data": {
+                "books_by_pk": {
+                  "id": 999,
+                  "title": "Fallback Test Book",
+                  "default_audio_edition": {
+                    "audio_seconds": 3600,
+                    "language": null,
+                    "asin": null
+                  },
+                  "default_physical_edition": {
+                    "isbn_13": "9781234567890",
+                    "asin": "B0PHYSICALASIN",
+                    "publisher": { "name": "Physical Publisher" },
+                    "language": { "language": "French" }
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("999");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("French", result.Language);
+        Assert.AreEqual("B0PHYSICALASIN", result.Asin);
+        Assert.AreEqual("9781234567890", result.Isbn);
+        Assert.AreEqual("Physical Publisher", result.Publisher);
+    }
+
     /// <summary>
     /// GetBookBySlug() reads through "data.books[0]" (a books(where:...) query returns an
     /// array), unlike the by-id path which reads "data.books_by_pk" (a single object) -

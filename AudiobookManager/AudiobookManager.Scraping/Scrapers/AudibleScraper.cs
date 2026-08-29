@@ -19,7 +19,7 @@ public partial class AudibleScraper : IScraper
 
     [GeneratedRegex(@"([^-]+)( - )(.+)")]
     private static partial Regex RePersonWithRole();
-    [GeneratedRegex(@"^.*audible\..*\/pd\/.+\/([^\?]+).*$")]
+    [GeneratedRegex(@"^.*audible\..*\/pd\/(?:[^\/\?]+\/)?([^\/\?]+)")]
     private static partial Regex ReAsin();
     [GeneratedRegex(@"^.*audible\..*\/series\/.+\/([^\?]+).*$")]
     private static partial Regex ReSeriesId();
@@ -72,7 +72,8 @@ public partial class AudibleScraper : IScraper
         var searchResultElements = doc.QuerySelectorAll("li.bc-list-item.productListItem");
 
         var searchResultTasks = searchResultElements
-            .Select(resultElement => ParseAudibleSearchResult(resultElement));
+            .Select(resultElement => ParseAudibleSearchResult(resultElement))
+            .ToList();
 
         await Task.WhenAll(searchResultTasks);
 
@@ -492,6 +493,12 @@ public partial class AudibleScraper : IScraper
 
         var asin = ParseAsinFromUrl(bookUrl);
 
+        var language = GetJsonString(audiobook, "inLanguage");
+        if (string.IsNullOrWhiteSpace(language) && doc.Body is not null)
+        {
+            language = ExtractStringFromTagWithPrefix(doc.Body, "li.bc-list-item.languageLabel", "Language:");
+        }
+
         return new MetadataSearchResult(bookUrl, title)
         {
             Authors = authors,
@@ -499,7 +506,7 @@ public partial class AudibleScraper : IScraper
             Subtitle = subtitle,
             Duration = durationText,
             Year = year,
-            Language = null,
+            Language = language,
             ImageUrl = imgUrl,
             Series = series,
             Description = description,

@@ -111,6 +111,9 @@ public class AudibleScraperTests
         Assert.AreEqual("Christopher Hughes", result.Publisher);
         Assert.AreEqual("Christopher Hughes", result.Copyright);
 
+        // Language - parsed from LD+JSON inLanguage
+        Assert.AreEqual("english", result.Language);
+
         // ASIN - parsed from the URL
         Assert.AreEqual("B096STBWDH", result.Asin);
     }
@@ -298,5 +301,54 @@ public class AudibleScraperTests
         var result = await target.ParseAudibleDetails(html, bookUrl);
 
         Assert.IsNull(result.Asin);
+    }
+
+    [TestMethod]
+    [DataRow("https://www.audible.com/pd/B0DFZ23456", "B0DFZ23456")]
+    [DataRow("https://www.audible.com/pd/B0DFZ23456?qid=123", "B0DFZ23456")]
+    [DataRow("https://www.audible.co.uk/pd/Some-Book/B0DFZ23456/", "B0DFZ23456")]
+    public async Task ParseAudibleDetails_DirectShortUrl_ExtractsAsin(string bookUrl, string expectedAsin)
+    {
+        var target = CreateScraper();
+        var html = """
+            <html><body>
+            <script type="application/ld+json">
+            {
+                "@context": "http://schema.org",
+                "@type": "Audiobook",
+                "name": "Short URL Book",
+                "author": [ { "@type": "Person", "name": "Some Author" } ]
+            }
+            </script>
+            </body></html>
+            """;
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        Assert.AreEqual(expectedAsin, result.Asin);
+    }
+
+    [TestMethod]
+    public async Task ParseAudibleDetails_HtmlLanguageFallback_ExtractsLanguage()
+    {
+        var target = CreateScraper();
+        var html = """
+            <html><body>
+            <script type="application/ld+json">
+            {
+                "@context": "http://schema.org",
+                "@type": "Audiobook",
+                "name": "Html Language Book",
+                "author": [ { "@type": "Person", "name": "Some Author" } ]
+            }
+            </script>
+            <li class="bc-list-item languageLabel">Language: German</li>
+            </body></html>
+            """;
+        var bookUrl = "https://www.audible.com/pd/B0DFZ23456";
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        Assert.AreEqual("German", result.Language);
     }
 }

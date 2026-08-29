@@ -832,17 +832,26 @@ public class HardcoverScraper : IScraper
                 }
             }
 
-            // Fall back to physical edition for ISBN/publisher if audio edition didn't have them
+            // Fall back to physical edition for ISBN/ASIN/publisher/language if audio edition didn't have them
             if (audioEdition is not null && physicalEdition is not null)
             {
                 if (isbn is null)
                 {
                     isbn = physicalEdition.Value.GetPropertyValueOrNull("isbn_13");
                 }
+                if (asin is null)
+                {
+                    asin = physicalEdition.Value.GetPropertyValueOrNull("asin");
+                }
                 if (publisher is null && physicalEdition.Value.TryGetProperty("publisher", out var pubElement) &&
                     pubElement.ValueKind == JsonValueKind.Object)
                 {
                     publisher = pubElement.GetPropertyValueOrNull("name");
+                }
+                if (language is null && physicalEdition.Value.TryGetProperty("language", out var langElement) &&
+                    langElement.ValueKind == JsonValueKind.Object)
+                {
+                    language = langElement.GetPropertyValueOrNull("language");
                 }
             }
         }

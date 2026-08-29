@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Api.Dtos;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -16,14 +16,45 @@ public class FilesController : ControllerBase
     }
 
     [HttpPost("directory_contents")]
-    public IList<AudiobookFileInfo> GetDirectoryContents([FromBody] PathDto dto)
+    public ActionResult<IList<AudiobookFileInfo>> GetDirectoryContents([FromBody] PathDto dto)
     {
-        return _fileService.GetDirectoryContents(dto.Path);
+        try
+        {
+            return Ok(_fileService.GetDirectoryContents(dto.Path));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("delete_directory")]
-    public void DeleteDirectory([FromBody] PathDto dto)
+    public IActionResult DeleteDirectory([FromBody] PathDto dto)
     {
-        _fileService.DeleteDirectory(dto.Path);
+        try
+        {
+            _fileService.DeleteDirectory(dto.Path);
+            return Ok();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 }

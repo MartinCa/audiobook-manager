@@ -617,4 +617,72 @@ public class LibraryScanServiceTests
         _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), false), Times.Once);
         _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), true), Times.Never);
     }
+
+    [TestMethod]
+    public async Task BulkImportAsync_GenreWithComma_PreservesCommaInGenre()
+    {
+        var filePath = Path.Combine(_libraryPath, "book.m4b");
+        var discovered = new DiscoveredAudiobook("A Book", filePath, "book.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 1,
+            Authors = "Author",
+            Year = 2020,
+            Genres = "Film, Stage & Screen/Adventure"
+        };
+
+        _discoveredAudiobookRepository.Setup(r => r.GetByPathsAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook> { discovered });
+
+        DomainAudiobook? organizedBook = null;
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Callback<DomainAudiobook, Func<string, int, Task>>((book, _) => organizedBook = book)
+            .ReturnsAsync(MakeParsedAudiobook(filePath));
+
+        await _service.BulkImportAsync(
+            new List<string> { filePath },
+            (_, _, _, _) => Task.CompletedTask);
+
+        Assert.IsNotNull(organizedBook);
+        Assert.AreEqual(2, organizedBook.Genres.Count);
+        Assert.AreEqual("Film, Stage & Screen", organizedBook.Genres[0]);
+        Assert.AreEqual("Adventure", organizedBook.Genres[1]);
+    }
+
+    [TestMethod]
+    public async Task BulkImportAsync_PathCasingDifference_UsesPathComparer()
+    {
+        var storedPath = Path.Combine(_libraryPath, "Book.m4b");
+        var requestedPath = Path.Combine(_libraryPath, "book.m4b");
+        var discovered = new DiscoveredAudiobook("A Book", storedPath, "Book.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 1,
+            Authors = "Author",
+            Year = 2020
+        };
+
+        _discoveredAudiobookRepository.Setup(r => r.GetByPathsAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook> { discovered });
+
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync(MakeParsedAudiobook(storedPath));
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            var (processed, succeeded, failed) = await _service.BulkImportAsync(
+                new List<string> { requestedPath },
+                (_, _, _, _) => Task.CompletedTask);
+
+            Assert.AreEqual(1, succeeded);
+            Assert.AreEqual(0, failed);
+        }
+        else
+        {
+            var (processed, succeeded, failed) = await _service.BulkImportAsync(
+                new List<string> { storedPath },
+                (_, _, _, _) => Task.CompletedTask);
+
+            Assert.AreEqual(1, succeeded);
+            Assert.AreEqual(0, failed);
+        }
+    }
 }

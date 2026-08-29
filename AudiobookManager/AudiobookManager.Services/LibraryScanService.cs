@@ -96,7 +96,7 @@ public class LibraryScanService : ILibraryScanService
                     Year = parsed.Year,
                     Authors = parsed.Authors.Count > 0 ? string.Join(", ", parsed.Authors.Select(a => a.Name)) : null,
                     Narrators = parsed.Narrators.Count > 0 ? string.Join(", ", parsed.Narrators.Select(n => n.Name)) : null,
-                    Genres = parsed.Genres.Count > 0 ? string.Join(", ", parsed.Genres) : null,
+                    Genres = parsed.Genres.Count > 0 ? string.Join("/", parsed.Genres) : null,
                     Description = parsed.Description,
                     Copyright = parsed.Copyright,
                     Publisher = parsed.Publisher,
@@ -189,7 +189,7 @@ public class LibraryScanService : ILibraryScanService
         Func<string, string, Task>? onItemFailed = null)
     {
         var discovered = await _discoveredAudiobookRepository.GetByPathsAsync(filePaths);
-        var byPath = discovered.ToDictionary(d => d.FileInfoFullPath);
+        var byPath = discovered.ToDictionary(d => d.FileInfoFullPath, AudiobookFileHandler.PathComparer);
 
         return await BulkOperationRunner.RunAsync(
             filePaths,
@@ -258,7 +258,9 @@ public class LibraryScanService : ILibraryScanService
 
         var genres = string.IsNullOrWhiteSpace(entry.Genres)
             ? new List<string>()
-            : entry.Genres.Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            : (entry.Genres.Contains('/')
+                ? AudiobookTagHandler.ParseGenresFromString(entry.Genres).ToList()
+                : entry.Genres.Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList());
 
         return new DomainAudiobook(
             authors,

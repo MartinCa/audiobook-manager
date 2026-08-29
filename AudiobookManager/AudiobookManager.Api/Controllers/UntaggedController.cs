@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Api.Dtos;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -21,12 +21,13 @@ public class UntaggedController : ControllerBase
     [HttpGet(Name = "GetUntaggedAudiobookFiles")]
     public PaginatedResult<AudiobookFileInfo> Index(int limit = 20, int offset = 0)
     {
-        var allItems = _untaggedService.ScanInputDirectoryForAudiobookFiles();
+        var allItems = _untaggedService.ScanInputDirectoryForAudiobookFiles().ToList();
         var items = allItems
             .OrderBy(a => a.FullPath)
             .Skip(offset)
-            .Take(limit);
+            .Take(limit)
+            .ToList();
 
-        return new PaginatedResult<AudiobookFileInfo>(items.Count(), allItems.Count(), items.ToList());
+        return new PaginatedResult<AudiobookFileInfo>(items.Count, allItems.Count, items);
     }
 }

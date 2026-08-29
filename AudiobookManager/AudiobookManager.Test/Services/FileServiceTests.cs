@@ -94,4 +94,72 @@ public class FileServiceTests
 
         Assert.IsFalse(Directory.Exists(inside));
     }
+
+    [TestMethod]
+    public void DeleteDirectory_LibraryRoot_ThrowsInvalidOperationExceptionAndDoesNotDelete()
+    {
+        Assert.ThrowsExactly<InvalidOperationException>(() => _service.DeleteDirectory(_libraryPath));
+        Assert.IsTrue(Directory.Exists(_libraryPath));
+    }
+
+    [TestMethod]
+    public void DeleteDirectory_ImportRoot_ThrowsInvalidOperationExceptionAndDoesNotDelete()
+    {
+        Assert.ThrowsExactly<InvalidOperationException>(() => _service.DeleteDirectory(_importPath));
+        Assert.IsTrue(Directory.Exists(_importPath));
+    }
+
+    [TestMethod]
+    public void DeleteDirectory_FileDirectlyInImportRoot_DeletesOnlyFileNotImportRoot()
+    {
+        var fileInRoot = Path.Combine(_importPath, "standalone.m4b");
+        var otherFile = Path.Combine(_importPath, "other.m4b");
+        File.WriteAllText(fileInRoot, "test1");
+        File.WriteAllText(otherFile, "test2");
+
+        _service.DeleteDirectory(fileInRoot);
+
+        Assert.IsFalse(File.Exists(fileInRoot));
+        Assert.IsTrue(File.Exists(otherFile));
+        Assert.IsTrue(Directory.Exists(_importPath));
+    }
+
+    [TestMethod]
+    public void GetDirectoryContents_FileDirectlyInImportRoot_ReturnsOnlyThatFileNotWholeDirectory()
+    {
+        var fileInRoot = Path.Combine(_importPath, "standalone.m4b");
+        var otherFile = Path.Combine(_importPath, "other.m4b");
+        File.WriteAllText(fileInRoot, "test1");
+        File.WriteAllText(otherFile, "test2");
+
+        var contents = _service.GetDirectoryContents(fileInRoot);
+
+        Assert.AreEqual(1, contents.Count);
+        Assert.AreEqual("standalone.m4b", contents[0].FileName);
+    }
+
+    [TestMethod]
+    public void DeleteDirectory_DirectoryWithPeriodInName_DeletesDirectory()
+    {
+        var dirWithDot = Path.Combine(_importPath, "J.R.R. Tolkien");
+        Directory.CreateDirectory(dirWithDot);
+        File.WriteAllText(Path.Combine(dirWithDot, "book.m4b"), "test");
+
+        _service.DeleteDirectory(dirWithDot);
+
+        Assert.IsFalse(Directory.Exists(dirWithDot));
+    }
+
+    [TestMethod]
+    public void GetDirectoryContents_DirectoryWithPeriodInName_ReturnsAllFiles()
+    {
+        var dirWithDot = Path.Combine(_importPath, "J.R.R. Tolkien");
+        Directory.CreateDirectory(dirWithDot);
+        File.WriteAllText(Path.Combine(dirWithDot, "book1.m4b"), "test1");
+        File.WriteAllText(Path.Combine(dirWithDot, "book2.m4b"), "test2");
+
+        var contents = _service.GetDirectoryContents(dirWithDot);
+
+        Assert.AreEqual(2, contents.Count);
+    }
 }
