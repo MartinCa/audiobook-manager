@@ -118,6 +118,7 @@ import ErrorNotifications from "./ErrorNotifications.vue";
 import BookEditForm from "./BookEditForm.vue";
 import { useDialogWidth } from "./dialog";
 import { useErrors } from "./errors";
+import { UserNotificationError } from "../types/Errors";
 import AudiobookService from "../services/AudiobookService";
 import { debounce } from "lodash";
 import { convertInputToAudiobook as buildAudiobook } from "../helpers/organizeAudiobookInput";
@@ -232,8 +233,7 @@ const organizeBook = async () => {
 
   const data = convertInputToAudiobook();
   if (!data) {
-    // TODO: Show error
-    return;
+    throw new UserNotificationError("Failed to convert input to audiobook data.");
   }
 
   organizing.value = true;

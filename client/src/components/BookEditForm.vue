@@ -606,8 +606,6 @@ const applyPreviewedTags = (
     const scraped = normalizeLanguage(result.language, languages.value);
     if (scraped) {
       input.value.language = scraped;
-    } else if (!input.value.language) {
-      input.value.language = languageDefaultCode.value || undefined;
     }
   }
   if (selectedFields.has("copyright")) {
