@@ -380,6 +380,26 @@ keeps serving metadata the book no longer has. The same rule applies to detectio
 skipped (the "tag is empty, nothing to compare" branch used to skip the file entirely, which is
 how stale sidecars survived every save and every consistency run).
 
+### The Missing Tags check must cover every writable tag field
+
+**Invariant: every field `AudiobookTagHandler` writes to the m4b must have a corresponding entry
+in `MissingTagService.Fields`.** `MissingTagService` (`AudiobookManager.Services/MissingTagService.cs`)
+is the backend for the Missing Tags feature (`GET api/missing-tags/fields`, `GET
+api/missing-tags/audiobooks`) — it is a hand-maintained list of `(Key, Label, IsCriticalByDefault,
+IsMissing)` tuples, not something derived by reflection from the tag writer or the `Audiobook`
+domain/DB model. The frontend (`MissingTagService.ts`, `MissingTags.vue`) fetches its field list
+from `GET api/missing-tags/fields` rather than hardcoding one, so adding a field to the backend
+list is sufficient — no frontend change is needed.
+
+Because the list is hand-maintained, **whenever a new taggable field is added anywhere (a new
+domain/DB column plus a corresponding write in `AudiobookTagHandler.SaveAudiobookTagsToFile`), add
+a matching entry to `MissingTagService.Fields` in the same change.** There is no compiler or
+runtime guardrail that catches the omission — only the regression test
+`MissingTagServiceTests.GetTaggableFields_CoversEveryWritableTagField`, which hardcodes the
+expected key set and must be updated alongside `Fields`. This was audited and found already
+missing five writable fields (Copyright, Publisher, Rating, Asin, Www) before the fix that added
+them.
+
 ### Similar author/series detection & bulk alignment
 
 Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is stateless/computed — there is no persisted "issue" table like `ConsistencyIssue`; groups are detected fresh on every request.
@@ -496,8 +516,8 @@ change is not complete until the tests covering it exist and pass.
   (e.g. `..._DoesNotResurrectStaleSidecarsOnRelocation`).
 - **Invariants** — behavior CLAUDE.md calls out as an invariant (the Author/Series/SeriesPart/
   Year/BookName binding rule, "no hardcoded source list on the frontend", Hardcover's
-  disabled pattern-matching operators) deserves an explicit regression guard, since the cost
-  of a silent regression there is high.
+  disabled pattern-matching operators, Missing Tags covering every writable tag field) deserves
+  an explicit regression guard, since the cost of a silent regression there is high.
 
 Where tests live:
 - **Backend** — MSTest + Moq in `AudiobookManager/AudiobookManager.Test/`, mirroring the source

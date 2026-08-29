@@ -27,9 +27,14 @@ public class MissingTagServiceTests
         List<DbPerson>? authors = null,
         string? description = null,
         string? coverFilePath = null,
-        string? language = null)
+        string? language = null,
+        string? copyright = null,
+        string? publisher = null,
+        string? rating = null,
+        string? asin = null,
+        string? www = null)
     {
-        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, null, null, language, null, null, null,
+        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, copyright, publisher, language, rating, asin, www,
             coverFilePath, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = authors ?? new List<DbPerson>()
@@ -149,5 +154,45 @@ public class MissingTagServiceTests
             new List<long> { 2, 3 },
             results.Select(r => r.AudiobookId).ToList());
         CollectionAssert.AreEquivalent(new List<string> { "Language" }, results[0].MissingFields);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsAsync_FlagsBooksMissingCopyrightPublisherRatingAsinOrWww()
+    {
+        var books = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "Book One", copyright: "2024 Author", publisher: "Acme", rating: "4.5", asin: "B00TEST", www: "https://example.com"),
+            MakeDbAudiobook(2, "Book Two")
+        };
+        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+
+        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Copyright", "Publisher", "Rating", "Asin", "Www" });
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(2, results[0].AudiobookId);
+        CollectionAssert.AreEquivalent(
+            new List<string> { "Copyright", "Publisher", "Rating", "Asin", "Www" },
+            results[0].MissingFields);
+    }
+
+    /// <summary>
+    /// Regression guard for the missing-tags binding invariant in CLAUDE.md: every field the tag
+    /// writer (AudiobookTagHandler) persists to the m4b must have a corresponding checkable entry
+    /// here, or a book missing that field becomes invisible to the Missing Tags feature. This list
+    /// mirrors AudiobookTagHandler.SaveAudiobookTagsToFile's taggable, checkable fields (excluding
+    /// derived/non-taggable data like DurationInSeconds and the file path columns).
+    /// </summary>
+    [TestMethod]
+    public void GetTaggableFields_CoversEveryWritableTagField()
+    {
+        var expectedKeys = new List<string>
+        {
+            "Authors", "BookName", "Year", "Series", "SeriesPart", "Narrators", "Subtitle",
+            "Description", "Genres", "Language", "Cover", "Copyright", "Publisher", "Rating", "Asin", "Www",
+        };
+
+        var actualKeys = _service.GetTaggableFields().Select(f => f.Key).ToList();
+
+        CollectionAssert.AreEquivalent(expectedKeys, actualKeys);
     }
 }

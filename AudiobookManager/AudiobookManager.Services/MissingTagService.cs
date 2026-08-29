@@ -21,6 +21,11 @@ public class MissingTagService : IMissingTagService
         ("Genres", "Genres", false, a => a.Genres.Count == 0),
         ("Language", "Language", false, a => string.IsNullOrWhiteSpace(a.Language)),
         ("Cover", "Cover", false, a => string.IsNullOrWhiteSpace(a.CoverFilePath)),
+        ("Copyright", "Copyright", false, a => string.IsNullOrWhiteSpace(a.Copyright)),
+        ("Publisher", "Publisher", false, a => string.IsNullOrWhiteSpace(a.Publisher)),
+        ("Rating", "Rating", false, a => string.IsNullOrWhiteSpace(a.Rating)),
+        ("Asin", "ASIN", false, a => string.IsNullOrWhiteSpace(a.Asin)),
+        ("Www", "Website", false, a => string.IsNullOrWhiteSpace(a.Www)),
     };
 
     public MissingTagService(IAudiobookRepository audiobookRepository)
