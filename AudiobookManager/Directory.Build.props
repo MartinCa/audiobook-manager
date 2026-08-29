@@ -1,0 +1,24 @@
+<Project>
+
+  <!--
+    Shared build settings for every project in the solution.
+
+    TreatWarningsAsErrors keeps the backend warning-free: the nullable-reference
+    warnings this codebase spent a cleanup pass fixing can't creep back in
+    unnoticed. Per-warning escape hatches, in order of preference:
+      1. Fix the warning.
+      2. #pragma warning disable <id> around the single line, with a comment.
+      3. Add the id to WarningsNotAsErrors below, with a comment.
+
+    NU1901-NU1904 are NuGet's vulnerability-audit warnings. They stay warnings
+    on purpose: they fire when a CVE is published against an existing
+    dependency, so promoting them to errors would break a build that compiled
+    fine yesterday, with no change to this repo. They are still surfaced in
+    build output and should be acted on by bumping the package.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+</Project>

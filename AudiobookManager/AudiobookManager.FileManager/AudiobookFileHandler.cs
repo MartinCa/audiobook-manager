@@ -82,7 +82,7 @@ public static class AudiobookFileHandler
 
     public static void WriteOpf(Audiobook audiobook)
     {
-        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
+        var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
         MakeMetadataFile(directoryPath, "metadata.opf", BuildOpfContent(audiobook));
     }
 
