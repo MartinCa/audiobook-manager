@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Domain;
+﻿using AudiobookManager.Api.Dtos;
+using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,6 +13,20 @@ public class SettingsController : ControllerBase
     public SettingsController(ISettingsService settingsService)
     {
         _settingsService = settingsService;
+    }
+
+    /// <summary>
+    /// The languages a book may be tagged with, and the default a newly added book starts on.
+    /// The client fetches this rather than holding its own copy of the list.
+    /// </summary>
+    [HttpGet("languages")]
+    public LanguageOptionsDto GetLanguages()
+    {
+        return new LanguageOptionsDto(
+            Languages.Supported
+                .Select(l => new LanguageOptionDto(l.Code, l.DisplayName, Languages.AliasesFor(l.Code)))
+                .ToList(),
+            Languages.DefaultCode);
     }
 
     [HttpGet("series_mappings")]

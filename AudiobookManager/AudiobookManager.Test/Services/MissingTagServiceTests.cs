@@ -26,9 +26,10 @@ public class MissingTagServiceTests
         string? series = null,
         List<DbPerson>? authors = null,
         string? description = null,
-        string? coverFilePath = null)
+        string? coverFilePath = null,
+        string? language = null)
     {
-        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, null, null, null, null, null, null,
+        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, null, null, language, null, null, null,
             coverFilePath, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = authors ?? new List<DbPerson>()
@@ -117,5 +118,36 @@ public class MissingTagServiceTests
 
         Assert.AreEqual(0, results.Count);
         _audiobookRepository.Verify(r => r.GetAllWithIncludesAsync(), Times.Never);
+    }
+
+    [TestMethod]
+    public void GetTaggableFields_OffersLanguageAsANonCriticalField()
+    {
+        var fields = _service.GetTaggableFields();
+
+        var language = fields.SingleOrDefault(f => f.Key == "Language");
+        Assert.IsNotNull(language, "Language must be offered as a checkable field");
+        Assert.AreEqual("Language", language.Label);
+        // Language plays no part in path generation, so it is not one of the critical defaults.
+        Assert.IsFalse(language.IsCriticalByDefault);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsAsync_FlagsBooksWithNoLanguage()
+    {
+        var books = new List<DbAudiobook>
+        {
+            MakeDbAudiobook(1, "Book One", language: "en"),
+            MakeDbAudiobook(2, "Book Two", language: null),
+            MakeDbAudiobook(3, "Book Three", language: "  ")
+        };
+        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+
+        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Language" });
+
+        CollectionAssert.AreEquivalent(
+            new List<long> { 2, 3 },
+            results.Select(r => r.AudiobookId).ToList());
+        CollectionAssert.AreEquivalent(new List<string> { "Language" }, results[0].MissingFields);
     }
 }

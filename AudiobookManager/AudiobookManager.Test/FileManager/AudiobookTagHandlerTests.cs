@@ -74,6 +74,42 @@ public class AudiobookTagHandlerTests
         }
     }
 
+    /// <summary>
+    /// The library stores ISO 639-1 codes, and <c>TagConsistencyChecker</c> compares Language on
+    /// every save - so a code that ATL does not hand back verbatim would make every book
+    /// permanently un-saveable, reported as a bogus tag mismatch.
+    /// </summary>
+    [TestMethod]
+    [DataRow("en")]
+    [DataRow("da")]
+    public void SaveAudiobookTagsToFile_ThenParseAudiobook_RoundTripsAnIsoLanguageCode(string code)
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Brandon Sanderson") },
+                "The Way of Kings",
+                2010,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length))
+            {
+                Language = code
+            };
+
+            _handler.SaveAudiobookTagsToFile(audiobook);
+
+            var reparsed = _handler.ParseAudiobook(new FileInfo(tempFile));
+
+            Assert.AreEqual(code, reparsed.Language);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     [TestMethod]
     public void SaveAudiobookTagsToFile_ThenParseAudiobook_RoundTripsLanguage()
     {

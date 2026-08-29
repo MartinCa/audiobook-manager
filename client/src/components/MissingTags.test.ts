@@ -6,6 +6,7 @@ import * as directives from "vuetify/directives";
 import { nextTick } from "vue";
 import MissingTags from "./MissingTags.vue";
 import MissingTagService from "../services/MissingTagService";
+import OperationsService from "../services/OperationsService";
 import { AudiobookMissingTags } from "../types/MissingTag";
 
 const vuetify = createVuetify({ components, directives });
@@ -14,6 +15,13 @@ vi.mock("../services/MissingTagService", () => ({
   default: {
     getFields: vi.fn(),
     getAudiobooksMissingTags: vi.fn(),
+    startLanguageBackfill: vi.fn(),
+  },
+}));
+
+vi.mock("../services/OperationsService", () => ({
+  default: {
+    getStatus: vi.fn(),
   },
 }));
 
@@ -21,6 +29,10 @@ const mockedGetFields = vi.mocked(MissingTagService.getFields);
 const mockedGetAudiobooks = vi.mocked(
   MissingTagService.getAudiobooksMissingTags,
 );
+const mockedStartBackfill = vi.mocked(MissingTagService.startLanguageBackfill);
+const mockedGetStatus = vi.mocked(OperationsService.getStatus);
+
+const idle = { isRunning: false, processed: 0, total: 0 };
 
 const book = (id: number, bookName: string): AudiobookMissingTags => ({
   audiobookId: id,
@@ -30,7 +42,9 @@ const book = (id: number, bookName: string): AudiobookMissingTags => ({
 });
 
 const mountComponent = () =>
-  mount(MissingTags, { global: { plugins: [vuetify] } });
+  mount(MissingTags, {
+    global: { plugins: [vuetify], stubs: { RouterLink: true } },
+  });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -42,6 +56,10 @@ beforeEach(() => {
     { key: "Series", label: "Series", isCriticalByDefault: false },
   ]);
   mockedGetAudiobooks.mockResolvedValue([]);
+  mockedStartBackfill.mockReset();
+  mockedStartBackfill.mockResolvedValue(undefined);
+  mockedGetStatus.mockReset();
+  mockedGetStatus.mockResolvedValue(idle);
 });
 
 afterEach(() => {
@@ -118,5 +136,111 @@ describe("MissingTags.vue", () => {
     await flush();
 
     expect(mockedGetAudiobooks.mock.calls.length).toBe(callsBeforeUnmount);
+  });
+
+  it("polls the operation status while the language backfill runs and refreshes when it ends", async () => {
+    mockedGetStatus
+      .mockResolvedValueOnce(idle) // resumeRunningBackfill on mount
+      .mockResolvedValueOnce({ isRunning: true, processed: 4, total: 10 })
+      .mockResolvedValueOnce({ isRunning: false, processed: 10, total: 10 });
+
+    const wrapper = mountComponent();
+    await flush();
+    // Let the initial debounced scan run, so it is not counted against the backfill below.
+    vi.advanceTimersByTime(500);
+    await flush();
+    const component = wrapper.vm as any;
+
+    const scansBeforeBackfill = mockedGetAudiobooks.mock.calls.length;
+    await component.startBackfill();
+    await flush();
+
+    expect(mockedStartBackfill).toHaveBeenCalledTimes(1);
+    expect(component.backfillRunning).toBe(true);
+
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(component.backfillProcessed).toBe(4);
+    expect(component.backfillTotal).toBe(10);
+    expect(component.backfillRunning).toBe(true);
+
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(component.backfillRunning).toBe(false);
+    // The finished pass fills in languages, so the list of books still missing one has to be
+    // re-read rather than left showing the pre-backfill rows.
+    expect(mockedGetAudiobooks.mock.calls.length).toBe(scansBeforeBackfill + 1);
+
+    // Polling must stop once the run is over, not keep issuing a request every second.
+    const pollsAfterFinish = mockedGetStatus.mock.calls.length;
+    vi.advanceTimersByTime(5000);
+    await flush();
+    expect(mockedGetStatus.mock.calls.length).toBe(pollsAfterFinish);
+
+    wrapper.unmount();
+  });
+
+  it("stops polling the backfill when the component unmounts", async () => {
+    mockedGetStatus
+      .mockResolvedValueOnce(idle)
+      .mockResolvedValue({ isRunning: true, processed: 1, total: 10 });
+
+    const wrapper = mountComponent();
+    await flush();
+
+    await (wrapper.vm as any).startBackfill();
+    await flush();
+
+    const pollsBeforeUnmount = mockedGetStatus.mock.calls.length;
+    wrapper.unmount();
+
+    vi.advanceTimersByTime(5000);
+    await flush();
+
+    // Same pairing rule as the debounced scan: a live interval outliving the component mutates
+    // dead refs and issues requests nobody reads.
+    expect(mockedGetStatus.mock.calls.length).toBe(pollsBeforeUnmount);
+  });
+
+  it("shows a backfill already in flight instead of offering to start a second", async () => {
+    mockedGetStatus.mockResolvedValue({
+      isRunning: true,
+      processed: 30,
+      total: 90,
+    });
+
+    const wrapper = mountComponent();
+    await flush();
+    const component = wrapper.vm as any;
+
+    // The pass outlives this page, so a reload has to pick it back up.
+    expect(component.backfillRunning).toBe(true);
+    expect(component.backfillProcessed).toBe(30);
+    expect(component.backfillTotal).toBe(90);
+    expect(mockedStartBackfill).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it("stops showing the backfill as running when it fails to start", async () => {
+    mockedStartBackfill.mockRejectedValueOnce(new Error("boom"));
+
+    const wrapper = mountComponent();
+    await flush();
+    const component = wrapper.vm as any;
+
+    await component.startBackfill();
+    await flush();
+
+    expect(component.backfillRunning).toBe(false);
+    expect(component.snackbar).toBe(true);
+
+    // No poll may be left running for a job that never started.
+    const pollsAfterFailure = mockedGetStatus.mock.calls.length;
+    vi.advanceTimersByTime(5000);
+    await flush();
+    expect(mockedGetStatus.mock.calls.length).toBe(pollsAfterFailure);
+
+    wrapper.unmount();
   });
 });
