@@ -41,7 +41,6 @@ public static class TrackSpecialTagExtensions
         return ExtractFromAdditionalFields(track, key);
     }
 
-    // TODO log
     public static void WriteSpecialTag(this Track track, SpecialTagField field, string? value)
     {
         var map = GetSpecialTagFieldMap(track);
