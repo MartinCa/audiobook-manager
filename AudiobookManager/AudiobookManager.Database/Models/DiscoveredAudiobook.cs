@@ -45,6 +45,12 @@ public class DiscoveredAudiobook
     [Column("publisher")]
     public string? Publisher { get; set; }
 
+    // Captured at scan time like every other tag: importing builds the domain object from this
+    // snapshot rather than re-reading the file, and the tag writer sets Language unconditionally
+    // - so a column missing here means the import blanks the tag it found on disk.
+    [Column("language")]
+    public string? Language { get; set; }
+
     [Column("rating")]
     public string? Rating { get; set; }
 

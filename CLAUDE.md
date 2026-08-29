@@ -271,7 +271,18 @@ Two more rules for query shape:
 
 ### Metadata sidecar files
 
-Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description) and `reader.txt` (narrators). `WriteCover()` extracts embedded cover art to `cover.jpg` or `cover.png`.
+Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)
+and `metadata.opf`. `WriteCover()` extracts embedded cover art to `cover.jpg` or `cover.png`.
+
+**These sidecars are owned by this application, so writing them is also what removes them.** A
+field that is now empty deletes its sidecar rather than leaving the previous one in place, and
+writing `cover.jpg` deletes any `cover.png` beside it (and vice versa). This matters because
+Audiobookshelf reads `desc.txt` in preference to the m4b's own Description tag: a leftover file
+keeps serving metadata the book no longer has. The same rule applies to detection —
+`LibraryConsistencyService` reports a sidecar that exists while its tag is empty as
+`IncorrectDescTxt`/`IncorrectReaderTxt`, so it is visible and resolvable rather than silently
+skipped (the "tag is empty, nothing to compare" branch used to skip the file entirely, which is
+how stale sidecars survived every save and every consistency run).
 
 ### Similar author/series detection & bulk alignment
 

@@ -573,7 +573,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
 
-            // Check desc.txt
+            // Check desc.txt. The "no tag at all" branch matters as much as the others: these
+            // sidecars are generated from the tags and take precedence over them in
+            // Audiobookshelf, so one left behind after its field was cleared is a file actively
+            // serving stale metadata. It used to be invisible here - the whole check was skipped
+            // when the tag was empty - and WriteMetadata never rewrote it either, so it survived
+            // every save and every consistency run.
             var descPath = AudiobookFileHandler.JoinPaths(directoryPath, "desc.txt");
             if (!string.IsNullOrEmpty(parsed.Description))
             {
@@ -593,6 +598,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                             parsed.Description, descContent));
                     }
                 }
+            }
+            else if (File.Exists(descPath))
+            {
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
+                    "desc.txt present but m4b has no Description tag",
+                    null, File.ReadAllText(descPath)));
             }
 
             // Check reader.txt
@@ -616,6 +627,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                             expectedNarrators, readerContent));
                     }
                 }
+            }
+            else if (File.Exists(readerPath))
+            {
+                issues.Add(BuildIssue(audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
+                    "reader.txt present but m4b has no Narrators tag",
+                    null, File.ReadAllText(readerPath)));
             }
 
             // Check metadata.opf - unlike desc.txt/reader.txt, this is expected unconditionally

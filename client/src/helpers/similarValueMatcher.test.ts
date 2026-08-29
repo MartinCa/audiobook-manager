@@ -205,4 +205,29 @@ describe("performance-shaped behaviour", () => {
     expect(narrowByQuery("rene", ["René Girard"])).toEqual(["René Girard"]);
     expect(narrowByQuery("René", ["Rene Girard"])).toEqual(["Rene Girard"]);
   });
+
+  // Regression: the fold cache was keyed on array identity alone, so a list grown in place -
+  // which BookEditForm did after every save that introduced a new author - kept the shorter
+  // cached fold. narrowByQuery indexes that fold by the array's length, so it read past the
+  // end and threw "Cannot read properties of undefined (reading 'includes')".
+  it("_DoesNotThrowOrMissEntriesAfterTheListGrowsInPlace", () => {
+    const names = ["Alice Smith"];
+
+    expect(narrowByQuery("ali", names)).toEqual(["Alice Smith"]);
+
+    names.push("Bob Jones");
+
+    expect(narrowByQuery("bob", names)).toEqual(["Bob Jones"]);
+    expect(narrowByQuery("ali", names)).toEqual(["Alice Smith"]);
+  });
+
+  it("reflects an entry removed from the list in place", () => {
+    const names = ["Alice Smith", "Bob Jones"];
+
+    expect(narrowByQuery("bob", names)).toEqual(["Bob Jones"]);
+
+    names.pop();
+
+    expect(narrowByQuery("bob", names)).toEqual([]);
+  });
 });

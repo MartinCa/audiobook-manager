@@ -104,4 +104,27 @@ describe("BookOrganize path regeneration debounce", () => {
 
     wrapper.unmount();
   });
+
+  // Regression: the debounced path regeneration had no matching onUnmounted cancel, so it fired
+  // after the component was gone - writing to dead refs and issuing a request nobody reads. This
+  // component is mounted inside the discovered-books expansion panels, whose rows are removed
+  // while open, so it genuinely unmounts mid-debounce.
+  it("_DoesNotRegeneratePathAfterUnmount", async () => {
+    mockedParseBookDetails.mockResolvedValue(makeBook());
+
+    const wrapper = mountComponent();
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const vm = wrapper.vm as any;
+    vm.input.bookName = "Renamed Just Before Unmount";
+    await flushPromises();
+
+    const callsBeforeUnmount = mockedGenerateNewPath.mock.calls.length;
+    wrapper.unmount();
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(mockedGenerateNewPath.mock.calls.length).toBe(callsBeforeUnmount);
+  });
 });

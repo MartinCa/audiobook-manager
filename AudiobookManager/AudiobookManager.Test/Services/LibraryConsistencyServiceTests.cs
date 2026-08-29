@@ -1255,6 +1255,141 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // Regression: a desc.txt/reader.txt left over from before its field was cleared was invisible
+    // to the check - the whole sidecar comparison was skipped when the tag was empty - so the
+    // stale file sat in the library serving metadata the book no longer has.
+    [TestMethod]
+    public async Task RecheckAudiobookAsync_SidecarsPresentButTagsCleared_ReportsThemAsIncorrect()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _audiobookService.Object,
+                _logger.Object);
+
+            var placeholderParsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
+            var currentFile = AudiobookFileHandler.JoinPaths(
+                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed));
+            var bookDir = Path.GetDirectoryName(currentFile)!;
+            Directory.CreateDirectory(bookDir);
+            await File.WriteAllTextAsync(currentFile, "fake audio content");
+
+            // The book has neither a Description nor Narrators tag any more...
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
+
+            // ...but both sidecars from when it did are still on disk.
+            await File.WriteAllTextAsync(Path.Combine(bookDir, "desc.txt"), "a description that was removed");
+            await File.WriteAllTextAsync(Path.Combine(bookDir, "reader.txt"), "Narrator Who Left");
+            await File.WriteAllTextAsync(
+                Path.Combine(bookDir, "metadata.opf"), AudiobookFileHandler.BuildOpfContent(parsed));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                currentFile, Path.GetFileName(currentFile), 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+            var issues = await service.RecheckAudiobookAsync(1);
+
+            var desc = issues.SingleOrDefault(i => i.IssueType == ConsistencyIssueType.IncorrectDescTxt);
+            Assert.IsNotNull(desc);
+            Assert.AreEqual("a description that was removed", desc!.ActualValue);
+
+            var reader = issues.SingleOrDefault(i => i.IssueType == ConsistencyIssueType.IncorrectReaderTxt);
+            Assert.IsNotNull(reader);
+            Assert.AreEqual("Narrator Who Left", reader!.ActualValue);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RecheckAudiobookAsync_NoSidecarsAndNoTags_ReportsNoSidecarIssues()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _audiobookService.Object,
+                _logger.Object);
+
+            var placeholderParsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
+            var currentFile = AudiobookFileHandler.JoinPaths(
+                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed));
+            var bookDir = Path.GetDirectoryName(currentFile)!;
+            Directory.CreateDirectory(bookDir);
+            await File.WriteAllTextAsync(currentFile, "fake audio content");
+
+            var parsed = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(currentFile, Path.GetFileName(currentFile), 1000));
+
+            await File.WriteAllTextAsync(
+                Path.Combine(bookDir, "metadata.opf"), AudiobookFileHandler.BuildOpfContent(parsed));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                currentFile, Path.GetFileName(currentFile), 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+
+            _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+            var issues = await service.RecheckAudiobookAsync(1);
+
+            CollectionAssert.AreEqual(
+                Array.Empty<ConsistencyIssueType>(),
+                issues.Select(i => i.IssueType).ToArray());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     [TestMethod]
     public async Task ResolveIssue_MissingOpfFile_WritesOpfAndClearsIssue()
     {

@@ -362,15 +362,16 @@ public class AudiobookServiceTests
     [TestMethod]
     public async Task UpdateAudiobook_Relocation_LeavesSidecarsInTheDestinationDirectoryIntact()
     {
-        // Cleanup must only ever touch the directory the book left. reader.txt is the sharp edge:
-        // it is only (re)written when the book has narrators, so a cleanup that reached into the
-        // destination would destroy it with nothing to restore it.
+        // Cleanup must only ever touch the directory the book left, never the one it arrived in.
+        // reader.txt is the sharp edge: RemoveSidecarFiles deletes it outright, so a cleanup
+        // pointed at the destination would remove the one WriteMetadata had just written there.
         //
         // Note this passes against the older directory comparison too - it is a behavioural
         // assertion, not a regression guard. See the sidecar-cleanup note in AudiobookService.
         SetupUpdateAudiobookTest();
 
         var author = new Person("Same Author");
+        var narrator = new Person("A Narrator");
         // Same author/year, different book name -> same directory tree root, different leaf file.
         var oldFilePath = Path.Combine(_libraryPath, "Same Author", "2020 - Old Name", "book.m4b");
         var existing = CreateExistingDbAudiobook(1, oldFilePath);
@@ -378,19 +379,17 @@ public class AudiobookServiceTests
 
         _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
 
-        // A book with no narrators: reader.txt is never rewritten, so an over-eager cleanup
-        // would destroy it permanently.
         var updateDto = new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
         {
             Description = "A description",
-            Narrators = new List<Person>(),
+            Narrators = new List<Person> { narrator },
         };
 
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
             {
                 Description = "A description",
-                Narrators = new List<Person>(),
+                Narrators = new List<Person> { narrator },
             });
 
         var expectedNewPath = _service.GenerateLibraryPath(
@@ -398,9 +397,7 @@ public class AudiobookServiceTests
         var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
         Directory.CreateDirectory(newDirectory);
 
-        // A reader.txt that already sits in the destination directory.
         var readerInNewDirectory = Path.Combine(newDirectory, "reader.txt");
-        File.WriteAllText(readerInNewDirectory, "A Narrator");
 
         var result = await _service.UpdateAudiobook(1, updateDto);
 
@@ -408,8 +405,57 @@ public class AudiobookServiceTests
         Assert.IsTrue(File.Exists(expectedNewPath));
         Assert.IsTrue(
             File.Exists(readerInNewDirectory),
-            "reader.txt in the destination directory must survive - nothing rewrites it for a book with no narrators");
+            "reader.txt written into the destination directory must survive the old directory's cleanup");
         Assert.AreEqual("A Narrator", File.ReadAllText(readerInNewDirectory));
+    }
+
+    // The other half of the sidecar contract: WriteMetadata owns these files, so a field that is
+    // now empty removes its sidecar. Previously the write was simply skipped, leaving the value
+    // the book had before the edit on disk - and Audiobookshelf reads desc.txt in preference to
+    // the m4b's own Description tag, so the cleared field kept being served indefinitely.
+    [TestMethod]
+    public async Task UpdateAudiobook_ClearingDescriptionAndNarrators_RemovesTheirSidecars()
+    {
+        SetupUpdateAudiobookTest();
+
+        // The book stays where it is, so nothing but the sidecar rules can explain the deletions.
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "A Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+        var bookDirectory = Path.GetDirectoryName(expectedPath)!;
+        Directory.CreateDirectory(bookDirectory);
+        File.WriteAllText(expectedPath, "fake audio");
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "A Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "A Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Description = null,
+            Narrators = new List<Person>(),
+        };
+
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "A Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Description = null,
+                Narrators = new List<Person>(),
+            });
+
+        var descPath = Path.Combine(bookDirectory, "desc.txt");
+        var readerPath = Path.Combine(bookDirectory, "reader.txt");
+        File.WriteAllText(descPath, "the description this book used to have");
+        File.WriteAllText(readerPath, "Narrator Who Left");
+
+        await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.IsFalse(File.Exists(descPath), "desc.txt should be removed once the Description is cleared");
+        Assert.IsFalse(File.Exists(readerPath), "reader.txt should be removed once the Narrators are cleared");
+        Assert.IsTrue(File.Exists(Path.Combine(bookDirectory, "metadata.opf")));
     }
 
     [TestMethod]

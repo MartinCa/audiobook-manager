@@ -73,12 +73,18 @@ function levenshtein(a: string, b: string): number {
  * every keystroke over the whole list, and folding is an NFD normalize plus a regex per value -
  * so it is done once per list rather than once per list per character typed. Keyed on array
  * identity, so it invalidates for free when SimilarValueService swaps in a refreshed list.
+ *
+ * Array identity alone is not enough, though: a caller may also grow the same array in place
+ * (BookEditForm appends a newly-saved author to the list it hands us). The cached fold was then
+ * shorter than the array it described, and narrowByQuery - which indexes it by the *array's*
+ * length - read past its end and threw "Cannot read properties of undefined". Comparing lengths
+ * catches every append/removal, which is the only in-place mutation this list ever sees.
  */
 const foldedListCache = new WeakMap<readonly string[], string[]>();
 
 function foldedList(values: string[]): string[] {
   let folded = foldedListCache.get(values);
-  if (!folded) {
+  if (!folded || folded.length !== values.length) {
     folded = values.map((v) => foldAccents(v.toLowerCase()));
     foldedListCache.set(values, folded);
   }
