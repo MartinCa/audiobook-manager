@@ -2,6 +2,15 @@
 
 I created this application to make it easier for me to organize audiobooks to be served by applications such as [Audiobookshelf](https://www.audiobookshelf.org/).
 
+## Audiobookshelf compatibility
+
+This project's directory structure, embedded m4b tag conventions, and sidecar files (`desc.txt`, `reader.txt`, `metadata.opf`, cover images) are meant to track what Audiobookshelf expects. The authoritative references are:
+
+- [Directory structure](https://audiobookshelf.org/docs/documentation/libraries/book-library/directory-structure)
+- [Book metadata](https://audiobookshelf.org/docs/documentation/libraries/book-library/book-metadata)
+- [Series management](https://audiobookshelf.org/docs/documentation/libraries/book-library/series-management)
+- [GitHub mirror](https://github.com/audiobookshelf/audiobookshelf-docs/tree/master/docs/documentation/libraries/book-library) of the same docs, useful if the docs site above is unreachable
+
 ## Use of the application
 
 This application is made to be used as a docker container. It is intended to read audiobooks in m4b file format from a directory and organize them in a library in another directory.
