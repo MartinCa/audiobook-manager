@@ -872,8 +872,10 @@ public class LibraryConsistencyServiceTests
             var newDir = Path.GetDirectoryName(expectedFullPath)!;
             Assert.AreEqual("New description", await File.ReadAllTextAsync(Path.Combine(newDir, "desc.txt")));
             Assert.AreEqual("New Narrator", await File.ReadAllTextAsync(Path.Combine(newDir, "reader.txt")));
+            Assert.IsTrue(File.Exists(Path.Combine(newDir, "cover.jpg")), "cover.jpg should be preserved in new dir");
 
             _audiobookRepository.Verify(r => r.UpdateFilePathAsync(1, expectedFullPath, Path.GetFileName(expectedFullPath)), Times.Once);
+            _audiobookRepository.Verify(r => r.UpdateCoverFilePathAsync(1, Path.Combine(newDir, "cover.jpg")), Times.Once);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
         }
         finally

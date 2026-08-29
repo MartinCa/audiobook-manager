@@ -22,6 +22,10 @@ public class FilesController : ControllerBase
         {
             return Ok(_fileService.GetDirectoryContents(dto.Path));
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
@@ -39,6 +43,10 @@ public class FilesController : ControllerBase
         {
             _fileService.DeleteDirectory(dto.Path);
             return Ok();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
         }
         catch (InvalidOperationException ex)
         {

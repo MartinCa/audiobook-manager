@@ -137,4 +137,29 @@ public class FileServiceTests
         Assert.AreEqual(1, contents.Count);
         Assert.AreEqual("standalone.m4b", contents[0].FileName);
     }
+
+    [TestMethod]
+    public void DeleteDirectory_DirectoryWithPeriodInName_DeletesDirectory()
+    {
+        var dirWithDot = Path.Combine(_importPath, "J.R.R. Tolkien");
+        Directory.CreateDirectory(dirWithDot);
+        File.WriteAllText(Path.Combine(dirWithDot, "book.m4b"), "test");
+
+        _service.DeleteDirectory(dirWithDot);
+
+        Assert.IsFalse(Directory.Exists(dirWithDot));
+    }
+
+    [TestMethod]
+    public void GetDirectoryContents_DirectoryWithPeriodInName_ReturnsAllFiles()
+    {
+        var dirWithDot = Path.Combine(_importPath, "J.R.R. Tolkien");
+        Directory.CreateDirectory(dirWithDot);
+        File.WriteAllText(Path.Combine(dirWithDot, "book1.m4b"), "test1");
+        File.WriteAllText(Path.Combine(dirWithDot, "book2.m4b"), "test2");
+
+        var contents = _service.GetDirectoryContents(dirWithDot);
+
+        Assert.AreEqual(2, contents.Count);
+    }
 }

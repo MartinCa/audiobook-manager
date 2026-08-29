@@ -18,7 +18,7 @@ public class FileService : IFileService
     {
         ValidatePathWithinAllowedBases(directoryPath);
 
-        if (Path.HasExtension(directoryPath))
+        if (File.Exists(directoryPath))
         {
             var parentDir = Path.GetDirectoryName(directoryPath);
             if (parentDir is null)
@@ -29,10 +29,7 @@ public class FileService : IFileService
             if (AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookImportPath) ||
                 AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookLibraryPath))
             {
-                if (File.Exists(directoryPath))
-                {
-                    File.Delete(directoryPath);
-                }
+                File.Delete(directoryPath);
                 return;
             }
 
@@ -49,7 +46,7 @@ public class FileService : IFileService
     {
         ValidatePathWithinAllowedBases(directoryPath);
 
-        if (Path.HasExtension(directoryPath))
+        if (File.Exists(directoryPath))
         {
             var parentDir = Path.GetDirectoryName(directoryPath);
             if (parentDir is null)
@@ -60,15 +57,11 @@ public class FileService : IFileService
             if (AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookImportPath) ||
                 AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookLibraryPath))
             {
-                if (File.Exists(directoryPath))
+                var fileInfo = new FileInfo(directoryPath);
+                return new List<AudiobookFileInfo>
                 {
-                    var fileInfo = new FileInfo(directoryPath);
-                    return new List<AudiobookFileInfo>
-                    {
-                        new(fileInfo.FullName, fileInfo.Name, fileInfo.Length)
-                    };
-                }
-                return new List<AudiobookFileInfo>();
+                    new(fileInfo.FullName, fileInfo.Name, fileInfo.Length)
+                };
             }
 
             ValidateNotRoot(parentDir);

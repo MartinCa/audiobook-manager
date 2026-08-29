@@ -362,8 +362,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         }
 
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
+        var newDirectory = Path.GetDirectoryName(expectedFullPath);
 
         AudiobookFileHandler.RelocateAudiobook(parsed, expectedFullPath);
+
+        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
+        {
+            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
+        }
 
         // Re-parse from new location
         var newFileInfo = new FileInfo(expectedFullPath);
@@ -379,10 +385,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // OS-aware for consistency with the path check above; see the equivalent note in
         // AudiobookService.RelocateIfPathChangedAsync for why this is defensive rather than a
         // live bug fix.
-        var newDirectory = Path.GetDirectoryName(expectedFullPath);
         if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
-            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
             AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
