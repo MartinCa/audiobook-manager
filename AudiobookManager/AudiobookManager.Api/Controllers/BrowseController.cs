@@ -167,8 +167,10 @@ public class BrowseController : ControllerBase
         return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 
-    [HttpGet("series/{seriesName}")]
-    public async Task<List<AudiobookSummaryDto>> GetSeriesBooks(string seriesName, [FromQuery] long? authorId)
+    // The series name is a query parameter, not a path segment - see the note on SeriesController
+    // for why a free-text m4b tag cannot be addressed in a path.
+    [HttpGet("series")]
+    public async Task<List<AudiobookSummaryDto>> GetSeriesBooks([FromQuery] string seriesName, [FromQuery] long? authorId)
     {
         var books = await _audiobookRepo.GetBooksBySeriesAsync(seriesName, authorId);
         return books.Select(MapToSummaryDto).ToList();

@@ -4,11 +4,13 @@ using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Reflection;
 
 namespace AudiobookManager.Test.Controllers;
 
@@ -22,6 +24,42 @@ public class SeriesControllerTests
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<ILogger<SeriesController>> _logger = null!;
     private SeriesController _controller = null!;
+
+    // Regression: the series name used to be a path segment. A series value is a raw m4b tag and
+    // can contain a "/", and ASP.NET Core leaves %2F encoded rather than decoding it into a
+    // segment separator - so a series named "Sword Art Online / Progressive" was listed on the
+    // overview page and then 404'd the moment it was opened, with no way to match, refresh or
+    // ignore anything in it. Verified live against the running API: GET
+    // /api/series/Sword%20Art%20Online%20%2F%20Progressive returned 404 while the same name in
+    // the query string returns the series.
+    //
+    // Routing itself cannot be exercised without hosting the app, so this pins the rule that
+    // makes it work: no route on either controller may address a series by its name in the path.
+    [TestMethod]
+    public void SeriesRouteTemplates_NeverPutTheFreeTextSeriesNameInThePath()
+    {
+        var offenders = new List<string>();
+
+        foreach (var controllerType in new[] { typeof(SeriesController), typeof(BrowseController) })
+        {
+            foreach (var method in controllerType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                foreach (var route in method.GetCustomAttributes(inherit: true).OfType<IRouteTemplateProvider>())
+                {
+                    if (route.Template is not null &&
+                        route.Template.Contains("{seriesName", StringComparison.OrdinalIgnoreCase))
+                    {
+                        offenders.Add($"{controllerType.Name}.{method.Name} -> {route.Template}");
+                    }
+                }
+            }
+        }
+
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            offenders.ToArray(),
+            $"Series name must travel in the query string: {string.Join(", ", offenders)}");
+    }
 
     [TestInitialize]
     public void Setup()

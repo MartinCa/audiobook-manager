@@ -119,6 +119,46 @@ public class SeriesRepositoryTests
         Assert.IsTrue(stored!.ExpectedBooks.Single().IsIgnored);
     }
 
+    // Regression: series.name is unique and the upsert reads before it inserts, across an await
+    // on a request-scoped context. Two callers creating the same series' first catalog row - a
+    // bulk auto-match running while the user matches or toggles omnibus editions on one of those
+    // same series - both found it missing and both inserted, and the loser failed the request
+    // with a raw "UNIQUE constraint failed: series.name" 500. Reproduced live against the running
+    // API before the fix: two of four concurrent calls returned 500.
+    [TestMethod]
+    public async Task SetIncludeOmnibusEditionsAsync_ConcurrentFirstWrites_AllSucceedAndCreateOneRow()
+    {
+        const string seriesName = "Concurrently Created Series";
+        var contexts = new List<DatabaseContext>();
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+            var calls = new List<Task>();
+            for (var i = 0; i < 8; i++)
+            {
+                // A context per caller, as each request scope gets its own.
+                var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+                contexts.Add(context);
+                var repository = new SeriesRepository(context);
+                calls.Add(Task.Run(() => repository.SetIncludeOmnibusEditionsAsync(seriesName, true)));
+            }
+
+            await Task.WhenAll(calls);
+
+            var rows = await _db.Series.AsNoTracking().Where(s => s.Name == seriesName).ToListAsync();
+            Assert.AreEqual(1, rows.Count);
+            Assert.IsTrue(rows[0].IncludeOmnibusEditions);
+        }
+        finally
+        {
+            foreach (var context in contexts)
+            {
+                context.Dispose();
+            }
+        }
+    }
+
     [TestMethod]
     public async Task SetExpectedBookIgnoredAsync_ThrowsWhenNothingMatches()
     {

@@ -218,6 +218,16 @@ to issue one statement per id. But they **bypass the change tracker**, which has
    `RemoveRange` path, because callers hold a tracked `Series` whose `ExpectedBooks` collection EF
    keeps fixed up — a set-based delete would leave the deleted rows in that collection.
 
+**A read-then-insert on a uniquely-indexed column needs the same treatment.** Repositories that
+resolve "get this row or create it" span an `await` on a request-scoped context, so two callers
+can both find the row missing and both insert it. That is a live race, not a theoretical one -
+organizes run alongside interactive saves and bulk operations. `PersonRepository.GetOrCreatePersons`
+and `SeriesRepository.UpsertByNameAsync` (which backs both `UpsertSeriesAsync` and
+`SetIncludeOmnibusEditionsAsync`) catch it via `SqliteErrors.IsUniqueViolation`, detach the entity
+they added, re-read, and apply their change to the winner's row. Without it the loser failed the
+whole request with a raw `UNIQUE constraint failed` 500 - reproduced live with four concurrent
+first-time writes for one series, two of which 500'd.
+
 A read-modify-write across `await` is not safe for a counter either: `HardcoverQuotaRepository`
 does its compare-and-increment in a single `ExecuteUpdateAsync` statement, because Hardcover
 requests genuinely run concurrently (`SearchMultiple` fans out; the retry handler re-enters) and a
@@ -268,6 +278,23 @@ Two more rules for query shape:
 - **`ParseAudiobook(fileInfo, includeCoverData: false)`** for any caller that only needs to know
   whether a cover exists (the consistency check, the save round-trip verification, the library
   scan). Encoding the picture allocates the bytes plus a base64 string ~1.4x their size, per book.
+
+### Free-text values are addressed in the query string, never in a path segment
+
+**Invariant: a series name (or any other raw m4b tag value) must never be a route parameter.**
+Series are addressed by their free-text name rather than a catalog id - an unmatched series
+exists only as a value on audiobooks and has no catalog row yet - and that value can contain any
+character a tag can. A `/` in it is fatal in a path: ASP.NET Core leaves `%2F` percent-encoded
+rather than decoding it into a segment separator, so the action receives the literal `%2F` and
+every lookup misses. A series named `Sword Art Online / Progressive` was listed on the overview
+page and then 404'd the moment it was opened, with no way to match, refresh or ignore anything
+in it. `SeriesController` and `BrowseController.GetSeriesBooks` take `[FromQuery] string
+seriesName` against fixed action paths (`api/series/detail`, `api/series/match`,
+`api/browse/series`, ...); `SeriesControllerTests` has a reflection guard that fails if any route
+template on either controller reintroduces `{seriesName}`.
+
+Vue Router is *not* affected - it decodes params after matching, so `/library/series/:seriesName`
+handles such a name correctly - which is why the series was clickable but its API calls were not.
 
 ### Metadata sidecar files
 

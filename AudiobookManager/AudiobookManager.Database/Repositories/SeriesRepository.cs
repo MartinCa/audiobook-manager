@@ -47,27 +47,66 @@ public class SeriesRepository : ISeriesRepository
     /// Inserts the series if no row with the same <see cref="Series.Name"/> exists,
     /// otherwise updates the match metadata on the existing row.
     /// </summary>
-    public async Task<Series> UpsertSeriesAsync(Series series)
-    {
-        var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == series.Name);
+    public Task<Series> UpsertSeriesAsync(Series series) =>
+        UpsertByNameAsync(
+            series.Name,
+            row =>
+            {
+                row.MatchedSourceName = series.MatchedSourceName;
+                row.MatchedSourceId = series.MatchedSourceId;
+                row.MatchedSourceUrl = series.MatchedSourceUrl;
+                row.MatchedSeriesName = series.MatchedSeriesName;
+                row.MatchConfidence = series.MatchConfidence;
+                row.LastRefreshedAt = series.LastRefreshedAt;
+                row.IncludeOmnibusEditions = series.IncludeOmnibusEditions;
+            },
+            () => series);
 
-        if (existing is null)
+    /// <summary>
+    /// Insert-or-update keyed on the unique series name, tolerating the read-then-insert race.
+    ///
+    /// series.name is unique and this reads before it inserts, across an await on a
+    /// request-scoped context - so two callers can both find the row missing and both try to
+    /// create it. That happens for real: a bulk auto-match upserts a row per series while the
+    /// user can be matching or toggling omnibus editions on one of those same series from the
+    /// page, and the per-series endpoints share no lock with the bulk one. The loser used to
+    /// fail the whole request with a raw "UNIQUE constraint failed: series.name" 500; it now
+    /// adopts the winner's row and applies its own change on top, which is what the caller
+    /// asked for either way.
+    /// </summary>
+    private async Task<Series> UpsertByNameAsync(string name, Action<Series> applyChanges, Func<Series> createNew)
+    {
+        var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == name);
+        if (existing is not null)
         {
-            _db.Series.Add(series);
+            applyChanges(existing);
             await _db.SaveChangesAsync();
-            return series;
+            return existing;
         }
 
-        existing.MatchedSourceName = series.MatchedSourceName;
-        existing.MatchedSourceId = series.MatchedSourceId;
-        existing.MatchedSourceUrl = series.MatchedSourceUrl;
-        existing.MatchedSeriesName = series.MatchedSeriesName;
-        existing.MatchConfidence = series.MatchConfidence;
-        existing.LastRefreshedAt = series.LastRefreshedAt;
-        existing.IncludeOmnibusEditions = series.IncludeOmnibusEditions;
+        var inserted = createNew();
+        _db.Series.Add(inserted);
 
-        await _db.SaveChangesAsync();
-        return existing;
+        try
+        {
+            await _db.SaveChangesAsync();
+            return inserted;
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            _db.Entry(inserted).State = EntityState.Detached;
+
+            var winner = await _db.Series.FirstOrDefaultAsync(s => s.Name == name);
+            if (winner is null)
+            {
+                // Some other uniqueness constraint failed - not the race this handler is for.
+                throw;
+            }
+
+            applyChanges(winner);
+            await _db.SaveChangesAsync();
+            return winner;
+        }
     }
 
     public async Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks)
@@ -136,21 +175,9 @@ public class SeriesRepository : ISeriesRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
-    {
-        var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == seriesName);
-
-        if (existing is null)
-        {
-            existing = new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions };
-            _db.Series.Add(existing);
-        }
-        else
-        {
-            existing.IncludeOmnibusEditions = includeOmnibusEditions;
-        }
-
-        await _db.SaveChangesAsync();
-        return existing;
-    }
+    public Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions) =>
+        UpsertByNameAsync(
+            seriesName,
+            row => row.IncludeOmnibusEditions = includeOmnibusEditions,
+            () => new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions });
 }

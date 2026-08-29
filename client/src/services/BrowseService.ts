@@ -39,9 +39,11 @@ class BrowseService extends BaseHttpService {
     seriesName: string,
     authorId?: number,
   ): Promise<ManagedAudiobook[]> {
-    let url = `/browse/series/${encodeURIComponent(seriesName)}`;
+    // Query string, not a path segment: a series name is a raw m4b tag and can contain a "/",
+    // which ASP.NET Core leaves percent-encoded in a path. See the note on SeriesController.
+    let url = `/browse/series?seriesName=${encodeURIComponent(seriesName)}`;
     if (authorId !== undefined) {
-      url += `?authorId=${authorId}`;
+      url += `&authorId=${authorId}`;
     }
     return this.getData(url);
   }
