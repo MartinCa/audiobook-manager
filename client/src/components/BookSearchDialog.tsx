@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { metadataSearchApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
+import { useSelectedSearchSources } from "@/hooks/useSelectedSearchSources";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
 interface BookSearchDialogProps {
@@ -37,7 +38,6 @@ export function BookSearchDialog({
     setQuery(initialQuery);
   }
 
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [results, setResults] = useState<MetadataSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
@@ -49,6 +49,8 @@ export function BookSearchDialog({
     queryFn: () => metadataSearchApi.getServices(),
     enabled: open,
   });
+
+  const [selectedSources, setSelectedSources] = useSelectedSearchSources(services);
 
   const activeSources =
     selectedSources.length > 0
