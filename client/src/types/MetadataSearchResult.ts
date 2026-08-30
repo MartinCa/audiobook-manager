@@ -1,12 +1,16 @@
+import type { components } from "@/lib/api-types";
+import type { Require } from "@/lib/dto";
 import type { AudiobookPerson } from "./Audiobook";
 
-export interface MetadataSeriesSearchResult {
-  seriesName: string;
-  seriesPart?: string;
-  originalSeriesName?: string;
-  partWarning?: boolean;
-}
+// AudiobookManager.Scraping/Models/MetadataSearchResult.cs: seriesName is non-nullable.
+export type MetadataSeriesSearchResult = Require<
+  components["schemas"]["MetadataSeriesSearchResult"],
+  "seriesName"
+>;
 
+// url/source/authors/narrators/bookName/genres are non-nullable on the class. Series is
+// technically nullable on the C# side, but every scraper (Goodreads/Audible/Hardcover)
+// unconditionally sets it — never omits it — so it's narrowed to required here too.
 export interface MetadataSearchResult {
   url: string;
   source: string;

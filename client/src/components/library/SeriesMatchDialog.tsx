@@ -201,7 +201,7 @@ export function SeriesMatchDialog({
                     <div className="min-w-0 flex-1">
                       <div className="text-foreground font-medium">{item.name}</div>
                       <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span>{item.authors.join(", ") || "Unknown author"}</span>
+                        <span>{(item.authors ?? []).join(", ") || "Unknown author"}</span>
                         <span>&middot;</span>
                         <span>{item.ownedBookCount} owned</span>
                         {best !== undefined && (

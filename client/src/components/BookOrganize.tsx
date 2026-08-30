@@ -169,7 +169,7 @@ export function BookOrganize({
           newDurationInSeconds={pendingBook.durationInSeconds}
           targetPath={duplicateCheck.targetPath}
           existingSizeInBytes={duplicateCheck.existing?.sizeInBytes}
-          existingDurationInSeconds={duplicateCheck.existing?.durationInSeconds}
+          existingDurationInSeconds={duplicateCheck.existing?.durationInSeconds ?? undefined}
           onReplaceExisting={() => {
             void (async () => {
               await proceedOrganize(pendingBook);

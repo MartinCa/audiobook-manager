@@ -180,7 +180,7 @@ export function BookLibrary() {
                     {book.coverFilePath ? (
                       <img
                         src={browseApi.getCoverUrl(book.id)}
-                        alt={book.bookName}
+                        alt={book.bookName ?? undefined}
                         className="h-full w-full object-cover"
                         onError={(e) => {
                           (e.currentTarget as HTMLElement).style.display = "none";

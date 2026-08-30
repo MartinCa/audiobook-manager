@@ -1,25 +1,12 @@
-export interface AudiobookDetail {
-  id: number;
-  bookName: string;
-  subtitle?: string;
-  series?: string;
-  seriesPart?: string;
-  year: number;
-  authors: string[];
-  narrators: string[];
-  genres: string[];
-  description?: string;
-  copyright?: string;
-  publisher?: string;
-  language?: string;
-  rating?: string;
-  asin?: string;
-  www?: string;
-  coverFilePath?: string;
-  durationInSeconds?: number;
-  filePath: string;
-  fileName: string;
-  sizeInBytes: number;
-}
+import type { components } from "@/lib/api-types";
+import type { Require } from "@/lib/dto";
+
+// AudiobookManager.Api/Dtos/AudiobookDetailDto.cs: id/authors/narrators/genres/filePath/
+// fileName/sizeInBytes are non-nullable. bookName and year are genuinely nullable on the
+// backend record — do not assume either is always present.
+export type AudiobookDetail = Require<
+  components["schemas"]["AudiobookDetailDto"],
+  "id" | "authors" | "narrators" | "genres" | "filePath" | "fileName" | "sizeInBytes"
+>;
 
 export type { AudiobookDetail as default };

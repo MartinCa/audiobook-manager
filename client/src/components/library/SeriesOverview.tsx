@@ -92,7 +92,7 @@ export function SeriesOverviewPage() {
     if (!filter.trim()) return true;
     const q = foldAccents(filter.trim().toLowerCase());
     const nameMatch = foldAccents(s.name.toLowerCase()).includes(q);
-    const authorMatch = s.authors.some((a) => foldAccents(a.toLowerCase()).includes(q));
+    const authorMatch = (s.authors ?? []).some((a) => foldAccents(a.toLowerCase()).includes(q));
     return nameMatch || authorMatch;
   });
 
@@ -222,7 +222,9 @@ export function SeriesOverviewPage() {
                 </div>
 
                 <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-                  {s.authors.length > 0 && <span>By {s.authors.join(", ")} &middot;</span>}
+                  {s.authors && s.authors.length > 0 && (
+                    <span>By {s.authors.join(", ")} &middot;</span>
+                  )}
                   <span>
                     {s.ownedBookCount} {s.ownedBookCount === 1 ? "book" : "books"} owned
                   </span>
