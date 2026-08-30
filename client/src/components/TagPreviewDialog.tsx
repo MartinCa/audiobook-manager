@@ -215,12 +215,12 @@ export function TagPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Metadata Preview & Diff</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 text-xs">
+        <div className="flex-1 space-y-4 overflow-y-auto py-2 text-xs">
           <p className="text-muted-foreground">
             Review scraped metadata from{" "}
             <strong className="text-foreground">{searchResult.source}</strong>. Select which fields
@@ -238,7 +238,7 @@ export function TagPreviewDialog({
             </span>
           </div>
 
-          <div className="border-border max-h-96 overflow-y-auto rounded-md border">
+          <div className="border-border overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-left text-xs">
               <thead className="bg-muted/70 text-muted-foreground sticky top-0 border-b">
                 <tr>
@@ -289,16 +289,16 @@ export function TagPreviewDialog({
               </tbody>
             </table>
           </div>
+        </div>
 
-          <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button variant="outline" disabled={selected.size === 0} onClick={handleApplySelected}>
-              Apply Selected ({selected.size})
-            </Button>
-            <Button onClick={handleApplyAll}>Apply All</Button>
-          </div>
+        <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="outline" disabled={selected.size === 0} onClick={handleApplySelected}>
+            Apply Selected ({selected.size})
+          </Button>
+          <Button onClick={handleApplyAll}>Apply All</Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -252,7 +252,7 @@ export function BookSearchDialog({
               </div>
             )}
 
-            <div className="max-h-96 space-y-2 overflow-y-auto">
+            <div className="space-y-2">
               {results.map((result, idx) => {
                 const isBusy = selectingDetails === result.url;
                 return (

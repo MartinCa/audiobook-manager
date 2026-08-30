@@ -517,6 +517,25 @@ sidebar component later needs its own theme.css color tokens plus a matching `@t
 registration in `index.css` first** — don't assume the plumbing already exists just because
 other shadcn tokens are registered.
 
+### A scrollable `DialogContent` needs a flex header/body/footer split, not `overflow-y-auto` on the whole thing
+
+The vendored `DialogContent` (`components/ui/dialog.tsx`) applies no `max-h`/`overflow` of its
+own — that matches the upstream shadcn recipe, which expects a tall dialog to be structured with
+a fixed header, one scrollable body, and a fixed footer (shadcn's own docs call this out as
+"Scrollable Content": the header stays in view while the body scrolls). Three dialogs
+(`BookSearchDialog`, `SeriesMatchDialog`, `TagPreviewDialog`) independently reached for the
+simpler-looking `<DialogContent className="max-h-[85vh] overflow-y-auto">` instead, and then
+*also* wrapped their own list/table in a second `max-h-96 overflow-y-auto` box for a bounded
+look — producing two independently-scrolling regions nested inside each other, visibly two
+scrollbars. Fix: `<DialogContent className="flex max-h-[85vh] flex-col overflow-hidden">`, with
+the header as its own flex child, the scrollable content as a single `flex-1 overflow-y-auto`
+child, and any fixed action-button row as a sibling *after* that scrollable child (not inside
+it) so it stays pinned. A "bounded" list/table inside that body keeps its `rounded-md border`
+styling but drops its own `overflow-y-auto`/`max-h-*` — the outer body is the only scroll
+container now. If the content can also overflow horizontally (e.g. a wide table), give that one
+inner box `overflow-x-auto` explicitly rather than letting it inherit anything from the dialog
+shell.
+
 ## Key Configuration
 
 - **`AudiobookImportPath`, `AudiobookLibraryPath` and `DbLocation` are validated at startup**

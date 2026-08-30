@@ -115,12 +115,12 @@ export function SeriesMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Bulk Match Series</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 text-xs">
+        <div className="flex-1 space-y-4 overflow-y-auto py-2 text-xs">
           <p className="text-muted-foreground">
             Each unmatched series is looked up at every metadata source that supports series
             lookups. Only series whose best candidate scores at or above the threshold are matched;
@@ -183,7 +183,7 @@ export function SeriesMatchDialog({
               Every series is already matched.
             </div>
           ) : (
-            <div className="border-border max-h-72 divide-y overflow-y-auto rounded-md border">
+            <div className="border-border divide-y rounded-md border">
               {series.map((item) => {
                 const isSelected = selected.includes(item.name);
                 const best = suggestions[item.name];
@@ -229,25 +229,25 @@ export function SeriesMatchDialog({
               })}
             </div>
           )}
+        </div>
 
-          <div className="border-border flex justify-end gap-2 border-t pt-4">
-            <Button variant="outline" disabled={matching} onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            <Button
-              disabled={matching || selected.length === 0}
-              onClick={() => {
-                void handleStartMatch();
-              }}
-            >
-              {matching ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Search className="mr-1.5 h-4 w-4" />
-              )}
-              Match Selected ({selected.length})
-            </Button>
-          </div>
+        <div className="border-border flex justify-end gap-2 border-t pt-4">
+          <Button variant="outline" disabled={matching} onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button
+            disabled={matching || selected.length === 0}
+            onClick={() => {
+              void handleStartMatch();
+            }}
+          >
+            {matching ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="mr-1.5 h-4 w-4" />
+            )}
+            Match Selected ({selected.length})
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
