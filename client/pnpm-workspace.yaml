@@ -1,0 +1,3 @@
+# pnpm configuration for frontend supply-chain policy
+minimumReleaseAgeExclude:
+  - "@martinrun/*"
