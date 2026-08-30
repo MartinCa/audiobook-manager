@@ -476,6 +476,47 @@ payload, but also a multi-kilobyte description — is re-uploaded on every edit 
 server ignores. Watchers that trigger those calls must also avoid *reading* the cover fields, or
 they track them as reactive dependencies and retrigger on cover edits.
 
+### Tailwind v4's theme registration is hand-maintained here, not CLI-generated
+
+A normal `npx shadcn init` scaffold writes a `globals.css` that both defines the shadcn color
+variables *and* registers them under Tailwind v4's `--color-*`/`--radius-*` namespace via an
+`@theme inline` block, plus a `@custom-variant dark (&:is(.dark *))` declaration and the
+`tw-animate-css` package. This project's Tailwind v4 setup was hand-assembled during the
+frontend-kit migration instead of CLI-scaffolded, so none of that came for free — `theme.css`
+only ever defined the bare `--background`/`--popover`/etc. custom properties, never registered
+them. **A missing registration produces no build error or lint warning — the utility class is
+simply absent from the compiled CSS, so the only symptom is a UI bug** (this is how dialogs,
+dropdowns, and the header ended up rendering see-through, `dark:` overrides silently doing
+nothing unless the OS was also dark, and every dialog/select/tooltip losing its open/close
+animation — see `client/src/index.css` and its comments for the fixes).
+
+**When something in the vendored `components/ui/` layer looks visually broken and the classes
+look right, suspect a missing theme registration before assuming a design or component-choice
+problem.** To audit for others: scaffold a throwaway reference project in a scratch directory
+with matching options and diff its generated setup against `client/src/index.css` —
+```bash
+npm create vite@latest . -- --template react-ts
+npm install tailwindcss @tailwindcss/vite
+# wire up vite.config.ts (@tailwindcss/vite plugin, "@" alias) and tsconfig paths to match this
+# project's setup, then:
+npx shadcn@latest init -t vite -b base -p nova --pointer -y
+```
+— then read the generated `src/index.css`. This is how the `tw-animate-css` gap and the
+`--accordion-panel-height` keyframe mismatch (its bundled `accordion-down`/`accordion-up`
+keyframes check Radix/Bits/Reka/Kb/Ngp's panel-height variable names, none of which match Base
+UI's own `--accordion-panel-height`) were found. Delete the scratch project when done; never run
+`shadcn init` for real against this repo — it would overwrite `components.json`, `index.css`,
+and every `ui/*.tsx` file, clobbering the Base UI migration and any local customization.
+
+**Only what this project actually uses is registered — this is deliberate, not an oversight.**
+The reference scaffold's `@theme inline` block also included `--color-chart-1`..`-5` and
+`--color-sidebar*` tokens (for shadcn's chart/sidebar components) and its bundled
+`shadcn/tailwind.css` package adds `scroll-fade-*`/`shimmer` utilities — none of which appear
+anywhere in this codebase, so they were left out rather than imported unused. **Adding a chart or
+sidebar component later needs its own theme.css color tokens plus a matching `@theme inline`
+registration in `index.css` first** — don't assume the plumbing already exists just because
+other shadcn tokens are registered.
+
 ## Key Configuration
 
 - **`AudiobookImportPath`, `AudiobookLibraryPath` and `DbLocation` are validated at startup**
