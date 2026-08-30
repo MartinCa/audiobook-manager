@@ -332,4 +332,6 @@ export const filesApi = {
   deleteDirectory: (path: string) => api.post<void>("/files/delete_directory", { path }),
 
   deleteBook: (bookPath: string) => api.post<void>("/files/delete_directory", { path: bookPath }),
+
+  getCoverUrl: (path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`,
 };

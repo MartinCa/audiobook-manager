@@ -139,6 +139,65 @@ public class FileServiceTests
     }
 
     [TestMethod]
+    public void GetCoverPath_SiblingCoverJpgExists_ReturnsItsPath()
+    {
+        var bookDir = Path.Combine(_libraryPath, "Author", "2020 - Book");
+        Directory.CreateDirectory(bookDir);
+        var m4bPath = Path.Combine(bookDir, "book.m4b");
+        var coverPath = Path.Combine(bookDir, "cover.jpg");
+        File.WriteAllText(m4bPath, "fake");
+        File.WriteAllBytes(coverPath, new byte[] { 0xFF, 0xD8, 0xFF });
+
+        var result = _service.GetCoverPath(m4bPath);
+
+        Assert.AreEqual(coverPath, result);
+    }
+
+    [TestMethod]
+    public void GetCoverPath_NoCoverSidecar_ReturnsNull()
+    {
+        var bookDir = Path.Combine(_libraryPath, "Author", "2020 - Book");
+        Directory.CreateDirectory(bookDir);
+        var m4bPath = Path.Combine(bookDir, "book.m4b");
+        File.WriteAllText(m4bPath, "fake");
+
+        var result = _service.GetCoverPath(m4bPath);
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public void GetCoverPath_PathOutsideAllowedBases_IsRejected()
+    {
+        var outside = Path.Combine(_root, "book.m4b");
+        File.WriteAllText(outside, "fake");
+
+        Assert.ThrowsExactly<UnauthorizedAccessException>(() => _service.GetCoverPath(outside));
+    }
+
+    // Regression guard for the same class of bug GetExistingCoverPath's cleanupDuplicate param
+    // exists for: a passive cover lookup must never delete anything, even when both a cover.jpg
+    // and a cover.png sit beside the file being previewed.
+    [TestMethod]
+    public void GetCoverPath_BothJpgAndPngExist_DeletesNeitherFile()
+    {
+        var bookDir = Path.Combine(_libraryPath, "Author", "2020 - Book");
+        Directory.CreateDirectory(bookDir);
+        var m4bPath = Path.Combine(bookDir, "book.m4b");
+        var jpgPath = Path.Combine(bookDir, "cover.jpg");
+        var pngPath = Path.Combine(bookDir, "cover.png");
+        File.WriteAllText(m4bPath, "fake");
+        File.WriteAllBytes(jpgPath, new byte[] { 0xFF, 0xD8, 0xFF });
+        File.WriteAllBytes(pngPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+
+        var result = _service.GetCoverPath(m4bPath);
+
+        Assert.AreEqual(jpgPath, result);
+        Assert.IsTrue(File.Exists(jpgPath));
+        Assert.IsTrue(File.Exists(pngPath));
+    }
+
+    [TestMethod]
     public void DeleteDirectory_DirectoryWithPeriodInName_DeletesDirectory()
     {
         var dirWithDot = Path.Combine(_importPath, "J.R.R. Tolkien");

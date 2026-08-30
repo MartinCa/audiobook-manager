@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/accordion";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BookEditForm } from "@/components/BookEditForm";
-import { libraryApi, audiobookApi } from "@/services/api";
+import { libraryApi, audiobookApi, filesApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { splitList } from "@/helpers/organizeAudiobookInput";
@@ -486,6 +486,7 @@ export function DiscoveredAudiobooks() {
                     <BookEditForm
                       initialBook={initialAudiobook}
                       currentPath={book.fullPath}
+                      coverUrl={filesApi.getCoverUrl(book.fullPath)}
                       onSave={(edited) => handleOrganizeDiscovered(book.fullPath, edited)}
                       formActions={
                         <Button type="submit">

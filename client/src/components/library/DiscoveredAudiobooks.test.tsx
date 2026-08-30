@@ -26,6 +26,9 @@ vi.mock("@/services/api", () => ({
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
   },
+  filesApi: {
+    getCoverUrl: vi.fn((path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`),
+  },
 }));
 
 import { libraryApi } from "@/services/api";

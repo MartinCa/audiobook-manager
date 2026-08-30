@@ -21,8 +21,17 @@ export function CoverEditor({
   const [urlInput, setUrlInput] = useState("");
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [failedCoverUrl, setFailedCoverUrl] = useState<string | undefined>(undefined);
 
-  const currentSrc = base64Data ? `data:${mimeType};base64,${base64Data}` : coverUrl;
+  // coverUrl is passed unconditionally by callers (there's no cheap way to know ahead of time
+  // whether the book actually has a cover on disk), so it 404s for a book that has none. Without
+  // this, that renders as a broken-image icon instead of falling back to the "Click to set
+  // cover" placeholder every other no-cover case shows.
+  const currentSrc = base64Data
+    ? `data:${mimeType};base64,${base64Data}`
+    : coverUrl && coverUrl !== failedCoverUrl
+      ? coverUrl
+      : undefined;
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -83,7 +92,14 @@ export function CoverEditor({
       >
         {currentSrc ? (
           <>
-            <img src={currentSrc} alt="Cover Preview" className="h-full w-full object-cover" />
+            <img
+              src={currentSrc}
+              alt="Cover Preview"
+              className="h-full w-full object-cover"
+              onError={() => {
+                if (!base64Data && coverUrl) setFailedCoverUrl(coverUrl);
+              }}
+            />
             <Button
               variant="destructive"
               size="icon"
