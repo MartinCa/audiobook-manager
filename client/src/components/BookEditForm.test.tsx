@@ -1,0 +1,67 @@
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BookEditForm } from "./BookEditForm";
+import type { Audiobook } from "@/types/Audiobook";
+
+vi.mock("@/services/api", () => ({
+  audiobookApi: {
+    generateNewPath: vi.fn().mockResolvedValue("Author/2024 - Book/book.m4b"),
+  },
+  settingsApi: {
+    getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+  },
+}));
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+function renderWithProviders(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+const initialBook: Audiobook = {
+  authors: [{ name: "Jane Author" }],
+  narrators: [],
+  bookName: "Original Title",
+  genres: [],
+  year: 2020,
+};
+
+describe("BookEditForm", () => {
+  it("renders fields populated from the initial book", () => {
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    expect(screen.getByDisplayValue("Jane Author")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Original Title")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2020")).toBeInTheDocument();
+  });
+
+  it("blocks submit and shows a validation error when authors is cleared", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.change(screen.getByDisplayValue("Jane Author"), { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    expect(await screen.findByText("At least one author is required")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("calls onSave with the built audiobook on a valid submit", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title" },
+    });
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.bookName).toBe("Updated Title");
+    expect(saved.authors).toEqual([{ name: "Jane Author" }]);
+    expect(saved.year).toBe(2020);
+  });
+});

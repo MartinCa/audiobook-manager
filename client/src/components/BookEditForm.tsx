@@ -1,4 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useForm, Controller, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { Search, RotateCcw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +30,82 @@ import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 
+// DESIGN.md section 1: forms use react-hook-form + zod for client-side validation. The
+// server validates independently; this only stops an obviously incomplete submit early.
+const bookEditFormSchema = z.object({
+  authors: z.string().trim().min(1, "At least one author is required"),
+  narrators: z.string(),
+  bookName: z.string().trim().min(1, "Book title is required"),
+  subtitle: z.string(),
+  series: z.string(),
+  seriesPart: z.string(),
+  year: z
+    .string()
+    .trim()
+    .min(1, "Year is required")
+    .refine((v) => Number.isFinite(Number(v)), "Year must be a number"),
+  genres: z.string(),
+  description: z.string(),
+  copyright: z.string(),
+  publisher: z.string(),
+  language: z.string(),
+  rating: z.string(),
+  asin: z.string(),
+  www: z.string(),
+});
+
+type BookEditFormValues = z.infer<typeof bookEditFormSchema>;
+
+function valuesFromBook(book: Audiobook): BookEditFormValues {
+  return {
+    authors: joinList(book.authors?.map((a) => a.name)),
+    narrators: joinList(book.narrators?.map((n) => n.name)),
+    bookName: book.bookName || "",
+    subtitle: book.subtitle || "",
+    series: book.series || "",
+    seriesPart: book.seriesPart || "",
+    year: book.year ? String(book.year) : "",
+    genres: (book.genres || []).join(" / "),
+    description: book.description || "",
+    copyright: book.copyright || "",
+    publisher: book.publisher || "",
+    language: book.language || "",
+    rating: book.rating || "",
+    asin: book.asin || "",
+    www: book.www || "",
+  };
+}
+
+function buildAudiobook(
+  values: BookEditFormValues,
+  cover: AudiobookImage | undefined,
+  initialBook: Audiobook,
+): Audiobook {
+  return {
+    authors: splitList(values.authors).map((name) => ({ name })),
+    narrators: splitList(values.narrators).map((name) => ({ name })),
+    bookName: values.bookName.trim(),
+    subtitle: values.subtitle.trim() || undefined,
+    series: values.series.trim() || undefined,
+    seriesPart: values.seriesPart.trim() || undefined,
+    year: values.year ? parseInt(values.year, 10) : undefined,
+    genres: values.genres
+      .split("/")
+      .map((g) => g.trim())
+      .filter(Boolean),
+    description: values.description.trim() || undefined,
+    copyright: values.copyright.trim() || undefined,
+    publisher: values.publisher.trim() || undefined,
+    language: values.language.trim() || undefined,
+    rating: values.rating.trim() || undefined,
+    asin: values.asin.trim() || undefined,
+    www: values.www.trim() || undefined,
+    cover,
+    fileInfo: initialBook.fileInfo,
+    durationInSeconds: initialBook.durationInSeconds,
+  };
+}
+
 export interface BookEditFormProps {
   initialBook: Audiobook;
   currentPath?: string;
@@ -46,26 +125,15 @@ export function BookEditForm({
   toolbarActions,
   formActions,
 }: BookEditFormProps) {
-  const [bookName, setBookName] = useState(initialBook.bookName || "");
-  const [subtitle, setSubtitle] = useState(initialBook.subtitle || "");
-  const [authors, setAuthors] = useState(joinList(initialBook.authors?.map((a) => a.name)));
-  const [narrators, setNarrators] = useState(joinList(initialBook.narrators?.map((n) => n.name)));
-  const [series, setSeries] = useState(initialBook.series || "");
-  const [seriesPart, setSeriesPart] = useState(initialBook.seriesPart || "");
-  const [year, setYear] = useState(initialBook.year ? String(initialBook.year) : "");
-  const [genres, setGenres] = useState((initialBook.genres || []).join(" / "));
-  const [description, setDescription] = useState(initialBook.description || "");
-  const [copyright, setCopyright] = useState(initialBook.copyright || "");
-  const [publisher, setPublisher] = useState(initialBook.publisher || "");
-  const [language, setLanguage] = useState(initialBook.language || "");
-  const [rating, setRating] = useState(initialBook.rating || "");
-  const [asin, setAsin] = useState(initialBook.asin || "");
-  const [www, setWww] = useState(initialBook.www || "");
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
-
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const form = useForm<BookEditFormValues>({
+    resolver: zodResolver(bookEditFormSchema),
+    defaultValues: valuesFromBook(initialBook),
+  });
 
   const { data: languagesRes } = useQuery({
     queryKey: ["languages"],
@@ -73,130 +141,46 @@ export function BookEditForm({
   });
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
-  const buildAudiobook = useCallback((): Audiobook => {
-    const authorList = splitList(authors).map((name) => ({ name }));
-    const narratorList = splitList(narrators).map((name) => ({ name }));
-    const genreList = genres
-      .split("/")
-      .map((g) => g.trim())
-      .filter(Boolean);
-
-    return {
-      authors: authorList,
-      narrators: narratorList,
-      bookName: bookName.trim(),
-      subtitle: subtitle.trim() || undefined,
-      series: series.trim() || undefined,
-      seriesPart: seriesPart.trim() || undefined,
-      year: year ? parseInt(year, 10) : undefined,
-      genres: genreList,
-      description: description.trim() || undefined,
-      copyright: copyright.trim() || undefined,
-      publisher: publisher.trim() || undefined,
-      language: language.trim() || undefined,
-      rating: rating.trim() || undefined,
-      asin: asin.trim() || undefined,
-      www: www.trim() || undefined,
-      cover,
-      fileInfo: initialBook.fileInfo,
-      durationInSeconds: initialBook.durationInSeconds,
-    };
-  }, [
-    authors,
-    narrators,
-    genres,
-    bookName,
-    subtitle,
-    series,
-    seriesPart,
-    year,
-    description,
-    copyright,
-    publisher,
-    language,
-    rating,
-    asin,
-    www,
-    cover,
-    initialBook.fileInfo,
-    initialBook.durationInSeconds,
-  ]);
+  const watchedValues = useWatch({ control: form.control });
 
   useEffect(() => {
-    if (bookName && authors) {
-      const book = buildAudiobook();
-      const timer = setTimeout(() => {
-        void audiobookApi
-          .generateNewPath(book)
-          .then((generated) => {
-            setNewPath(generated);
-          })
-          .catch(() => {});
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [
-    bookName,
-    subtitle,
-    authors,
-    narrators,
-    series,
-    seriesPart,
-    year,
-    genres,
-    description,
-    copyright,
-    publisher,
-    language,
-    rating,
-    asin,
-    www,
-    cover,
-    initialBook,
-    buildAudiobook,
-  ]);
+    const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
+    if (!values.bookName.trim() || !values.authors.trim()) return;
+
+    const book = buildAudiobook(values, cover, initialBook);
+    const timer = setTimeout(() => {
+      void audiobookApi
+        .generateNewPath(book)
+        .then((generated) => setNewPath(generated))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [watchedValues, cover, initialBook]);
 
   const [tagPreviewOpen, setTagPreviewOpen] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<MetadataSearchResult | null>(null);
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
-      authors,
-      narrators,
-      bookName,
-      subtitle,
-      series,
-      seriesPart,
-      year: year ? parseInt(year, 10) : undefined,
-      genres,
-      description,
-      copyright,
-      publisher,
-      language,
-      rating: rating ? Number(rating) : undefined,
-      asin,
-      www,
+      authors: watchedValues.authors,
+      narrators: watchedValues.narrators,
+      bookName: watchedValues.bookName,
+      subtitle: watchedValues.subtitle,
+      series: watchedValues.series,
+      seriesPart: watchedValues.seriesPart,
+      year: watchedValues.year ? parseInt(watchedValues.year, 10) : undefined,
+      genres: watchedValues.genres,
+      description: watchedValues.description,
+      copyright: watchedValues.copyright,
+      publisher: watchedValues.publisher,
+      language: watchedValues.language,
+      rating: watchedValues.rating ? Number(watchedValues.rating) : undefined,
+      asin: watchedValues.asin,
+      www: watchedValues.www,
       cover_base64: cover?.base64Data,
       cover_mime: cover?.mimeType,
     }),
-    [
-      authors,
-      narrators,
-      bookName,
-      subtitle,
-      series,
-      seriesPart,
-      year,
-      genres,
-      description,
-      copyright,
-      publisher,
-      language,
-      rating,
-      asin,
-      www,
-      cover,
-    ],
+    [watchedValues, cover],
   );
 
   const handleSelectSearchResult = (result: MetadataSearchResult) => {
@@ -205,35 +189,58 @@ export function BookEditForm({
   };
 
   const handleApplyPreviewedTags = (result: MetadataSearchResult, selectedFields: Set<string>) => {
-    if (selectedFields.has("bookName") && result.bookName) setBookName(result.bookName);
-    if (selectedFields.has("subtitle") && result.subtitle) setSubtitle(result.subtitle);
+    if (selectedFields.has("bookName") && result.bookName) {
+      form.setValue("bookName", result.bookName, { shouldDirty: true });
+    }
+    if (selectedFields.has("subtitle") && result.subtitle) {
+      form.setValue("subtitle", result.subtitle, { shouldDirty: true });
+    }
     if (selectedFields.has("authors") && result.authors && result.authors.length > 0) {
-      setAuthors(joinList(result.authors.map((a) => a.name)));
+      form.setValue("authors", joinList(result.authors.map((a) => a.name)), {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
     }
     if (selectedFields.has("narrators") && result.narrators && result.narrators.length > 0) {
-      setNarrators(joinList(result.narrators.map((n) => n.name)));
+      form.setValue("narrators", joinList(result.narrators.map((n) => n.name)), {
+        shouldDirty: true,
+      });
     }
     if (selectedFields.has("series")) {
       const firstSeries = result.series?.[0];
       const sName = firstSeries?.seriesName;
       const sPart = firstSeries?.seriesPart;
-      if (sName !== undefined) setSeries(sName || "");
-      if (sPart !== undefined) setSeriesPart(normalizeSeriesPart(sPart || ""));
+      if (sName !== undefined) form.setValue("series", sName || "", { shouldDirty: true });
+      if (sPart !== undefined) {
+        form.setValue("seriesPart", normalizeSeriesPart(sPart || ""), { shouldDirty: true });
+      }
     }
-    if (selectedFields.has("year") && result.year) setYear(String(result.year));
+    if (selectedFields.has("year") && result.year) {
+      form.setValue("year", String(result.year), { shouldDirty: true, shouldValidate: true });
+    }
     if (selectedFields.has("genres") && result.genres && result.genres.length > 0) {
-      setGenres(result.genres.join(" / "));
+      form.setValue("genres", result.genres.join(" / "), { shouldDirty: true });
     }
     if (selectedFields.has("description") && result.description) {
-      setDescription(cleanDescription(result.description));
+      form.setValue("description", cleanDescription(result.description), { shouldDirty: true });
     }
-    if (selectedFields.has("copyright") && result.copyright) setCopyright(result.copyright);
-    if (selectedFields.has("publisher") && result.publisher) setPublisher(result.publisher);
-    if (selectedFields.has("language") && result.language) setLanguage(result.language);
-    if (selectedFields.has("rating") && result.rating) setRating(String(result.rating));
-    if (selectedFields.has("asin") && result.asin) setAsin(result.asin);
+    if (selectedFields.has("copyright") && result.copyright) {
+      form.setValue("copyright", result.copyright, { shouldDirty: true });
+    }
+    if (selectedFields.has("publisher") && result.publisher) {
+      form.setValue("publisher", result.publisher, { shouldDirty: true });
+    }
+    if (selectedFields.has("language") && result.language) {
+      form.setValue("language", result.language, { shouldDirty: true });
+    }
+    if (selectedFields.has("rating") && result.rating) {
+      form.setValue("rating", String(result.rating), { shouldDirty: true });
+    }
+    if (selectedFields.has("asin") && result.asin) {
+      form.setValue("asin", result.asin, { shouldDirty: true });
+    }
     if (selectedFields.has("www") && result.url) {
-      setWww(result.url);
+      form.setValue("www", result.url, { shouldDirty: true });
     }
 
     const coverUrlToFetch = result.imageUrl;
@@ -265,32 +272,17 @@ export function BookEditForm({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleValidSubmit = async (values: BookEditFormValues) => {
     setSaving(true);
     try {
-      await onSave(buildAudiobook());
+      await onSave(buildAudiobook(values, cover, initialBook));
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = () => {
-    setAuthors(joinList(initialBook.authors.map((a) => a.name)));
-    setNarrators(joinList(initialBook.narrators.map((n) => n.name)));
-    setBookName(initialBook.bookName || "");
-    setSubtitle(initialBook.subtitle || "");
-    setSeries(initialBook.series || "");
-    setSeriesPart(initialBook.seriesPart || "");
-    setYear(initialBook.year ? String(initialBook.year) : "");
-    setGenres(initialBook.genres.join(" / "));
-    setDescription(initialBook.description || "");
-    setCopyright(initialBook.copyright || "");
-    setPublisher(initialBook.publisher || "");
-    setLanguage(initialBook.language || "");
-    setRating(initialBook.rating || "");
-    setAsin(initialBook.asin || "");
-    setWww(initialBook.www || "");
+    form.reset(valuesFromBook(initialBook));
     setCover(initialBook.cover);
     onReset?.();
   };
@@ -298,7 +290,7 @@ export function BookEditForm({
   return (
     <form
       onSubmit={(e) => {
-        void handleSubmit(e);
+        void form.handleSubmit(handleValidSubmit)(e);
       }}
       className="space-y-6"
     >
@@ -342,20 +334,20 @@ export function BookEditForm({
                 Authors <span className="text-destructive">*</span>
               </label>
               <Input
-                value={authors}
-                onChange={(e) => setAuthors(e.target.value)}
+                {...form.register("authors")}
                 placeholder="Author Name, Second Author"
-                required
+                aria-invalid={Boolean(form.formState.errors.authors)}
               />
+              {form.formState.errors.authors && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.authors.message}
+                </p>
+              )}
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Narrators</label>
-              <Input
-                value={narrators}
-                onChange={(e) => setNarrators(e.target.value)}
-                placeholder="Narrator Name"
-              />
+              <Input {...form.register("narrators")} placeholder="Narrator Name" />
             </div>
 
             <div>
@@ -363,38 +355,30 @@ export function BookEditForm({
                 Book Title <span className="text-destructive">*</span>
               </label>
               <Input
-                value={bookName}
-                onChange={(e) => setBookName(e.target.value)}
+                {...form.register("bookName")}
                 placeholder="Book title"
-                required
+                aria-invalid={Boolean(form.formState.errors.bookName)}
               />
+              {form.formState.errors.bookName && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.bookName.message}
+                </p>
+              )}
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Subtitle</label>
-              <Input
-                value={subtitle}
-                onChange={(e) => setSubtitle(e.target.value)}
-                placeholder="Subtitle"
-              />
+              <Input {...form.register("subtitle")} placeholder="Subtitle" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Series</label>
-              <Input
-                value={series}
-                onChange={(e) => setSeries(e.target.value)}
-                placeholder="Series name"
-              />
+              <Input {...form.register("series")} placeholder="Series name" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Series Part / Book #</label>
-              <Input
-                value={seriesPart}
-                onChange={(e) => setSeriesPart(e.target.value)}
-                placeholder="e.g. 1 or 2.5"
-              />
+              <Input {...form.register("seriesPart")} placeholder="e.g. 1 or 2.5" />
             </div>
 
             <div>
@@ -403,28 +387,27 @@ export function BookEditForm({
               </label>
               <Input
                 type="number"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
+                {...form.register("year")}
                 placeholder="YYYY"
-                required
+                aria-invalid={Boolean(form.formState.errors.year)}
               />
+              {form.formState.errors.year && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.year.message}
+                </p>
+              )}
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Genres (separated by /)</label>
-              <Input
-                value={genres}
-                onChange={(e) => setGenres(e.target.value)}
-                placeholder="Fantasy / Fiction"
-              />
+              <Input {...form.register("genres")} placeholder="Fantasy / Fiction" />
             </div>
           </div>
 
           <div>
             <label className="mb-1 block text-xs font-medium">Description</label>
             <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              {...form.register("description")}
               rows={4}
               placeholder="Book summary or description"
             />
@@ -433,58 +416,52 @@ export function BookEditForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium">Language</label>
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select language..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {l.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Controller
+                control={form.control}
+                name="language"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select language..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languages.map((l) => (
+                        <SelectItem key={l.code} value={l.code}>
+                          {l.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Publisher</label>
-              <Input
-                value={publisher}
-                onChange={(e) => setPublisher(e.target.value)}
-                placeholder="Publisher"
-              />
+              <Input {...form.register("publisher")} placeholder="Publisher" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Copyright</label>
-              <Input
-                value={copyright}
-                onChange={(e) => setCopyright(e.target.value)}
-                placeholder="Copyright year / owner"
-              />
+              <Input {...form.register("copyright")} placeholder="Copyright year / owner" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">Rating</label>
-              <Input
-                value={rating}
-                onChange={(e) => setRating(e.target.value)}
-                placeholder="e.g. 4.5"
-              />
+              <Input {...form.register("rating")} placeholder="e.g. 4.5" />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium">ASIN</label>
-              <Input value={asin} onChange={(e) => setAsin(e.target.value)} placeholder="B0..." />
+              <Input {...form.register("asin")} placeholder="B0..." />
             </div>
 
             <div>
               <label className="mb-1 flex items-center justify-between text-xs font-medium">
                 <span>Web link / URL</span>
-                {www && (
+                {watchedValues.www && (
                   <a
-                    href={www}
+                    href={watchedValues.www}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary flex items-center hover:underline"
@@ -493,11 +470,7 @@ export function BookEditForm({
                   </a>
                 )}
               </label>
-              <Input
-                value={www}
-                onChange={(e) => setWww(e.target.value)}
-                placeholder="https://..."
-              />
+              <Input {...form.register("www")} placeholder="https://..." />
             </div>
           </div>
         </div>
@@ -522,7 +495,7 @@ export function BookEditForm({
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
         onSelectResult={handleSelectSearchResult}
-        initialQuery={bookName || initialBook.fileInfo?.fileName || ""}
+        initialQuery={watchedValues.bookName || initialBook.fileInfo?.fileName || ""}
       />
 
       {pendingSearchResult && (
