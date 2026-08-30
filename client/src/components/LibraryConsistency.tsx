@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   FolderX,
   Loader2,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,10 +21,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { DiffDisplay } from "./DiffDisplay";
 import { consistencyApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
@@ -40,6 +43,53 @@ interface CompletePayload {
   totalBooksChecked: number;
   totalIssuesFound: number;
 }
+
+const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
+
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  MissingMediaFile: "Missing Media Files",
+  WrongFilePath: "Wrong File Paths",
+  MissingDescTxt: "Missing Description Files",
+  IncorrectDescTxt: "Incorrect Description Files",
+  MissingReaderTxt: "Missing Reader Files",
+  IncorrectReaderTxt: "Incorrect Reader Files",
+  MissingCoverFile: "Missing Cover Files",
+  MissingOpfFile: "Missing OPF Files",
+  IncorrectOpfFile: "Incorrect OPF Files",
+  TagMismatch: "Tag Mismatches",
+};
+
+function getIssueTypeLabel(issueType: string): string {
+  return ISSUE_TYPE_LABELS[issueType] ?? issueType;
+}
+
+const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
+  WrongFilePath:
+    "Each audiobook file will be moved to its correct location based on library metadata.",
+  MissingDescTxt:
+    "A desc.txt sidecar file containing the book description will be created or updated for each affected book.",
+  IncorrectDescTxt:
+    "A desc.txt sidecar file containing the book description will be created or updated for each affected book.",
+  MissingReaderTxt:
+    "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.",
+  IncorrectReaderTxt:
+    "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.",
+  MissingCoverFile: "The cover image will be extracted from each affected audiobook file.",
+  MissingOpfFile: "A metadata.opf sidecar file will be created or updated for each affected book.",
+  IncorrectOpfFile:
+    "A metadata.opf sidecar file will be created or updated for each affected book.",
+  TagMismatch:
+    "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.",
+};
+
+function getBulkResolveDescription(issueType: string): string {
+  return BULK_RESOLVE_DESCRIPTIONS[issueType] ?? "Continue?";
+}
+
+type PendingResolve =
+  | { kind: "single"; issue: ConsistencyIssue }
+  | { kind: "selected"; issueType: string; issueIds: number[] }
+  | { kind: "byType"; issueType: string; count: number };
 
 export function LibraryConsistency() {
   const queryClient = useQueryClient();
@@ -59,6 +109,10 @@ export function LibraryConsistency() {
   const [orphanToDelete, setOrphanToDelete] = useState<OrphanDirectory | null>(null);
   const [deleteAllOrphansOpen, setDeleteAllOrphansOpen] = useState(false);
   const [deletingOrphan, setDeletingOrphan] = useState(false);
+
+  // Resolve confirmation state
+  const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
+  const [confirmingResolve, setConfirmingResolve] = useState(false);
 
   const { data, isLoading: loading } = useQuery({
     queryKey: ["consistency"],
@@ -87,6 +141,26 @@ export function LibraryConsistency() {
       `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
     );
     void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+  });
+
+  // Recover from a missed check (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, rather than looking idle while one is still running.
+  useOperationResync(CONSISTENCY_CHECK_OPERATION_KEY, (status) => {
+    if (status.isRunning) {
+      setChecking(true);
+      setCheckProgress(
+        (prev) =>
+          prev ?? {
+            message: "Resuming check...",
+            booksChecked: status.processed,
+            totalBooks: status.total,
+            issuesFound: 0,
+          },
+      );
+    } else {
+      setChecking(false);
+      setCheckProgress(null);
+    }
   });
 
   const handleStartCheck = async () => {
@@ -152,6 +226,40 @@ export function LibraryConsistency() {
         next.delete(issueType);
         return next;
       });
+    }
+  };
+
+  const onResolveClick = (issue: ConsistencyIssue) => {
+    if (issue.issueType === "MissingMediaFile") {
+      setPendingResolve({ kind: "single", issue });
+    } else {
+      void handleResolveSingle(issue);
+    }
+  };
+
+  const onResolveSelectedClick = (issueType: string, issueIds: number[]) => {
+    if (issueIds.length === 0) return;
+    setPendingResolve({ kind: "selected", issueType, issueIds });
+  };
+
+  const onResolveByTypeClick = (issueType: string, count: number) => {
+    setPendingResolve({ kind: "byType", issueType, count });
+  };
+
+  const confirmPendingResolve = async () => {
+    if (!pendingResolve) return;
+    setConfirmingResolve(true);
+    try {
+      if (pendingResolve.kind === "single") {
+        await handleResolveSingle(pendingResolve.issue);
+      } else if (pendingResolve.kind === "selected") {
+        await handleResolveSelected(pendingResolve.issueIds);
+      } else {
+        await handleResolveByType(pendingResolve.issueType);
+      }
+      setPendingResolve(null);
+    } finally {
+      setConfirmingResolve(false);
     }
   };
 
@@ -275,7 +383,20 @@ export function LibraryConsistency() {
                       <div className="flex w-full items-center justify-between pr-4 text-left">
                         <div className="flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4 text-amber-500" />
-                          <span className="text-foreground font-semibold">{type}</span>
+                          <span className="text-foreground font-semibold">
+                            {getIssueTypeLabel(type)}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info
+                                className="text-muted-foreground h-3.5 w-3.5"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              {getBulkResolveDescription(type)}
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                         <Badge
                           variant="secondary"
@@ -321,7 +442,10 @@ export function LibraryConsistency() {
                                 variant="outline"
                                 disabled={resolvingSelected}
                                 onClick={() => {
-                                  void handleResolveSelected(selectedInGroup.map((i) => i.id));
+                                  onResolveSelectedClick(
+                                    type,
+                                    selectedInGroup.map((i) => i.id),
+                                  );
                                 }}
                               >
                                 Resolve Selected ({selectedInGroup.length})
@@ -333,7 +457,7 @@ export function LibraryConsistency() {
                               variant="secondary"
                               disabled={isResolvingType}
                               onClick={() => {
-                                void handleResolveByType(type);
+                                onResolveByTypeClick(type, typeIssues.length);
                               }}
                             >
                               {isResolvingType ? (
@@ -399,7 +523,7 @@ export function LibraryConsistency() {
                                   variant="outline"
                                   disabled={isResolving}
                                   onClick={() => {
-                                    void handleResolveSingle(issue);
+                                    onResolveClick(issue);
                                   }}
                                   className="shrink-0 self-end sm:self-center"
                                 >
@@ -452,6 +576,78 @@ export function LibraryConsistency() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(pendingResolve)}
+        onOpenChange={(open) => {
+          if (!open) setPendingResolve(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Resolution</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-muted-foreground text-xs">
+              {pendingResolve?.kind === "single" && (
+                <>
+                  This will remove <strong>1 audiobook</strong> with missing media files from the
+                  database and clean up empty directories. This action cannot be undone.
+                </>
+              )}
+              {pendingResolve?.kind === "selected" &&
+                (pendingResolve.issueType === "MissingMediaFile" ? (
+                  <>
+                    This will remove <strong>the selected {pendingResolve.issueIds.length}</strong>{" "}
+                    audiobooks with missing media files from the database and clean up empty
+                    directories. This action cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    This will resolve the selected <strong>{pendingResolve.issueIds.length}</strong>{" "}
+                    {getIssueTypeLabel(pendingResolve.issueType)} issue
+                    {pendingResolve.issueIds.length === 1 ? "" : "s"}.{" "}
+                    {getBulkResolveDescription(pendingResolve.issueType)}
+                  </>
+                ))}
+              {pendingResolve?.kind === "byType" &&
+                (pendingResolve.issueType === "MissingMediaFile" ? (
+                  <>
+                    This will remove <strong>all {pendingResolve.count}</strong> audiobooks with
+                    missing media files from the database and clean up empty directories. This
+                    action cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    This will resolve all <strong>{pendingResolve.count}</strong>{" "}
+                    {getIssueTypeLabel(pendingResolve.issueType)} issues.{" "}
+                    {getBulkResolveDescription(pendingResolve.issueType)}
+                  </>
+                ))}
+            </p>
+            <div className="border-border flex justify-end gap-2 border-t pt-4">
+              <Button variant="outline" onClick={() => setPendingResolve(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={confirmingResolve}
+                onClick={() => {
+                  void confirmPendingResolve();
+                }}
+              >
+                {confirmingResolve
+                  ? "Resolving..."
+                  : pendingResolve?.kind === "selected"
+                    ? "Resolve Selected"
+                    : pendingResolve?.kind === "byType"
+                      ? "Resolve All"
+                      : "Remove"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(orphanToDelete)}

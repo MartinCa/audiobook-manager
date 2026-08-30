@@ -99,6 +99,12 @@ internal class Program
 
         app.MapHub<OrganizeHub>("/hubs/organize");
 
+        // The SPA uses browser (path-based) routing, so a direct navigation or refresh on a
+        // nested route (e.g. /library/book/42) has to fall back to index.html and let the
+        // client-side router take over. Controllers and the SignalR hub are mapped above and
+        // take precedence, so this only ever catches requests nothing else matched.
+        app.MapFallbackToFile("index.html");
+
         // Use the application's own provider, not a second one built from the service
         // collection: BuildServiceProvider() here would create a duplicate, never-disposed set of
         // singletons, so the HardcoverRateLimiter validated below would not be the instance the

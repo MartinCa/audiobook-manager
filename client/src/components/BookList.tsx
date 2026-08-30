@@ -12,7 +12,7 @@ import {
 import { OperationProgressBar } from "./OperationProgressBar";
 import { BookOrganize } from "./BookOrganize";
 import { untaggedApi, queueApi } from "@/services/api";
-import { useSignalREvent } from "@/hooks/useSignalR";
+import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { toast } from "sonner";
 import type { BookFileInfo } from "@/types/BookFileInfo";
@@ -87,6 +87,12 @@ export function BookList() {
       },
     }));
     toast.error(`Queue error: ${payload.error}`);
+  });
+
+  // A dropped/re-established connection may have missed progress events for items already
+  // queued elsewhere; re-syncing the list re-derives queue state the same way it does on mount.
+  useSignalRReconnected(() => {
+    void refetch();
   });
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;

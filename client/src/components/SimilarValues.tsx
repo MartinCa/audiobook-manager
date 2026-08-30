@@ -10,9 +10,12 @@ import { AlignTargetDialog } from "./AlignTargetDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
+
+const SIMILAR_VALUE_ALIGN_OPERATION_KEY = "similar-value-align";
 
 interface ProgressPayload {
   processed: number;
@@ -61,6 +64,26 @@ export function SimilarValues() {
       `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
     );
     void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
+  });
+
+  // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect, rather than looking idle while one is still running.
+  useOperationResync(SIMILAR_VALUE_ALIGN_OPERATION_KEY, (status) => {
+    if (status.isRunning) {
+      setAligning(true);
+      setAlignProgress(
+        (prev) =>
+          prev ?? {
+            processed: status.processed,
+            total: status.total,
+            succeeded: 0,
+            failed: 0,
+          },
+      );
+    } else {
+      setAligning(false);
+      setAlignProgress(null);
+    }
   });
 
   const handleOpenDialog = (group: SimilarValueGroup) => {
@@ -202,7 +225,8 @@ export function SimilarValues() {
         <AlignTargetDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          candidates={selectedGroup.candidates.map((c) => c.value)}
+          candidates={selectedGroup.candidates}
+          valueType={activeTab}
           onConfirm={(target) => {
             void handleAlignConfirm(target);
           }}

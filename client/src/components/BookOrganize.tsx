@@ -7,6 +7,7 @@ import { BookEditForm } from "./BookEditForm";
 import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
 import { audiobookApi, filesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
+import { formatFileSize } from "@/helpers/formatHelpers";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
 import type { BookFileInfo } from "@/types/BookFileInfo";
@@ -48,6 +49,12 @@ export function BookOrganize({
   });
 
   const error = parseError ? handleApiError(parseError).message : null;
+
+  const { data: directoryContents = [], isLoading: loadingDirectoryContents } = useQuery({
+    queryKey: ["directoryContents", targetPath],
+    queryFn: () => filesApi.getDirectoryContents(targetPath),
+    enabled: deleteConfirmOpen && Boolean(targetPath),
+  });
 
   const proceedOrganize = async (book: Audiobook) => {
     setOrganizing(true);
@@ -184,11 +191,34 @@ export function BookOrganize({
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-muted-foreground text-xs">
-              Are you sure you want to permanently delete this unorganized file?
+              Are you sure you want to permanently delete the following file
+              {directoryContents.length === 1 ? "" : "s"}? This removes the entire containing folder
+              and cannot be undone.
             </p>
-            <div className="bg-muted text-muted-foreground rounded p-2 font-mono text-xs break-all">
-              {targetPath}
-            </div>
+            {loadingDirectoryContents ? (
+              <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Listing folder contents...
+              </div>
+            ) : directoryContents.length > 0 ? (
+              <ul className="max-h-48 space-y-1 overflow-y-auto">
+                {directoryContents.map((f) => (
+                  <li
+                    key={f.fullPath}
+                    className="bg-muted flex items-center justify-between gap-2 rounded p-2 text-xs"
+                  >
+                    <span className="text-foreground truncate font-mono">{f.fileName}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {formatFileSize(f.sizeInBytes)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="bg-muted text-muted-foreground rounded p-2 font-mono text-xs break-all">
+                {targetPath}
+              </div>
+            )}
             <div className="border-border flex justify-end gap-2 border-t pt-4">
               <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
                 Cancel

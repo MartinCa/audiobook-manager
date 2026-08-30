@@ -1,10 +1,18 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ExternalLink, Loader2 } from "lucide-react";
+import { Search, ExternalLink, Loader2, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { metadataSearchApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
@@ -34,6 +42,7 @@ export function BookSearchDialog({
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingSeriesChoice, setPendingSeriesChoice] = useState<MetadataSearchResult | null>(null);
 
   const { data: services = [] } = useQuery({
     queryKey: ["metadataServices"],
@@ -73,27 +82,91 @@ export function BookSearchDialog({
     }
   };
 
+  // A result with more than one candidate series can't be applied as-is: the caller
+  // (BookEditForm) expects a single series, so the user picks which one applies first.
+  const finishChoosing = (result: MetadataSearchResult) => {
+    if (result.series.length > 1) {
+      setPendingSeriesChoice(result);
+      return;
+    }
+    onSelectResult(result);
+    onOpenChange(false);
+  };
+
   const handleChoose = async (item: MetadataSearchResult) => {
     if (item.url && (!item.authors?.length || !item.description)) {
       setSelectingDetails(item.url);
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(item.url);
-        onSelectResult(fullDetails);
-        onOpenChange(false);
+        finishChoosing(fullDetails);
       } catch {
-        onSelectResult(item);
-        onOpenChange(false);
+        finishChoosing(item);
       } finally {
         setSelectingDetails(null);
       }
     } else {
-      onSelectResult(item);
-      onOpenChange(false);
+      finishChoosing(item);
     }
   };
 
+  const handleChooseSeries = (index: number) => {
+    if (!pendingSeriesChoice) return;
+    const chosen = pendingSeriesChoice.series[index];
+    onSelectResult({ ...pendingSeriesChoice, series: chosen ? [chosen] : [] });
+    setPendingSeriesChoice(null);
+    onOpenChange(false);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) setPendingSeriesChoice(null);
+    onOpenChange(next);
+  };
+
+  if (pendingSeriesChoice) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Select Series</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-xs">
+            This result matched more than one series. Choose which one applies to{" "}
+            <strong>{pendingSeriesChoice.bookName}</strong>.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Series</TableHead>
+                <TableHead>Part</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pendingSeriesChoice.series.map((s, idx) => (
+                <TableRow key={`${s.seriesName}-${idx}`}>
+                  <TableCell>{s.seriesName}</TableCell>
+                  <TableCell>{s.seriesPart}</TableCell>
+                  <TableCell>
+                    <Button size="sm" onClick={() => handleChooseSeries(idx)}>
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="border-border flex justify-end border-t pt-4">
+            <Button variant="outline" onClick={() => setPendingSeriesChoice(null)}>
+              Back to results
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Search Online Metadata</DialogTitle>

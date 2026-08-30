@@ -27,7 +27,7 @@ import {
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BookEditForm } from "@/components/BookEditForm";
 import { libraryApi, audiobookApi } from "@/services/api";
-import { useSignalREvent } from "@/hooks/useSignalR";
+import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
@@ -58,6 +58,17 @@ interface ImportCompletePayload {
   totalFailed: number;
 }
 
+interface OrganizeProgressPayload {
+  originalFileLocation: string;
+  progress: number;
+  progressMessage: string;
+}
+
+interface OrganizeQueueErrorPayload {
+  originalFileLocation: string;
+  error: string;
+}
+
 export function DiscoveredAudiobooks() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -65,6 +76,12 @@ export function DiscoveredAudiobooks() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+
+  // Live organize progress/error for the per-item "Import to Library" action, keyed by the
+  // discovered file's path (same key the backend reports UpdateProgress/QueueError under).
+  const [organizeOverrides, setOrganizeOverrides] = useState<
+    Record<string, { progress?: number; message?: string; error?: string }>
+  >({});
 
   // Scan state
   const [scanning, setScanning] = useState(false);
@@ -143,6 +160,41 @@ export function DiscoveredAudiobooks() {
     });
   });
 
+  // SignalR single-item organize events (queued via "Import to Library" below)
+  useSignalREvent<OrganizeProgressPayload>("UpdateProgress", (payload) => {
+    setOrganizeOverrides((prev) => ({
+      ...prev,
+      [payload.originalFileLocation]: {
+        progress: payload.progress,
+        message: payload.progressMessage,
+      },
+    }));
+
+    if (payload.progress >= 100) {
+      void queryClient.invalidateQueries({
+        queryKey: ["discoveredAudiobooks"],
+      });
+    }
+  });
+
+  useSignalREvent<OrganizeQueueErrorPayload>("QueueError", (payload) => {
+    setOrganizeOverrides((prev) => ({
+      ...prev,
+      [payload.originalFileLocation]: {
+        error: payload.error,
+      },
+    }));
+    toast.error(`Organize failed: ${payload.error}`);
+  });
+
+  // A dropped/re-established connection may have missed progress or completion events for
+  // an in-flight import; re-fetching re-derives the list's state the same way it does on mount.
+  useSignalRReconnected(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["discoveredAudiobooks"],
+    });
+  });
+
   const handleStartScan = async () => {
     setScanning(true);
     setScanResult(null);
@@ -198,13 +250,14 @@ export function DiscoveredAudiobooks() {
     }
   };
 
-  const handleOrganizeDiscovered = async (book: Audiobook) => {
+  const handleOrganizeDiscovered = async (path: string, book: Audiobook) => {
     try {
       await audiobookApi.organizeBook(book);
-      toast.success("Book organization queued");
-      void queryClient.invalidateQueries({
-        queryKey: ["discoveredAudiobooks"],
-      });
+      toast.success("Book added to organization queue");
+      setOrganizeOverrides((prev) => ({
+        ...prev,
+        [path]: { progress: 0, message: "Queued..." },
+      }));
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     }
@@ -320,6 +373,9 @@ export function DiscoveredAudiobooks() {
         <Accordion type="single" collapsible className="space-y-2">
           {books.map((book) => {
             const isSelected = selectedPaths.has(book.fullPath);
+            const override = organizeOverrides[book.fullPath];
+            const isOrganizing = Boolean(override && override.error == null);
+            const organizeError = override?.error;
 
             const initialAudiobook: Audiobook = {
               authors: book.authors,
@@ -390,6 +446,29 @@ export function DiscoveredAudiobooks() {
                           Duplicate target
                         </Badge>
                       ) : null}
+
+                      {isOrganizing && (
+                        <div className="w-36 text-right">
+                          {override?.progress != null ? (
+                            <OperationProgressBar
+                              processed={override.progress}
+                              total={100}
+                              label={override.message || "Organizing..."}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground text-xs">
+                              {override?.message || "Queued..."}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {organizeError && (
+                        <Badge variant="destructive" className="gap-1 text-[11px]">
+                          <AlertTriangle className="h-3 w-3" />
+                          Organize failed
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </AccordionTrigger>
@@ -412,7 +491,7 @@ export function DiscoveredAudiobooks() {
                     <BookEditForm
                       initialBook={initialAudiobook}
                       currentPath={book.fullPath}
-                      onSave={handleOrganizeDiscovered}
+                      onSave={(edited) => handleOrganizeDiscovered(book.fullPath, edited)}
                       formActions={
                         <Button type="submit">
                           <FolderInput className="mr-2 h-4 w-4" />

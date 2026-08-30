@@ -7,12 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
+import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export function MissingTags() {
   const queryClient = useQueryClient();
-  const [selectedFields, setSelectedFields] = useState<string[]>([]);
   const [backfilling, setBackfilling] = useState(false);
 
   const { data: fields = [], isLoading: loadingFields } = useQuery({
@@ -20,14 +20,12 @@ export function MissingTags() {
     queryFn: () => missingTagsApi.getFields(),
   });
 
-  // Default to first field if none selected
-  const activeSelected =
-    selectedFields.length > 0 ? selectedFields : fields[0]?.key ? [fields[0].key] : [];
+  const [selectedFields, setSelectedFields] = useMissingTagSelection(fields);
 
   const { data: audiobooks = [], isLoading: loadingBooks } = useQuery({
-    queryKey: ["missingTagsAudiobooks", activeSelected],
-    queryFn: () => missingTagsApi.getAudiobooksMissingTags(activeSelected),
-    enabled: activeSelected.length > 0,
+    queryKey: ["missingTagsAudiobooks", selectedFields],
+    queryFn: () => missingTagsApi.getAudiobooksMissingTags(selectedFields),
+    enabled: selectedFields.length > 0,
   });
 
   const { data: backfillStatus } = useQuery({
@@ -47,10 +45,23 @@ export function MissingTags() {
   }, [backfilling, backfillStatus, queryClient]);
 
   const toggleField = (key: string) => {
-    setSelectedFields((prev) => {
-      const current = prev.length > 0 ? prev : fields[0]?.key ? [fields[0].key] : [];
-      return current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-    });
+    setSelectedFields(
+      selectedFields.includes(key)
+        ? selectedFields.filter((k) => k !== key)
+        : [...selectedFields, key],
+    );
+  };
+
+  const selectCriticalOnly = () => {
+    setSelectedFields(fields.filter((f) => f.isCriticalByDefault).map((f) => f.key));
+  };
+
+  const selectAllFields = () => {
+    setSelectedFields(fields.map((f) => f.key));
+  };
+
+  const clearSelection = () => {
+    setSelectedFields([]);
   };
 
   const handleStartLanguageBackfill = async () => {
@@ -108,12 +119,28 @@ export function MissingTags() {
       )}
 
       <div className="space-y-2">
-        <label className="text-muted-foreground text-xs font-semibold uppercase">
-          Select Fields to Inspect
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="text-muted-foreground text-xs font-semibold uppercase">
+            Select Fields to Inspect
+          </label>
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            onClick={selectCriticalOnly}
+          >
+            Critical only
+          </Button>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={selectAllFields}>
+            Select all
+          </Button>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={clearSelection}>
+            Clear
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-2">
           {fields.map((f) => {
-            const isSelected = activeSelected.includes(f.key);
+            const isSelected = selectedFields.includes(f.key);
             return (
               <Badge
                 key={f.key}
