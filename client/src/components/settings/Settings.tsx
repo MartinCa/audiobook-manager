@@ -1,125 +1,255 @@
-import React, { useState, useEffect } from "react";
-import { Settings as SettingsIcon, Save } from "lucide-react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Settings as SettingsIcon, Plus, Trash2, Edit2, Loader2, BookMarked } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, handleApiError } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { settingsApi } from "@/services/api";
+import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
+import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 
-export const Settings: React.FC = () => {
-  const [importPath, setImportPath] = useState("");
-  const [libraryPath, setLibraryPath] = useState("");
-  const [hardcoverApiKey, setHardcoverApiKey] = useState("");
-  const [loading, setLoading] = useState(true);
+export function Settings() {
+  const queryClient = useQueryClient();
+
+  // Dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<SeriesMapping | null>(null);
+  const [mappedSeries, setMappedSeries] = useState("");
+  const [regex, setRegex] = useState("");
+  const [warnAboutPart, setWarnAboutPart] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    api
-      .get("/settings")
-      .then((res) => {
-        setImportPath(res.data?.audiobookImportPath || "");
-        setLibraryPath(res.data?.audiobookLibraryPath || "");
-        setHardcoverApiKey(res.data?.hardcoverApiKey || "");
-      })
-      .catch((err) => toast.error(handleApiError(err).message))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: mappings = [], isLoading: loading } = useQuery({
+    queryKey: ["seriesMappings"],
+    queryFn: () => settingsApi.getSeriesMappings(),
+  });
+
+  const handleOpenCreate = () => {
+    setEditingMapping(null);
+    setMappedSeries("");
+    setRegex("");
+    setWarnAboutPart(false);
+    setDialogOpen(true);
+  };
+
+  const handleOpenEdit = (m: SeriesMapping) => {
+    setEditingMapping(m);
+    setMappedSeries(m.mappedSeries);
+    setRegex(m.regex);
+    setWarnAboutPart(m.warnAboutPart);
+    setDialogOpen(true);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!mappedSeries.trim() || !regex.trim()) return;
+
     setSaving(true);
     try {
-      await api.post("/settings", {
-        audiobookImportPath: importPath,
-        audiobookLibraryPath: libraryPath,
-        hardcoverApiKey: hardcoverApiKey || undefined,
-      });
-      toast.success("Settings updated successfully");
-    } catch (err) {
+      if (editingMapping) {
+        await settingsApi.updateSeriesMapping(editingMapping.id, {
+          id: editingMapping.id,
+          mappedSeries: mappedSeries.trim(),
+          regex: regex.trim(),
+          warnAboutPart,
+        });
+        toast.success("Series mapping updated");
+      } else {
+        const payload: SeriesMappingBase = {
+          mappedSeries: mappedSeries.trim(),
+          regex: regex.trim(),
+          warnAboutPart,
+        };
+        await settingsApi.createSeriesMapping(payload);
+        toast.success("Series mapping created");
+      }
+      setDialogOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["seriesMappings"] });
+    } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="text-center py-12 text-muted-foreground text-sm">
-        Loading settings...
-      </div>
-    );
-  }
+  const handleDelete = async (id: number) => {
+    try {
+      await settingsApi.deleteSeriesMapping(id);
+      toast.success("Series mapping deleted");
+      void queryClient.invalidateQueries({ queryKey: ["seriesMappings"] });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    }
+  };
+
+  // Group by mappedSeries
+  const grouped = mappings.reduce<Record<string, SeriesMapping[]>>((acc, item) => {
+    const list = acc[item.mappedSeries] || [];
+    list.push(item);
+    acc[item.mappedSeries] = list;
+    return acc;
+  }, {});
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <SettingsIcon className="h-6 w-6 text-primary" />
-          Settings
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Configure storage paths and API integrations for metadata providers.
-        </p>
+    <div className="max-w-4xl space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
+            <SettingsIcon className="text-primary h-6 w-6" />
+            Settings
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Configure series name regular expression mappings.
+          </p>
+        </div>
+
+        <Button onClick={handleOpenCreate}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Series Mapping
+        </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Application Configuration</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <BookMarked className="text-primary h-5 w-5" />
+            Series Regex Mappings ({mappings.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
+          <p className="text-muted-foreground mb-4 text-xs">
+            Regular expressions match scraped or embedded series names and normalize them to a
+            standard canonical series title.
+          </p>
+
+          {loading ? (
+            <div className="text-muted-foreground flex items-center justify-center py-12">
+              <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading mappings...</span>
+            </div>
+          ) : mappings.length === 0 ? (
+            <div className="text-muted-foreground border-border rounded-lg border border-dashed p-8 text-center text-sm">
+              No series mappings configured yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(grouped).map(([canonical, items]) => (
+                <div
+                  key={canonical}
+                  className="border-border bg-card space-y-2 rounded-lg border p-4"
+                >
+                  <div className="text-foreground text-sm font-semibold">Target: {canonical}</div>
+                  <div className="space-y-1.5 pl-2">
+                    {items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="bg-muted/40 flex items-center justify-between rounded px-3 py-2 text-xs"
+                      >
+                        <div className="text-muted-foreground font-mono">
+                          Pattern:{" "}
+                          <span className="text-foreground font-semibold">{item.regex}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleOpenEdit(item)}
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive h-7 w-7"
+                            onClick={() => {
+                              void handleDelete(item.id);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingMapping ? "Edit Series Mapping" : "Create Series Mapping"}
+            </DialogTitle>
+          </DialogHeader>
+
           <form
-            onSubmit={handleSave}
-            className="space-y-4"
+            onSubmit={(e) => {
+              void handleSave(e);
+            }}
+            className="space-y-4 py-2"
           >
-            <div>
-              <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
-                Import Path
+            <div className="space-y-1">
+              <label className="text-muted-foreground text-xs font-semibold uppercase">
+                Target Series Name <span className="text-destructive">*</span>
               </label>
               <Input
-                value={importPath}
-                onChange={(e) => setImportPath(e.target.value)}
-                placeholder="/data/import"
+                placeholder="The Wheel of Time"
+                value={mappedSeries}
+                onChange={(e) => setMappedSeries(e.target.value)}
                 required
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
-                Library Path
+            <div className="space-y-1">
+              <label className="text-muted-foreground text-xs font-semibold uppercase">
+                Regex Pattern <span className="text-destructive">*</span>
               </label>
               <Input
-                value={libraryPath}
-                onChange={(e) => setLibraryPath(e.target.value)}
-                placeholder="/data/library"
+                placeholder="(?i)^wheel of time.*"
+                value={regex}
+                onChange={(e) => setRegex(e.target.value)}
+                className="font-mono"
                 required
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
-                Hardcover API Key
-              </label>
-              <Input
-                type="password"
-                value={hardcoverApiKey}
-                onChange={(e) => setHardcoverApiKey(e.target.value)}
-                placeholder="Optional GraphQL API Key"
+            <div className="flex items-center space-x-2 pt-1">
+              <input
+                type="checkbox"
+                id="warnAboutPart"
+                checked={warnAboutPart}
+                onChange={(e) => setWarnAboutPart(e.target.checked)}
+                className="border-border h-4 w-4 rounded"
               />
-            </div>
-
-            <div className="flex justify-end pt-4">
-              <Button
-                type="submit"
-                disabled={saving}
+              <label
+                htmlFor="warnAboutPart"
+                className="text-muted-foreground cursor-pointer text-xs"
               >
-                <Save className="h-4 w-4 mr-2" />
-                {saving ? "Saving..." : "Save Settings"}
+                Warn if series part is found
+              </label>
+            </div>
+
+            <div className="border-border flex justify-end gap-2 border-t pt-4">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                {editingMapping ? "Save Changes" : "Create Mapping"}
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
-};
+}
+
 export default Settings;

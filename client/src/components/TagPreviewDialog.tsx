@@ -1,162 +1,308 @@
-import React from "react";
-import { BookOpen, Folder, Trash2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Audiobook } from "@/types/domain";
-import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
+import { Checkbox } from "@/components/ui/checkbox";
+import { settingsApi } from "@/services/api";
+import { joinPersons } from "@/helpers/bookDetailsHelpers";
+import { languageLabel, normalizeLanguage } from "@/helpers/languages";
+import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
+import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
 interface TagPreviewDialogProps {
-  book: Audiobook | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDelete?: (book: Audiobook) => void;
+  currentInput: OrganizeAudiobookInput;
+  searchResult: MetadataSearchResult;
+  onApply: (result: MetadataSearchResult, selectedFields: Set<string>) => void;
 }
 
-export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
-  book,
+interface FieldDiff {
+  key: string;
+  label: string;
+  currentValue: string;
+  newValue: string;
+  changed: boolean;
+}
+
+const truncate = (str: string, length: number): string => {
+  if (str.length <= length) return str;
+  return str.substring(0, length) + "...";
+};
+
+export function TagPreviewDialog({
   open,
   onOpenChange,
-  onDelete,
-}) => {
-  if (!book) return null;
+  currentInput,
+  searchResult,
+  onApply,
+}: TagPreviewDialogProps) {
+  const { data: langData } = useQuery({
+    queryKey: ["languages"],
+    queryFn: () => settingsApi.getLanguages(),
+    staleTime: Infinity,
+  });
+
+  const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
+
+  const fields = useMemo((): FieldDiff[] => {
+    const cur = currentInput;
+    const res = searchResult;
+
+    const newAuthors = joinPersons(res.authors) ?? "";
+    const newNarrators = joinPersons(res.narrators) ?? "";
+    const firstSeries = res.series?.[0];
+    const newSeries = firstSeries?.seriesName ?? "";
+    const newSeriesPart = firstSeries?.seriesPart ?? "";
+    const newGenres = res.genres?.join("/") ?? "";
+
+    const currentLanguage = normalizeLanguage(cur.language, languages) ?? cur.language ?? "";
+    const newLanguage = normalizeLanguage(res.language, languages) ?? currentLanguage;
+
+    return [
+      {
+        key: "authors",
+        label: "Authors",
+        currentValue: cur.authors ?? "",
+        newValue: newAuthors,
+        changed: (cur.authors ?? "") !== newAuthors,
+      },
+      {
+        key: "narrators",
+        label: "Narrators",
+        currentValue: cur.narrators ?? "",
+        newValue: newNarrators,
+        changed: (cur.narrators ?? "") !== newNarrators,
+      },
+      {
+        key: "bookName",
+        label: "Book Name",
+        currentValue: cur.bookName ?? "",
+        newValue: res.bookName ?? "",
+        changed: (cur.bookName ?? "") !== (res.bookName ?? ""),
+      },
+      {
+        key: "subtitle",
+        label: "Subtitle",
+        currentValue: cur.subtitle ?? "",
+        newValue: res.subtitle ?? "",
+        changed: (cur.subtitle ?? "") !== (res.subtitle ?? ""),
+      },
+      {
+        key: "series",
+        label: "Series",
+        currentValue: [cur.series, cur.seriesPart].filter(Boolean).join(" #") || "",
+        newValue: [newSeries, newSeriesPart].filter(Boolean).join(" #") || "",
+        changed: (cur.series ?? "") !== newSeries || (cur.seriesPart ?? "") !== newSeriesPart,
+      },
+      {
+        key: "year",
+        label: "Year",
+        currentValue: cur.year?.toString() ?? "",
+        newValue: res.year?.toString() ?? "",
+        changed: cur.year !== res.year,
+      },
+      {
+        key: "genres",
+        label: "Genres",
+        currentValue: cur.genres ?? "",
+        newValue: newGenres,
+        changed: (cur.genres ?? "") !== newGenres,
+      },
+      {
+        key: "description",
+        label: "Description",
+        currentValue: truncate(cur.description ?? "", 100),
+        newValue: truncate(res.description ?? "", 100),
+        changed: (cur.description ?? "") !== (res.description ?? ""),
+      },
+      {
+        key: "rating",
+        label: "Rating",
+        currentValue: cur.rating?.toString() ?? "",
+        newValue: res.rating?.toString() ?? "",
+        changed: cur.rating?.toString() !== res.rating?.toString(),
+      },
+      {
+        key: "publisher",
+        label: "Publisher",
+        currentValue: cur.publisher ?? "",
+        newValue: res.publisher ?? "",
+        changed: (cur.publisher ?? "") !== (res.publisher ?? ""),
+      },
+      {
+        key: "language",
+        label: "Language",
+        currentValue: languageLabel(currentLanguage, languages),
+        newValue: languageLabel(newLanguage, languages),
+        changed: currentLanguage !== newLanguage,
+      },
+      {
+        key: "copyright",
+        label: "Copyright",
+        currentValue: cur.copyright ?? "",
+        newValue: res.copyright ?? "",
+        changed: (cur.copyright ?? "") !== (res.copyright ?? ""),
+      },
+      {
+        key: "asin",
+        label: "ASIN",
+        currentValue: cur.asin ?? "",
+        newValue: res.asin ?? "",
+        changed: (cur.asin ?? "") !== (res.asin ?? ""),
+      },
+      {
+        key: "www",
+        label: "URL",
+        currentValue: cur.www ?? "",
+        newValue: res.url ?? "",
+        changed: (cur.www ?? "") !== (res.url ?? ""),
+      },
+      {
+        key: "cover",
+        label: "Cover",
+        currentValue: cur.cover_base64 ? "Has cover" : "",
+        newValue: res.imageUrl ?? "",
+        changed: Boolean(res.imageUrl),
+      },
+    ];
+  }, [currentInput, searchResult, languages]);
+
+  const changedFieldKeys = useMemo(
+    () => fields.filter((f) => f.changed).map((f) => f.key),
+    [fields],
+  );
+
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+
+  // Update selected when fields change
+  const [lastSearchResult, setLastSearchResult] = useState<MetadataSearchResult | null>(null);
+  if (searchResult !== lastSearchResult) {
+    setLastSearchResult(searchResult);
+    setSelected(new Set(changedFieldKeys));
+  }
+
+  const toggleField = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === changedFieldKeys.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(changedFieldKeys));
+    }
+  };
+
+  const handleApplySelected = () => {
+    onApply(searchResult, selected);
+    onOpenChange(false);
+  };
+
+  const handleApplyAll = () => {
+    const allKeys = new Set(fields.map((f) => f.key));
+    onApply(searchResult, allKeys);
+    onOpenChange(false);
+  };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-    >
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-primary" />
-            {book.bookName}
-          </DialogTitle>
+          <DialogTitle>Metadata Preview & Diff</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
-          <div className="flex gap-6">
-            {book.coverPath ? (
-              <img
-                src={`/api/image/cover?path=${encodeURIComponent(book.coverPath)}`}
-                alt={book.bookName}
-                className="w-32 h-44 object-cover rounded shadow"
-              />
-            ) : (
-              <div className="w-32 h-44 bg-muted rounded flex items-center justify-center">
-                <BookOpen className="h-10 w-10 text-muted-foreground" />
-              </div>
-            )}
+        <div className="space-y-4 py-2 text-xs">
+          <p className="text-muted-foreground">
+            Review scraped metadata from{" "}
+            <strong className="text-foreground">{searchResult.source}</strong>. Select which fields
+            you want to update.
+          </p>
 
-            <div className="space-y-2 text-sm flex-1">
-              <div>
-                <span className="text-xs text-muted-foreground font-semibold uppercase block">
-                  Authors
-                </span>
-                <span>{book.authors?.join(", ") || "Unknown"}</span>
-              </div>
-
-              {book.narrators && book.narrators.length > 0 && (
-                <div>
-                  <span className="text-xs text-muted-foreground font-semibold uppercase block">
-                    Narrators
-                  </span>
-                  <span>{book.narrators.join(", ")}</span>
-                </div>
-              )}
-
-              {book.series && (
-                <div>
-                  <span className="text-xs text-muted-foreground font-semibold uppercase block">
-                    Series
-                  </span>
-                  <span>
-                    {book.series} {book.seriesPart && `#${book.seriesPart}`}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex gap-4">
-                {book.year && (
-                  <div>
-                    <span className="text-xs text-muted-foreground font-semibold uppercase block">
-                      Year
-                    </span>
-                    <span>{book.year}</span>
-                  </div>
-                )}
-                {book.language && (
-                  <div>
-                    <span className="text-xs text-muted-foreground font-semibold uppercase block">
-                      Language
-                    </span>
-                    <span>{book.language}</span>
-                  </div>
-                )}
-              </div>
-            </div>
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={toggleAll}>
+              {selected.size === changedFieldKeys.length
+                ? "Deselect All Changed"
+                : "Select All Changed"}
+            </Button>
+            <span className="text-muted-foreground">
+              {selected.size} of {changedFieldKeys.length} changed fields selected
+            </span>
           </div>
 
-          {book.description && (
-            <div>
-              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-1">
-                Description
-              </span>
-              <p className="text-sm bg-muted/40 p-3 rounded-md whitespace-pre-wrap leading-relaxed">
-                {book.description}
-              </p>
-            </div>
-          )}
-
-          {book.genres && book.genres.length > 0 && (
-            <div>
-              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-2">
-                Genres
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {book.genres.map((g) => (
-                  <Badge
-                    key={g}
-                    variant="secondary"
-                  >
-                    {g}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="text-xs text-muted-foreground space-y-1 pt-4 border-t border-border">
-            <div className="flex items-center gap-2">
-              <Folder className="h-3.5 w-3.5" />
-              <span className="truncate">{book.fullPath}</span>
-            </div>
-            <div className="flex gap-4 pt-1">
-              <span>Duration: {formatDuration(book.durationInSeconds)}</span>
-              <span>Size: {formatFileSize(book.fileSizeInBytes)}</span>
-            </div>
+          <div className="border-border max-h-96 overflow-y-auto rounded-md border">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="bg-muted/70 text-muted-foreground sticky top-0 border-b">
+                <tr>
+                  <th className="w-10 p-2 text-center">Use</th>
+                  <th className="w-24 p-2">Field</th>
+                  <th className="p-2">Current Value</th>
+                  <th className="p-2">New Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-border divide-y">
+                {fields.map((field) => {
+                  const isChecked = selected.has(field.key);
+                  return (
+                    <tr
+                      key={field.key}
+                      className={
+                        field.changed
+                          ? "bg-muted/20 hover:bg-muted/40 font-medium"
+                          : "text-muted-foreground hover:bg-muted/10 opacity-70"
+                      }
+                    >
+                      <td className="p-2 text-center">
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={() => toggleField(field.key)}
+                        />
+                      </td>
+                      <td className="text-foreground p-2 font-semibold">{field.label}</td>
+                      <td className="p-2 break-words">
+                        {field.currentValue || (
+                          <span className="text-muted-foreground italic">—</span>
+                        )}
+                      </td>
+                      <td className="p-2 break-words">
+                        <span
+                          className={
+                            field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
+                          }
+                        >
+                          {field.newValue || (
+                            <span className="text-muted-foreground italic">—</span>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
-          {onDelete && (
-            <div className="flex justify-end pt-2">
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => onDelete(book)}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Audiobook
-              </Button>
-            </div>
-          )}
+          <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button variant="outline" disabled={selected.size === 0} onClick={handleApplySelected}>
+              Apply Selected ({selected.size})
+            </Button>
+            <Button onClick={handleApplyAll}>Apply All</Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
-};
+}
+
 export default TagPreviewDialog;

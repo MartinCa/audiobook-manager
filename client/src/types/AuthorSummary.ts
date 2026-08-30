@@ -1,5 +1,7 @@
-export default interface AuthorSummary {
+export interface AuthorSummary {
   id: number;
   name: string;
   bookCount: number;
 }
+
+export type { AuthorSummary as default };

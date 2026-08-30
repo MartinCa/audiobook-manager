@@ -1,4 +1,4 @@
-import { AudiobookPerson } from "./Audiobook";
+import type { AudiobookPerson } from "./Audiobook";
 
 export interface MetadataSeriesSearchResult {
   seriesName: string;
@@ -15,7 +15,7 @@ export interface MetadataSearchResult {
   bookName: string;
   subtitle?: string;
   duration?: string;
-  year: number;
+  year?: number;
   language?: string;
   imageUrl?: string;
   series: MetadataSeriesSearchResult[];
@@ -28,3 +28,5 @@ export interface MetadataSearchResult {
   asin?: string;
   isbn?: string;
 }
+
+export type { MetadataSearchResult as default };

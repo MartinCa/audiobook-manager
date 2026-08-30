@@ -1,13 +1,15 @@
-export default interface ManagedAudiobook {
+export interface ManagedAudiobook {
   id: number;
   bookName: string;
   subtitle?: string;
   series?: string;
   seriesPart?: string;
-  year: number;
+  year?: number;
   authors: string[];
   narrators: string[];
   genres: string[];
   coverFilePath?: string;
   durationInSeconds?: number;
 }
+
+export type { ManagedAudiobook as default };

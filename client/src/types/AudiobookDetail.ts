@@ -1,4 +1,4 @@
-export default interface AudiobookDetail {
+export interface AudiobookDetail {
   id: number;
   bookName: string;
   subtitle?: string;
@@ -21,3 +21,5 @@ export default interface AudiobookDetail {
   fileName: string;
   sizeInBytes: number;
 }
+
+export type { AudiobookDetail as default };

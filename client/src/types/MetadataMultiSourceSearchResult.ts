@@ -1,13 +1,7 @@
-import { MetadataSearchResult } from "./MetadataSearchResult";
-
-export interface MetadataSourceSearchStatus {
-  source: string;
-  success: boolean;
-  resultCount: number;
-  error?: string;
-}
+import type { MetadataSearchResult } from "./MetadataSearchResult";
 
 export interface MetadataMultiSourceSearchResult {
   results: MetadataSearchResult[];
-  sourceStatuses: MetadataSourceSearchStatus[];
 }
+
+export type { MetadataMultiSourceSearchResult as default };

@@ -1,4 +1,4 @@
-import BookFileInfo from "./BookFileInfo";
+import type BookFileInfo from "./BookFileInfo";
 
 export interface AudiobookImage {
   base64Data: string;
@@ -33,3 +33,5 @@ export interface AudiobookPerson {
   name: string;
   role?: string;
 }
+
+export type { Audiobook as default };

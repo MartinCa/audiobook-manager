@@ -1,112 +1,103 @@
-import React, { useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 
 interface DuplicateTargetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  candidates: string[];
-  onConfirm: (targetValue: string) => void;
+  newPath: string;
+  newSizeInBytes: number;
+  newDurationInSeconds?: number;
+  targetPath: string;
+  existingSizeInBytes?: number;
+  existingDurationInSeconds?: number;
+  onReplaceExisting: () => void;
+  onDeleteNew: () => void;
 }
 
-export const DuplicateTargetDialog: React.FC<DuplicateTargetDialogProps> = ({
+export function DuplicateTargetDialog({
   open,
   onOpenChange,
-  candidates,
-  onConfirm,
-}) => {
-  const [selectedTarget, setSelectedTarget] = useState<string>(
-    candidates[0] || "",
-  );
-  const [customTarget, setCustomTarget] = useState("");
-
-  const handleConfirm = () => {
-    const finalValue =
-      selectedTarget === "custom" ? customTarget : selectedTarget;
-    if (finalValue.trim()) {
-      onConfirm(finalValue.trim());
-      onOpenChange(false);
-    }
-  };
-
+  newPath,
+  newSizeInBytes,
+  newDurationInSeconds,
+  targetPath,
+  existingSizeInBytes,
+  existingDurationInSeconds,
+  onReplaceExisting,
+  onDeleteNew,
+}: DuplicateTargetDialogProps) {
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-    >
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Select Target Alignment Value</DialogTitle>
+          <DialogTitle>Duplicate file at target location</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <p className="text-xs text-muted-foreground">
-            Choose which canonical value to apply across all matched entries:
+          <p className="text-muted-foreground text-sm">
+            A file already exists where this book would be organized to. Choose which copy to keep:
           </p>
 
-          <RadioGroup
-            value={selectedTarget}
-            onValueChange={setSelectedTarget}
-            className="space-y-2"
-          >
-            {candidates.map((cand) => (
-              <div
-                key={cand}
-                className="flex items-center space-x-2"
-              >
-                <RadioGroupItem
-                  value={cand}
-                  id={cand}
-                />
-                <label
-                  htmlFor={cand}
-                  className="text-sm cursor-pointer font-medium"
-                >
-                  {cand}
-                </label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="border-border bg-muted/40 rounded-lg border p-4">
+              <div className="text-foreground text-sm font-semibold">New file (Source)</div>
+              <div className="text-muted-foreground mt-1 text-xs break-all" title={newPath}>
+                {newPath}
               </div>
-            ))}
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem
-                value="custom"
-                id="custom"
-              />
-              <label
-                htmlFor="custom"
-                className="text-sm cursor-pointer font-medium"
-              >
-                Custom value:
-              </label>
+              <div className="mt-2 text-xs font-medium">Size: {formatFileSize(newSizeInBytes)}</div>
+              {newDurationInSeconds != null && (
+                <div className="text-muted-foreground text-xs">
+                  Duration: {formatDuration(newDurationInSeconds)}
+                </div>
+              )}
             </div>
-          </RadioGroup>
 
-          {selectedTarget === "custom" && (
-            <Input
-              placeholder="Enter custom value..."
-              value={customTarget}
-              onChange={(e) => setCustomTarget(e.target.value)}
-            />
-          )}
+            <div className="border-border bg-muted/40 rounded-lg border p-4">
+              <div className="text-foreground text-sm font-semibold">Existing file (Target)</div>
+              <div className="text-muted-foreground mt-1 text-xs break-all" title={targetPath}>
+                {targetPath}
+              </div>
+              {existingSizeInBytes != null && (
+                <div className="mt-2 text-xs font-medium">
+                  Size: {formatFileSize(existingSizeInBytes)}
+                </div>
+              )}
+              {existingDurationInSeconds != null && (
+                <div className="text-muted-foreground text-xs">
+                  Duration: {formatDuration(existingDurationInSeconds)}
+                </div>
+              )}
+            </div>
+          </div>
 
-          <div className="flex justify-end gap-2 pt-4 border-t border-border">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
+          <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={handleConfirm}>Confirm & Align</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onDeleteNew();
+                onOpenChange(false);
+              }}
+            >
+              Delete new file
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                onReplaceExisting();
+                onOpenChange(false);
+              }}
+            >
+              Replace existing
+            </Button>
           </div>
         </div>
       </DialogContent>
     </Dialog>
   );
-};
+}
+
 export default DuplicateTargetDialog;

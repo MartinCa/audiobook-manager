@@ -1,6 +1,6 @@
 export interface LibraryBookHit {
   id: number;
-  bookName?: string;
+  bookName: string;
   subtitle?: string;
   authors: string[];
   series?: string;
@@ -19,8 +19,10 @@ export interface LibrarySeriesHit {
   bookCount: number;
 }
 
-export default interface LibrarySearchResult {
+export interface LibrarySearchResult {
   books: LibraryBookHit[];
   authors: LibraryAuthorHit[];
   series: LibrarySeriesHit[];
 }
+
+export type { LibrarySearchResult as default };

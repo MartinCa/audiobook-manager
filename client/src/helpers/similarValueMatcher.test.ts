@@ -28,9 +28,6 @@ describe("similarValueMatcher helper", () => {
 
   it("finds similar existing candidates", () => {
     const list = ["JK Rowling", "J.K. Rowling", "Brandon Sanderson"];
-    expect(findSimilarExisting("J. K. Rowling", list)).toEqual([
-      "JK Rowling",
-      "J.K. Rowling",
-    ]);
+    expect(findSimilarExisting("J. K. Rowling", list)).toEqual(["JK Rowling", "J.K. Rowling"]);
   });
 });

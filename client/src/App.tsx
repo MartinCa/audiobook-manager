@@ -1,127 +1,132 @@
-import { ThemeProvider, useTheme } from "@/components/theme-provider";
-import { Routes, Route, Link, useLocation } from "react-router-dom";
+import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import {
   BookOpen,
   FolderInput,
-  AlertTriangle,
+  Library,
+  Settings as SettingsIcon,
+  ShieldAlert,
   Tag,
   Layers,
-  Settings as SettingsIcon,
-  Moon,
-  Sun,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import BookOrganize from "@/components/BookOrganize";
+import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { SignalRProvider } from "@/components/SignalRProvider";
+import { Toaster } from "@/components/ui/sonner";
+
+import BookList from "@/components/BookList";
 import BookLibrary from "@/components/BookLibrary";
+import BookDetail from "@/components/library/BookDetail";
+import DiscoveredAudiobooks from "@/components/library/DiscoveredAudiobooks";
+import SeriesOverviewPage from "@/components/library/SeriesOverview";
+import SeriesDetail from "@/components/library/SeriesDetail";
+import AuthorsList from "@/components/library/AuthorsList";
+import AuthorDetail from "@/components/library/AuthorDetail";
 import LibraryConsistency from "@/components/LibraryConsistency";
 import MissingTags from "@/components/MissingTags";
 import SimilarValues from "@/components/SimilarValues";
 import Settings from "@/components/settings/Settings";
+import LibrarySearch from "@/components/LibrarySearch";
 
 function AppContent() {
   const location = useLocation();
-  const { resolvedTheme, setTheme } = useTheme();
-
-  const toggleDarkMode = () => {
-    setTheme(resolvedTheme === "dark" ? "light" : "dark");
-  };
 
   const navItems = [
-    { path: "/", label: "Organize", icon: FolderInput },
-    { path: "/library", label: "Library", icon: BookOpen },
-    { path: "/consistency", label: "Consistency", icon: AlertTriangle },
-    { path: "/missing-tags", label: "Missing Tags", icon: Tag },
-    { path: "/similar-values", label: "Similar Values", icon: Layers },
+    { path: "/", label: "Organize Queue", icon: FolderInput },
+    { path: "/library", label: "Library", icon: Library },
+    { path: "/library/consistency", label: "Consistency", icon: ShieldAlert },
+    { path: "/library/missing-tags", label: "Missing Tags", icon: Tag },
+    { path: "/library/similar-values", label: "Similar Values", icon: Layers },
     { path: "/settings", label: "Settings", icon: SettingsIcon },
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center space-x-3">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <span className="font-bold text-lg">Audiobook Manager</span>
+    <div className="bg-background text-foreground flex min-h-screen flex-col">
+      <header className="border-border bg-card sticky top-0 z-40 border-b">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <Link to="/" className="flex shrink-0 items-center space-x-2">
+            <BookOpen className="text-primary h-6 w-6" />
+            <span className="text-foreground hidden text-lg font-bold sm:inline">
+              Audiobook Manager
+            </span>
+          </Link>
+
+          <div className="mx-2 max-w-sm flex-1">
+            <LibrarySearch />
           </div>
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            <nav className="flex space-x-1 sm:space-x-2">
+
+          <div className="flex shrink-0 items-center space-x-2">
+            <nav className="flex space-x-1 overflow-x-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"
-                    : location.pathname.startsWith(item.path);
+                    : location.pathname === item.path ||
+                      (item.path === "/library" &&
+                        location.pathname.startsWith("/library") &&
+                        !navItems.some(
+                          (other) =>
+                            other.path !== "/library" && location.pathname.startsWith(other.path),
+                        ));
+
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    className={`flex items-center space-x-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                       isActive
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">{item.label}</span>
                   </Link>
                 );
               })}
             </nav>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={toggleDarkMode}
-              title="Toggle theme"
-            >
-              {resolvedTheme === "dark" ? (
-                <Sun className="h-4 w-4 text-amber-400" />
-              ) : (
-                <Moon className="h-4 w-4 text-slate-700" />
-              )}
-            </Button>
+
+            <ThemeToggle />
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <Routes>
-          <Route
-            path="/"
-            element={<BookOrganize />}
-          />
-          <Route
-            path="/library/*"
-            element={<BookLibrary />}
-          />
-          <Route
-            path="/consistency"
-            element={<LibraryConsistency />}
-          />
-          <Route
-            path="/missing-tags"
-            element={<MissingTags />}
-          />
+          <Route path="/" element={<BookList />} />
+          <Route path="/library" element={<BookLibrary />} />
+          <Route path="/library/book/:bookId" element={<BookDetail />} />
+          <Route path="/library/discovered" element={<DiscoveredAudiobooks />} />
+          <Route path="/library/series" element={<SeriesOverviewPage />} />
+          <Route path="/library/series/:seriesName" element={<SeriesDetail />} />
+          <Route path="/library/authors" element={<AuthorsList />} />
+          <Route path="/library/authors/:authorId" element={<AuthorDetail />} />
+          <Route path="/library/consistency" element={<LibraryConsistency />} />
+          <Route path="/library/similar-values" element={<SimilarValues />} />
+          <Route path="/library/missing-tags" element={<MissingTags />} />
+          <Route path="/settings" element={<Settings />} />
+
+          {/* Backward compatibility route redirects */}
+          <Route path="/consistency" element={<Navigate to="/library/consistency" replace />} />
           <Route
             path="/similar-values"
-            element={<SimilarValues />}
+            element={<Navigate to="/library/similar-values" replace />}
           />
-          <Route
-            path="/settings"
-            element={<Settings />}
-          />
+          <Route path="/missing-tags" element={<Navigate to="/library/missing-tags" replace />} />
         </Routes>
       </main>
+
+      <Toaster richColors />
     </div>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider
-      defaultTheme="system"
-      storageKey="theme"
-    >
-      <AppContent />
+    <ThemeProvider defaultTheme="system" storageKey="theme">
+      <SignalRProvider>
+        <AppContent />
+      </SignalRProvider>
     </ThemeProvider>
   );
 }

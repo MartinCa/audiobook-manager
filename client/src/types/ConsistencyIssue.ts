@@ -1,4 +1,4 @@
-export default interface ConsistencyIssue {
+export interface ConsistencyIssue {
   id: number;
   audiobookId: number;
   bookName: string;
@@ -9,3 +9,5 @@ export default interface ConsistencyIssue {
   actualValue?: string;
   detectedAt: string;
 }
+
+export type { ConsistencyIssue as default };

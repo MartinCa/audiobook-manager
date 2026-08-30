@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  splitList,
-  joinList,
-  convertInputToAudiobook,
-} from "./organizeAudiobookInput";
+import { splitList, joinList, convertInputToAudiobook } from "./organizeAudiobookInput";
 
 describe("organizeAudiobookInput helper", () => {
   it("splits lists correctly", () => {

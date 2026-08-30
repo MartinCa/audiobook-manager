@@ -1,4 +1,4 @@
-export default interface BookFileInfo {
+export interface BookFileInfo {
   fullPath: string;
   fileName: string;
   sizeInBytes: number;
@@ -7,3 +7,5 @@ export default interface BookFileInfo {
   queueMessage?: string;
   error?: string;
 }
+
+export type { BookFileInfo as default };

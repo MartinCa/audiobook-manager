@@ -1,78 +1,249 @@
-import React from "react";
-import { BookOpen, Clock, HardDrive } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Audiobook } from "@/types/domain";
-import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderInput, RefreshCw, HardDrive, AlertCircle, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { OperationProgressBar } from "./OperationProgressBar";
+import { BookOrganize } from "./BookOrganize";
+import { untaggedApi, queueApi } from "@/services/api";
+import { useSignalREvent } from "@/hooks/useSignalR";
+import { formatFileSize } from "@/helpers/formatHelpers";
+import { toast } from "sonner";
+import type { BookFileInfo } from "@/types/BookFileInfo";
 
-interface BookListProps {
-  books: Audiobook[];
-  onSelectBook: (book: Audiobook) => void;
+interface ProgressUpdatePayload {
+  originalFileLocation: string;
+  progress: number;
+  progressMessage: string;
 }
 
-export const BookList: React.FC<BookListProps> = ({ books, onSelectBook }) => {
-  if (books.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground text-sm">
-        No audiobooks found in your library.
-      </div>
-    );
-  }
+interface QueueErrorPayload {
+  originalFileLocation: string;
+  error: string;
+}
+
+export function BookList() {
+  const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [activeItem, setActiveItem] = useState<string | undefined>(undefined);
+
+  // Live real-time progress overrides from SignalR
+  const [progressOverrides, setProgressOverrides] = useState<
+    Record<string, { progress?: number; message?: string; error?: string }>
+  >({});
+
+  const {
+    data,
+    isLoading: loading,
+    refetch,
+  } = useQuery({
+    queryKey: ["untaggedBooks", page, pageSize],
+    queryFn: async () => {
+      const [untaggedRes, queuedPaths] = await Promise.all([
+        untaggedApi.getUntagged(pageSize, (page - 1) * pageSize),
+        queueApi.getQueuedBooks().catch(() => [] as string[]),
+      ]);
+
+      const queuedSet = new Set(queuedPaths);
+      const items = untaggedRes.items.map((item) => ({
+        ...item,
+        queueId: queuedSet.has(item.fullPath) ? item.fullPath : item.queueId,
+        queueMessage: queuedSet.has(item.fullPath) ? "Queued..." : item.queueMessage,
+      }));
+
+      return { items, total: untaggedRes.total };
+    },
+  });
+
+  const books: BookFileInfo[] = data?.items ?? [];
+  const totalCount = data?.total ?? 0;
+
+  useSignalREvent<ProgressUpdatePayload>("UpdateProgress", (payload) => {
+    setProgressOverrides((prev) => ({
+      ...prev,
+      [payload.originalFileLocation]: {
+        progress: payload.progress,
+        message: payload.progressMessage,
+      },
+    }));
+
+    if (payload.progress >= 100) {
+      void queryClient.invalidateQueries({ queryKey: ["untaggedBooks"] });
+    }
+  });
+
+  useSignalREvent<QueueErrorPayload>("QueueError", (payload) => {
+    setProgressOverrides((prev) => ({
+      ...prev,
+      [payload.originalFileLocation]: {
+        error: payload.error,
+      },
+    }));
+    toast.error(`Queue error: ${payload.error}`);
+  });
+
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {books.map((book) => (
-        <Card
-          key={book.id || book.fullPath}
-          className="hover:border-primary transition-colors cursor-pointer flex flex-col justify-between"
-          onClick={() => onSelectBook(book)}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
+            <FolderInput className="text-primary h-6 w-6" />
+            Organize Audiobooks
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Process unorganized audio files into your structured library.
+          </p>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void refetch();
+          }}
+          disabled={loading}
         >
-          <CardContent className="p-4 flex gap-4">
-            {book.coverPath ? (
-              <img
-                src={`/api/image/cover?path=${encodeURIComponent(book.coverPath)}`}
-                alt={book.bookName}
-                className="w-20 h-28 object-cover rounded shrink-0"
-              />
-            ) : (
-              <div className="w-20 h-28 bg-muted rounded shrink-0 flex items-center justify-center">
-                <BookOpen className="h-8 w-8 text-muted-foreground" />
-              </div>
-            )}
-            <div className="flex-1 min-w-0 flex flex-col justify-between">
-              <div>
-                <h3 className="font-semibold text-sm line-clamp-2">
-                  {book.bookName}
-                </h3>
-                {book.authors && book.authors.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1 truncate">
-                    {book.authors.join(", ")}
-                  </p>
-                )}
-                {book.series && (
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {book.series} {book.seriesPart && `#${book.seriesPart}`}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mt-2">
-                {book.durationInSeconds && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {formatDuration(book.durationInSeconds)}
-                  </span>
-                )}
-                {book.fileSizeInBytes && (
-                  <span className="flex items-center gap-1">
-                    <HardDrive className="h-3 w-3" />
-                    {formatFileSize(book.fileSizeInBytes)}
-                  </span>
-                )}
-              </div>
-            </div>
-          </CardContent>
+          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Reload
+        </Button>
+      </div>
+
+      <div className="text-muted-foreground text-xs">
+        Showing {books.length} of {totalCount} files to organize
+      </div>
+
+      {loading && books.length === 0 ? (
+        <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
+          <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
+          <p className="text-sm">Loading files from import directory...</p>
+        </div>
+      ) : books.length === 0 ? (
+        <Card className="p-12 text-center">
+          <FolderInput className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
+          <h3 className="text-foreground text-lg font-medium">No audiobooks to organize</h3>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Place audiobook files in your input directory and reload to organize them.
+          </p>
         </Card>
-      ))}
+      ) : (
+        <Accordion
+          type="single"
+          collapsible
+          value={activeItem}
+          onValueChange={setActiveItem}
+          className="space-y-2"
+        >
+          {books.map((book) => {
+            const override = progressOverrides[book.fullPath];
+            const isQueued = Boolean(book.queueId || override?.progress != null);
+            const progress = override?.progress ?? book.queueProgress;
+            const message = override?.message ?? book.queueMessage;
+            const error = override?.error ?? book.error;
+
+            return (
+              <AccordionItem
+                key={book.fullPath}
+                value={book.fullPath}
+                className="border-border bg-card overflow-hidden rounded-lg border shadow-sm"
+              >
+                <div className="flex items-center justify-between px-4 py-3">
+                  <AccordionTrigger className="flex-1 py-0 text-left hover:no-underline">
+                    <div className="flex min-w-0 items-center gap-3 pr-4">
+                      <div className="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
+                        <FolderInput className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-foreground truncate text-sm font-semibold">
+                          {book.fileName}
+                        </div>
+                        <div className="text-muted-foreground flex items-center gap-3 text-xs">
+                          <span className="flex items-center gap-1">
+                            <HardDrive className="h-3 w-3" />
+                            {formatFileSize(book.sizeInBytes)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isQueued && (
+                      <div className="w-36 text-right">
+                        {progress != null && (
+                          <OperationProgressBar
+                            processed={progress}
+                            total={100}
+                            label={message || "Organizing..."}
+                          />
+                        )}
+                        {message && !progress && (
+                          <span className="text-muted-foreground text-xs">{message}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {error && (
+                      <span className="text-destructive flex items-center gap-1 text-xs">
+                        <AlertCircle className="h-3 w-3" />
+                        Failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <AccordionContent className="border-border bg-muted/20 border-t p-4">
+                  <BookOrganize
+                    file={book}
+                    onSuccess={() => {
+                      setActiveItem(undefined);
+                      void queryClient.invalidateQueries({
+                        queryKey: ["untaggedBooks"],
+                      });
+                    }}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })}
+        </Accordion>
+      )}
+
+      {totalPages > 1 && (
+        <div className="border-border flex items-center justify-between border-t pt-4">
+          <div className="text-muted-foreground text-xs">
+            Page {page} of {totalPages}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+}
+
 export default BookList;

@@ -1,193 +1,522 @@
-import React, { useState, useEffect } from "react";
-import { AlertTriangle, Play, CheckCircle2, Wrench } from "lucide-react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ShieldAlert,
+  Play,
+  CheckCircle2,
+  AlertTriangle,
+  FolderX,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { api, handleApiError } from "@/lib/api";
-import { ConsistencyIssue } from "@/types/domain";
-import OperationProgressBar from "./OperationProgressBar";
+import { Card } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OperationProgressBar } from "./OperationProgressBar";
+import { DiffDisplay } from "./DiffDisplay";
+import { consistencyApi } from "@/services/api";
+import { useSignalREvent } from "@/hooks/useSignalR";
+import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
+import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
+import type { OrphanDirectory } from "@/types/OrphanDirectory";
 
-export const LibraryConsistency: React.FC = () => {
-  const [issues, setIssues] = useState<ConsistencyIssue[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [resolving, setResolving] = useState(false);
-  const [progress, setProgress] = useState<{
-    processed: number;
-    total: number;
-  }>({
-    processed: 0,
-    total: 0,
+interface ProgressPayload {
+  message: string;
+  booksChecked: number;
+  totalBooks: number;
+  issuesFound: number;
+}
+
+interface CompletePayload {
+  totalBooksChecked: number;
+  totalIssuesFound: number;
+}
+
+export function LibraryConsistency() {
+  const queryClient = useQueryClient();
+
+  // Check state
+  const [checking, setChecking] = useState(false);
+  const [checkProgress, setCheckProgress] = useState<ProgressPayload | null>(null);
+  const [checkCompleteResult, setCheckCompleteResult] = useState<CompletePayload | null>(null);
+
+  // Selection state
+  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<number>>(new Set());
+  const [resolvingIds, setResolvingIds] = useState<Set<number>>(new Set());
+  const [resolvingTypes, setResolvingTypes] = useState<Set<string>>(new Set());
+  const [resolvingSelected, setResolvingSelected] = useState(false);
+
+  // Orphan dialog state
+  const [orphanToDelete, setOrphanToDelete] = useState<OrphanDirectory | null>(null);
+  const [deleteAllOrphansOpen, setDeleteAllOrphansOpen] = useState(false);
+  const [deletingOrphan, setDeletingOrphan] = useState(false);
+
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ["consistency"],
+    queryFn: async () => {
+      const [issuesData, orphansData] = await Promise.all([
+        consistencyApi.getIssues(),
+        consistencyApi.getOrphanDirectories().catch(() => []),
+      ]);
+      return { issues: issuesData, orphanDirs: orphansData };
+    },
   });
 
-  const fetchIssues = async () => {
-    setLoading(true);
+  const issues = data?.issues ?? [];
+  const orphanDirs = data?.orphanDirs ?? [];
+
+  useSignalREvent<ProgressPayload>("ConsistencyCheckProgress", (data) => {
+    setChecking(true);
+    setCheckProgress(data);
+  });
+
+  useSignalREvent<CompletePayload>("ConsistencyCheckComplete", (data) => {
+    setChecking(false);
+    setCheckProgress(null);
+    setCheckCompleteResult(data);
+    toast.success(
+      `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
+    );
+    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+  });
+
+  const handleStartCheck = async () => {
+    setChecking(true);
+    setCheckCompleteResult(null);
     try {
-      const res = await api.get<ConsistencyIssue[]>("/consistency/issues");
-      setIssues(res.data || []);
-    } catch (err) {
+      await consistencyApi.startCheck();
+      toast.success("Consistency check started in background");
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+      setChecking(false);
+    }
+  };
+
+  const handleResolveSingle = async (issue: ConsistencyIssue) => {
+    setResolvingIds((prev) => new Set(prev).add(issue.id));
+    try {
+      await consistencyApi.resolveIssue(issue.id);
+      toast.success("Issue resolved");
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      setSelectedIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issue.id);
+        return next;
+      });
+    } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
-      setLoading(false);
+      setResolvingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issue.id);
+        return next;
+      });
     }
   };
 
-  useEffect(() => {
-    fetchIssues();
-  }, []);
-
-  const handleRunCheck = async () => {
-    setLoading(true);
+  const handleResolveSelected = async (issueIds: number[]) => {
+    if (issueIds.length === 0) return;
+    setResolvingSelected(true);
     try {
-      await api.post("/consistency/check");
-      toast.info("Library consistency check started");
-    } catch (err) {
-      toast.error(handleApiError(err).message);
-      setLoading(false);
-    }
-  };
-
-  const handleResolveSelected = async () => {
-    if (selectedIds.length === 0) return;
-    setResolving(true);
-    setProgress({ processed: 0, total: selectedIds.length });
-    try {
-      await api.post("/consistency/resolve-batch", { ids: selectedIds });
-      toast.success("Batch resolution initiated");
-      setSelectedIds([]);
-    } catch (err) {
+      const res = await consistencyApi.resolveSelected(issueIds);
+      toast.success(`Resolved ${res.resolved} issues (${res.failed} failed)`);
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      setSelectedIssueIds(new Set());
+    } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
-      setResolving(false);
+      setResolvingSelected(false);
     }
   };
 
-  const handleToggleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedIds(issues.map((i) => i.id));
-    } else {
-      setSelectedIds([]);
+  const handleResolveByType = async (issueType: string) => {
+    setResolvingTypes((prev) => new Set(prev).add(issueType));
+    try {
+      const res = await consistencyApi.resolveByType(issueType);
+      toast.success(`Resolved ${res.resolved} issues of type "${issueType}"`);
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setResolvingTypes((prev) => {
+        const next = new Set(prev);
+        next.delete(issueType);
+        return next;
+      });
     }
   };
 
-  const handleToggleSelect = (id: number, checked: boolean) => {
-    if (checked) {
-      setSelectedIds((prev) => [...prev, id]);
-    } else {
-      setSelectedIds((prev) => prev.filter((i) => i !== id));
+  const handleDeleteOrphan = async () => {
+    if (!orphanToDelete) return;
+    setDeletingOrphan(true);
+    try {
+      await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
+      toast.success("Orphaned directory removed");
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      setOrphanToDelete(null);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setDeletingOrphan(false);
     }
   };
+
+  const handleDeleteAllOrphans = async () => {
+    setDeletingOrphan(true);
+    try {
+      const res = await consistencyApi.resolveAllOrphanDirectories();
+      toast.success(`Deleted ${res.resolved} orphaned directories`);
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      setDeleteAllOrphansOpen(false);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setDeletingOrphan(false);
+    }
+  };
+
+  // Group issues by issueType
+  const groupedIssues = issues.reduce<Record<string, ConsistencyIssue[]>>((acc, issue) => {
+    const list = acc[issue.issueType] || [];
+    list.push(issue);
+    acc[issue.issueType] = list;
+    return acc;
+  }, {});
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <AlertTriangle className="h-6 w-6 text-amber-500" />
-            Library Consistency
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Check for missing sidecar files, broken paths, or mismatched tags in
-            your library.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleRunCheck}
-            disabled={loading || resolving}
-          >
-            <Play className="h-4 w-4 mr-2" />
-            Run Check
-          </Button>
-          <Button
-            onClick={handleResolveSelected}
-            disabled={selectedIds.length === 0 || resolving}
-          >
-            <Wrench className="h-4 w-4 mr-2" />
-            Resolve Selected ({selectedIds.length})
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/library">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Library
+          </Link>
+        </Button>
+
+        <Button
+          variant="default"
+          onClick={() => {
+            void handleStartCheck();
+          }}
+          disabled={checking}
+        >
+          <Play className={`mr-2 h-4 w-4 ${checking ? "animate-spin" : ""}`} />
+          {checking ? "Running Check..." : "Run Consistency Check"}
+        </Button>
       </div>
 
-      {resolving && (
+      <div>
+        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
+          <ShieldAlert className="text-primary h-6 w-6" />
+          Library Consistency
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Verifies that every book in the library has the correct file path, sidecar metadata files
+          (desc.txt, reader.txt), and a cover image, and detects leftover orphaned folders.
+        </p>
+      </div>
+
+      {checking && checkProgress && (
         <OperationProgressBar
-          processed={progress.processed}
-          total={progress.total}
-          label="Resolving issues..."
+          processed={checkProgress.booksChecked}
+          total={checkProgress.totalBooks}
+          label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
         />
       )}
 
-      {loading ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          Loading consistency issues...
+      {checkCompleteResult && (
+        <div className="border-primary/20 bg-primary/10 text-foreground rounded-lg border p-3 text-xs">
+          Check complete: {checkCompleteResult.totalBooksChecked} books checked,{" "}
+          {checkCompleteResult.totalIssuesFound} issues found.
         </div>
-      ) : issues.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center space-y-3">
-            <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
-            <h3 className="font-semibold text-lg">
-              No Consistency Issues Found
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Your library files, sidecars, and database entries are completely
-              consistent!
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-border">
-            <div className="flex items-center space-x-3">
-              <Checkbox
-                checked={
-                  selectedIds.length === issues.length && issues.length > 0
-                }
-                onCheckedChange={handleToggleSelectAll}
-              />
-              <span className="text-sm font-semibold">Select All Issues</span>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              Total Issues: {issues.length}
-            </span>
-          </CardHeader>
-          <CardContent className="p-0 divide-y divide-border">
-            {issues.map((issue) => (
-              <div
-                key={issue.id}
-                className="p-4 flex items-start space-x-3 hover:bg-muted/30 transition-colors"
-              >
-                <Checkbox
-                  checked={selectedIds.includes(issue.id)}
-                  onCheckedChange={(checked) =>
-                    handleToggleSelect(issue.id, !!checked)
-                  }
-                  className="mt-1"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm">
-                      {issue.audiobookName}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className="text-xs"
-                    >
-                      {issue.type}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {issue.details}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
       )}
+
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-foreground text-lg font-bold">Issues ({issues.length})</h2>
+
+          {loading ? (
+            <div className="text-muted-foreground flex items-center justify-center py-12">
+              <Loader2 className="text-primary mr-2 h-6 w-6 animate-spin" />
+              <span className="text-sm">Checking issues...</span>
+            </div>
+          ) : issues.length === 0 ? (
+            <Card className="mt-3 p-8 text-center">
+              <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-500" />
+              <h3 className="text-foreground text-base font-semibold">
+                No Consistency Issues Found
+              </h3>
+              <p className="text-muted-foreground mt-1 text-xs">
+                All files, tags, and sidecar assets match their expected state.
+              </p>
+            </Card>
+          ) : (
+            <Accordion type="multiple" className="mt-3 space-y-3">
+              {Object.entries(groupedIssues).map(([type, typeIssues]) => {
+                const isResolvingType = resolvingTypes.has(type);
+                const selectedInGroup = typeIssues.filter((i) => selectedIssueIds.has(i.id));
+
+                return (
+                  <AccordionItem
+                    key={type}
+                    value={type}
+                    className="border-border bg-card rounded-lg border px-4 shadow-sm"
+                  >
+                    <AccordionTrigger className="py-3 hover:no-underline">
+                      <div className="flex w-full items-center justify-between pr-4 text-left">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          <span className="text-foreground font-semibold">{type}</span>
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className="bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                        >
+                          {typeIssues.length}
+                        </Badge>
+                      </div>
+                    </AccordionTrigger>
+
+                    <AccordionContent className="border-border border-t pt-4 pb-4">
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={
+                                selectedInGroup.length === typeIssues.length &&
+                                typeIssues.length > 0
+                              }
+                              onChange={(e) => {
+                                const check = e.target.checked;
+                                setSelectedIssueIds((prev) => {
+                                  const next = new Set(prev);
+                                  for (const i of typeIssues) {
+                                    if (check) next.add(i.id);
+                                    else next.delete(i.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="border-border h-4 w-4 rounded"
+                            />
+                            <span className="text-muted-foreground text-xs">
+                              Select all visible ({selectedInGroup.length} selected)
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {selectedInGroup.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={resolvingSelected}
+                                onClick={() => {
+                                  void handleResolveSelected(selectedInGroup.map((i) => i.id));
+                                }}
+                              >
+                                Resolve Selected ({selectedInGroup.length})
+                              </Button>
+                            )}
+
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={isResolvingType}
+                              onClick={() => {
+                                void handleResolveByType(type);
+                              }}
+                            >
+                              {isResolvingType ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : null}
+                              Resolve All {typeIssues.length}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          {typeIssues.map((issue) => {
+                            const isResolving = resolvingIds.has(issue.id);
+                            const isChecked = selectedIssueIds.has(issue.id);
+
+                            return (
+                              <div
+                                key={issue.id}
+                                className="border-border bg-muted/30 flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="flex min-w-0 items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setSelectedIssueIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (checked) next.add(issue.id);
+                                        else next.delete(issue.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="border-border mt-1 h-4 w-4 rounded"
+                                  />
+
+                                  <div className="min-w-0 space-y-1">
+                                    <Link
+                                      to={`/library/book/${issue.audiobookId}`}
+                                      className="text-primary text-xs font-semibold hover:underline"
+                                    >
+                                      {issue.authors.join(", ")} &mdash; {issue.bookName}
+                                    </Link>
+                                    <p className="text-muted-foreground text-xs">
+                                      {issue.description}
+                                    </p>
+
+                                    {issue.expectedValue && issue.actualValue ? (
+                                      <DiffDisplay
+                                        expected={issue.expectedValue}
+                                        actual={issue.actualValue}
+                                      />
+                                    ) : issue.expectedValue ? (
+                                      <div className="text-muted-foreground text-[11px]">
+                                        Expected: {issue.expectedValue}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isResolving}
+                                  onClick={() => {
+                                    void handleResolveSingle(issue);
+                                  }}
+                                  className="shrink-0 self-end sm:self-center"
+                                >
+                                  {isResolving ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    "Resolve"
+                                  )}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
+        </div>
+
+        {orphanDirs.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
+                <FolderX className="h-5 w-5 text-amber-500" />
+                Orphaned Directories ({orphanDirs.length})
+              </h2>
+              <Button variant="destructive" size="sm" onClick={() => setDeleteAllOrphansOpen(true)}>
+                Delete All {orphanDirs.length}
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {orphanDirs.map((dir) => (
+                <div
+                  key={dir.id}
+                  className="border-border bg-card flex items-center justify-between rounded-lg border p-3"
+                >
+                  <span className="text-muted-foreground font-mono text-xs break-all">
+                    {dir.directoryPath}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => setOrphanToDelete(dir)}>
+                    Delete
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Dialog
+        open={Boolean(orphanToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setOrphanToDelete(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Orphaned Directory</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-muted-foreground text-xs">
+              Are you sure you want to permanently delete this empty or orphaned folder?
+            </p>
+            <div className="bg-muted rounded p-2 font-mono text-xs break-all">
+              {orphanToDelete?.directoryPath}
+            </div>
+            <div className="border-border flex justify-end gap-2 border-t pt-4">
+              <Button variant="outline" onClick={() => setOrphanToDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deletingOrphan}
+                onClick={() => {
+                  void handleDeleteOrphan();
+                }}
+              >
+                {deletingOrphan ? "Deleting..." : "Delete Permanently"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteAllOrphansOpen} onOpenChange={setDeleteAllOrphansOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete All Orphaned Directories</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-muted-foreground text-xs">
+              This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
+              directories and any leftover files in them.
+            </p>
+            <div className="border-border flex justify-end gap-2 border-t pt-4">
+              <Button variant="outline" onClick={() => setDeleteAllOrphansOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deletingOrphan}
+                onClick={() => {
+                  void handleDeleteAllOrphans();
+                }}
+              >
+                {deletingOrphan ? "Deleting..." : "Delete All"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
-};
+}
+
 export default LibraryConsistency;

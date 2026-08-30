@@ -1,222 +1,261 @@
-import React, { useState, useEffect } from "react";
-import { Search, Globe, AlertCircle } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Search, ExternalLink, Loader2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { api, handleApiError } from "@/lib/api";
-import { MetadataSearchResult } from "@/types/domain";
+import { metadataSearchApi } from "@/services/api";
+import { handleApiError } from "@/lib/api";
+import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
 interface BookSearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectResult: (result: MetadataSearchResult) => void;
+  initialQuery?: string;
 }
 
-interface SearchServiceInfo {
-  sourceName: string;
-  isApiKeyConfigured: boolean;
-  requiresApiKey: boolean;
-}
-
-export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
+export function BookSearchDialog({
   open,
   onOpenChange,
   onSelectResult,
-}) => {
-  const [query, setQuery] = useState("");
-  const [services, setServices] = useState<SearchServiceInfo[]>([]);
+  initialQuery = "",
+}: BookSearchDialogProps) {
+  const [query, setQuery] = useState(initialQuery);
+  const [prevInitialQuery, setPrevInitialQuery] = useState(initialQuery);
+  if (initialQuery !== prevInitialQuery) {
+    setPrevInitialQuery(initialQuery);
+    setQuery(initialQuery);
+  }
+
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [results, setResults] = useState<MetadataSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      api
-        .get<SearchServiceInfo[]>("/metadata-search/services")
-        .then((res) => {
-          setServices(res.data);
-          const active = res.data
-            .filter((s) => !s.requiresApiKey || s.isApiKeyConfigured)
-            .map((s) => s.sourceName);
-          setSelectedSources(active);
-        })
-        .catch(() => {});
-    }
-  }, [open]);
+  const { data: services = [] } = useQuery({
+    queryKey: ["metadataServices"],
+    queryFn: () => metadataSearchApi.getServices(),
+    enabled: open,
+  });
+
+  const activeSources =
+    selectedSources.length > 0
+      ? selectedSources
+      : services.filter((s) => s.enabled).map((s) => s.name);
 
   const toggleSource = (sourceName: string) => {
-    setSelectedSources((prev) =>
-      prev.includes(sourceName)
-        ? prev.filter((s) => s !== sourceName)
-        : [...prev, sourceName],
+    const current = activeSources;
+    setSelectedSources(
+      current.includes(sourceName)
+        ? current.filter((s) => s !== sourceName)
+        : [...current, sourceName],
     );
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!query.trim() || activeSources.length === 0) return;
 
     setLoading(true);
     setError(null);
     setResults([]);
 
     try {
-      if (query.startsWith("http://") || query.startsWith("https://")) {
-        const res = await api.get<MetadataSearchResult>(
-          "/metadata-search/by-url",
-          {
-            params: { url: query },
-          },
-        );
-        setResults(res.data ? [res.data] : []);
-      } else {
-        const res = await api.get<MetadataSearchResult[]>(
-          "/metadata-search/search",
-          {
-            params: { query, sources: selectedSources.join(",") },
-          },
-        );
-        setResults(res.data || []);
-      }
-    } catch (err) {
-      const apiErr = handleApiError(err);
-      setError(apiErr.message);
+      const res = await metadataSearchApi.searchMultiple(activeSources, query.trim());
+      setResults(res.results || []);
+    } catch (err: unknown) {
+      setError(handleApiError(err).message);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleChoose = async (item: MetadataSearchResult) => {
+    if (item.url && (!item.authors?.length || !item.description)) {
+      setSelectingDetails(item.url);
+      try {
+        const fullDetails = await metadataSearchApi.getBookDetails(item.url);
+        onSelectResult(fullDetails);
+        onOpenChange(false);
+      } catch {
+        onSelectResult(item);
+        onOpenChange(false);
+      } finally {
+        setSelectingDetails(null);
+      }
+    } else {
+      onSelectResult(item);
+      onOpenChange(false);
+    }
+  };
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-    >
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Search Metadata</DialogTitle>
+          <DialogTitle>Search Online Metadata</DialogTitle>
         </DialogHeader>
 
-        <form
-          onSubmit={handleSearch}
-          className="space-y-4"
-        >
-          <div className="flex gap-2">
+        <div className="space-y-4 py-2">
+          <form
+            onSubmit={(e) => {
+              void handleSearch(e);
+            }}
+            className="flex gap-2"
+          >
             <Input
-              placeholder="Search by title, author, or paste URL..."
+              placeholder="Search title, author, or paste URL..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="flex-1"
             />
-            <Button
-              type="submit"
-              disabled={loading}
-            >
-              <Search className="h-4 w-4 mr-2" />
+            <Button type="submit" disabled={loading || !query.trim() || activeSources.length === 0}>
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
               Search
             </Button>
-          </div>
+          </form>
 
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs text-muted-foreground font-medium">
-              Sources:
-            </span>
-            {services.map((svc) => {
-              const isDisabled = svc.requiresApiKey && !svc.isApiKeyConfigured;
-              const isSelected = selectedSources.includes(svc.sourceName);
-              return (
-                <Badge
-                  key={svc.sourceName}
-                  variant={isSelected ? "default" : "outline"}
-                  className={`cursor-pointer ${
-                    isDisabled ? "opacity-50 cursor-not-allowed" : ""
-                  }`}
-                  onClick={() => !isDisabled && toggleSource(svc.sourceName)}
-                >
-                  {svc.sourceName}
-                  {isDisabled && " (No Key)"}
-                </Badge>
-              );
-            })}
-          </div>
-        </form>
-
-        {error && (
-          <div className="flex items-center gap-2 p-3 text-sm text-destructive border border-destructive/20 rounded-md bg-destructive/10">
-            <AlertCircle className="h-4 w-4" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto space-y-3 mt-4 pr-1">
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              Searching online services...
+          <div>
+            <div className="text-muted-foreground mb-1.5 text-xs font-semibold uppercase">
+              Metadata Sources
             </div>
-          ) : results.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              No metadata results found.
+            <div className="flex flex-wrap gap-2">
+              {services.map((service) => {
+                const isConfigured = service.enabled;
+                const isSelected = activeSources.includes(service.name);
+
+                return (
+                  <Badge
+                    key={service.name}
+                    variant={isSelected ? "default" : isConfigured ? "outline" : "secondary"}
+                    className={`cursor-pointer select-none ${
+                      !isConfigured ? "cursor-not-allowed opacity-50" : "hover:bg-primary/90"
+                    }`}
+                    onClick={() => {
+                      if (isConfigured) toggleSource(service.name);
+                    }}
+                  >
+                    {service.name}
+                    {!isConfigured && ` (${service.disabledReason || "Unavailable"})`}
+                  </Badge>
+                );
+              })}
             </div>
-          ) : (
-            results.map((res, i) => (
-              <Card
-                key={i}
-                className="hover:border-primary transition-colors cursor-pointer"
-                onClick={() => onSelectResult(res)}
-              >
-                <CardContent className="p-4 flex gap-4">
-                  {res.coverUrl ? (
-                    <img
-                      src={res.coverUrl}
-                      alt={res.title}
-                      className="w-16 h-20 object-cover rounded"
-                    />
-                  ) : (
-                    <div className="w-16 h-20 bg-muted rounded flex items-center justify-center">
-                      <Globe className="h-6 w-6 text-muted-foreground" />
+          </div>
+
+          {error && <p className="text-destructive text-xs">{error}</p>}
+
+          <div className="space-y-3">
+            {results.length > 0 && (
+              <div className="text-muted-foreground text-xs font-semibold uppercase">
+                Results ({results.length})
+              </div>
+            )}
+
+            {loading && (
+              <div className="text-muted-foreground flex items-center justify-center py-8 text-sm">
+                <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
+                Searching sources...
+              </div>
+            )}
+
+            {!loading && results.length === 0 && query && (
+              <div className="text-muted-foreground py-8 text-center text-sm">
+                No results found. Try changing your search query or sources.
+              </div>
+            )}
+
+            <div className="max-h-96 space-y-2 overflow-y-auto">
+              {results.map((result, idx) => {
+                const isBusy = selectingDetails === result.url;
+                return (
+                  <div
+                    key={`${result.source}-${result.bookName}-${idx}`}
+                    className="border-border bg-card hover:bg-muted/50 flex items-start justify-between gap-4 rounded-lg border p-3 transition-colors"
+                  >
+                    <div className="flex gap-3">
+                      {result.imageUrl && (
+                        <img
+                          src={metadataSearchApi.getProxyImageUrl(result.imageUrl)}
+                          alt={result.bookName}
+                          className="h-16 w-16 shrink-0 rounded object-cover shadow-sm"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = "none";
+                          }}
+                        />
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-foreground font-semibold">{result.bookName}</span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {result.source}
+                          </Badge>
+                          {result.year && (
+                            <span className="text-muted-foreground text-xs">({result.year})</span>
+                          )}
+                        </div>
+
+                        <div className="text-muted-foreground text-xs">
+                          {result.authors && result.authors.length > 0 && (
+                            <div>
+                              By:{" "}
+                              <span className="text-foreground font-medium">
+                                {result.authors.map((a) => a.name).join(", ")}
+                              </span>
+                            </div>
+                          )}
+                          {result.narrators && result.narrators.length > 0 && (
+                            <div>Narrated by: {result.narrators.map((n) => n.name).join(", ")}</div>
+                          )}
+                          {result.series?.[0] && (
+                            <div>
+                              Series: {result.series[0].seriesName}{" "}
+                              {result.series[0].seriesPart && `#${result.series[0].seriesPart}`}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start gap-2">
-                      <h4 className="font-semibold text-sm truncate">
-                        {res.title}
-                      </h4>
-                      <Badge
-                        variant="secondary"
-                        className="text-xs"
+
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <Button
+                        size="sm"
+                        disabled={isBusy}
+                        onClick={() => {
+                          void handleChoose(result);
+                        }}
                       >
-                        {res.source}
-                      </Badge>
+                        {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        Apply
+                      </Button>
+                      {result.url && (
+                        <a
+                          href={result.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground flex items-center text-[11px]"
+                        >
+                          <ExternalLink className="mr-1 h-3 w-3" />
+                          View Source
+                        </a>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      By: {res.authors.join(", ") || "Unknown"}
-                    </p>
-                    {res.narrators.length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        Narrated by: {res.narrators.join(", ")}
-                      </p>
-                    )}
-                    {res.series && (
-                      <p className="text-xs text-muted-foreground">
-                        Series: {res.series}{" "}
-                        {res.seriesPart && `#${res.seriesPart}`}
-                      </p>
-                    )}
                   </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
+                );
+              })}
+            </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
-};
+}
+
 export default BookSearchDialog;

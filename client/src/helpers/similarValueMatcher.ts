@@ -22,16 +22,10 @@ export function isNearMatch(
   return normInput === normCandidate || normCandidate.includes(normInput);
 }
 
-export function narrowByQuery(
-  candidates: string[],
-  query: string,
-  limit: number = 5,
-): string[] {
+export function narrowByQuery(candidates: string[], query: string, limit: number = 5): string[] {
   if (!query.trim()) return [];
   const normQuery = normalizeForMatch(query);
-  return candidates
-    .filter((c) => normalizeForMatch(c).includes(normQuery))
-    .slice(0, limit);
+  return candidates.filter((c) => normalizeForMatch(c).includes(normQuery)).slice(0, limit);
 }
 
 export function findSimilarExisting(

@@ -1,4 +1,4 @@
-export default interface OrganizeAudiobookInput {
+export interface OrganizeAudiobookInput {
   cover_base64?: string;
   cover_mime?: string;
   authors?: string;
@@ -19,3 +19,5 @@ export default interface OrganizeAudiobookInput {
   rating?: number;
   asin?: string;
 }
+
+export type { OrganizeAudiobookInput as default };
