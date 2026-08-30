@@ -495,7 +495,7 @@ they track them as reactive dependencies and retrigger on cover edits.
 - Vite dev server on port 3000, API on port 5271
 - Audio metadata handled via `z440.atl.core` library (ATL)
 - HTTP resilience via Polly
-- `client`'s build (`pnpm run build`) runs `tsc --noEmit` directly (no separate `vue-tsc`-style wrapper needed) before `vite build`.
+- `client`'s build (`pnpm run build`) runs `tsc --noEmit` directly before `vite build`.
 
 ## Testing Policy
 
