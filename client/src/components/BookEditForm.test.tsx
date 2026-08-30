@@ -11,6 +11,10 @@ vi.mock("@/services/api", () => ({
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
   },
+  similarValuesApi: {
+    getAuthorNames: vi.fn().mockResolvedValue([]),
+    getSeriesNames: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -78,6 +82,27 @@ describe("BookEditForm", () => {
 
     expect(await screen.findByText("At least one author is required")).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("shows a click-to-use hint when a similar author name already exists", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    const authorsInput = screen.getByDisplayValue("Jane Author");
+    fireEvent.change(authorsInput, { target: { value: "Jane" } });
+    fireEvent.blur(authorsInput);
+
+    expect(
+      await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
+
+    expect(screen.getByDisplayValue("Jane Authorr")).toBeInTheDocument();
   });
 
   it("calls onSave with the built audiobook on a valid submit", async () => {

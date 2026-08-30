@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, RotateCcw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
 import { TagPreviewDialog } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
-import { audiobookApi, settingsApi } from "@/services/api";
+import { audiobookApi, settingsApi, similarValuesApi } from "@/services/api";
 import {
   joinList,
   splitList,
@@ -26,6 +26,7 @@ import {
   normalizeSeriesPart,
 } from "@/helpers/organizeAudiobookInput";
 import { normalizeLanguage, languageSelectItems } from "@/helpers/languages";
+import { findSimilarExisting } from "@/helpers/similarValueMatcher";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -138,6 +139,22 @@ export function BookEditForm({
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [authorHint, setAuthorHint] = useState<string | null>(null);
+  const [seriesHint, setSeriesHint] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Entry-time duplicate prevention: flat name lists to check a typed Author/Series value
+  // against. Non-critical — the hint below just won't show if this fails to load.
+  const { data: authorNames = [] } = useQuery({
+    queryKey: ["similarValueNames", "authors"],
+    queryFn: () => similarValuesApi.getAuthorNames(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: seriesNames = [] } = useQuery({
+    queryKey: ["similarValueNames", "series"],
+    queryFn: () => similarValuesApi.getSeriesNames(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const form = useForm<BookEditFormValues>({
     resolver: zodResolver(bookEditFormSchema),
@@ -298,6 +315,9 @@ export function BookEditForm({
     setSaving(true);
     try {
       await onSave(buildAudiobook(values, cover, initialBook));
+      // A newly-typed author/series is now a real value in the backend; refresh the cached
+      // name lists so the next book's entry-time duplicate-prevention hint can see it.
+      void queryClient.invalidateQueries({ queryKey: ["similarValueNames"] });
     } finally {
       setSaving(false);
     }
@@ -356,7 +376,13 @@ export function BookEditForm({
                 Authors <span className="text-destructive">*</span>
               </label>
               <Input
-                {...form.register("authors")}
+                {...form.register("authors", {
+                  onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+                    const primaryAuthor = splitList(e.target.value)[0];
+                    const matches = findSimilarExisting(primaryAuthor, authorNames);
+                    setAuthorHint(matches[0] && matches[0] !== primaryAuthor ? matches[0] : null);
+                  },
+                })}
                 placeholder="Author Name, Second Author"
                 aria-invalid={Boolean(form.formState.errors.authors)}
               />
@@ -364,6 +390,21 @@ export function BookEditForm({
                 <p className="text-destructive mt-1 text-xs">
                   {form.formState.errors.authors.message}
                 </p>
+              )}
+              {authorHint && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
+                  onClick={() => {
+                    form.setValue("authors", authorHint, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
+                    setAuthorHint(null);
+                  }}
+                >
+                  Similar existing author: {authorHint} (click to use)
+                </button>
               )}
             </div>
 
@@ -395,7 +436,27 @@ export function BookEditForm({
 
             <div>
               <label className="mb-1 block text-xs font-medium">Series</label>
-              <Input {...form.register("series")} placeholder="Series name" />
+              <Input
+                {...form.register("series", {
+                  onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+                    const matches = findSimilarExisting(e.target.value, seriesNames);
+                    setSeriesHint(matches[0] && matches[0] !== e.target.value ? matches[0] : null);
+                  },
+                })}
+                placeholder="Series name"
+              />
+              {seriesHint && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
+                  onClick={() => {
+                    form.setValue("series", seriesHint, { shouldDirty: true });
+                    setSeriesHint(null);
+                  }}
+                >
+                  Similar existing series: {seriesHint} (click to use)
+                </button>
+              )}
             </div>
 
             <div>
