@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @import "./styles/theme.css";
 
 /*
@@ -41,6 +42,30 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /*
+   * Overrides tw-animate-css's built-in accordion-down/up keyframes, which read a chain of
+   * other libraries' panel-height variables (--radix-accordion-content-height and friends) with
+   * no entry for Base UI's own --accordion-panel-height — so they always fell through to the
+   * `auto` fallback, and a CSS transition can't animate to/from `auto`. Point them at Base UI's
+   * actual variable instead.
+   */
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--accordion-panel-height, auto);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--accordion-panel-height, auto);
+    }
+    to {
+      height: 0;
+    }
+  }
 }
 
 @layer base {
