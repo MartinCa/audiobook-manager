@@ -30,9 +30,7 @@ export function AuthorDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Author not found</h2>
-        <Button asChild>
-          <Link to="/library/authors">Back to Authors</Link>
-        </Button>
+        <Button render={<Link to="/library/authors" />}>Back to Authors</Button>
       </div>
     );
   }
@@ -42,11 +40,9 @@ export function AuthorDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/library/authors">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Authors
-          </Link>
+        <Button variant="ghost" size="sm" render={<Link to="/library/authors" />}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Authors
         </Button>
       </div>
 

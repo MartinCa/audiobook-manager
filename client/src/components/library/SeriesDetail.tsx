@@ -190,9 +190,7 @@ export function SeriesDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Series not found</h2>
-        <Button asChild>
-          <Link to="/library/series">Back to Series</Link>
-        </Button>
+        <Button render={<Link to="/library/series" />}>Back to Series</Button>
       </div>
     );
   }
@@ -202,11 +200,13 @@ export function SeriesDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to={authorId ? `/library/authors/${authorId}` : "/library/series"}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            {authorId ? "Back to Author" : "Back to Series"}
-          </Link>
+        <Button
+          variant="ghost"
+          size="sm"
+          render={<Link to={authorId ? `/library/authors/${authorId}` : "/library/series"} />}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {authorId ? "Back to Author" : "Back to Series"}
         </Button>
 
         <div className="flex items-center gap-2">

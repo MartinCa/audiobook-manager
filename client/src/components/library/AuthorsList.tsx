@@ -26,11 +26,9 @@ export function AuthorsList() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/library">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Library
-          </Link>
+        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Library
         </Button>
       </div>
 

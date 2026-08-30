@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SignalRProvider } from "@/components/SignalRProvider";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import BookList from "@/components/BookList";
 import BookLibrary from "@/components/BookLibrary";
@@ -125,7 +126,9 @@ export default function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="theme">
       <SignalRProvider>
-        <AppContent />
+        <TooltipProvider>
+          <AppContent />
+        </TooltipProvider>
       </SignalRProvider>
     </ThemeProvider>
   );

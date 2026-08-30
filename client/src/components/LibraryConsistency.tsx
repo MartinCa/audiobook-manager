@@ -303,11 +303,9 @@ export function LibraryConsistency() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/library">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Library
-          </Link>
+        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Library
         </Button>
 
         <Button
@@ -387,12 +385,14 @@ export function LibraryConsistency() {
                             {getIssueTypeLabel(type)}
                           </span>
                           <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info
-                                className="text-muted-foreground h-3.5 w-3.5"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </TooltipTrigger>
+                            <TooltipTrigger
+                              render={
+                                <Info
+                                  className="text-muted-foreground h-3.5 w-3.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              }
+                            />
                             <TooltipContent className="max-w-xs">
                               {getBulkResolveDescription(type)}
                             </TooltipContent>

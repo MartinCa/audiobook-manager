@@ -85,46 +85,34 @@ export function BookLibrary() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/series">
-              <BookMarked className="mr-1.5 h-4 w-4" />
-              Series
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/series" />}>
+            <BookMarked className="mr-1.5 h-4 w-4" />
+            Series
           </Button>
 
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/authors">
-              <Users className="mr-1.5 h-4 w-4" />
-              Authors
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/authors" />}>
+            <Users className="mr-1.5 h-4 w-4" />
+            Authors
           </Button>
 
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/discovered">
-              <FolderSearch className="mr-1.5 h-4 w-4" />
-              Discovered Files
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/discovered" />}>
+            <FolderSearch className="mr-1.5 h-4 w-4" />
+            Discovered Files
           </Button>
 
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/consistency">
-              <ShieldAlert className="mr-1.5 h-4 w-4" />
-              Consistency
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/consistency" />}>
+            <ShieldAlert className="mr-1.5 h-4 w-4" />
+            Consistency
           </Button>
 
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/missing-tags">
-              <Tag className="mr-1.5 h-4 w-4" />
-              Missing Tags
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/missing-tags" />}>
+            <Tag className="mr-1.5 h-4 w-4" />
+            Missing Tags
           </Button>
 
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/library/similar-values">
-              <Layers className="mr-1.5 h-4 w-4" />
-              Similar Values
-            </Link>
+          <Button variant="outline" size="sm" render={<Link to="/library/similar-values" />}>
+            <Layers className="mr-1.5 h-4 w-4" />
+            Similar Values
           </Button>
 
           <Button

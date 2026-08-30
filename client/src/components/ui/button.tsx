@@ -1,5 +1,4 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
@@ -31,18 +30,23 @@ const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+  extends Omit<ButtonPrimitive.Props, "className">, VariantProps<typeof buttonVariants> {
+  className?: string;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
-    );
-  },
-);
-Button.displayName = "Button";
+function Button({ className, variant, size, render, ...props }: ButtonProps) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      // A `render` target other than a native <button> (e.g. a router Link rendered as an
+      // <a>) already handles its own keyboard activation; asserting native-button semantics
+      // onto it is what Base UI's "expected a native <button>" warning is flagging.
+      nativeButton={render === undefined}
+      render={render}
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
+}
 
 export { Button, buttonVariants };

@@ -170,9 +170,7 @@ export function BookDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Audiobook not found</h2>
-        <Button asChild>
-          <Link to="/library">Back to Library</Link>
-        </Button>
+        <Button render={<Link to="/library" />}>Back to Library</Button>
       </div>
     );
   }
@@ -204,11 +202,9 @@ export function BookDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/library">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Library
-          </Link>
+        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Library
         </Button>
 
         <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
