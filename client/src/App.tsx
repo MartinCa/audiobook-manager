@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import {
   BookOpen,
@@ -6,7 +7,10 @@ import {
   Tag,
   Layers,
   Settings as SettingsIcon,
+  Moon,
+  Sun,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import BookOrganize from "@/components/BookOrganize";
 import BookLibrary from "@/components/BookLibrary";
 import LibraryConsistency from "@/components/LibraryConsistency";
@@ -16,6 +20,27 @@ import Settings from "@/components/settings/Settings";
 
 export default function App() {
   const location = useLocation();
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    return (
+      localStorage.getItem("theme") === "dark" ||
+      (!localStorage.getItem("theme") &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches)
+    );
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
+
+  const toggleDarkMode = () => {
+    setDarkMode((prev) => !prev);
+  };
 
   const navItems = [
     { path: "/", label: "Organize", icon: FolderInput },
@@ -34,29 +59,43 @@ export default function App() {
             <BookOpen className="h-6 w-6 text-primary" />
             <span className="font-bold text-lg">Audiobook Manager</span>
           </div>
-          <nav className="flex space-x-1 sm:space-x-4">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                item.path === "/"
-                  ? location.pathname === "/"
-                  : location.pathname.startsWith(item.path);
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <nav className="flex space-x-1 sm:space-x-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  item.path === "/"
+                    ? location.pathname === "/"
+                    : location.pathname.startsWith(item.path);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={toggleDarkMode}
+              title="Toggle theme"
+            >
+              {darkMode ? (
+                <Sun className="h-4 w-4 text-amber-400" />
+              ) : (
+                <Moon className="h-4 w-4 text-slate-700" />
+              )}
+            </Button>
+          </div>
         </div>
       </header>
 

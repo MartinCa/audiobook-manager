@@ -1,0 +1,85 @@
+/*
+ * Semantic theme tokens. Components reference these names, never raw colours.
+ *
+ * This file is the visual identity shared across projects. Change it here and
+ * every project picks it up on the next `shadcn add MartinCa/frontend-kit/theme`.
+ *
+ * The canonical source of these values is the shadcn preset (see SETUP.md);
+ * this file exists so projects that were not scaffolded from the preset can
+ * still be brought into line.
+ */
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
+
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+
+    /* Status tokens. Every project displays health somewhere; keep them shared. */
+    --status-ok: oklch(0.65 0.16 150);
+    --status-warn: oklch(0.75 0.16 85);
+    --status-error: oklch(0.577 0.245 27.325);
+    --status-unknown: oklch(0.556 0 0);
+  }
+
+  .dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+
+    --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.985 0 0);
+
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+
+    --status-ok: oklch(0.7 0.15 150);
+    --status-warn: oklch(0.8 0.15 85);
+    --status-error: oklch(0.704 0.191 22.216);
+    --status-unknown: oklch(0.708 0 0);
+  }
+}
