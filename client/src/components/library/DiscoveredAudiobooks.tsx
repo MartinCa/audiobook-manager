@@ -29,6 +29,7 @@ import { BookEditForm } from "@/components/BookEditForm";
 import { libraryApi, audiobookApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
+import { splitList } from "@/helpers/organizeAudiobookInput";
 import { toast } from "sonner";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { Audiobook } from "@/types/Audiobook";
@@ -376,21 +377,19 @@ export function DiscoveredAudiobooks() {
             const organizeError = override?.error;
 
             const initialAudiobook: Audiobook = {
-              authors: book.authors,
-              narrators: book.narrators,
+              authors: splitList(book.authors).map((name) => ({ name })),
+              narrators: splitList(book.narrators).map((name) => ({ name })),
               bookName: book.bookName,
+              subtitle: book.subtitle,
               series: book.series,
               seriesPart: book.seriesPart,
               year: book.year,
-              genres: book.genres,
-              description: book.description,
-              copyright: book.copyright,
-              publisher: book.publisher,
-              language: book.language,
-              rating: book.rating,
-              asin: book.asin,
-              www: book.www,
-              fileInfo: book.fileInfo,
+              genres: splitList(book.genres),
+              fileInfo: {
+                fullPath: book.fullPath,
+                fileName: book.fileName,
+                sizeInBytes: book.sizeInBytes,
+              },
             };
 
             return (
@@ -416,13 +415,11 @@ export function DiscoveredAudiobooks() {
                       )}
                       <div className="min-w-0 truncate">
                         <div className="text-foreground truncate font-semibold">
-                          {book.authors?.length
-                            ? `${book.authors.map((a) => a.name).join(", ")} — `
-                            : ""}
-                          {book.bookName || book.filename}
+                          {book.authors ? `${book.authors} — ` : ""}
+                          {book.bookName || book.fileName}
                         </div>
                         <div className="text-muted-foreground truncate text-xs">
-                          {book.filename}
+                          {book.fileName}
                         </div>
                       </div>
                     </div>

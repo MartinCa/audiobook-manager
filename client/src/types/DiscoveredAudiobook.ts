@@ -1,27 +1,20 @@
-import type { AudiobookPerson } from "./Audiobook";
-import type BookFileInfo from "./BookFileInfo";
-
+// Matches AudiobookManager.Api.Dtos.DiscoveredAudiobookDto exactly: a flat shape (no nested
+// fileInfo) with authors/narrators/genres as "/"-joined strings, not arrays — same convention
+// as the organize form fields (see helpers/organizeAudiobookInput.ts's splitList/joinList).
 export interface DiscoveredAudiobook {
-  id?: number;
   fullPath: string;
-  filename: string;
+  fileName: string;
+  sizeInBytes: number;
   bookName?: string;
-  authors: AudiobookPerson[];
-  narrators: AudiobookPerson[];
+  subtitle?: string;
   series?: string;
   seriesPart?: string;
   year?: number;
-  genres: string[];
-  description?: string;
-  copyright?: string;
-  publisher?: string;
-  language?: string;
-  rating?: string;
-  asin?: string;
-  www?: string;
+  authors?: string;
+  narrators?: string;
+  genres?: string;
   isWellTagged: boolean;
   isDuplicate: boolean;
-  fileInfo?: BookFileInfo;
 }
 
 export type { DiscoveredAudiobook as default };
