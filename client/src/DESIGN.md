@@ -12,23 +12,23 @@ is not listed in **Allowed dependencies** without asking first.
 
 ## 1. Stack
 
-| Layer           | Choice                                                                                       | Not this                                   |
-| --------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Language        | TypeScript, `strict: true`                                                                   | JavaScript, `any`                          |
-| UI runtime      | React (function components + hooks only)                                                     | class components                           |
-| Build / routing | Vite + TanStack Router (SPA) _or_ Next.js App Router (when SSR/SEO is genuinely needed)      | CRA, Webpack by hand                       |
-| Components      | shadcn/ui                                                                                    | MUI, Ant, Chakra, Bootstrap                |
-| Primitives      | Base UI (shadcn default since July 2026). Pin the choice in `components.json`.               | mixing Radix and Base UI in one repo       |
-| Styling         | Tailwind CSS + CSS variables for theme tokens                                                | CSS-in-JS, SCSS, inline `style={{}}`       |
-| Icons           | `lucide-react`                                                                               | mixed icon sets                            |
-| Server state    | TanStack Query                                                                               | fetch-into-`useState`, fetch-into-Zustand  |
-| Client state    | `useState` → lifted props → Zustand (in that order)                                          | Redux, Context as a state manager          |
-| Forms           | `react-hook-form` + `zod` (client-side validation only — the server validates independently) | hand-rolled validation                     |
-| Tables          | TanStack Table (headless) + shadcn table primitives                                          | ag-grid, custom sort logic                 |
-| Charts          | shadcn/ui Charts (Recharts)                                                                  | new charting lib per project               |
-| Dates           | `date-fns`                                                                                   | moment, hand-rolled parsing                |
-| Tests           | Vitest + Testing Library; Playwright only where a flow is worth it                           | Enzyme, snapshot-everything                |
-| Lint/format     | ESLint (typescript-eslint) + Prettier, both enforced in CI                                   | per-file disables without a reason comment |
+| Layer           | Choice                                                                                       | Not this                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Language        | TypeScript, `strict: true`                                                                   | JavaScript, `any`                                                              |
+| UI runtime      | React (function components + hooks only)                                                     | class components                                                               |
+| Build / routing | Vite + TanStack Router (SPA) _or_ Next.js App Router (when SSR/SEO is genuinely needed)      | CRA, Webpack by hand                                                           |
+| Components      | shadcn/ui                                                                                    | MUI, Ant, Chakra, Bootstrap                                                    |
+| Primitives      | Base UI (shadcn default since July 2026). Pin the choice in `components.json`.               | mixing Radix and Base UI in one repo                                           |
+| Styling         | Tailwind CSS + CSS variables for theme tokens                                                | CSS-in-JS, SCSS, inline `style={{}}`                                           |
+| Icons           | `lucide-react`                                                                               | mixed icon sets                                                                |
+| Server state    | TanStack Query                                                                               | fetch-into-`useState`, fetch-into-Zustand                                      |
+| Client state    | `useState` → lifted props → Zustand (in that order)                                          | Redux, Context as a state manager                                              |
+| Forms           | `react-hook-form` + `zod` (client-side validation only — the server validates independently) | hand-rolled validation                                                         |
+| Tables          | TanStack Table (headless) + shadcn table primitives                                          | ag-grid, custom sort logic                                                     |
+| Charts          | shadcn/ui Charts (Recharts)                                                                  | new charting lib per project                                                   |
+| Dates           | `date-fns`                                                                                   | moment, hand-rolled parsing                                                    |
+| Tests           | Vitest + Testing Library; Playwright only where a flow is worth it                           | Enzyme, snapshot-everything                                                    |
+| Lint/format     | ESLint (typescript-eslint) + Prettier, both enforced in CI with `--max-warnings 0`           | per-file disables without a reason comment; a lint job that passes on warnings |
 
 **Default to the SPA path.** Most projects here are internal tools behind auth on a
 private network. They do not need SSR, RSC, or an SEO story, and the client/server
@@ -128,8 +128,14 @@ src/
 - **Never hardcode a colour.** Use the semantic theme tokens (`bg-background`,
   `text-muted-foreground`, `border-border`, `bg-destructive`). A hex value or a raw
   `bg-blue-500` in a component is a bug — it will break in dark mode and it breaks theming
-  across projects.
-- Dark mode is a requirement, not a feature. It works for free if the token rule is followed.
+  across projects. For health and status, use the shared status tokens
+  (`text-status-ok`, `bg-status-warn`, `text-status-error`, `text-status-unknown`) rather
+  than inventing a green per project; they come from
+  `MartinCa/frontend-kit/theme` and are not part of the shadcn preset.
+- Dark mode is a requirement, not a feature. Styling is free if the token rule is followed, but
+  the app must still be wrapped in `MartinCa/frontend-kit/theme-provider`'s `<ThemeProvider>` —
+  the `.dark` class in `theme.css` only applies when something toggles it. Without the provider
+  the app always renders light, regardless of the system preference.
 - Spacing uses the Tailwind scale. No arbitrary values (`p-[13px]`) without a comment.
 - Compose conditional classes with `cn()`. Never build class strings with template literals
   and ternaries inline.

@@ -38,9 +38,12 @@ guess a number that looks plausible.
 
 `pnpm lint` enforces the mechanical parts of `DESIGN.md`: no `any`, no deep
 relative imports, no direct primitive imports outside `components/ui/`, no
-inline `style` props, no fetching inside a Zustand store. If a rule fires,
+inline `style` props, no fetching inside a Zustand store (in either
+`create(init)` or the curried `create()(init)` form). A few rules are warnings
+rather than errors, so CI runs with `--max-warnings 0` — a warning is not a
+pass, it is a thing to fix. If a rule fires,
 fix the code rather than disabling the rule. If the rule is genuinely wrong,
-say so and change it upstream in `@martinca/frontend-config`.
+say so and change it upstream in `@martinrun/frontend-config`.
 
 ## Do not
 

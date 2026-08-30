@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import {
   BookOpen,
@@ -18,28 +18,12 @@ import MissingTags from "@/components/MissingTags";
 import SimilarValues from "@/components/SimilarValues";
 import Settings from "@/components/settings/Settings";
 
-export default function App() {
+function AppContent() {
   const location = useLocation();
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    return (
-      localStorage.getItem("theme") === "dark" ||
-      (!localStorage.getItem("theme") &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches)
-    );
-  });
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [darkMode]);
+  const { resolvedTheme, setTheme } = useTheme();
 
   const toggleDarkMode = () => {
-    setDarkMode((prev) => !prev);
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
   };
 
   const navItems = [
@@ -89,7 +73,7 @@ export default function App() {
               onClick={toggleDarkMode}
               title="Toggle theme"
             >
-              {darkMode ? (
+              {resolvedTheme === "dark" ? (
                 <Sun className="h-4 w-4 text-amber-400" />
               ) : (
                 <Moon className="h-4 w-4 text-slate-700" />
@@ -128,5 +112,16 @@ export default function App() {
         </Routes>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider
+      defaultTheme="system"
+      storageKey="theme"
+    >
+      <AppContent />
+    </ThemeProvider>
   );
 }
