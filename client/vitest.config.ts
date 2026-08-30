@@ -1,22 +1,17 @@
 import { defineConfig } from "vitest/config";
-import { fileURLToPath, URL } from "node:url";
-import vue from "@vitejs/plugin-vue";
+import path from "path";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [react()],
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: "./vitest.setup.ts",
+  },
   resolve: {
     alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
-  test: {
-    environment: "jsdom",
-    css: true,
-    setupFiles: ["./vitest.setup.ts"],
-    server: {
-      deps: {
-        inline: ["vuetify"],
-      },
+      "@": path.resolve(__dirname, "./src"),
     },
   },
 });
