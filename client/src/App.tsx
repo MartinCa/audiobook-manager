@@ -1,5 +1,12 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
-import { BookOpen, FolderInput, AlertTriangle, Tag, Layers, Settings as SettingsIcon } from "lucide-react";
+import {
+  BookOpen,
+  FolderInput,
+  AlertTriangle,
+  Tag,
+  Layers,
+  Settings as SettingsIcon,
+} from "lucide-react";
 import BookOrganize from "@/components/BookOrganize";
 import BookLibrary from "@/components/BookLibrary";
 import LibraryConsistency from "@/components/LibraryConsistency";
@@ -55,12 +62,30 @@ export default function App() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Routes>
-          <Route path="/" element={<BookOrganize />} />
-          <Route path="/library/*" element={<BookLibrary />} />
-          <Route path="/consistency" element={<LibraryConsistency />} />
-          <Route path="/missing-tags" element={<MissingTags />} />
-          <Route path="/similar-values" element={<SimilarValues />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route
+            path="/"
+            element={<BookOrganize />}
+          />
+          <Route
+            path="/library/*"
+            element={<BookLibrary />}
+          />
+          <Route
+            path="/consistency"
+            element={<LibraryConsistency />}
+          />
+          <Route
+            path="/missing-tags"
+            element={<MissingTags />}
+          />
+          <Route
+            path="/similar-values"
+            element={<SimilarValues />}
+          />
+          <Route
+            path="/settings"
+            element={<Settings />}
+          />
         </Routes>
       </main>
     </div>

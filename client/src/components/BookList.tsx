@@ -40,7 +40,9 @@ export const BookList: React.FC<BookListProps> = ({ books, onSelectBook }) => {
             )}
             <div className="flex-1 min-w-0 flex flex-col justify-between">
               <div>
-                <h3 className="font-semibold text-sm line-clamp-2">{book.bookName}</h3>
+                <h3 className="font-semibold text-sm line-clamp-2">
+                  {book.bookName}
+                </h3>
                 {book.authors && book.authors.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-1 truncate">
                     {book.authors.join(", ")}

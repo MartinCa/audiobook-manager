@@ -10,41 +10,42 @@ export interface LanguageOption {
 
 export function normalizeLanguage(
   input: string | null | undefined,
-  languages: Language[]
+  languages: Language[],
 ): string {
   if (!input) return "";
   const normInput = foldAccents(input).toLowerCase().trim();
   const found = languages.find(
     (l) =>
       l.code.toLowerCase() === normInput ||
-      foldAccents(l.name).toLowerCase() === normInput
+      foldAccents(l.name).toLowerCase() === normInput,
   );
   return found ? found.code : input;
 }
 
 export function languageLabel(
   code: string | null | undefined,
-  languages: Language[]
+  languages: Language[],
 ): string {
   if (!code) return "";
   const found = languages.find(
-    (l) => l.code.toLowerCase() === code.toLowerCase()
+    (l) => l.code.toLowerCase() === code.toLowerCase(),
   );
   return found ? found.name : code;
 }
 
 export function languageSelectItems(
   currentValue: string | null | undefined,
-  languages: Language[]
+  languages: Language[],
 ): LanguageOption[] {
   const options = [...languages];
   if (
     currentValue &&
-    !languages.some(
-      (l) => l.code.toLowerCase() === currentValue.toLowerCase()
-    )
+    !languages.some((l) => l.code.toLowerCase() === currentValue.toLowerCase())
   ) {
-    options.push({ code: currentValue, name: `${currentValue} (unrecognized)` });
+    options.push({
+      code: currentValue,
+      name: `${currentValue} (unrecognized)`,
+    });
   }
   return options;
 }

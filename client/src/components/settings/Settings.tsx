@@ -67,7 +67,10 @@ export const Settings: React.FC = () => {
           <CardTitle className="text-lg">Application Configuration</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSave} className="space-y-4">
+          <form
+            onSubmit={handleSave}
+            className="space-y-4"
+          >
             <div>
               <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
                 Import Path
@@ -105,7 +108,10 @@ export const Settings: React.FC = () => {
             </div>
 
             <div className="flex justify-end pt-4">
-              <Button type="submit" disabled={saving}>
+              <Button
+                type="submit"
+                disabled={saving}
+              >
                 <Save className="h-4 w-4 mr-2" />
                 {saving ? "Saving..." : "Save Settings"}
               </Button>

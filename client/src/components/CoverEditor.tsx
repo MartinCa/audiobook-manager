@@ -7,7 +7,10 @@ interface CoverEditorProps {
   onCoverChange: (base64Cover: string | undefined) => void;
 }
 
-export const CoverEditor: React.FC<CoverEditorProps> = ({ coverUrl, onCoverChange }) => {
+export const CoverEditor: React.FC<CoverEditorProps> = ({
+  coverUrl,
+  onCoverChange,
+}) => {
   const [preview, setPreview] = useState<string | undefined>(coverUrl);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -33,7 +36,11 @@ export const CoverEditor: React.FC<CoverEditorProps> = ({ coverUrl, onCoverChang
       <div className="w-48 h-48 border-2 border-dashed border-border rounded-lg overflow-hidden flex items-center justify-center bg-muted relative group">
         {preview ? (
           <>
-            <img src={preview} alt="Cover Preview" className="w-full h-full object-cover" />
+            <img
+              src={preview}
+              alt="Cover Preview"
+              className="w-full h-full object-cover"
+            />
             <Button
               variant="destructive"
               size="icon"
@@ -52,8 +59,18 @@ export const CoverEditor: React.FC<CoverEditorProps> = ({ coverUrl, onCoverChang
         )}
       </div>
       <label className="cursor-pointer">
-        <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-        <Button variant="outline" size="sm" type="button" asChild>
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          asChild
+        >
           <span>
             <Upload className="h-4 w-4 mr-2" />
             Select Image

@@ -70,11 +70,18 @@ export const MissingTags: React.FC = () => {
             Missing Tags
           </h1>
           <p className="text-sm text-muted-foreground">
-            Find audiobooks with incomplete tag metadata and backfill tags from embedded file data.
+            Find audiobooks with incomplete tag metadata and backfill tags from
+            embedded file data.
           </p>
         </div>
-        <Button variant="outline" onClick={handleBackfillLanguage} disabled={backfilling}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${backfilling ? "animate-spin" : ""}`} />
+        <Button
+          variant="outline"
+          onClick={handleBackfillLanguage}
+          disabled={backfilling}
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${backfilling ? "animate-spin" : ""}`}
+          />
           Backfill Embedded Languages
         </Button>
       </div>
@@ -85,13 +92,19 @@ export const MissingTags: React.FC = () => {
         </h3>
         <div className="flex flex-wrap gap-4">
           {fields.map((f) => (
-            <div key={f.key} className="flex items-center space-x-2">
+            <div
+              key={f.key}
+              className="flex items-center space-x-2"
+            >
               <Checkbox
                 id={f.key}
                 checked={selectedFields.includes(f.key)}
                 onCheckedChange={() => handleToggleField(f.key)}
               />
-              <label htmlFor={f.key} className="text-sm cursor-pointer">
+              <label
+                htmlFor={f.key}
+                className="text-sm cursor-pointer"
+              >
                 {f.label}
               </label>
             </div>
@@ -109,7 +122,8 @@ export const MissingTags: React.FC = () => {
             <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
             <h3 className="font-semibold text-lg">No Missing Tags Found</h3>
             <p className="text-sm text-muted-foreground">
-              All audiobooks in your library have complete metadata for the selected fields!
+              All audiobooks in your library have complete metadata for the
+              selected fields!
             </p>
           </CardContent>
         </Card>
@@ -117,12 +131,21 @@ export const MissingTags: React.FC = () => {
         <Card>
           <CardContent className="p-0 divide-y divide-border">
             {missingBooks.map((item) => (
-              <div key={item.audiobookId} className="p-4 flex items-center justify-between">
+              <div
+                key={item.audiobookId}
+                className="p-4 flex items-center justify-between"
+              >
                 <div>
-                  <h4 className="font-semibold text-sm">{item.audiobookName}</h4>
+                  <h4 className="font-semibold text-sm">
+                    {item.audiobookName}
+                  </h4>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {item.missingFields.map((field) => (
-                      <Badge key={field} variant="destructive" className="text-xs">
+                      <Badge
+                        key={field}
+                        variant="destructive"
+                        className="text-xs"
+                      >
                         Missing {field}
                       </Badge>
                     ))}

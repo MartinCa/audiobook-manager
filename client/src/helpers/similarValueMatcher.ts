@@ -14,7 +14,7 @@ export function normalizeForMatch(value: string | null | undefined): string {
 
 export function isNearMatch(
   input: string | null | undefined,
-  candidate: string | null | undefined
+  candidate: string | null | undefined,
 ): boolean {
   const normInput = normalizeForMatch(input);
   const normCandidate = normalizeForMatch(candidate);
@@ -25,7 +25,7 @@ export function isNearMatch(
 export function narrowByQuery(
   candidates: string[],
   query: string,
-  limit: number = 5
+  limit: number = 5,
 ): string[] {
   if (!query.trim()) return [];
   const normQuery = normalizeForMatch(query);
@@ -36,7 +36,7 @@ export function narrowByQuery(
 
 export function findSimilarExisting(
   input: string | null | undefined,
-  candidates: string[]
+  candidates: string[],
 ): string[] {
   if (!input || !input.trim()) return [];
   const normInput = normalizeForMatch(input);

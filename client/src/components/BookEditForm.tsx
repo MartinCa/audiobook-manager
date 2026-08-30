@@ -3,7 +3,13 @@ import { Search, Save, Trash2, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import CoverEditor from "./CoverEditor";
 import BookSearchDialog from "./BookSearchDialog";
 import { DiscoveredAudiobook, MetadataSearchResult } from "@/types/domain";
@@ -28,7 +34,9 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
   const [narrators, setNarrators] = useState(joinList(initialBook.narrators));
   const [series, setSeries] = useState(initialBook.series || "");
   const [seriesPart, setSeriesPart] = useState(initialBook.seriesPart || "");
-  const [year, setYear] = useState<string>(initialBook.year ? String(initialBook.year) : "");
+  const [year, setYear] = useState<string>(
+    initialBook.year ? String(initialBook.year) : "",
+  );
   const [genres, setGenres] = useState(joinList(initialBook.genres));
   const [description, setDescription] = useState(initialBook.description || "");
   const [copyright] = useState(initialBook.copyright || "");
@@ -43,12 +51,15 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
 
   const handleApplySearchResult = (result: MetadataSearchResult) => {
     if (result.title) setBookName(result.title);
-    if (result.authors && result.authors.length > 0) setAuthors(joinList(result.authors));
-    if (result.narrators && result.narrators.length > 0) setNarrators(joinList(result.narrators));
+    if (result.authors && result.authors.length > 0)
+      setAuthors(joinList(result.authors));
+    if (result.narrators && result.narrators.length > 0)
+      setNarrators(joinList(result.narrators));
     if (result.series) setSeries(result.series);
     if (result.seriesPart) setSeriesPart(result.seriesPart);
     if (result.year) setYear(String(result.year));
-    if (result.genres && result.genres.length > 0) setGenres(joinList(result.genres));
+    if (result.genres && result.genres.length > 0)
+      setGenres(joinList(result.genres));
     if (result.description) setDescription(result.description);
     if (result.language) setLanguage(result.language);
     if (result.coverUrl) setBase64Cover(result.coverUrl);
@@ -84,14 +95,22 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-6"
+    >
       <div className="flex justify-between items-center">
         <div className="flex items-center space-x-2 text-xs text-muted-foreground truncate">
           <Folder className="h-4 w-4 shrink-0" />
           <span className="truncate">{initialBook.fullPath}</span>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setSearchDialogOpen(true)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setSearchDialogOpen(true)}
+          >
             <Search className="h-4 w-4 mr-2" />
             Scrape Metadata
           </Button>
@@ -118,49 +137,84 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
           <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="text-xs font-semibold">Title</label>
-              <Input value={bookName} onChange={(e) => setBookName(e.target.value)} required />
+              <Input
+                value={bookName}
+                onChange={(e) => setBookName(e.target.value)}
+                required
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold">Author(s) (slash separated)</label>
-                <Input value={authors} onChange={(e) => setAuthors(e.target.value)} />
+                <label className="text-xs font-semibold">
+                  Author(s) (slash separated)
+                </label>
+                <Input
+                  value={authors}
+                  onChange={(e) => setAuthors(e.target.value)}
+                />
               </div>
               <div>
-                <label className="text-xs font-semibold">Narrator(s) (slash separated)</label>
-                <Input value={narrators} onChange={(e) => setNarrators(e.target.value)} />
+                <label className="text-xs font-semibold">
+                  Narrator(s) (slash separated)
+                </label>
+                <Input
+                  value={narrators}
+                  onChange={(e) => setNarrators(e.target.value)}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="text-xs font-semibold">Series</label>
-                <Input value={series} onChange={(e) => setSeries(e.target.value)} />
+                <Input
+                  value={series}
+                  onChange={(e) => setSeries(e.target.value)}
+                />
               </div>
               <div>
                 <label className="text-xs font-semibold">Series Part</label>
-                <Input value={seriesPart} onChange={(e) => setSeriesPart(e.target.value)} />
+                <Input
+                  value={seriesPart}
+                  onChange={(e) => setSeriesPart(e.target.value)}
+                />
               </div>
               <div>
                 <label className="text-xs font-semibold">Year</label>
-                <Input type="number" value={year} onChange={(e) => setYear(e.target.value)} />
+                <Input
+                  type="number"
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold">Genres (slash separated)</label>
-                <Input value={genres} onChange={(e) => setGenres(e.target.value)} />
+                <label className="text-xs font-semibold">
+                  Genres (slash separated)
+                </label>
+                <Input
+                  value={genres}
+                  onChange={(e) => setGenres(e.target.value)}
+                />
               </div>
               <div>
                 <label className="text-xs font-semibold">Language</label>
-                <Select value={language} onValueChange={setLanguage}>
+                <Select
+                  value={language}
+                  onValueChange={setLanguage}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select Language" />
                   </SelectTrigger>
                   <SelectContent>
                     {languages.map((l) => (
-                      <SelectItem key={l.code} value={l.code}>
+                      <SelectItem
+                        key={l.code}
+                        value={l.code}
+                      >
                         {l.name}
                       </SelectItem>
                     ))}
@@ -174,7 +228,9 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
               <Textarea
                 rows={4}
                 value={description}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setDescription(e.target.value)
+                }
               />
             </div>
           </div>
@@ -182,7 +238,10 @@ export const BookEditForm: React.FC<BookEditFormProps> = ({
       </div>
 
       <div className="flex justify-end pt-4 border-t border-border">
-        <Button type="submit" disabled={saving}>
+        <Button
+          type="submit"
+          disabled={saving}
+        >
           <Save className="h-4 w-4 mr-2" />
           {saving ? "Organizing..." : "Organize & Save"}
         </Button>

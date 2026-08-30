@@ -14,7 +14,9 @@ export const SimilarValues: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"authors" | "series">("authors");
   const [groups, setGroups] = useState<SimilarValueGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(
+    null,
+  );
   const [aligning, setAligning] = useState(false);
   const [progress] = useState<{ processed: number; total: number }>({
     processed: 0,
@@ -24,7 +26,10 @@ export const SimilarValues: React.FC = () => {
   const fetchSimilar = async (type: "authors" | "series") => {
     setLoading(true);
     try {
-      const endpoint = type === "authors" ? "/similar-values/similar-authors" : "/similar-values/similar-series";
+      const endpoint =
+        type === "authors"
+          ? "/similar-values/similar-authors"
+          : "/similar-values/similar-series";
       const res = await api.get<SimilarValueGroup[]>(endpoint);
       setGroups(res.data || []);
     } catch (err) {
@@ -42,7 +47,10 @@ export const SimilarValues: React.FC = () => {
     if (!selectedGroup) return;
     setAligning(true);
     try {
-      const endpoint = activeTab === "authors" ? "/similar-values/align-authors" : "/similar-values/align-series";
+      const endpoint =
+        activeTab === "authors"
+          ? "/similar-values/align-authors"
+          : "/similar-values/align-series";
       await api.post(endpoint, {
         targetValue,
         sourceValues: selectedGroup.candidates,
@@ -66,16 +74,26 @@ export const SimilarValues: React.FC = () => {
             Similar Values Alignment
           </h1>
           <p className="text-sm text-muted-foreground">
-            Detect and merge near-duplicate author names and series titles across your library.
+            Detect and merge near-duplicate author names and series titles
+            across your library.
           </p>
         </div>
-        <Button variant="outline" onClick={() => fetchSimilar(activeTab)} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+        <Button
+          variant="outline"
+          onClick={() => fetchSimilar(activeTab)}
+          disabled={loading}
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+          />
           Refresh Detection
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "authors" | "series")}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as "authors" | "series")}
+      >
         <TabsList className="mb-4">
           <TabsTrigger value="authors">Similar Authors</TabsTrigger>
           <TabsTrigger value="series">Similar Series</TabsTrigger>
@@ -98,9 +116,12 @@ export const SimilarValues: React.FC = () => {
             <Card>
               <CardContent className="py-12 text-center space-y-3">
                 <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
-                <h3 className="font-semibold text-lg">No Duplicate {activeTab} Found</h3>
+                <h3 className="font-semibold text-lg">
+                  No Duplicate {activeTab} Found
+                </h3>
                 <p className="text-sm text-muted-foreground">
-                  All {activeTab} names in your library appear unique and properly formatted!
+                  All {activeTab} names in your library appear unique and
+                  properly formatted!
                 </p>
               </CardContent>
             </Card>
@@ -115,7 +136,10 @@ export const SimilarValues: React.FC = () => {
                       </span>
                       <div className="flex flex-wrap gap-2 items-center">
                         {group.candidates.map((cand) => (
-                          <Badge key={cand} variant="secondary">
+                          <Badge
+                            key={cand}
+                            variant="secondary"
+                          >
                             {cand}
                           </Badge>
                         ))}

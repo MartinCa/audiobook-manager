@@ -32,7 +32,7 @@ export interface OrganizeAudiobookFormState {
 
 export function convertInputToAudiobook(
   input: OrganizeAudiobookFormState,
-  fullPath: string
+  fullPath: string,
 ) {
   return {
     fullPath,

@@ -14,7 +14,10 @@ export const LibraryConsistency: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [resolving, setResolving] = useState(false);
-  const [progress, setProgress] = useState<{ processed: number; total: number }>({
+  const [progress, setProgress] = useState<{
+    processed: number;
+    total: number;
+  }>({
     processed: 0,
     total: 0,
   });
@@ -86,11 +89,16 @@ export const LibraryConsistency: React.FC = () => {
             Library Consistency
           </h1>
           <p className="text-sm text-muted-foreground">
-            Check for missing sidecar files, broken paths, or mismatched tags in your library.
+            Check for missing sidecar files, broken paths, or mismatched tags in
+            your library.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleRunCheck} disabled={loading || resolving}>
+          <Button
+            variant="outline"
+            onClick={handleRunCheck}
+            disabled={loading || resolving}
+          >
             <Play className="h-4 w-4 mr-2" />
             Run Check
           </Button>
@@ -120,9 +128,12 @@ export const LibraryConsistency: React.FC = () => {
         <Card>
           <CardContent className="py-12 text-center space-y-3">
             <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
-            <h3 className="font-semibold text-lg">No Consistency Issues Found</h3>
+            <h3 className="font-semibold text-lg">
+              No Consistency Issues Found
+            </h3>
             <p className="text-sm text-muted-foreground">
-              Your library files, sidecars, and database entries are completely consistent!
+              Your library files, sidecars, and database entries are completely
+              consistent!
             </p>
           </CardContent>
         </Card>
@@ -131,7 +142,9 @@ export const LibraryConsistency: React.FC = () => {
           <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-border">
             <div className="flex items-center space-x-3">
               <Checkbox
-                checked={selectedIds.length === issues.length && issues.length > 0}
+                checked={
+                  selectedIds.length === issues.length && issues.length > 0
+                }
                 onCheckedChange={handleToggleSelectAll}
               />
               <span className="text-sm font-semibold">Select All Issues</span>
@@ -148,17 +161,26 @@ export const LibraryConsistency: React.FC = () => {
               >
                 <Checkbox
                   checked={selectedIds.includes(issue.id)}
-                  onCheckedChange={(checked) => handleToggleSelect(issue.id, !!checked)}
+                  onCheckedChange={(checked) =>
+                    handleToggleSelect(issue.id, !!checked)
+                  }
                   className="mt-1"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm">{issue.audiobookName}</span>
-                    <Badge variant="outline" className="text-xs">
+                    <span className="font-semibold text-sm">
+                      {issue.audiobookName}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-xs"
+                    >
                       {issue.type}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground font-mono">{issue.details}</p>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    {issue.details}
+                  </p>
                 </div>
               </div>
             ))}

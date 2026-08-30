@@ -14,7 +14,8 @@ export const OperationProgressBar: React.FC<OperationProgressBarProps> = ({
   label = "Processing...",
   subText,
 }) => {
-  const percentage = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const percentage =
+    total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
   return (
     <div className="space-y-2 p-4 border border-border rounded-lg bg-card">
@@ -24,7 +25,10 @@ export const OperationProgressBar: React.FC<OperationProgressBarProps> = ({
           {processed} / {total} ({percentage}%)
         </span>
       </div>
-      <Progress value={percentage} className="h-2" />
+      <Progress
+        value={percentage}
+        className="h-2"
+      />
       {subText && <p className="text-xs text-muted-foreground">{subText}</p>}
     </div>
   );

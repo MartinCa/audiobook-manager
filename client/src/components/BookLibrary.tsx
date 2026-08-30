@@ -71,8 +71,13 @@ export const BookLibrary: React.FC = () => {
             Browse, search, and manage your organized audiobook library.
           </p>
         </div>
-        <Button onClick={handleScanLibrary} disabled={scanning}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`} />
+        <Button
+          onClick={handleScanLibrary}
+          disabled={scanning}
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${scanning ? "animate-spin" : ""}`}
+          />
           {scanning ? "Scanning Library..." : "Scan Library"}
         </Button>
       </div>
@@ -92,7 +97,10 @@ export const BookLibrary: React.FC = () => {
           Loading library audiobooks...
         </div>
       ) : (
-        <BookList books={books} onSelectBook={(b) => setSelectedBook(b)} />
+        <BookList
+          books={books}
+          onSelectBook={(b) => setSelectedBook(b)}
+        />
       )}
 
       <TagPreviewDialog

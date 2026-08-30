@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { splitList, joinList, convertInputToAudiobook } from "./organizeAudiobookInput";
+import {
+  splitList,
+  joinList,
+  convertInputToAudiobook,
+} from "./organizeAudiobookInput";
 
 describe("organizeAudiobookInput helper", () => {
   it("splits lists correctly", () => {
@@ -22,7 +26,7 @@ describe("organizeAudiobookInput helper", () => {
         genres: "Fantasy",
         year: 2023,
       },
-      "/path/to/book.m4b"
+      "/path/to/book.m4b",
     );
 
     expect(res.bookName).toBe("Test Book");

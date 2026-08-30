@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeLanguage, languageLabel, languageSelectItems } from "./languages";
+import {
+  normalizeLanguage,
+  languageLabel,
+  languageSelectItems,
+} from "./languages";
 
 describe("languages helper", () => {
   const mockLangs = [

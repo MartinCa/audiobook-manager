@@ -12,23 +12,23 @@ is not listed in **Allowed dependencies** without asking first.
 
 ## 1. Stack
 
-| Layer | Choice | Not this |
-|---|---|---|
-| Language | TypeScript, `strict: true` | JavaScript, `any` |
-| UI runtime | React (function components + hooks only) | class components |
-| Build / routing | Vite + TanStack Router (SPA) *or* Next.js App Router (when SSR/SEO is genuinely needed) | CRA, Webpack by hand |
-| Components | shadcn/ui | MUI, Ant, Chakra, Bootstrap |
-| Primitives | Base UI (shadcn default since July 2026). Pin the choice in `components.json`. | mixing Radix and Base UI in one repo |
-| Styling | Tailwind CSS + CSS variables for theme tokens | CSS-in-JS, SCSS, inline `style={{}}` |
-| Icons | `lucide-react` | mixed icon sets |
-| Server state | TanStack Query | fetch-into-`useState`, fetch-into-Zustand |
-| Client state | `useState` → lifted props → Zustand (in that order) | Redux, Context as a state manager |
-| Forms | `react-hook-form` + `zod` (client-side validation only — the server validates independently) | hand-rolled validation |
-| Tables | TanStack Table (headless) + shadcn table primitives | ag-grid, custom sort logic |
-| Charts | shadcn/ui Charts (Recharts) | new charting lib per project |
-| Dates | `date-fns` | moment, hand-rolled parsing |
-| Tests | Vitest + Testing Library; Playwright only where a flow is worth it | Enzyme, snapshot-everything |
-| Lint/format | ESLint (typescript-eslint) + Prettier, both enforced in CI | per-file disables without a reason comment |
+| Layer           | Choice                                                                                       | Not this                                   |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Language        | TypeScript, `strict: true`                                                                   | JavaScript, `any`                          |
+| UI runtime      | React (function components + hooks only)                                                     | class components                           |
+| Build / routing | Vite + TanStack Router (SPA) _or_ Next.js App Router (when SSR/SEO is genuinely needed)      | CRA, Webpack by hand                       |
+| Components      | shadcn/ui                                                                                    | MUI, Ant, Chakra, Bootstrap                |
+| Primitives      | Base UI (shadcn default since July 2026). Pin the choice in `components.json`.               | mixing Radix and Base UI in one repo       |
+| Styling         | Tailwind CSS + CSS variables for theme tokens                                                | CSS-in-JS, SCSS, inline `style={{}}`       |
+| Icons           | `lucide-react`                                                                               | mixed icon sets                            |
+| Server state    | TanStack Query                                                                               | fetch-into-`useState`, fetch-into-Zustand  |
+| Client state    | `useState` → lifted props → Zustand (in that order)                                          | Redux, Context as a state manager          |
+| Forms           | `react-hook-form` + `zod` (client-side validation only — the server validates independently) | hand-rolled validation                     |
+| Tables          | TanStack Table (headless) + shadcn table primitives                                          | ag-grid, custom sort logic                 |
+| Charts          | shadcn/ui Charts (Recharts)                                                                  | new charting lib per project               |
+| Dates           | `date-fns`                                                                                   | moment, hand-rolled parsing                |
+| Tests           | Vitest + Testing Library; Playwright only where a flow is worth it                           | Enzyme, snapshot-everything                |
+| Lint/format     | ESLint (typescript-eslint) + Prettier, both enforced in CI                                   | per-file disables without a reason comment |
 
 **Default to the SPA path.** Most projects here are internal tools behind auth on a
 private network. They do not need SSR, RSC, or an SEO story, and the client/server
@@ -55,6 +55,7 @@ Yes → TanStack Query. Always. Never copy query results into another store. Nev
 `loading` / `error` / refetch by hand. Derive from the query cache; invalidate on mutation.
 
 **2. If not, how far does it need to travel?**
+
 - One component → `useState` / `useReducer`.
 - Parent and a couple of children → lift it, pass props. Prop drilling two levels is fine
   and is more legible to a reader (and to an agent) than an indirect store.
@@ -88,7 +89,7 @@ Components are **copied into this repo** and are therefore our code. That has co
 - **Do not edit files in `src/components/ui/` to change appearance.** Restyle by overriding
   theme CSS variables, or by targeting `[data-slot="..."]` in the global stylesheet.
   Unmodified vendor files can be overwritten without thought, which is the whole point.
-- If a component needs different *behaviour*, wrap it. Put the wrapper in
+- If a component needs different _behaviour_, wrap it. Put the wrapper in
   `src/components/` (not `ui/`) and import the primitive from `ui/`.
 - Updating: `shadcn diff` to see what changed upstream, `--dry-run` / `--view` to inspect
   before writing, then `add <name> --overwrite` and resolve with git. This is a deliberate,
@@ -199,7 +200,7 @@ is ASP.NET Core, FastAPI, Flask, or a Go binary. The rules below keep it that wa
 
 ## 9. Project-specific
 
-*Fill this in per repo. Everything above is shared and should stay identical across projects.*
+_Fill this in per repo. Everything above is shared and should stay identical across projects._
 
 - **What this app is:** Audiobook Manager - full-stack web application that organizes m4b audiobook files into a structured library, with metadata scraping and Audiobookshelf integration.
 - **Who uses it:** Self-hosters and personal audiobook library managers.

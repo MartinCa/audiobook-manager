@@ -15,7 +15,10 @@ export interface ApiError {
 
 export function handleApiError(error: unknown): ApiError {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ message?: string; detail?: string }>;
+    const axiosError = error as AxiosError<{
+      message?: string;
+      detail?: string;
+    }>;
     return {
       message:
         axiosError.response?.data?.message ||

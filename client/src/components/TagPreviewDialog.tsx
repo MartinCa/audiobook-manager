@@ -1,6 +1,11 @@
 import React from "react";
 import { BookOpen, Folder, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Audiobook } from "@/types/domain";
@@ -22,7 +27,10 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
   if (!book) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold flex items-center gap-2">
@@ -47,20 +55,26 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
 
             <div className="space-y-2 text-sm flex-1">
               <div>
-                <span className="text-xs text-muted-foreground font-semibold uppercase block">Authors</span>
+                <span className="text-xs text-muted-foreground font-semibold uppercase block">
+                  Authors
+                </span>
                 <span>{book.authors?.join(", ") || "Unknown"}</span>
               </div>
 
               {book.narrators && book.narrators.length > 0 && (
                 <div>
-                  <span className="text-xs text-muted-foreground font-semibold uppercase block">Narrators</span>
+                  <span className="text-xs text-muted-foreground font-semibold uppercase block">
+                    Narrators
+                  </span>
                   <span>{book.narrators.join(", ")}</span>
                 </div>
               )}
 
               {book.series && (
                 <div>
-                  <span className="text-xs text-muted-foreground font-semibold uppercase block">Series</span>
+                  <span className="text-xs text-muted-foreground font-semibold uppercase block">
+                    Series
+                  </span>
                   <span>
                     {book.series} {book.seriesPart && `#${book.seriesPart}`}
                   </span>
@@ -70,13 +84,17 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
               <div className="flex gap-4">
                 {book.year && (
                   <div>
-                    <span className="text-xs text-muted-foreground font-semibold uppercase block">Year</span>
+                    <span className="text-xs text-muted-foreground font-semibold uppercase block">
+                      Year
+                    </span>
                     <span>{book.year}</span>
                   </div>
                 )}
                 {book.language && (
                   <div>
-                    <span className="text-xs text-muted-foreground font-semibold uppercase block">Language</span>
+                    <span className="text-xs text-muted-foreground font-semibold uppercase block">
+                      Language
+                    </span>
                     <span>{book.language}</span>
                   </div>
                 )}
@@ -86,7 +104,9 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
 
           {book.description && (
             <div>
-              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-1">Description</span>
+              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-1">
+                Description
+              </span>
               <p className="text-sm bg-muted/40 p-3 rounded-md whitespace-pre-wrap leading-relaxed">
                 {book.description}
               </p>
@@ -95,10 +115,15 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
 
           {book.genres && book.genres.length > 0 && (
             <div>
-              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-2">Genres</span>
+              <span className="text-xs text-muted-foreground font-semibold uppercase block mb-2">
+                Genres
+              </span>
               <div className="flex flex-wrap gap-1.5">
                 {book.genres.map((g) => (
-                  <Badge key={g} variant="secondary">
+                  <Badge
+                    key={g}
+                    variant="secondary"
+                  >
                     {g}
                   </Badge>
                 ))}
@@ -119,7 +144,11 @@ export const TagPreviewDialog: React.FC<TagPreviewDialogProps> = ({
 
           {onDelete && (
             <div className="flex justify-end pt-2">
-              <Button variant="destructive" size="sm" onClick={() => onDelete(book)}>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => onDelete(book)}
+              >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete Audiobook
               </Button>

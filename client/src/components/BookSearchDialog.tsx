@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Search, Globe, AlertCircle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +56,7 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
     setSelectedSources((prev) =>
       prev.includes(sourceName)
         ? prev.filter((s) => s !== sourceName)
-        : [...prev, sourceName]
+        : [...prev, sourceName],
     );
   };
 
@@ -65,14 +70,20 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
 
     try {
       if (query.startsWith("http://") || query.startsWith("https://")) {
-        const res = await api.get<MetadataSearchResult>("/metadata-search/by-url", {
-          params: { url: query },
-        });
+        const res = await api.get<MetadataSearchResult>(
+          "/metadata-search/by-url",
+          {
+            params: { url: query },
+          },
+        );
         setResults(res.data ? [res.data] : []);
       } else {
-        const res = await api.get<MetadataSearchResult[]>("/metadata-search/search", {
-          params: { query, sources: selectedSources.join(",") },
-        });
+        const res = await api.get<MetadataSearchResult[]>(
+          "/metadata-search/search",
+          {
+            params: { query, sources: selectedSources.join(",") },
+          },
+        );
         setResults(res.data || []);
       }
     } catch (err) {
@@ -84,13 +95,19 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Search Metadata</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSearch} className="space-y-4">
+        <form
+          onSubmit={handleSearch}
+          className="space-y-4"
+        >
           <div className="flex gap-2">
             <Input
               placeholder="Search by title, author, or paste URL..."
@@ -98,14 +115,19 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
               onChange={(e) => setQuery(e.target.value)}
               className="flex-1"
             />
-            <Button type="submit" disabled={loading}>
+            <Button
+              type="submit"
+              disabled={loading}
+            >
               <Search className="h-4 w-4 mr-2" />
               Search
             </Button>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs text-muted-foreground font-medium">Sources:</span>
+            <span className="text-xs text-muted-foreground font-medium">
+              Sources:
+            </span>
             {services.map((svc) => {
               const isDisabled = svc.requiresApiKey && !svc.isApiKeyConfigured;
               const isSelected = selectedSources.includes(svc.sourceName);
@@ -144,10 +166,18 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
             </div>
           ) : (
             results.map((res, i) => (
-              <Card key={i} className="hover:border-primary transition-colors cursor-pointer" onClick={() => onSelectResult(res)}>
+              <Card
+                key={i}
+                className="hover:border-primary transition-colors cursor-pointer"
+                onClick={() => onSelectResult(res)}
+              >
                 <CardContent className="p-4 flex gap-4">
                   {res.coverUrl ? (
-                    <img src={res.coverUrl} alt={res.title} className="w-16 h-20 object-cover rounded" />
+                    <img
+                      src={res.coverUrl}
+                      alt={res.title}
+                      className="w-16 h-20 object-cover rounded"
+                    />
                   ) : (
                     <div className="w-16 h-20 bg-muted rounded flex items-center justify-center">
                       <Globe className="h-6 w-6 text-muted-foreground" />
@@ -155,8 +185,15 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start gap-2">
-                      <h4 className="font-semibold text-sm truncate">{res.title}</h4>
-                      <Badge variant="secondary" className="text-xs">{res.source}</Badge>
+                      <h4 className="font-semibold text-sm truncate">
+                        {res.title}
+                      </h4>
+                      <Badge
+                        variant="secondary"
+                        className="text-xs"
+                      >
+                        {res.source}
+                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       By: {res.authors.join(", ") || "Unknown"}
@@ -168,7 +205,8 @@ export const BookSearchDialog: React.FC<BookSearchDialogProps> = ({
                     )}
                     {res.series && (
                       <p className="text-xs text-muted-foreground">
-                        Series: {res.series} {res.seriesPart && `#${res.seriesPart}`}
+                        Series: {res.series}{" "}
+                        {res.seriesPart && `#${res.seriesPart}`}
                       </p>
                     )}
                   </div>

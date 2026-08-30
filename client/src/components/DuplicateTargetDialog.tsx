@@ -1,5 +1,10 @@
 import React, { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -17,11 +22,14 @@ export const DuplicateTargetDialog: React.FC<DuplicateTargetDialogProps> = ({
   candidates,
   onConfirm,
 }) => {
-  const [selectedTarget, setSelectedTarget] = useState<string>(candidates[0] || "");
+  const [selectedTarget, setSelectedTarget] = useState<string>(
+    candidates[0] || "",
+  );
   const [customTarget, setCustomTarget] = useState("");
 
   const handleConfirm = () => {
-    const finalValue = selectedTarget === "custom" ? customTarget : selectedTarget;
+    const finalValue =
+      selectedTarget === "custom" ? customTarget : selectedTarget;
     if (finalValue.trim()) {
       onConfirm(finalValue.trim());
       onOpenChange(false);
@@ -29,7 +37,10 @@ export const DuplicateTargetDialog: React.FC<DuplicateTargetDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Select Target Alignment Value</DialogTitle>
@@ -40,18 +51,37 @@ export const DuplicateTargetDialog: React.FC<DuplicateTargetDialogProps> = ({
             Choose which canonical value to apply across all matched entries:
           </p>
 
-          <RadioGroup value={selectedTarget} onValueChange={setSelectedTarget} className="space-y-2">
+          <RadioGroup
+            value={selectedTarget}
+            onValueChange={setSelectedTarget}
+            className="space-y-2"
+          >
             {candidates.map((cand) => (
-              <div key={cand} className="flex items-center space-x-2">
-                <RadioGroupItem value={cand} id={cand} />
-                <label htmlFor={cand} className="text-sm cursor-pointer font-medium">
+              <div
+                key={cand}
+                className="flex items-center space-x-2"
+              >
+                <RadioGroupItem
+                  value={cand}
+                  id={cand}
+                />
+                <label
+                  htmlFor={cand}
+                  className="text-sm cursor-pointer font-medium"
+                >
                   {cand}
                 </label>
               </div>
             ))}
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="custom" id="custom" />
-              <label htmlFor="custom" className="text-sm cursor-pointer font-medium">
+              <RadioGroupItem
+                value="custom"
+                id="custom"
+              />
+              <label
+                htmlFor="custom"
+                className="text-sm cursor-pointer font-medium"
+              >
                 Custom value:
               </label>
             </div>
@@ -66,7 +96,10 @@ export const DuplicateTargetDialog: React.FC<DuplicateTargetDialogProps> = ({
           )}
 
           <div className="flex justify-end gap-2 pt-4 border-t border-border">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
             <Button onClick={handleConfirm}>Confirm & Align</Button>

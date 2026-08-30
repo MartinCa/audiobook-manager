@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import * as signalR from "@microsoft/signalr";
 
 export function useSignalR(hubUrl: string = "/hubs/organize") {
-  const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
+  const [connection, setConnection] = useState<signalR.HubConnection | null>(
+    null,
+  );
   const [isConnected, setIsConnected] = useState(false);
   const listenersRef = useRef<Map<string, Set<(data: any) => void>>>(new Map());
 
