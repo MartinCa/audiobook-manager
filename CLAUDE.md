@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Audiobook Manager is a full-stack web application that organizes m4b audiobook files from an import directory into a structured library, with metadata scraping and Audiobookshelf integration. Backend is ASP.NET Core (net10.0), frontend is Vue 3 + Vuetify 3 (TypeScript), database is SQLite via EF Core, deployed via Docker.
+Audiobook Manager is a full-stack web application that organizes m4b audiobook files from an import directory into a structured library, with metadata scraping and Audiobookshelf integration. Backend is ASP.NET Core (net10.0), frontend is React 19 + Tailwind CSS + shadcn/ui on Base UI primitives (TypeScript), database is SQLite via EF Core, deployed via Docker.
+
+The frontend follows the shared conventions in `client/src/DESIGN.md` (from [MartinCa/frontend-kit](https://github.com/MartinCa/frontend-kit)) — read that file before writing any frontend code; it is binding, and this file does not repeat its rules. `client/src/AGENTS.md` points back to it and lists a few project-local shortcuts.
 
 ### Audiobookshelf compatibility
 
@@ -31,26 +33,35 @@ cd AudiobookManager && dotnet test --filter "FullyQualifiedName~TestMethodName"
 cd AudiobookManager/AudiobookManager.Api && dotnet watch run
 ```
 
-### Frontend (Vue/Node)
+### Frontend (React/Node)
+
+Package manager is **pnpm** (see `client/package.json`'s `packageManager` field), not npm.
 
 ```bash
 # Install dependencies
-cd client && npm install
+cd client && pnpm install
 
-# Dev server (http://localhost:3000)
-cd client && npm run dev
+# Dev server (http://localhost:3000, proxies /api and /hubs to the API on 5271)
+cd client && pnpm run dev
 
-# Production build (includes vue-tsc type checking)
-cd client && npm run build
+# Production build (tsc --noEmit type-check, then vite build)
+cd client && pnpm run build
 
 # Run tests (Vitest)
-cd client && npm test
+cd client && pnpm test
+
+# Lint (ESLint, --max-warnings 0)
+cd client && pnpm run lint
 
 # Format check (Prettier)
-cd client && npm run format-check
+cd client && pnpm run format-check
 
 # Auto-format
-cd client && npm run format
+cd client && pnpm run format
+
+# Regenerate src/lib/api-types.ts from the backend's OpenAPI spec (briefly starts the API in
+# Development to fetch /swagger/v1/swagger.json; run after a DTO shape changes)
+cd client && pnpm run generate-api-types
 ```
 
 ### Docker
@@ -89,20 +100,14 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 - **HubClient** — SignalR client library. Implements `IOrganize` interface — must be updated when new SignalR events are added.
 - **Test** — MSTest unit tests with Moq for mocking.
 
-### Vuetify MCP
-
-When working on frontend Vuetify components, use the [Vuetify MCP server](https://github.com/vuetifyjs/mcp/) whenever possible. It provides direct access to Vuetify component APIs (props, events, slots, methods) and documentation, enabling accurate AI-assisted development.
-
-Connect via the hosted server at `https://mcp.vuetifyjs.com/mcp` or run locally with `npx -y @vuetify/mcp`.
-
 ### Frontend (`client/`)
 
-- **Framework**: Vue 3 + Vuetify 3 + Vue Router + TypeScript
-- **Services** (`src/services/`): API layer using Axios. `BaseHttpService.ts` is the shared HTTP wrapper with `getData`, `postData`, `putData`, `delete` methods. Each service is a singleton class instance export.
-- **Real-time**: SignalR via `@quangdao/vue-signalr`. Message types defined in `src/signalr/` as TypeScript interfaces. Listeners use typed `HubEventToken<T>` tokens.
-- **Components** (`src/components/`): `BookOrganize.vue` (organization workflow), `BookLibrary.vue` (library management + scan), `LibraryConsistency.vue` (consistency checking). Library sub-views in `components/library/`.
-- **Routing**: Hash-based routing configured in `main.ts`. Navigation links defined in `App.vue`.
-- **Types** (`src/types/`): TypeScript interfaces for API response shapes.
+- **Framework**: React 19 (function components + hooks) + Vite + TanStack Router + TanStack Query + TypeScript. Styling is Tailwind CSS; components are shadcn/ui vendored onto **Base UI** primitives (not Radix — see `client/src/DESIGN.md` section 1). Full conventions live in `client/src/DESIGN.md`; do not duplicate them here.
+- **API layer** (`src/services/api.ts` + `src/lib/api.ts`): `src/lib/api.ts` is the single file that knows the base URL (`/api`, proxied by Vite in dev, same-origin behind the reverse proxy in production), parses RFC 9457 `problem+json` errors into `ApiError`, and is the only thing components/query hooks call through. `src/services/api.ts` groups typed endpoint functions by resource (`audiobookApi`, `libraryApi`, `consistencyApi`, `seriesApi`, `settingsApi`, ...) and holds `toAudiobookDto`/mapping helpers between the frontend's `Audiobook` domain shape and the backend's DTO shape.
+- **Types**: `src/lib/api-types.ts` is generated from the backend's OpenAPI spec (`pnpm run generate-api-types`) and is vendored — never hand-edited. Most response shapes in `src/types/*.ts` are still hand-written (a tracked deviation — see `client/src/DESIGN.md` section 9); when adding a new endpoint or type, prefer aliasing the generated `components["schemas"][...]` shape from `api-types.ts` over hand-writing a new interface, and when editing an existing hand-written type, check it against the generated schema for the same DTO rather than assuming it's still accurate — a hand-written type drifted from `DiscoveredAudiobookDto`'s actual (flat, string-joined) shape long enough to silently break the Discovered Audiobooks page (crash on render, and `filePath: undefined` sent to the organize endpoint) before this was caught by that comparison.
+- **Real-time**: SignalR via `@microsoft/signalr` directly, wired through `SignalRProvider`/`SignalRContext` (`src/context/SignalRContext.tsx`, `src/components/SignalRProvider.tsx`) and the `useSignalREvent`/`useSignalRReconnected` hooks (`src/hooks/useSignalR.ts`) — event names are plain strings matched against the backend's `IOrganize` interface, not typed tokens.
+- **Components** (`src/components/`): `BookOrganize.tsx` (organization workflow), `BookLibrary.tsx` (library management + scan), `LibraryConsistency.tsx` (consistency checking). Library sub-views in `components/library/`. Vendored shadcn/ui primitives live in `components/ui/` — do not hand-edit them (see `client/src/DESIGN.md` section 3).
+- **Routing**: TanStack Router, file-based under `src/routes/` (one file per route, `$param` for dynamic segments, `index.tsx` for a directory's exact path). `src/routeTree.gen.ts` is generated by the `@tanstack/router-plugin` Vite plugin and is vendored — commit it, never hand-edit it. Routing is **browser (path-based)**, not hash-based; `Program.cs` serves `MapFallbackToFile("index.html")` so a direct load or refresh on a nested route (e.g. `/library/book/42`) still resolves — if you ever change the routing mode, check that fallback is still needed/present.
 
 ### Communication
 
@@ -315,8 +320,9 @@ seriesName` against fixed action paths (`api/series/detail`, `api/series/match`,
 `api/browse/series`, ...); `SeriesControllerTests` has a reflection guard that fails if any route
 template on either controller reintroduces `{seriesName}`.
 
-Vue Router is *not* affected - it decodes params after matching, so `/library/series/:seriesName`
-handles such a name correctly - which is why the series was clickable but its API calls were not.
+The frontend router (TanStack Router) is *not* affected - it decodes path params after matching,
+so `/library/series/$seriesName` handles such a name correctly client-side - which is why the
+series was clickable but its API calls were not.
 
 ### Language is a managed value, not free text
 
@@ -344,10 +350,9 @@ data:
   `SettingsControllerTests.GetLanguages_ServesEveryAliasThatNormalizeAccepts` guards the parity.
 
 Where the default applies is deliberately asymmetric: a book being **added** seeds an empty
-language with `Languages.DefaultCode` (`BookEditForm`'s `defaultEmptyLanguage` prop, set only by
-`BookOrganize.vue`), because most imports are English and an untagged file shouldn't need filling
-in by hand. A book **already in the library** never gets that default — silently granting it a
-language because its edit page was opened would hide it from Missing Tags.
+language with `Languages.DefaultCode`, because most imports are English and an untagged file
+shouldn't need filling in by hand. A book **already in the library** never gets that default —
+silently granting it a language because its edit page was opened would hide it from Missing Tags.
 
 `TagConsistencyChecker` compares Language on every save, so anything the tag writer does to the
 value has to round-trip through ATL exactly (see the tag round-trip rule above) — hence the
@@ -387,7 +392,7 @@ in `MissingTagService.Fields`.** `MissingTagService` (`AudiobookManager.Services
 is the backend for the Missing Tags feature (`GET api/missing-tags/fields`, `GET
 api/missing-tags/audiobooks`) — it is a hand-maintained list of `(Key, Label, IsCriticalByDefault,
 IsMissing)` tuples, not something derived by reflection from the tag writer or the `Audiobook`
-domain/DB model. The frontend (`MissingTagService.ts`, `MissingTags.vue`) fetches its field list
+domain/DB model. The frontend (`MissingTagService.ts`, `MissingTags.tsx`) fetches its field list
 from `GET api/missing-tags/fields` rather than hardcoding one, so adding a field to the backend
 list is sufficient — no frontend change is needed.
 
@@ -407,8 +412,8 @@ Author names and series values are free text, so the same real-world value can e
 - **Fuzzy matching** — `AudiobookManager.Services/Similarity/`: `NameNormalizer` (comparison-only normalization — lowercase, strip punctuation, merge initials — never written back to the DB), `LevenshteinDistance` (standalone edit-distance, no NuGet dependency), and `SimilarityGrouper` (clusters distinct values via normalized-equality or a length-scaled edit-distance threshold, using union-find with length-bucketed blocking). Thresholds live on `AudiobookManagerSettings`.
 - **Detection & alignment** — `ISimilarValueService`/`SimilarValueService`: `DetectSimilarAuthorsAsync()`/`DetectSimilarSeriesAsync()` read distinct values and cluster them; `AlignAuthorsAsync()`/`AlignSeriesAsync()` bulk-rewrite a chosen target value across all affected books. Alignment is **per-book**, wrapped in try/catch so one failure (e.g. a generated-path collision) never aborts the rest of the batch, and reports `(processed, total, succeeded, failed)` via a progress callback — mirroring `LibraryConsistencyService`'s bulk-resolve pattern.
 - **API** — `SimilarValuesController` (`api/similar-values`): `GET similar-authors`/`similar-series` (synchronous — DB read + in-memory clustering), `POST align` (fire-and-forget with SignalR progress, mirroring `ConsistencyController`), and `GET author-names`/`series-names` (cheap flat lists for the entry-time autocomplete below).
-- **UI** — `SimilarValues.vue`: review each group, pick a target value (existing candidate or free text), confirm, watch live progress.
-- **Entry-time duplicate prevention** — the add/edit book form (`BookDetail.vue`) fetches the flat name lists (`SimilarValueService.ts` on the frontend, with a 5-minute in-memory cache) to power an autocomplete dropdown on the Author/Series fields while typing, and a "similar existing entries" hint with click-to-use after metadata is filled from a scrape. This client-side matching is a separate, simpler JS implementation (`helpers/similarValueMatcher.ts`) — it's advisory UI only and does not need to match the backend `SimilarityGrouper` byte-for-byte.
+- **UI** — `SimilarValues.tsx`: review each group, pick a target value (existing candidate or free text), confirm, watch live progress.
+- **Entry-time duplicate prevention** — `BookEditForm.tsx` fetches the flat name lists (`similarValuesApi.getAuthorNames()`/`getSeriesNames()`, cached 5 minutes via TanStack Query) and, on blur of the Author/Series fields, shows a "similar existing entries" click-to-use hint using `findSimilarExisting` from `helpers/similarValueMatcher.ts` (accent-folded, near-match). This client-side matching is a separate, simpler implementation — it's advisory UI only and does not need to match the backend `SimilarityGrouper` byte-for-byte.
 
 **Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName.** Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, or `BookName` on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. Note `LibraryConsistencyService.ResolveWrongFilePath` is a narrower, special-cased path-only repair (it assumes the m4b tags are already correct and only needs to move the file) — it is not a template for general field edits.
 
@@ -419,58 +424,48 @@ Adding a new source (or changing an existing one's name/availability) requires t
 1. Implement `IScraper` (`AudiobookManager.Scraping/Scrapers/IScraper.cs`) in a new class under `AudiobookManager.Scraping/Scrapers/`. Set `SourceName`, `IsSource()`, `SupportsUrl()`, `Search()`, `GetBookDetails()`, and optionally `RequiresApiKey`/`IsApiKeyConfigured` if it needs a key (see `HardcoverScraper` for the pattern).
 2. That's it. DI registration is reflection-based (`AudiobookManager.Scraping/DependencyInjection.cs` registers every non-abstract `IScraper` in the assembly automatically) — no manual wiring.
 3. `ScrapingService.GetSearchServiceInfo()` (`GET /api/metadata-search/services`) automatically includes the new scraper, and `ScrapingService.Search`/`SearchMultiple`/`GetBookDetails` automatically tags results with the scraper's `SourceName`.
-4. The frontend's source picker and the remembered-source-selection composable (`useSelectedSearchSources.ts`) derive their list of sources from `GET /metadata-search/services` live — **neither hardcodes source names**, and neither should be edited when a scraper is added, removed, or renamed. Do not reintroduce a hardcoded fallback source list on the frontend (one existed in `BookSearchDialog.vue` and was removed for exactly this reason — it silently drifted from the real backend list).
+4. The frontend's source picker and the remembered-source-selection hook (`useSelectedSearchSources.ts`) derive their list of sources from `GET /metadata-search/services` live — **neither hardcodes source names**, and neither should be edited when a scraper is added, removed, or renamed. Do not reintroduce a hardcoded fallback source list on the frontend (one existed in `BookSearchDialog.tsx` and was removed for exactly this reason — it silently drifted from the real backend list).
 
-`BookSearchDialog.vue`'s single search field doubles as "add by URL": on submit, an absolute `http(s)` value goes straight to `MetadataSearchService.getBookDetails()` (skipping source selection entirely) instead of the multi-source search, so pasting a book URL from any configured source adds it directly. There is no separate "Add by URL" dialog/button.
+`BookSearchDialog.tsx`'s single search field doubles as "add by URL": on submit, an absolute `http(s)` value goes straight to `metadataSearchApi.getBookDetails()` (skipping source selection entirely) instead of the multi-source search, so pasting a book URL from any configured source adds it directly. There is no separate "Add by URL" dialog/button.
 
 ## Frontend Patterns
 
-### Async list loads need a request-sequence guard
+### Async list loads go through TanStack Query, not manual state + effects
 
-Any loader whose result overwrites shared state (`loadBooks`, `loadDiscoveredBooks`, `runSearch`)
-must ignore its own stale responses. Debounced search and pagination overlap constantly, and
-without this a slow `"har"` landing after a fast `"harry"` renders the wrong page:
-
-```ts
-let loadRequestId = 0;
-
-const load = async () => {
-  const requestId = ++loadRequestId;
-  const result = await Service.fetch(...);
-  if (requestId !== loadRequestId) return;   // a newer load won
-  items.value = result.items;
-};
-```
-
-### Cancel debounced callbacks on unmount
-
-Every `debounce(...)` in a component needs a matching `onUnmounted(() => fn.cancel())`, or it
-fires after the component is gone — mutating dead refs and issuing a request nobody reads. The
-same pairing rule as SignalR listeners, which is what `useSignalREvent`/`useSignalRReconnected`
-exist to enforce; prefer those over raw `on`/`off`.
+A loader whose result overwrites shared state (a book list, a search result set) must ignore its
+own stale responses — debounced search and pagination overlap constantly, and without that a slow
+`"har"` landing after a fast `"harry"` renders the wrong page. Don't hand-roll a request-sequence
+guard for this: use `useQuery` with the debounced value in the `queryKey` (`BookLibrary.tsx`'s
+`debouncedQuery`/`page` key), and TanStack Query's own de-duplication/cancellation discards a
+stale response for you. A component that debounces a keystroke into a `useState` still needs its
+own `useEffect` cleanup (`return () => clearTimeout(timer)`) so a pending debounce doesn't fire
+after the component unmounts — the same pairing rule SignalR listeners follow, which is what
+`useSignalREvent`/`useSignalRReconnected` exist to enforce; prefer those over a raw
+`connection.on`/`.off`.
 
 ### Never key a mutating list by array index
 
-`v-for` over a list that is mutated at runtime must be keyed by a stable identity
-(`:key="book.fullPath"`), and any "which row is open/selected" state must hold that same
-identifier — not an index. `BookList.vue` and `DiscoveredAudiobooks.vue` both track the open
-expansion panel by path (`:value="book.fullPath"`), because removing a row above the open one
-used to silently re-point the panel at whichever book shifted into that slot, with Vue reusing
-the already-open form for a different file.
+`.map()` over a list that is mutated at runtime must be keyed by a stable identity
+(`key={book.fullPath}`), and any "which row is open/selected" state must hold that same
+identifier — not an index. `BookList.tsx` and `DiscoveredAudiobooks.tsx` both track the open
+expansion row by path, because removing a row above the open one would otherwise silently
+re-point the open state at whichever book shifted into that slot, reusing the already-open form
+for a different file.
 
 ### Optimistic UI must not outrun what the server reported
 
 A bulk operation returns `{ resolved, failed }`. Removing everything it touched from the list
 regardless of `failed` hides genuinely unresolved items until the next full check. Re-read the
-authoritative list in a `finally` instead of reproducing the server's resolution rules
-client-side (`LibraryConsistency.vue`'s `bulkResolve`/`resolveSelected`).
+authoritative list in a `finally` (or let a TanStack Query invalidation do it) instead of
+reproducing the server's resolution rules client-side (`LibraryConsistency.tsx`'s
+`bulkResolve`/`resolveSelected`).
 
-### Keep O(n) work out of the template
+### Keep O(n) work out of the render path
 
-A plain function called from a template re-runs on every render, for every item. Where it scans a
-collection, hoist it into a `computed` that produces the whole lookup in one pass —
-`LibraryConsistency.vue`'s `groupSelectionState` replaced per-group helpers that made ticking one
-checkbox re-scan every group's full issue array four or more times.
+A plain function called inline in JSX re-runs on every render, for every item. Where it scans a
+collection, hoist it into a `useMemo` that produces the whole lookup in one pass —
+`LibraryConsistency.tsx`'s `groupSelectionState` avoids per-group helpers that would otherwise
+re-scan every group's full issue array on every render, once per group.
 
 ### Send only what the endpoint reads
 
@@ -500,7 +495,7 @@ they track them as reactive dependencies and retrigger on cover edits.
 - Vite dev server on port 3000, API on port 5271
 - Audio metadata handled via `z440.atl.core` library (ATL)
 - HTTP resilience via Polly
-- **TypeScript pinned to 6.x** — do not upgrade to TypeScript 7 yet. TS 7.0 dropped the Compiler/AST API that `vue-tsc` relies on, so `vue-tsc` (and therefore `npm run build`) breaks on it. Official support is blocked on TS 7.1's plugin interface (see [vuejs/language-tools#5381](https://github.com/vuejs/language-tools/issues/5381)); an interim third-party shim (`typescript-native-bridge`) exists but isn't worth adopting for this project. Re-check once `vue-tsc` ships native TS 7.1 support.
+- `client`'s build (`pnpm run build`) runs `tsc --noEmit` directly (no separate `vue-tsc`-style wrapper needed) before `vite build`.
 
 ## Testing Policy
 
@@ -510,7 +505,7 @@ change is not complete until the tests covering it exist and pass.
 - **New features** — cover the behavior the feature adds, including its failure and edge cases
   (empty/null inputs, error paths, permission/limit boundaries), not just the happy path. A
   new service gets a test class; a new endpoint gets a controller test; a new helper,
-  composable, or component gets a `*.test.ts`.
+  hook, or component gets a `*.test.ts`.
 - **Bug fixes** — first write a test that fails against the unfixed code and passes with the
   fix, so the specific bug can never silently return. Reference the failure in the test name
   (e.g. `..._DoesNotResurrectStaleSidecarsOnRelocation`).
@@ -523,9 +518,11 @@ Where tests live:
 - **Backend** — MSTest + Moq in `AudiobookManager/AudiobookManager.Test/`, mirroring the source
   layout (`Services/`, `Controllers/`, `FileManager/`, `Repositories/`, `Scraping/`). Test
   fixtures go in a `TestData/` folder next to the tests that use them.
-- **Frontend** — Vitest, named `*.test.ts` (**not** `.spec.ts`), colocated beside the file under
-  test. Vuetify component tests mount with the plugin registered — see `client/vitest.setup.ts`
-  for the jsdom polyfills (`ResizeObserver`, `visualViewport`) Vuetify overlays need.
+- **Frontend** — Vitest + Testing Library, named `*.test.ts`/`*.test.tsx` (**not** `.spec.ts`),
+  colocated beside the file under test. See `client/vitest.setup.ts` for the jsdom polyfills
+  (currently `window.matchMedia`, which `ThemeProvider`'s dark-mode detection needs) tests pick up
+  automatically; add to it when a component under test needs a browser API jsdom doesn't
+  implement.
 
 Writing tests that actually catch regressions:
 - **Assert on the exact value, not a loose substring.** `toContain("Searching: A, B")` still
@@ -559,12 +556,13 @@ Writing tests that actually catch regressions:
 
 ## Verification Checklist
 
-After making changes, run all five — including when a change looks backend- or
+After making changes, run all six — including when a change looks backend- or
 frontend-only, since edits to shared files (e.g. `client/src/signalr/hub.ts`) can break
 the other side's tests too:
 
 1. `cd AudiobookManager && dotnet build` — 0 errors
 2. `cd AudiobookManager && dotnet test` — all pass
-3. `cd client && npm run build` — type-check + build
-4. `cd client && npm test` — Vitest unit tests, all pass
-5. `cd client && npm run format-check` — Prettier formatting
+3. `cd client && pnpm run build` — type-check + build
+4. `cd client && pnpm test` — Vitest unit tests, all pass
+5. `cd client && pnpm run format-check` — Prettier formatting
+6. `cd client && pnpm run lint` — ESLint, `--max-warnings 0`
