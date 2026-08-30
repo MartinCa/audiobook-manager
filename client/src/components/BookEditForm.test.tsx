@@ -13,11 +13,12 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false } },
-});
-
 function renderWithProviders(ui: React.ReactElement) {
+  // A fresh client per render — several tests below vary the getLanguages mock per-call, and a
+  // shared client would serve a stale cached "languages" query result across tests.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
@@ -30,6 +31,36 @@ const initialBook: Audiobook = {
 };
 
 describe("BookEditForm", () => {
+  it("seeds an empty language with the backend default when defaultEmptyLanguage is set", async () => {
+    const { settingsApi } = await import("@/services/api");
+    vi.mocked(settingsApi.getLanguages).mockResolvedValueOnce({
+      languages: [
+        { code: "en", displayName: "English", aliases: ["eng"] },
+        { code: "da", displayName: "Danish", aliases: ["dansk"] },
+      ],
+      defaultCode: "en",
+    });
+
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} defaultEmptyLanguage />,
+    );
+
+    expect(await screen.findByText("English")).toBeInTheDocument();
+  });
+
+  it("does not default the language when defaultEmptyLanguage is not set", async () => {
+    const { settingsApi } = await import("@/services/api");
+    vi.mocked(settingsApi.getLanguages).mockResolvedValueOnce({
+      languages: [{ code: "en", displayName: "English", aliases: ["eng"] }],
+      defaultCode: "en",
+    });
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(settingsApi.getLanguages).toHaveBeenCalled());
+    expect(screen.queryByText("English")).not.toBeInTheDocument();
+  });
+
   it("renders fields populated from the initial book", () => {
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 

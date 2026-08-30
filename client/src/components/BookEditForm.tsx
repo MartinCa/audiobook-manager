@@ -25,6 +25,7 @@ import {
   cleanDescription,
   normalizeSeriesPart,
 } from "@/helpers/organizeAudiobookInput";
+import { normalizeLanguage, languageSelectItems } from "@/helpers/languages";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -114,6 +115,13 @@ export interface BookEditFormProps {
   onReset?: () => void;
   toolbarActions?: ReactNode;
   formActions?: ReactNode;
+  /**
+   * Seed an empty language with the backend's default code once the language list loads.
+   * Only set by the organize workflow (importing a new file) — a book already in the library
+   * never gets this default, or opening its edit page would silently grant it a language and
+   * hide it from Missing Tags.
+   */
+  defaultEmptyLanguage?: boolean;
 }
 
 export function BookEditForm({
@@ -124,6 +132,7 @@ export function BookEditForm({
   onReset,
   toolbarActions,
   formActions,
+  defaultEmptyLanguage = false,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   const [newPath, setNewPath] = useState<string | null>(null);
@@ -142,6 +151,19 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
+
+  useEffect(() => {
+    if (!languagesRes) return;
+    const current = form.getValues("language");
+    const normalized = normalizeLanguage(current, languagesRes.languages);
+    if (normalized) {
+      if (normalized !== current) form.setValue("language", normalized);
+    } else if (defaultEmptyLanguage && !current) {
+      form.setValue("language", languagesRes.defaultCode || "");
+    }
+    // Only re-run when the language list itself arrives/changes, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [languagesRes]);
 
   useEffect(() => {
     const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
@@ -419,20 +441,27 @@ export function BookEditForm({
               <Controller
                 control={form.control}
                 name="language"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select language..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {languages.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {l.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+                render={({ field }) => {
+                  const items = languageSelectItems(field.value, languages);
+                  return (
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      items={items.map((l) => ({ value: l.code, label: l.displayName }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select language..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {items.map((l) => (
+                          <SelectItem key={l.code} value={l.code}>
+                            {l.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  );
+                }}
               />
             </div>
 

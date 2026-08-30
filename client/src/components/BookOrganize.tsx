@@ -134,6 +134,7 @@ export function BookOrganize({
         initialBook={bookDetails}
         currentPath={targetPath}
         onSave={handleOrganizeClick}
+        defaultEmptyLanguage
         formActions={
           <div className="flex items-center gap-2">
             <Button
