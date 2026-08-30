@@ -29,7 +29,7 @@
     "@types/webfontloader": "1.6.38",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/ui": "4.1.11",
-    "@vue/test-utils": "2.4.11",
+    "@vue/test-utils": "2.5.0",
     "jsdom": "30.0.1",
     "prettier": "3.9.6",
     "typescript": "6.0.3",
