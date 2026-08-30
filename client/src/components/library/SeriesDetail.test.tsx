@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SeriesDetail } from "./SeriesDetail";
+import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
+import { ThemeProvider } from "@/components/theme-provider";
 import { seriesApi } from "@/services/api";
 
 const queryClient = new QueryClient({
@@ -20,16 +21,19 @@ const mockSignalRValue = {
 };
 
 function renderWithProviders(initialEntry = "/library/series/Mistborn") {
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+  });
+
   return render(
-    <SignalRContext.Provider value={mockSignalRValue}>
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/library/series/:seriesName" element={<SeriesDetail />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    </SignalRContext.Provider>,
+    <ThemeProvider defaultTheme="system" storageKey="theme">
+      <SignalRContext.Provider value={mockSignalRValue}>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </SignalRContext.Provider>
+    </ThemeProvider>,
   );
 }
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -25,6 +25,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SeriesMatchCandidate } from "@/types/Series";
+import { Route } from "@/routes/library/series/$seriesName";
 
 interface SeriesRefreshCompletePayload {
   totalProcessed: number;
@@ -34,12 +35,11 @@ interface SeriesRefreshCompletePayload {
 }
 
 export function SeriesDetail() {
-  const { seriesName } = useParams<{ seriesName: string }>();
-  const [searchParams] = useSearchParams();
+  const { seriesName } = Route.useParams();
+  const { authorId } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const decodedSeriesName = decodeURIComponent(seriesName || "");
-  const authorId = searchParams.get("authorId") ? Number(searchParams.get("authorId")) : undefined;
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -200,14 +200,23 @@ export function SeriesDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          render={<Link to={authorId ? `/library/authors/${authorId}` : "/library/series"} />}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          {authorId ? "Back to Author" : "Back to Series"}
-        </Button>
+        {authorId ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            render={
+              <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
+            }
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Author
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" render={<Link to="/library/series" />}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Series
+          </Button>
+        )}
 
         <div className="flex items-center gap-2">
           <Button
@@ -443,7 +452,7 @@ export function SeriesDetail() {
               <div
                 key={b.id}
                 onClick={() => {
-                  void navigate(`/library/book/${b.id}`);
+                  void navigate({ to: "/library/book/$bookId", params: { bookId: String(b.id) } });
                 }}
                 className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
               >

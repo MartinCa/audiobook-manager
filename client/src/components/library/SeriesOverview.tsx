@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -191,7 +191,10 @@ export function SeriesOverviewPage() {
             <div
               key={s.name}
               onClick={() => {
-                void navigate(`/library/series/${encodeURIComponent(s.name)}`);
+                void navigate({
+                  to: "/library/series/$seriesName",
+                  params: { seriesName: s.name },
+                });
               }}
               className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
             >

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, Search, ChevronRight, Loader2, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,10 @@ export function AuthorsList() {
             <div
               key={author.id}
               onClick={() => {
-                void navigate(`/library/authors/${author.id}`);
+                void navigate({
+                  to: "/library/authors/$authorId",
+                  params: { authorId: String(author.id) },
+                });
               }}
               className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
             >

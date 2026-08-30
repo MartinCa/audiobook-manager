@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -36,10 +36,22 @@ export function LibrarySearch() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelect = (path: string) => {
+  const handleSelectBook = (bookId: number) => {
     setFocused(false);
     setQuery("");
-    void navigate(path);
+    void navigate({ to: "/library/book/$bookId", params: { bookId: String(bookId) } });
+  };
+
+  const handleSelectAuthor = (authorId: number) => {
+    setFocused(false);
+    setQuery("");
+    void navigate({ to: "/library/authors/$authorId", params: { authorId: String(authorId) } });
+  };
+
+  const handleSelectSeries = (seriesName: string) => {
+    setFocused(false);
+    setQuery("");
+    void navigate({ to: "/library/series/$seriesName", params: { seriesName } });
   };
 
   const hasResults =
@@ -88,7 +100,7 @@ export function LibrarySearch() {
               {results.books.map((b) => (
                 <div
                   key={`book-${b.id}`}
-                  onClick={() => handleSelect(`/library/book/${b.id}`)}
+                  onClick={() => handleSelectBook(b.id)}
                   className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors"
                 >
                   <BookOpen className="text-primary h-3.5 w-3.5 shrink-0" />
@@ -114,7 +126,7 @@ export function LibrarySearch() {
               {results.authors.map((a) => (
                 <div
                   key={`author-${a.id}`}
-                  onClick={() => handleSelect(`/library/authors/${a.id}`)}
+                  onClick={() => handleSelectAuthor(a.id)}
                   className="hover:bg-accent flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors"
                 >
                   <div className="flex items-center gap-2 truncate">
@@ -137,7 +149,7 @@ export function LibrarySearch() {
               {results.series.map((s) => (
                 <div
                   key={`series-${s.name}`}
-                  onClick={() => handleSelect(`/library/series/${encodeURIComponent(s.name)}`)}
+                  onClick={() => handleSelectSeries(s.name)}
                   className="hover:bg-accent flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors"
                 >
                   <div className="flex items-center gap-2 truncate">

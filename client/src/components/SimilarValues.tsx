@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Layers, RefreshCw, ArrowRight, Loader2, Users, BookMarked } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -204,7 +204,11 @@ export function SimilarValues() {
                       <ul className="text-muted-foreground mt-1 max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 text-[11px]">
                         {cand.books.map((b) => (
                           <li key={b.id}>
-                            <Link to={`/library/book/${b.id}`} className="hover:underline">
+                            <Link
+                              to="/library/book/$bookId"
+                              params={{ bookId: String(b.id) }}
+                              className="hover:underline"
+                            >
                               {b.bookName}
                             </Link>
                           </li>

@@ -1,13 +1,14 @@
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { browseApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
+import { Route } from "@/routes/library/authors/$authorId";
 
 export function AuthorDetail() {
-  const { authorId } = useParams<{ authorId: string }>();
+  const { authorId } = Route.useParams();
   const navigate = useNavigate();
   const id = Number(authorId);
 
@@ -67,9 +68,11 @@ export function AuthorDetail() {
               <Card
                 key={s.seriesName}
                 onClick={() => {
-                  void navigate(
-                    `/library/series/${encodeURIComponent(s.seriesName)}?authorId=${author.id}`,
-                  );
+                  void navigate({
+                    to: "/library/series/$seriesName",
+                    params: { seriesName: s.seriesName },
+                    search: { authorId: author.id },
+                  });
                 }}
                 className="hover:bg-muted/50 cursor-pointer transition-colors"
               >
@@ -99,7 +102,10 @@ export function AuthorDetail() {
               <div
                 key={book.id}
                 onClick={() => {
-                  void navigate(`/library/book/${book.id}`);
+                  void navigate({
+                    to: "/library/book/$bookId",
+                    params: { bookId: String(book.id) },
+                  });
                 }}
                 className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
               >

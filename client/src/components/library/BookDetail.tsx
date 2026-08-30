@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -24,6 +24,7 @@ import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
+import { Route } from "@/routes/library/book.$bookId";
 
 interface SaveProgressPayload {
   audiobookId: number;
@@ -37,7 +38,7 @@ interface SaveErrorPayload {
 }
 
 export function BookDetail() {
-  const { bookId } = useParams<{ bookId: string }>();
+  const { bookId } = Route.useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const id = Number(bookId);
@@ -150,7 +151,7 @@ export function BookDetail() {
     try {
       await filesApi.deleteBook(bookDetail.filePath);
       toast.success("Audiobook deleted from library");
-      void navigate("/library");
+      void navigate({ to: "/library" });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
       setDeleting(false);

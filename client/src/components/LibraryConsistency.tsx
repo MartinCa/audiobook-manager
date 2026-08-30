@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -496,7 +496,8 @@ export function LibraryConsistency() {
 
                                   <div className="min-w-0 space-y-1">
                                     <Link
-                                      to={`/library/book/${issue.audiobookId}`}
+                                      to="/library/book/$bookId"
+                                      params={{ bookId: String(issue.audiobookId) }}
                                       className="text-primary text-xs font-semibold hover:underline"
                                     >
                                       {issue.authors.join(", ")} &mdash; {issue.bookName}

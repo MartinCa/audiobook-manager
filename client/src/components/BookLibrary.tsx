@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Library,
@@ -168,7 +168,10 @@ export function BookLibrary() {
               <div
                 key={book.id}
                 onClick={() => {
-                  void navigate(`/library/book/${book.id}`);
+                  void navigate({
+                    to: "/library/book/$bookId",
+                    params: { bookId: String(book.id) },
+                  });
                 }}
                 className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
               >

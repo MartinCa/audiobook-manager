@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibraryConsistency } from "./LibraryConsistency";
 import { SignalRContext } from "@/context/SignalRContext";
 import { consistencyApi } from "@/services/api";
+import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -23,7 +23,7 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(
     <SignalRContext.Provider value={mockSignalRValue}>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <RouterTestWrapper ui={ui} />
       </QueryClientProvider>
     </SignalRContext.Provider>,
   );
@@ -35,7 +35,7 @@ describe("LibraryConsistency", () => {
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
 
     renderWithProviders(<LibraryConsistency />);
-    expect(screen.getByText("Run Consistency Check")).toBeInTheDocument();
-    expect(await screen.findByText("Library Consistency")).toBeInTheDocument();
+    expect(await screen.findByText("Run Consistency Check")).toBeInTheDocument();
+    expect(screen.getByText("Library Consistency")).toBeInTheDocument();
   });
 });

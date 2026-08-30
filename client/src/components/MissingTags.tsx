@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Tag, BookOpen, ChevronRight, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -180,7 +180,8 @@ export function MissingTags() {
             {audiobooks.map((b) => (
               <Link
                 key={b.audiobookId}
-                to={`/library/book/${b.audiobookId}`}
+                to="/library/book/$bookId"
+                params={{ bookId: String(b.audiobookId) }}
                 className="group border-border bg-card hover:bg-muted/50 flex items-center justify-between rounded-lg border p-3 transition-colors"
               >
                 <div className="min-w-0">
