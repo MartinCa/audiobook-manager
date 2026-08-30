@@ -177,6 +177,11 @@ export function BookSearchDialog({
         <div className="space-y-4 py-2">
           <form
             onSubmit={(e) => {
+              // This dialog is opened from BookEditForm's own <form>. Its DialogContent
+              // portals to document.body, but React still bubbles synthetic events through
+              // the component tree rather than the DOM tree — so without stopping it here,
+              // submitting this search form also submits (and saves/organizes) the outer one.
+              e.stopPropagation();
               void handleSearch(e);
             }}
             className="flex gap-2"

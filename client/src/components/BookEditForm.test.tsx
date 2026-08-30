@@ -15,6 +15,10 @@ vi.mock("@/services/api", () => ({
     getAuthorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
+  metadataSearchApi: {
+    getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
+    searchMultiple: vi.fn().mockResolvedValue({ results: [], sourceStatuses: [] }),
+  },
 }));
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -103,6 +107,25 @@ describe("BookEditForm", () => {
     fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
 
     expect(screen.getByDisplayValue("Jane Authorr")).toBeInTheDocument();
+  });
+
+  it("does not submit the outer form when the search dialog's own form is submitted", async () => {
+    // Regression test: BookSearchDialog's <DialogContent> portals to document.body, but React
+    // still bubbles synthetic events through the component tree it's rendered in, not the DOM
+    // tree. Without BookSearchDialog stopping propagation on its own form's submit, submitting
+    // that search form also submitted (and saved/organized) this outer form.
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Some Book" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const { metadataSearchApi } = await import("@/services/api");
+    await waitFor(() => expect(metadataSearchApi.searchMultiple).toHaveBeenCalled());
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("calls onSave with the built audiobook on a valid submit", async () => {
