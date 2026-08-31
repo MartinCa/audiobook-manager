@@ -469,11 +469,21 @@ export function DiscoveredAudiobooks() {
                 </AccordionTrigger>
 
                 <AccordionContent className="border-border border-t pt-4 pb-4">
-                  <div className="space-y-4">
-                    <div className="flex justify-end gap-2">
+                  <BookEditForm
+                    initialBook={initialAudiobook}
+                    currentPath={book.fullPath}
+                    coverUrl={filesApi.getCoverUrl(book.fullPath)}
+                    onSave={(edited) => handleOrganizeDiscovered(book.fullPath, edited)}
+                    toolbarActions={
+                      // Dismiss/delete shares the search row rather than a row of its own -
+                      // ghost styling keeps it reachable without competing with the primary
+                      // "Import to Library" action, which is the actually common one and stays
+                      // solid in the form's footer.
                       <Button
-                        variant="destructive"
+                        type="button"
+                        variant="ghost"
                         size="sm"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => {
                           void handleDeleteDiscovered(book.fullPath);
                         }}
@@ -481,21 +491,14 @@ export function DiscoveredAudiobooks() {
                         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                         Dismiss / Delete
                       </Button>
-                    </div>
-
-                    <BookEditForm
-                      initialBook={initialAudiobook}
-                      currentPath={book.fullPath}
-                      coverUrl={filesApi.getCoverUrl(book.fullPath)}
-                      onSave={(edited) => handleOrganizeDiscovered(book.fullPath, edited)}
-                      formActions={
-                        <Button type="submit">
-                          <FolderInput className="mr-2 h-4 w-4" />
-                          Import to Library
-                        </Button>
-                      }
-                    />
-                  </div>
+                    }
+                    formActions={
+                      <Button type="submit">
+                        <FolderInput className="mr-2 h-4 w-4" />
+                        Import to Library
+                      </Button>
+                    }
+                  />
                 </AccordionContent>
               </AccordionItem>
             );
