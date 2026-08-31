@@ -42,6 +42,7 @@ export function toAudiobookDto(data: Audiobook) {
     filePath: data.fileInfo?.fullPath,
     fileName: data.fileInfo?.fileName,
     sizeInBytes: data.fileInfo?.sizeInBytes ?? 0,
+    replaceExisting: data.replaceExisting ?? false,
   };
 }
 

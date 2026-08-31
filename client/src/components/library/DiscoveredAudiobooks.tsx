@@ -37,6 +37,7 @@ import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { toAudiobook } from "@/helpers/audiobookMapping";
+import { pathsEqual } from "@/helpers/pathHelpers";
 import { toast } from "sonner";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { Audiobook } from "@/types/Audiobook";
@@ -170,13 +171,22 @@ export function DiscoveredAudiobooks() {
 
   // SignalR single-item organize events (queued via "Import to Library" below)
   useSignalREvent<OrganizeProgressPayload>("UpdateProgress", (payload) => {
-    setOrganizeOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
-        progress: payload.progress,
-        message: payload.progressMessage,
-      },
-    }));
+    setOrganizeOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+
+      if (payload.progress >= 100) {
+        delete next[matchedKey];
+      } else {
+        next[matchedKey] = {
+          progress: payload.progress,
+          message: payload.progressMessage,
+        };
+      }
+      return next;
+    });
 
     if (payload.progress >= 100) {
       void queryClient.invalidateQueries({
@@ -186,12 +196,16 @@ export function DiscoveredAudiobooks() {
   });
 
   useSignalREvent<OrganizeQueueErrorPayload>("QueueError", (payload) => {
-    setOrganizeOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
+    setOrganizeOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+      next[matchedKey] = {
         error: payload.error,
-      },
-    }));
+      };
+      return next;
+    });
     toast.error(`Organize failed: ${payload.error}`);
   });
 
@@ -403,7 +417,10 @@ export function DiscoveredAudiobooks() {
         <Accordion type="single" collapsible className="space-y-2">
           {books.map((book) => {
             const isSelected = selectedPaths.has(book.fullPath);
-            const override = organizeOverrides[book.fullPath];
+            const overrideKey = Object.keys(organizeOverrides).find((k) =>
+              pathsEqual(k, book.fullPath),
+            );
+            const override = overrideKey ? organizeOverrides[overrideKey] : undefined;
             const isOrganizing = Boolean(override && override.error == null);
             const organizeError = override?.error;
 

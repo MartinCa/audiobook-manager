@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DiscoveredAudiobooks } from "./DiscoveredAudiobooks";
 import { SignalRContext } from "@/context/SignalRContext";
@@ -41,11 +41,19 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-const mockSignalRValue = {
+let capturedSignalRHandlers: Record<string, (payload: unknown) => void> = {};
+
+import type { SignalRContextValue, HubEventHandler } from "@/context/SignalRContext";
+
+const mockSignalRValue: SignalRContextValue = {
   connection: null,
-  isConnected: false,
-  on: vi.fn(),
-  off: vi.fn(),
+  isConnected: true,
+  on: <T,>(eventName: string, handler: HubEventHandler<T>) => {
+    capturedSignalRHandlers[eventName] = handler as (payload: unknown) => void;
+  },
+  off: (eventName: string) => {
+    delete capturedSignalRHandlers[eventName];
+  },
   onReconnected: vi.fn(),
   offReconnected: vi.fn(),
 };
@@ -79,6 +87,11 @@ describe("DiscoveredAudiobooks", () => {
   // result under the same query key.
   beforeEach(() => {
     queryClient.clear();
+    capturedSignalRHandlers = {};
+    vi.mocked(audiobookApi.checkTargetPath).mockResolvedValue({
+      exists: false,
+      targetPath: "/library/Target/book.m4b",
+    });
   });
 
   it("renders a well-tagged discovered book without crashing on the authors/genres strings", async () => {
@@ -211,5 +224,103 @@ describe("DiscoveredAudiobooks", () => {
     fireEvent.click(deleteBtn);
 
     expect(await screen.findByText("Delete Discovered Audiobook")).toBeInTheDocument();
+  });
+
+  it("displays live organize progress updates and clears progress bar on completion", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [discoveredBook],
+      total: 1,
+      count: 1,
+    });
+    vi.mocked(audiobookApi.organizeBook).mockResolvedValue("/library/Target/book.m4b");
+
+    renderWithProviders();
+
+    const trigger = await screen.findByText("Book Title", { exact: false });
+    fireEvent.click(trigger);
+
+    const importBtn = await screen.findByRole("button", { name: /import to library/i });
+    fireEvent.click(importBtn);
+
+    await waitFor(() => {
+      expect(audiobookApi.organizeBook).toHaveBeenCalled();
+    });
+
+    // Initially shows queued state
+    expect(await screen.findByText("Queued...")).toBeInTheDocument();
+
+    // SignalR sends progress update (e.g. saving tags at 38%)
+    act(() => {
+      capturedSignalRHandlers["UpdateProgress"]?.({
+        originalFileLocation: discoveredBook.fullPath,
+        progress: 38,
+        progressMessage: "Saving tags",
+      });
+    });
+
+    expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
+    expect(screen.getByText("38 / 100 (38%)")).toBeInTheDocument();
+
+    // SignalR sends saved tags at 70%
+    act(() => {
+      capturedSignalRHandlers["UpdateProgress"]?.({
+        originalFileLocation: discoveredBook.fullPath,
+        progress: 70,
+        progressMessage: "Saved tags",
+      });
+    });
+
+    expect(await screen.findByText(/Saved tags/)).toBeInTheDocument();
+    expect(screen.getByText("70 / 100 (70%)")).toBeInTheDocument();
+
+    // SignalR sends completion (100%)
+    act(() => {
+      capturedSignalRHandlers["UpdateProgress"]?.({
+        originalFileLocation: discoveredBook.fullPath,
+        progress: 100,
+        progressMessage: "Done",
+      });
+    });
+
+    // Progress bar override is cleared
+    await waitFor(() => {
+      expect(screen.queryByText(/Saved tags/)).not.toBeInTheDocument();
+      expect(screen.queryByText("70 / 100 (70%)")).not.toBeInTheDocument();
+    });
+  });
+
+  it("matches UpdateProgress with alternative path formatting / casing using pathsEqual", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [discoveredBook],
+      total: 1,
+      count: 1,
+    });
+    vi.mocked(audiobookApi.organizeBook).mockResolvedValue("/library/Target/book.m4b");
+
+    renderWithProviders();
+
+    const trigger = await screen.findByText("Book Title", { exact: false });
+    fireEvent.click(trigger);
+
+    const importBtn = await screen.findByRole("button", { name: /import to library/i });
+    fireEvent.click(importBtn);
+
+    await waitFor(() => {
+      expect(audiobookApi.organizeBook).toHaveBeenCalled();
+    });
+
+    expect(await screen.findByText("Queued...")).toBeInTheDocument();
+
+    // Backend sends path with backslashes instead of forward slashes
+    act(() => {
+      capturedSignalRHandlers["UpdateProgress"]?.({
+        originalFileLocation: "\\import\\Book Title\\book.m4b",
+        progress: 38,
+        progressMessage: "Saving tags",
+      });
+    });
+
+    expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
+    expect(screen.getByText("38 / 100 (38%)")).toBeInTheDocument();
   });
 });
