@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Users, Search, ChevronRight, Loader2, BookOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Users, Search, ChevronRight, Loader2, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
 import { foldAccents } from "@/helpers/similarValueMatcher";
 
@@ -26,10 +26,7 @@ export function AuthorsList() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Library
-        </Button>
+        <LibraryViewTabs activeTab="authors" />
       </div>
 
       <div>

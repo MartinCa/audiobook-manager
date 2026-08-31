@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   BookMarked,
   Search,
   RefreshCw,
@@ -17,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
 import { seriesApi } from "@/services/api";
@@ -99,10 +99,7 @@ export function SeriesOverviewPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Library
-        </Button>
+        <LibraryViewTabs activeTab="series" />
 
         <div className="flex flex-wrap items-center gap-2">
           <Button

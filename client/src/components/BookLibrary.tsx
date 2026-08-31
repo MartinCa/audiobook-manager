@@ -3,23 +3,20 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Library,
-  BookMarked,
-  Users,
   Search,
   RefreshCw,
   Clock,
   AlertTriangle,
   ChevronRight,
   FolderSearch,
-  Layers,
-  Tag,
-  ShieldAlert,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { LibraryViewTabs } from "./library/LibraryViewTabs";
+import { LibraryToolsMenu } from "./library/LibraryToolsMenu";
 import { browseApi, consistencyApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 
@@ -85,35 +82,14 @@ export function BookLibrary() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" render={<Link to="/library/series" />}>
-            <BookMarked className="mr-1.5 h-4 w-4" />
-            Series
-          </Button>
-
-          <Button variant="outline" size="sm" render={<Link to="/library/authors" />}>
-            <Users className="mr-1.5 h-4 w-4" />
-            Authors
-          </Button>
+          <LibraryViewTabs activeTab="books" />
 
           <Button variant="outline" size="sm" render={<Link to="/library/discovered" />}>
-            <FolderSearch className="mr-1.5 h-4 w-4" />
+            <FolderSearch className="mr-1.5 h-3.5 w-3.5" />
             Discovered Files
           </Button>
 
-          <Button variant="outline" size="sm" render={<Link to="/library/consistency" />}>
-            <ShieldAlert className="mr-1.5 h-4 w-4" />
-            Consistency
-          </Button>
-
-          <Button variant="outline" size="sm" render={<Link to="/library/missing-tags" />}>
-            <Tag className="mr-1.5 h-4 w-4" />
-            Missing Tags
-          </Button>
-
-          <Button variant="outline" size="sm" render={<Link to="/library/similar-values" />}>
-            <Layers className="mr-1.5 h-4 w-4" />
-            Similar Values
-          </Button>
+          <LibraryToolsMenu />
 
           <Button
             variant="outline"
@@ -123,7 +99,7 @@ export function BookLibrary() {
             }}
             disabled={loading}
           >
-            <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Reload
           </Button>
         </div>
