@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DiscoveredAudiobooks } from "./DiscoveredAudiobooks";
@@ -69,6 +69,13 @@ const discoveredBook: DiscoveredAudiobook = {
 };
 
 describe("DiscoveredAudiobooks", () => {
+  // The queryClient is shared module-scope across every test in this file; without clearing it,
+  // a later test's differently-shaped mock response can be masked by an earlier test's cached
+  // result under the same query key.
+  beforeEach(() => {
+    queryClient.clear();
+  });
+
   it("renders a well-tagged discovered book without crashing on the authors/genres strings", async () => {
     vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
       items: [discoveredBook],
@@ -96,5 +103,34 @@ describe("DiscoveredAudiobooks", () => {
 
     const authorsInput = await screen.findByDisplayValue("Author One / Author Two");
     expect(authorsInput).toBeInTheDocument();
+  });
+
+  // Regression: DiscoveredAudiobookDto didn't carry Description/Copyright/Publisher/Language/
+  // Rating/Asin/Www at all - LibraryScanService stores them at scan time, but the DTO silently
+  // dropped every one, so the edit form always showed them empty no matter what the file
+  // actually had tagged. initialAudiobook built entirely from this DTO, so an untouched "empty"
+  // description would be saved as empty on organize, silently erasing a real one.
+  it("populates description and copyright from the discovered DTO", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [
+        {
+          ...discoveredBook,
+          description: "A real description read from the file at scan time",
+          copyright: "2021 Andy Weir",
+        },
+      ],
+      total: 1,
+      count: 1,
+    });
+
+    renderWithProviders();
+
+    const trigger = await screen.findByText("Book Title", { exact: false });
+    fireEvent.click(trigger);
+
+    expect(
+      await screen.findByDisplayValue("A real description read from the file at scan time"),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2021 Andy Weir")).toBeInTheDocument();
   });
 });

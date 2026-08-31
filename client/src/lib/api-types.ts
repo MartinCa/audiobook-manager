@@ -2561,6 +2561,15 @@ export interface components {
             authors?: string | null;
             narrators?: string | null;
             genres?: string | null;
+            description?: string | null;
+            copyright?: string | null;
+            publisher?: string | null;
+            language?: string | null;
+            rating?: string | null;
+            asin?: string | null;
+            www?: string | null;
+            /** Format: int32 */
+            durationInSeconds?: number | null;
             isWellTagged?: boolean;
             isDuplicate?: boolean;
         };

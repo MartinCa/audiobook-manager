@@ -41,6 +41,45 @@ public class LibraryControllerTests
         Year = 2024
     };
 
+    // Regression: DiscoveredAudiobookDto only mapped fullPath/fileName/sizeInBytes/bookName/
+    // subtitle/series/seriesPart/year/authors/narrators/genres - Description, Copyright,
+    // Publisher, Language, Rating, Asin, Www and DurationInSeconds are all stored on the scan
+    // (LibraryScanService copies them from the parsed tags), but the DTO silently dropped every
+    // one of them, so the edit form for every discovered book always showed those fields empty
+    // regardless of what the file actually had tagged - indistinguishable in the UI from the file
+    // genuinely having no description, and irreversible if organized: DiscoveredAudiobooks.tsx's
+    // initialAudiobook is built entirely from this DTO, so the "empty" description a user never
+    // touched would be saved as empty, silently erasing a real one on organize.
+    [TestMethod]
+    public async Task GetDiscovered_MapsDescriptionCopyrightAndOtherScannedFieldsOntoTheDto()
+    {
+        var entry = MakeWellTagged("/import/book.m4b");
+        entry.Description = "A real description read from the file at scan time";
+        entry.Copyright = "2021 Andy Weir";
+        entry.Publisher = "Podium Audio";
+        entry.Language = "en";
+        entry.Rating = "4.5";
+        entry.Asin = "B08G9PRS1K";
+        entry.Www = "https://example.com";
+        entry.DurationInSeconds = 58248;
+
+        _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
+            .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry)).Returns(false);
+
+        var result = await _controller.GetDiscovered();
+
+        var dto = result.Items[0];
+        Assert.AreEqual(entry.Description, dto.Description);
+        Assert.AreEqual(entry.Copyright, dto.Copyright);
+        Assert.AreEqual(entry.Publisher, dto.Publisher);
+        Assert.AreEqual(entry.Language, dto.Language);
+        Assert.AreEqual(entry.Rating, dto.Rating);
+        Assert.AreEqual(entry.Asin, dto.Asin);
+        Assert.AreEqual(entry.Www, dto.Www);
+        Assert.AreEqual(entry.DurationInSeconds, dto.DurationInSeconds);
+    }
+
     [TestMethod]
     public async Task GetDiscovered_WellTaggedEntry_IsFlaggedDuplicateWhenTargetPathIsOccupied()
     {
