@@ -193,14 +193,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         /// desc.txt, reader.txt and metadata.opf together.
         /// </summary>
         SidecarsForAudiobook,
-
-        /// <summary>
-        /// The path, cover and sidecar-content issues were removed, because relocating the file
-        /// also rewrites its sidecars and cover. Deliberately excludes TagMismatch: resolving a
-        /// wrong file path re-parses tags from the file itself and never rewrites them, so a
-        /// coexisting tag mismatch is not touched and must not be dropped along with this.
-        /// </summary>
-        PathAndSidecarsForAudiobook,
     }
 
     private static readonly ConsistencyIssueType[] _sidecarIssueTypes =
@@ -210,15 +202,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
     };
 
-    private static readonly ConsistencyIssueType[] _pathAndSidecarIssueTypes = _sidecarIssueTypes
-        .Concat(new[] { ConsistencyIssueType.WrongFilePath, ConsistencyIssueType.MissingCoverFile })
-        .ToArray();
-
     private static bool IsSidecarIssue(ConsistencyIssueType issueType) =>
         Array.IndexOf(_sidecarIssueTypes, issueType) >= 0;
-
-    private static bool IsPathOrSidecarIssue(ConsistencyIssueType issueType) =>
-        Array.IndexOf(_pathAndSidecarIssueTypes, issueType) >= 0;
 
     public async Task ResolveIssue(long issueId)
     {
@@ -250,9 +235,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingMediaFile:
                 return await ResolveMissingMediaFile(issue);
 
-            case ConsistencyIssueType.WrongFilePath:
-                return await ResolveWrongFilePath(issue);
-
             case ConsistencyIssueType.MissingDescTxt:
             case ConsistencyIssueType.IncorrectDescTxt:
             case ConsistencyIssueType.MissingReaderTxt:
@@ -264,8 +246,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingCoverFile:
                 return await ResolveMissingCover(issue);
 
+            case ConsistencyIssueType.WrongFilePath:
             case ConsistencyIssueType.TagMismatch:
-                return await ResolveTagMismatch(issue);
+                return await ResolveTagOrPathMismatch(issue);
 
             default:
                 return ResolveScope.IssueOnly;
@@ -292,13 +275,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var failed = 0;
         var cascadedAll = new HashSet<long>();
         var cascadedSidecars = new HashSet<long>();
-        var cascadedPathAndSidecars = new HashSet<long>();
 
         foreach (var issue in issues)
         {
             if (cascadedAll.Contains(issue.AudiobookId) ||
-                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)) ||
-                (cascadedPathAndSidecars.Contains(issue.AudiobookId) && IsPathOrSidecarIssue(issue.IssueType)))
+                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)))
             {
                 _logger.LogDebug(
                     "Skipping issue {IssueId} ({IssueType}): an earlier resolve in this batch already covered audiobook {AudiobookId}",
@@ -318,10 +299,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 else if (scope == ResolveScope.SidecarsForAudiobook)
                 {
                     cascadedSidecars.Add(issue.AudiobookId);
-                }
-                else if (scope == ResolveScope.PathAndSidecarsForAudiobook)
-                {
-                    cascadedPathAndSidecars.Add(issue.AudiobookId);
                 }
             }
             catch (Exception ex)
@@ -358,71 +335,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return ResolveScope.AllForAudiobook;
     }
 
-    private async Task<ResolveScope> ResolveWrongFilePath(ConsistencyIssue issue)
-    {
-        var audiobook = issue.Audiobook;
-
-        if (!File.Exists(audiobook.FileInfoFullPath))
-        {
-            throw new FileNotFoundException(
-                $"Media file not found, cannot resolve wrong file path: {audiobook.FileInfoFullPath}",
-                audiobook.FileInfoFullPath);
-        }
-
-        var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
-        var parsed = _tagHandler.ParseAudiobook(fileInfo);
-
-        var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
-        var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
-
-        if (AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
-        {
-            // The path already matches; the issue is no longer valid. Nothing else was touched -
-            // in particular not tags - so only this issue (and other path/sidecar issues this
-            // handler owns) is cleared; see the PathAndSidecarsForAudiobook doc comment.
-            await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _pathAndSidecarIssueTypes);
-            return ResolveScope.PathAndSidecarsForAudiobook;
-        }
-
-        var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
-        var newDirectory = Path.GetDirectoryName(expectedFullPath);
-
-        AudiobookFileHandler.RelocateAudiobook(parsed, expectedFullPath);
-
-        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
-        {
-            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
-        }
-
-        // Re-parse from new location
-        var newFileInfo = new FileInfo(expectedFullPath);
-        var newParsed = _tagHandler.ParseAudiobook(newFileInfo);
-
-        AudiobookFileHandler.WriteMetadata(newParsed);
-        var coverPath = AudiobookFileHandler.WriteCover(newParsed);
-
-        var newFileName = Path.GetFileName(expectedFullPath);
-        await _audiobookRepository.UpdateFilePathAsync(audiobook.Id, expectedFullPath, newFileName);
-        await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
-
-        // OS-aware for consistency with the path check above; see the equivalent note in
-        // AudiobookService.RelocateIfPathChangedAsync for why this is defensive rather than a
-        // live bug fix.
-        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
-        {
-            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
-        }
-
-        // Path, sidecar and cover issues are all resolved by the relocation above. Tags were only
-        // re-parsed from the file, never rewritten to match the database, so a TagMismatch issue
-        // for this book is untouched and must survive this delete - see the
-        // PathAndSidecarsForAudiobook doc comment for why this can't be DeleteByAudiobookIdAsync.
-        await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _pathAndSidecarIssueTypes);
-
-        return ResolveScope.PathAndSidecarsForAudiobook;
-    }
-
     private async Task<ResolveScope> ResolveMetadataIssue(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
@@ -437,15 +349,26 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return ResolveScope.SidecarsForAudiobook;
     }
 
-    private async Task<ResolveScope> ResolveTagMismatch(ConsistencyIssue issue)
+    /// <summary>
+    /// Handles both TagMismatch and WrongFilePath. Both are symptoms of the same thing - the file
+    /// on disk doesn't match the library metadata already in the database - so both are fixed the
+    /// same way: rewrite the m4b tags from the database and let the normal save pipeline relocate
+    /// the file and resync its sidecars if the path changes too. See the "Binding invariant" in
+    /// CLAUDE.md - UpdateAudiobook is the only place allowed to touch these fields.
+    ///
+    /// This used to be two handlers. ResolveWrongFilePath re-parsed tags from the file itself
+    /// (assuming they were already correct) and only relocated it, then deleted every issue for
+    /// the book on success - including a TagMismatch it had never touched, so a coexisting tag
+    /// mismatch silently vanished from the list without ever being fixed. Going through the same
+    /// database-is-truth pipeline as TagMismatch always did closes that gap by construction:
+    /// there's no "assume tags are fine" path left to desync from what actually got resolved.
+    /// </summary>
+    private async Task<ResolveScope> ResolveTagOrPathMismatch(ConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
             throw new KeyNotFoundException($"Audiobook {issue.AudiobookId} not found");
 
-        // Rewrite the m4b tags (and relocate/resync sidecars if the path changes) from the
-        // library metadata that's already correct in the database - see the "Binding invariant"
-        // in CLAUDE.md, UpdateAudiobook is the only place that's allowed to touch these fields.
         // The per-audiobook gate is already held by ResolveLoadedIssue.
         var domain = AudiobookService.FromDb(dbAudiobook);
         await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);
