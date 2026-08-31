@@ -876,7 +876,94 @@ public class LibraryConsistencyServiceTests
 
             _audiobookRepository.Verify(r => r.UpdateFilePathAsync(1, expectedFullPath, Path.GetFileName(expectedFullPath)), Times.Once);
             _audiobookRepository.Verify(r => r.UpdateCoverFilePathAsync(1, Path.Combine(newDir, "cover.jpg")), Times.Once);
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            // Deliberately not DeleteByAudiobookIdAsync: resolving a wrong file path never rewrites
+            // tags, so it must not sweep away a coexisting TagMismatch issue for the same book -
+            // see ResolveIssue_WrongFilePath_DoesNotDeleteCoexistingTagMismatchIssue below.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1,
+                It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                    types.Contains(ConsistencyIssueType.WrongFilePath) &&
+                    !types.Contains(ConsistencyIssueType.TagMismatch))), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    // Regression: ResolveWrongFilePath used to call DeleteByAudiobookIdAsync, which deletes every
+    // stored issue for the book - including a TagMismatch issue it never touched, since it only
+    // re-parses tags from the file and relocates, it never rewrites them to match the database.
+    // That silently discarded a still-unresolved tag mismatch without ever fixing it: the issue
+    // list came back empty, but a later recheck reported the same TagMismatch again.
+    [TestMethod]
+    public async Task ResolveIssue_WrongFilePath_DoesNotDeleteCoexistingTagMismatchIssue()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var libraryPath = Path.Combine(tempRoot, "library");
+        var oldDir = Path.Combine(tempRoot, "oldauthor", "oldbook");
+        Directory.CreateDirectory(oldDir);
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = new LibraryConsistencyService(
+                settings,
+                _audiobookRepository.Object,
+                _issueRepository.Object,
+                _orphanDirectoryRepository.Object,
+                _tagHandler.Object,
+                _audiobookService.Object,
+                _saveGate,
+                _logger.Object);
+
+            var oldFile = Path.Combine(oldDir, "test.m4b");
+            await File.WriteAllTextAsync(oldFile, "fake audio content");
+
+            var parsedOld = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(oldFile, "test.m4b", 1000));
+
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsedOld);
+            var expectedFullPath = AudiobookFileHandler.JoinPaths(libraryPath, expectedRelativePath);
+
+            var parsedNew = new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author") },
+                "Book",
+                2024,
+                new Domain.AudiobookFileInfo(expectedFullPath, Path.GetFileName(expectedFullPath), 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == oldFile), It.IsAny<bool>()))
+                .Returns(parsedOld);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == expectedFullPath), It.IsAny<bool>()))
+                .Returns(parsedNew);
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                oldFile, "test.m4b", 1000);
+
+            var wrongPathIssue = new ConsistencyIssue
+            {
+                Id = 30,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.WrongFilePath,
+                Description = "File path does not match expected path from tags",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(30)).ReturnsAsync(wrongPathIssue);
+
+            await service.ResolveIssue(30);
+
+            // The TagMismatch type must not be in the set of types cleared for this resolve.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1,
+                It.Is<IEnumerable<ConsistencyIssueType>>(types => !types.Contains(ConsistencyIssueType.TagMismatch))),
+                Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
         }
         finally
         {
@@ -967,7 +1054,11 @@ public class LibraryConsistencyServiceTests
 
             Assert.IsTrue(File.Exists(currentFile), "file should remain untouched at its already-correct path");
             _audiobookRepository.Verify(r => r.UpdateFilePathAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1,
+                It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                    types.Contains(ConsistencyIssueType.WrongFilePath) &&
+                    !types.Contains(ConsistencyIssueType.TagMismatch))), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
         }
         finally
         {

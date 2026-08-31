@@ -193,6 +193,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         /// desc.txt, reader.txt and metadata.opf together.
         /// </summary>
         SidecarsForAudiobook,
+
+        /// <summary>
+        /// The path, cover and sidecar-content issues were removed, because relocating the file
+        /// also rewrites its sidecars and cover. Deliberately excludes TagMismatch: resolving a
+        /// wrong file path re-parses tags from the file itself and never rewrites them, so a
+        /// coexisting tag mismatch is not touched and must not be dropped along with this.
+        /// </summary>
+        PathAndSidecarsForAudiobook,
     }
 
     private static readonly ConsistencyIssueType[] _sidecarIssueTypes =
@@ -202,8 +210,15 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
     };
 
+    private static readonly ConsistencyIssueType[] _pathAndSidecarIssueTypes = _sidecarIssueTypes
+        .Concat(new[] { ConsistencyIssueType.WrongFilePath, ConsistencyIssueType.MissingCoverFile })
+        .ToArray();
+
     private static bool IsSidecarIssue(ConsistencyIssueType issueType) =>
         Array.IndexOf(_sidecarIssueTypes, issueType) >= 0;
+
+    private static bool IsPathOrSidecarIssue(ConsistencyIssueType issueType) =>
+        Array.IndexOf(_pathAndSidecarIssueTypes, issueType) >= 0;
 
     public async Task ResolveIssue(long issueId)
     {
@@ -277,11 +292,13 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var failed = 0;
         var cascadedAll = new HashSet<long>();
         var cascadedSidecars = new HashSet<long>();
+        var cascadedPathAndSidecars = new HashSet<long>();
 
         foreach (var issue in issues)
         {
             if (cascadedAll.Contains(issue.AudiobookId) ||
-                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)))
+                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)) ||
+                (cascadedPathAndSidecars.Contains(issue.AudiobookId) && IsPathOrSidecarIssue(issue.IssueType)))
             {
                 _logger.LogDebug(
                     "Skipping issue {IssueId} ({IssueType}): an earlier resolve in this batch already covered audiobook {AudiobookId}",
@@ -301,6 +318,10 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 else if (scope == ResolveScope.SidecarsForAudiobook)
                 {
                     cascadedSidecars.Add(issue.AudiobookId);
+                }
+                else if (scope == ResolveScope.PathAndSidecarsForAudiobook)
+                {
+                    cascadedPathAndSidecars.Add(issue.AudiobookId);
                 }
             }
             catch (Exception ex)
@@ -356,9 +377,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         if (AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
         {
-            // The path already matches; the issue is no longer valid.
-            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-            return ResolveScope.AllForAudiobook;
+            // The path already matches; the issue is no longer valid. Nothing else was touched -
+            // in particular not tags - so only this issue (and other path/sidecar issues this
+            // handler owns) is cleared; see the PathAndSidecarsForAudiobook doc comment.
+            await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _pathAndSidecarIssueTypes);
+            return ResolveScope.PathAndSidecarsForAudiobook;
         }
 
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
@@ -391,10 +414,13 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
         }
 
-        // Path change invalidates all other checks for this book
-        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+        // Path, sidecar and cover issues are all resolved by the relocation above. Tags were only
+        // re-parsed from the file, never rewritten to match the database, so a TagMismatch issue
+        // for this book is untouched and must survive this delete - see the
+        // PathAndSidecarsForAudiobook doc comment for why this can't be DeleteByAudiobookIdAsync.
+        await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _pathAndSidecarIssueTypes);
 
-        return ResolveScope.AllForAudiobook;
+        return ResolveScope.PathAndSidecarsForAudiobook;
     }
 
     private async Task<ResolveScope> ResolveMetadataIssue(ConsistencyIssue issue)
