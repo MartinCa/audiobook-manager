@@ -69,4 +69,19 @@ describe("TagPreviewDialog", () => {
     expect(appliedKeys.has("bookName")).toBe(true);
     expect(appliedKeys.has("authors")).toBe(true);
   });
+
+  it("displays normalized language name in preview diff", () => {
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={{ ...currentInput, language: "da" }}
+        searchResult={{ ...searchResult, language: "English" }}
+        onApply={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Danish")).toBeInTheDocument();
+    expect(screen.getByText("English")).toBeInTheDocument();
+  });
 });

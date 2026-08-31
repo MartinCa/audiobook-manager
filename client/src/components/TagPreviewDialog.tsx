@@ -215,7 +215,7 @@ export function TagPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-3xl sm:p-6">
         <DialogHeader>
           <DialogTitle>Metadata Preview & Diff</DialogTitle>
         </DialogHeader>
@@ -227,30 +227,36 @@ export function TagPreviewDialog({
             you want to update.
           </p>
 
-          <div className="flex items-center justify-between">
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={toggleAll}>
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full justify-start text-xs sm:w-auto sm:justify-center"
+              onClick={toggleAll}
+            >
               {selected.size === changedFieldKeys.length
                 ? "Deselect All Changed"
                 : "Select All Changed"}
             </Button>
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground text-[11px] sm:text-xs">
               {selected.size} of {changedFieldKeys.length} changed fields selected
             </span>
           </div>
 
-          <div className="border-border overflow-x-auto rounded-md border">
+          <div className="border-border max-h-[50vh] overflow-x-auto overflow-y-auto rounded-md border">
             <table className="w-full border-collapse text-left text-xs">
-              <thead className="bg-muted/70 text-muted-foreground sticky top-0 border-b">
+              <thead className="bg-muted/70 text-muted-foreground sticky top-0 z-10 border-b">
                 <tr>
-                  <th className="w-10 p-2 text-center">Use</th>
-                  <th className="w-24 p-2">Field</th>
-                  <th className="p-2">Current Value</th>
-                  <th className="p-2">New Value</th>
+                  <th className="w-8 p-2 text-center sm:w-10">Use</th>
+                  <th className="w-20 p-2 sm:w-28">Field</th>
+                  <th className="min-w-[90px] p-2">Current Value</th>
+                  <th className="min-w-[120px] p-2">New Value</th>
                 </tr>
               </thead>
               <tbody className="divide-border divide-y">
                 {fields.map((field) => {
                   const isChecked = selected.has(field.key);
+                  const isLinkOrCover = field.key === "www" || field.key === "cover";
                   return (
                     <tr
                       key={field.key}
@@ -267,12 +273,24 @@ export function TagPreviewDialog({
                         />
                       </td>
                       <td className="text-foreground p-2 font-semibold">{field.label}</td>
-                      <td className="p-2 break-words">
+                      <td
+                        className={`p-2 ${
+                          isLinkOrCover
+                            ? "text-[11px] break-all"
+                            : "max-w-[150px] break-words sm:max-w-[200px]"
+                        }`}
+                      >
                         {field.currentValue || (
                           <span className="text-muted-foreground italic">—</span>
                         )}
                       </td>
-                      <td className="p-2 break-words">
+                      <td
+                        className={`p-2 ${
+                          isLinkOrCover
+                            ? "text-[11px] break-all"
+                            : "max-w-[200px] break-words sm:max-w-[300px]"
+                        }`}
+                      >
                         <span
                           className={
                             field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
@@ -291,14 +309,25 @@ export function TagPreviewDialog({
           </div>
         </div>
 
-        <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <div className="border-border flex flex-col-reverse items-stretch justify-end gap-2 border-t pt-3 sm:flex-row sm:items-center sm:pt-4">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button variant="outline" disabled={selected.size === 0} onClick={handleApplySelected}>
+          <Button
+            variant="outline"
+            disabled={selected.size === 0}
+            className="w-full sm:w-auto"
+            onClick={handleApplySelected}
+          >
             Apply Selected ({selected.size})
           </Button>
-          <Button onClick={handleApplyAll}>Apply All</Button>
+          <Button className="w-full sm:w-auto" onClick={handleApplyAll}>
+            Apply All
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

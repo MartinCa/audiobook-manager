@@ -39,14 +39,17 @@ describe("normalizeLanguage", () => {
     expect(normalizeLanguage(undefined, languages)).toBeUndefined();
   });
 
-  it("returns undefined before the list has been fetched", () => {
-    expect(normalizeLanguage("English", [])).toBeUndefined();
+  it("uses default fallback mapping when languages list is empty", () => {
+    expect(normalizeLanguage("English", [])).toBe("en");
+    expect(normalizeLanguage("Danish", [])).toBe("da");
+    expect(normalizeLanguage("Spanish", [])).toBeUndefined();
   });
 });
 
 describe("languageLabel", () => {
-  it("shows the display name for a managed code", () => {
+  it("shows the display name for a managed code or alias", () => {
     expect(languageLabel("en", languages)).toBe("English");
+    expect(languageLabel("English", languages)).toBe("English");
     expect(languageLabel("da", languages)).toBe("Danish");
   });
 
@@ -61,8 +64,9 @@ describe("languageLabel", () => {
 });
 
 describe("languageSelectItems", () => {
-  it("offers just the managed languages for a supported value", () => {
+  it("offers just the managed languages for a supported value or alias", () => {
     expect(languageSelectItems("en", languages)).toEqual(languages);
+    expect(languageSelectItems("English", languages)).toEqual(languages);
   });
 
   it("offers just the managed languages when nothing is selected", () => {

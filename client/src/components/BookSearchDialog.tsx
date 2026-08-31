@@ -87,7 +87,7 @@ export function BookSearchDialog({
   // A result with more than one candidate series can't be applied as-is: the caller
   // (BookEditForm) expects a single series, so the user picks which one applies first.
   const finishChoosing = (result: MetadataSearchResult) => {
-    if (result.series.length > 1) {
+    if (result.series && result.series.length > 1) {
       setPendingSeriesChoice(result);
       return;
     }
@@ -127,7 +127,7 @@ export function BookSearchDialog({
   if (pendingSeriesChoice) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle>Select Series</DialogTitle>
           </DialogHeader>
@@ -135,30 +135,36 @@ export function BookSearchDialog({
             This result matched more than one series. Choose which one applies to{" "}
             <strong>{pendingSeriesChoice.bookName}</strong>.
           </p>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Series</TableHead>
-                <TableHead>Part</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pendingSeriesChoice.series.map((s, idx) => (
-                <TableRow key={`${s.seriesName}-${idx}`}>
-                  <TableCell>{s.seriesName}</TableCell>
-                  <TableCell>{s.seriesPart}</TableCell>
-                  <TableCell>
-                    <Button size="sm" onClick={() => handleChooseSeries(idx)}>
-                      <Check className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Series</TableHead>
+                  <TableHead>Part</TableHead>
+                  <TableHead className="w-10" />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {pendingSeriesChoice.series.map((s, idx) => (
+                  <TableRow key={`${s.seriesName}-${idx}`}>
+                    <TableCell className="break-words">{s.seriesName}</TableCell>
+                    <TableCell>{s.seriesPart}</TableCell>
+                    <TableCell>
+                      <Button size="sm" onClick={() => handleChooseSeries(idx)}>
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
           <div className="border-border flex justify-end border-t pt-4">
-            <Button variant="outline" onClick={() => setPendingSeriesChoice(null)}>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setPendingSeriesChoice(null)}
+            >
               Back to results
             </Button>
           </div>
@@ -169,12 +175,12 @@ export function BookSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-3xl sm:p-6">
         <DialogHeader>
           <DialogTitle>Search Online Metadata</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="flex-1 space-y-4 overflow-y-auto py-2 text-xs">
           <form
             onSubmit={(e) => {
               // This dialog is opened from BookEditForm's own <form>. Its DialogContent
@@ -190,13 +196,17 @@ export function BookSearchDialog({
               placeholder="Search title, author, or paste URL..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="flex-1"
+              className="min-w-0 flex-1 text-xs sm:text-sm"
             />
-            <Button type="submit" disabled={loading || !query.trim() || activeSources.length === 0}>
+            <Button
+              type="submit"
+              disabled={loading || !query.trim() || activeSources.length === 0}
+              className="shrink-0"
+            >
               {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
-                <Search className="mr-2 h-4 w-4" />
+                <Search className="mr-1.5 h-4 w-4" />
               )}
               Search
             </Button>
@@ -206,7 +216,7 @@ export function BookSearchDialog({
             <div className="text-muted-foreground mb-1.5 text-xs font-semibold uppercase">
               Metadata Sources
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5 sm:gap-2">
               {services.map((service) => {
                 const isConfigured = service.enabled;
                 const isSelected = activeSources.includes(service.name);
@@ -215,7 +225,7 @@ export function BookSearchDialog({
                   <Badge
                     key={service.name}
                     variant={isSelected ? "default" : isConfigured ? "outline" : "secondary"}
-                    className={`cursor-pointer select-none ${
+                    className={`cursor-pointer text-[11px] select-none ${
                       !isConfigured ? "cursor-not-allowed opacity-50" : "hover:bg-primary/90"
                     }`}
                     onClick={() => {
@@ -258,9 +268,9 @@ export function BookSearchDialog({
                 return (
                   <div
                     key={`${result.source}-${result.bookName}-${idx}`}
-                    className="border-border bg-card hover:bg-muted/50 flex items-start justify-between gap-4 rounded-lg border p-3 transition-colors"
+                    className="border-border bg-card hover:bg-muted/50 flex flex-col justify-between gap-3 rounded-lg border p-3 transition-colors sm:flex-row sm:items-start sm:gap-4"
                   >
-                    <div className="flex gap-3">
+                    <div className="flex min-w-0 flex-1 gap-3">
                       {result.imageUrl && (
                         <img
                           src={metadataSearchApi.getProxyImageUrl(result.imageUrl)}
@@ -271,9 +281,11 @@ export function BookSearchDialog({
                           }}
                         />
                       )}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-foreground font-semibold">{result.bookName}</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className="text-foreground font-semibold break-words">
+                            {result.bookName}
+                          </span>
                           <Badge variant="secondary" className="text-[10px]">
                             {result.source}
                           </Badge>
@@ -282,9 +294,9 @@ export function BookSearchDialog({
                           )}
                         </div>
 
-                        <div className="text-muted-foreground text-xs">
+                        <div className="text-muted-foreground space-y-0.5 text-xs">
                           {result.authors && result.authors.length > 0 && (
-                            <div>
+                            <div className="break-words">
                               By:{" "}
                               <span className="text-foreground font-medium">
                                 {result.authors.map((a) => a.name).join(", ")}
@@ -292,10 +304,12 @@ export function BookSearchDialog({
                             </div>
                           )}
                           {result.narrators && result.narrators.length > 0 && (
-                            <div>Narrated by: {result.narrators.map((n) => n.name).join(", ")}</div>
+                            <div className="break-words">
+                              Narrated by: {result.narrators.map((n) => n.name).join(", ")}
+                            </div>
                           )}
                           {result.series?.[0] && (
-                            <div>
+                            <div className="break-words">
                               Series: {result.series[0].seriesName}{" "}
                               {result.series[0].seriesPart && `#${result.series[0].seriesPart}`}
                             </div>
@@ -304,17 +318,7 @@ export function BookSearchDialog({
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 flex-col items-end gap-2">
-                      <Button
-                        size="sm"
-                        disabled={isBusy}
-                        onClick={() => {
-                          void handleChoose(result);
-                        }}
-                      >
-                        {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                        Apply
-                      </Button>
+                    <div className="border-border/50 flex shrink-0 items-center justify-between gap-2 border-t pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0">
                       {result.url && (
                         <a
                           href={result.url}
@@ -326,6 +330,17 @@ export function BookSearchDialog({
                           View Source
                         </a>
                       )}
+                      <Button
+                        size="sm"
+                        disabled={isBusy}
+                        onClick={() => {
+                          void handleChoose(result);
+                        }}
+                        className="w-full sm:w-auto"
+                      >
+                        {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        Apply
+                      </Button>
                     </div>
                   </div>
                 );

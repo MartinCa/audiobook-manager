@@ -84,24 +84,24 @@ function buildAudiobook(
   initialBook: Audiobook,
 ): Audiobook {
   return {
-    authors: splitList(values.authors).map((name) => ({ name })),
-    narrators: splitList(values.narrators).map((name) => ({ name })),
-    bookName: values.bookName.trim(),
-    subtitle: values.subtitle.trim() || undefined,
-    series: values.series.trim() || undefined,
-    seriesPart: values.seriesPart.trim() || undefined,
+    authors: splitList(values.authors ?? "").map((name) => ({ name })),
+    narrators: splitList(values.narrators ?? "").map((name) => ({ name })),
+    bookName: (values.bookName ?? "").trim(),
+    subtitle: values.subtitle?.trim() || undefined,
+    series: values.series?.trim() || undefined,
+    seriesPart: values.seriesPart?.trim() || undefined,
     year: values.year ? parseInt(values.year, 10) : undefined,
-    genres: values.genres
+    genres: (values.genres ?? "")
       .split("/")
       .map((g) => g.trim())
       .filter(Boolean),
-    description: values.description.trim() || undefined,
-    copyright: values.copyright.trim() || undefined,
-    publisher: values.publisher.trim() || undefined,
-    language: values.language.trim() || undefined,
-    rating: values.rating.trim() || undefined,
-    asin: values.asin.trim() || undefined,
-    www: values.www.trim() || undefined,
+    description: values.description?.trim() || undefined,
+    copyright: values.copyright?.trim() || undefined,
+    publisher: values.publisher?.trim() || undefined,
+    language: values.language?.trim() || undefined,
+    rating: values.rating?.trim() || undefined,
+    asin: values.asin?.trim() || undefined,
+    www: values.www?.trim() || undefined,
     cover,
     fileInfo: initialBook.fileInfo,
     durationInSeconds: initialBook.durationInSeconds,
@@ -184,7 +184,7 @@ export function BookEditForm({
 
   useEffect(() => {
     const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
-    if (!values.bookName.trim() || !values.authors.trim()) return;
+    if (!values.bookName?.trim() || !values.authors?.trim()) return;
 
     const book = buildAudiobook(values, cover, initialBook);
     const timer = setTimeout(() => {
@@ -270,7 +270,9 @@ export function BookEditForm({
       form.setValue("publisher", result.publisher, { shouldDirty: true });
     }
     if (selectedFields.has("language") && result.language) {
-      form.setValue("language", result.language, { shouldDirty: true });
+      const normalizedLang =
+        normalizeLanguage(result.language, languages) ?? result.language.trim();
+      form.setValue("language", normalizedLang, { shouldDirty: true });
     }
     if (selectedFields.has("rating") && result.rating) {
       form.setValue("rating", String(result.rating), { shouldDirty: true });
@@ -336,12 +338,17 @@ export function BookEditForm({
       }}
       className="space-y-6"
     >
-      <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b pb-4">
-        <Button type="button" variant="outline" onClick={() => setSearchDialogOpen(true)}>
+      <div className="border-border flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-center">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setSearchDialogOpen(true)}
+          className="w-full sm:w-auto"
+        >
           <Search className="text-primary mr-2 h-4 w-4" />
           Search Online Metadata
         </Button>
-        <div className="flex items-center gap-2">{toolbarActions}</div>
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">{toolbarActions}</div>
       </div>
 
       {currentPath && (
@@ -506,8 +513,8 @@ export function BookEditForm({
                   const items = languageSelectItems(field.value, languages);
                   return (
                     <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
+                      value={field.value || ""}
+                      onValueChange={(val) => field.onChange(val ?? "")}
                       items={items.map((l) => ({ value: l.code, label: l.displayName }))}
                     >
                       <SelectTrigger>
@@ -566,15 +573,15 @@ export function BookEditForm({
         </div>
       </div>
 
-      <div className="border-border flex flex-wrap items-center justify-between gap-4 border-t pt-4">
-        <Button type="button" variant="outline" onClick={handleReset}>
+      <div className="border-border flex flex-col-reverse justify-between gap-3 border-t pt-4 sm:flex-row sm:items-center">
+        <Button type="button" variant="outline" onClick={handleReset} className="w-full sm:w-auto">
           <RotateCcw className="mr-2 h-4 w-4" />
           Reset
         </Button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {formActions || (
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving} className="w-full sm:w-auto">
               {saving ? "Saving..." : "Save Audiobook"}
             </Button>
           )}

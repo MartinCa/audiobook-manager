@@ -43,7 +43,7 @@ export function DeleteFileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -81,11 +81,21 @@ export function DeleteFileDialog({
             </div>
           )}
 
-          <div className="border-border flex justify-end gap-2 border-t pt-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}>
+          <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => onOpenChange(false)}
+              disabled={deleting}
+            >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => void handleConfirm()} disabled={deleting}>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto"
+              onClick={() => void handleConfirm()}
+              disabled={deleting}
+            >
               {deleting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

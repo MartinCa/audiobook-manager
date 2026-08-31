@@ -143,4 +143,72 @@ describe("BookEditForm", () => {
     expect(saved.authors).toEqual([{ name: "Jane Author" }]);
     expect(saved.year).toBe(2020);
   });
+
+  it("normalizes scraped language and handles null/empty fields safely without crashing on trim", async () => {
+    const { metadataSearchApi, settingsApi } = await import("@/services/api");
+    vi.mocked(settingsApi.getLanguages).mockResolvedValueOnce({
+      languages: [
+        { code: "en", displayName: "English", aliases: ["eng", "english"] },
+        { code: "da", displayName: "Danish", aliases: ["dansk"] },
+      ],
+      defaultCode: "en",
+    });
+
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Scraped Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          language: "English",
+          description: "A great book",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          subtitle: undefined,
+          series: undefined,
+          seriesPart: undefined,
+          description: undefined,
+          language: undefined,
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    // Open search dialog and search
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    // Apply result from search
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    // Tag preview dialog opens, click Apply All
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // Language should be normalized to English (code: en)
+    expect(await screen.findByText("English")).toBeInTheDocument();
+    expect(screen.queryByText("english (unrecognized)")).not.toBeInTheDocument();
+
+    // Submit form and verify saved structure
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.language).toBe("en");
+    expect(saved.bookName).toBe("Scraped Book");
+  });
 });

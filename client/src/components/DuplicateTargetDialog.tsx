@@ -59,7 +59,7 @@ export function DuplicateTargetDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:max-w-2xl sm:p-6">
         <DialogHeader>
           <DialogTitle>
             {confirmDelete ? "Confirm Deletion of New File" : "Duplicate file at target location"}
@@ -99,12 +99,17 @@ export function DuplicateTargetDialog({
               </div>
             )}
 
-            <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+            <div className="border-border flex flex-col-reverse items-stretch justify-end gap-2 border-t pt-4 sm:flex-row sm:items-center">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setConfirmDelete(false)}
+              >
                 Back
               </Button>
               <Button
                 variant="destructive"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   onDeleteNew?.();
                   onOpenChange(false);
@@ -155,13 +160,18 @@ export function DuplicateTargetDialog({
               </div>
             </div>
 
-            <div className="border-border flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <div className="border-border flex flex-col-reverse items-stretch justify-end gap-2 border-t pt-4 sm:flex-row sm:items-center">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => onOpenChange(false)}
+              >
                 Cancel
               </Button>
               {onDeleteNew && (
                 <Button
                   variant="destructive"
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     void handleStartDelete();
                   }}
@@ -171,6 +181,7 @@ export function DuplicateTargetDialog({
               )}
               <Button
                 variant="default"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   onReplaceExisting();
                   onOpenChange(false);
