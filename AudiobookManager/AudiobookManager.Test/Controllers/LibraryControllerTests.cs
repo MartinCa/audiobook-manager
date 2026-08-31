@@ -1,5 +1,7 @@
+using System.Reflection;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
@@ -40,6 +42,47 @@ public class LibraryControllerTests
         Authors = "Author",
         Year = 2024
     };
+
+    // Reflection guard, not a regression test for one specific field: DiscoveredAudiobookDto is a
+    // hand-maintained subset of the DiscoveredAudiobook database model's properties, not derived
+    // from it, so nothing stops a new column LibraryScanService starts populating from silently
+    // never reaching the DTO - which is exactly what happened to Description/Copyright/Publisher/
+    // Language/Rating/Asin/Www/DurationInSeconds (see
+    // GetDiscovered_MapsDescriptionCopyrightAndOtherScannedFieldsOntoTheDto below). This fails the
+    // moment a new property is added to the model without a same-named property on the DTO,
+    // rather than relying on someone noticing the edit form is quietly showing a field blank.
+    [TestMethod]
+    public void DiscoveredAudiobookDto_CoversEveryPropertyOnTheDatabaseModel()
+    {
+        // Id is server-generated, never set by the scan. DiscoveredAt is scan bookkeeping, not
+        // tag data. The three FileInfo* properties are represented under different DTO names
+        // (FullPath/FileName/SizeInBytes) rather than omitted.
+        var excludedFromDto = new HashSet<string>
+        {
+            nameof(DiscoveredAudiobook.Id),
+            nameof(DiscoveredAudiobook.DiscoveredAt),
+            nameof(DiscoveredAudiobook.FileInfoFullPath),
+            nameof(DiscoveredAudiobook.FileInfoFileName),
+            nameof(DiscoveredAudiobook.FileInfoSizeInBytes),
+        };
+
+        var modelPropertyNames = typeof(DiscoveredAudiobook)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .Where(name => !excludedFromDto.Contains(name));
+
+        var dtoPropertyNames = typeof(DiscoveredAudiobookDto)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .ToHashSet();
+
+        var missing = modelPropertyNames.Where(name => !dtoPropertyNames.Contains(name)).ToList();
+
+        Assert.IsTrue(missing.Count == 0,
+            "DiscoveredAudiobookDto is missing a property for these DiscoveredAudiobook database " +
+            $"model fields: {string.Join(", ", missing)}. Add it to the DTO (and its constructor " +
+            "mapping) so the discovered-books edit form doesn't silently show it blank.");
+    }
 
     // Regression: DiscoveredAudiobookDto only mapped fullPath/fileName/sizeInBytes/bookName/
     // subtitle/series/seriesPart/year/authors/narrators/genres - Description, Copyright,
