@@ -128,7 +128,7 @@ export function CoverEditor({
       </Button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>Audiobook Cover</DialogTitle>
           </DialogHeader>
@@ -148,7 +148,7 @@ export function CoverEditor({
               <label className="text-muted-foreground text-xs font-semibold uppercase">
                 Fetch from URL
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   placeholder="https://example.com/cover.jpg"
                   value={urlInput}
@@ -159,10 +159,12 @@ export function CoverEditor({
                       void handleFetchUrl();
                     }
                   }}
+                  className="flex-1"
                 />
                 <Button
                   type="button"
                   variant="secondary"
+                  className="w-full sm:w-auto"
                   disabled={fetchingUrl || !urlInput.trim()}
                   onClick={() => {
                     void handleFetchUrl();
@@ -182,12 +184,13 @@ export function CoverEditor({
               <Input type="file" accept="image/*" onChange={handleFileUpload} />
             </div>
 
-            <div className="border-border flex justify-between border-t pt-4">
+            <div className="border-border flex flex-col-reverse justify-between gap-2 border-t pt-4 sm:flex-row">
               {currentSrc ? (
                 <Button
                   type="button"
                   variant="destructive"
                   size="sm"
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     handleRemove();
                     setDialogOpen(false);
@@ -198,7 +201,12 @@ export function CoverEditor({
               ) : (
                 <div />
               )}
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setDialogOpen(false)}
+              >
                 Close
               </Button>
             </div>

@@ -146,12 +146,12 @@ export function SimilarValues() {
       )}
 
       <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "author" | "series")}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="author" className="flex items-center gap-2">
+        <TabsList className="mb-4 grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
+          <TabsTrigger value="author" className="flex items-center gap-2 text-xs">
             <Users className="h-4 w-4" />
             Similar Authors
           </TabsTrigger>
-          <TabsTrigger value="series" className="flex items-center gap-2">
+          <TabsTrigger value="series" className="flex items-center gap-2 text-xs">
             <BookMarked className="h-4 w-4" />
             Similar Series
           </TabsTrigger>
@@ -178,14 +178,18 @@ export function SimilarValues() {
           {groups.map((group, index) => (
             <Card key={index} className="p-4">
               <CardContent className="p-0">
-                <div className="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-3">
+                <div className="border-border flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-foreground text-sm font-semibold">
                       Group #{index + 1}
                     </span>
                     <Badge variant="outline">{group.candidates.length} variants</Badge>
                   </div>
-                  <Button size="sm" onClick={() => handleOpenDialog(group)}>
+                  <Button
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => handleOpenDialog(group)}
+                  >
                     Align Group
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -197,7 +201,7 @@ export function SimilarValues() {
                       key={cand.value}
                       className="border-border bg-muted/30 rounded-md border p-2.5 text-xs"
                     >
-                      <div className="text-foreground font-semibold">{cand.value}</div>
+                      <div className="text-foreground font-semibold break-words">{cand.value}</div>
                       <div className="text-muted-foreground mt-1">
                         {cand.books.length} {cand.books.length === 1 ? "book" : "books"}:
                       </div>
@@ -207,7 +211,7 @@ export function SimilarValues() {
                             <Link
                               to="/library/book/$bookId"
                               params={{ bookId: String(b.id) }}
-                              className="hover:underline"
+                              className="break-words hover:underline"
                             >
                               {b.bookName}
                             </Link>

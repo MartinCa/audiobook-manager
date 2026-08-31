@@ -127,13 +127,13 @@ export function LibrarySearch() {
                 <div
                   key={`author-${a.id}`}
                   onClick={() => handleSelectAuthor(a.id)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors"
+                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
                     <Users className="text-primary h-3.5 w-3.5 shrink-0" />
-                    <span className="text-foreground font-medium">{a.name}</span>
+                    <span className="text-foreground truncate font-medium">{a.name}</span>
                   </div>
-                  <span className="text-muted-foreground text-[10px]">
+                  <span className="text-muted-foreground shrink-0 text-[10px]">
                     {a.bookCount} {a.bookCount === 1 ? "book" : "books"}
                   </span>
                 </div>
@@ -150,13 +150,13 @@ export function LibrarySearch() {
                 <div
                   key={`series-${s.name}`}
                   onClick={() => handleSelectSeries(s.name)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors"
+                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
                     <BookMarked className="text-primary h-3.5 w-3.5 shrink-0" />
-                    <span className="text-foreground font-medium">{s.name}</span>
+                    <span className="text-foreground truncate font-medium">{s.name}</span>
                   </div>
-                  <span className="text-muted-foreground text-[10px]">
+                  <span className="text-muted-foreground shrink-0 text-[10px]">
                     {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
                   </span>
                 </div>

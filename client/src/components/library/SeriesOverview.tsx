@@ -195,9 +195,9 @@ export function SeriesOverviewPage() {
               }}
               className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-foreground truncate font-semibold">{s.name}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-foreground font-semibold break-words">{s.name}</span>
                   {s.isMatched ? (
                     <Badge
                       variant="secondary"

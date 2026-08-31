@@ -362,7 +362,7 @@ export function DiscoveredAudiobooks() {
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div className="relative max-w-md flex-1">
           <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
           <Input
@@ -374,8 +374,13 @@ export function DiscoveredAudiobooks() {
         </div>
 
         {wellTaggedEligible.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleSelectAllWellTagged}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={handleSelectAllWellTagged}
+            >
               {selectedPaths.size === wellTaggedEligible.length ? (
                 <CheckSquare className="mr-1.5 h-4 w-4" />
               ) : (
@@ -387,6 +392,7 @@ export function DiscoveredAudiobooks() {
             {selectedPaths.size > 0 && (
               <Button
                 size="sm"
+                className="w-full sm:w-auto"
                 disabled={importing}
                 onClick={() => {
                   void handleBulkImport();
@@ -434,7 +440,7 @@ export function DiscoveredAudiobooks() {
               >
                 <AccordionTrigger className="py-3 hover:no-underline">
                   <div className="flex w-full flex-wrap items-center justify-between gap-3 pr-4 text-left">
-                    <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       {book.isWellTagged && !book.isDuplicate && (
                         <input
                           type="checkbox"
@@ -444,15 +450,15 @@ export function DiscoveredAudiobooks() {
                             handleToggleSelectPath(book.fullPath);
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="border-border h-4 w-4 rounded"
+                          className="border-border h-4 w-4 shrink-0 rounded"
                         />
                       )}
-                      <div className="min-w-0 truncate">
+                      <div className="min-w-0 flex-1">
                         <div className="text-foreground truncate font-semibold">
                           {book.authors ? `${book.authors} — ` : ""}
                           {book.bookName || book.fileName}
                         </div>
-                        <div className="text-muted-foreground flex items-center gap-3 text-xs">
+                        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs">
                           <span className="truncate">{book.fileName}</span>
                           {book.durationInSeconds && (
                             <span className="flex shrink-0 items-center gap-1">

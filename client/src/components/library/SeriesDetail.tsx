@@ -199,11 +199,12 @@ export function SeriesDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         {authorId ? (
           <Button
             variant="ghost"
             size="sm"
+            className="w-full justify-start sm:w-auto"
             render={
               <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
             }
@@ -212,16 +213,22 @@ export function SeriesDetail() {
             Back to Author
           </Button>
         ) : (
-          <Button variant="ghost" size="sm" render={<Link to="/library/series" />}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start sm:w-auto"
+            render={<Link to="/library/series" />}
+          >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Series
           </Button>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Button
             variant="outline"
             size="sm"
+            className="w-full sm:w-auto"
             disabled={loadingCandidates || matchingCandidate}
             onClick={() => {
               void handleLoadCandidates();
@@ -239,6 +246,7 @@ export function SeriesDetail() {
             <Button
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
               disabled={refreshing}
               onClick={() => {
                 void handleRefresh();
@@ -252,7 +260,7 @@ export function SeriesDetail() {
       </div>
 
       <div className="border-border border-b pb-4">
-        <h1 className="text-foreground text-2xl font-bold">{decodedSeriesName}</h1>
+        <h1 className="text-foreground text-2xl font-bold break-words">{decodedSeriesName}</h1>
         <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
           <span>
             {ownedBooks.length} {ownedBooks.length === 1 ? "book" : "books"} owned
@@ -331,7 +339,7 @@ export function SeriesDetail() {
             <label className="text-muted-foreground font-semibold">
               Search title/author or paste a series URL
             </label>
-            <div className="flex max-w-xl gap-2">
+            <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
               <Input
                 placeholder="e.g. Harry Potter, or https://hardcover.app/series/..."
                 value={manualQuery}
@@ -342,12 +350,12 @@ export function SeriesDetail() {
                     void handleSearchManualCandidates();
                   }
                 }}
-                className="h-8 text-xs"
+                className="h-8 flex-1 text-xs"
               />
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-8 text-xs"
+                className="h-8 w-full text-xs sm:w-auto"
                 disabled={searchingCandidates || !manualQuery.trim()}
                 onClick={() => {
                   void handleSearchManualCandidates();
@@ -389,11 +397,11 @@ export function SeriesDetail() {
                   {candidates.map((c) => (
                     <div
                       key={`${c.sourceName}-${c.sourceId}`}
-                      className="border-border bg-muted/30 flex items-center justify-between rounded-md border p-2.5"
+                      className="border-border bg-muted/30 flex flex-col justify-between gap-3 rounded-md border p-2.5 sm:flex-row sm:items-center"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{c.seriesName}</span>
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className="font-semibold break-words">{c.seriesName}</span>
                           <Badge variant="outline" className="text-[10px]">
                             {c.sourceName}
                           </Badge>
@@ -401,12 +409,12 @@ export function SeriesDetail() {
                             {Math.round(c.confidence * 100)}% match
                           </span>
                         </div>
-                        <div className="text-muted-foreground text-[11px]">
+                        <div className="text-muted-foreground text-[11px] break-words">
                           {c.authors.join(", ") || "Unknown author"}
                           {c.bookCount != null ? ` · ${c.bookCount} books` : ""}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
                         {c.sourceUrl && (
                           <a
                             href={c.sourceUrl}
@@ -456,20 +464,20 @@ export function SeriesDetail() {
                 }}
                 className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <BookOpen className="text-primary h-4 w-4" />
-                  <div>
-                    <span className="text-foreground font-semibold">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <BookOpen className="text-primary h-4 w-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-foreground font-semibold break-words">
                       {b.seriesPart ? `#${b.seriesPart} ` : ""}
                       {b.bookName}
                     </span>
-                    <div className="text-muted-foreground text-xs">
+                    <div className="text-muted-foreground text-xs break-words">
                       {b.authors.join(", ")}
                       {b.year ? ` (${b.year})` : ""}
                     </div>
                   </div>
                 </div>
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
+                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
               </div>
             ))}
           </div>
@@ -490,16 +498,16 @@ export function SeriesDetail() {
               {missingBooks.map((mb) => (
                 <div
                   key={mb.id}
-                  className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs"
+                  className="flex flex-col justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs sm:flex-row sm:items-center"
                 >
-                  <div>
-                    <span className="text-foreground font-semibold">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-foreground font-semibold break-words">
                       {mb.position ? `Part ${mb.position} — ` : ""}
                       {mb.title}
                     </span>
                     {mb.year && <span className="text-muted-foreground"> ({mb.year})</span>}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
                     {mb.sourceUrl && (
                       <a
                         href={mb.sourceUrl}
@@ -544,10 +552,10 @@ export function SeriesDetail() {
             {ignoredBooks.map((ib) => (
               <div
                 key={ib.id}
-                className="border-border bg-card flex items-center justify-between rounded-lg border p-3 text-xs opacity-75"
+                className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs opacity-75 sm:flex-row sm:items-center"
               >
-                <div>
-                  <span className="text-muted-foreground">
+                <div className="min-w-0 flex-1">
+                  <span className="text-muted-foreground break-words">
                     {ib.position ? `Part ${ib.position} — ` : ""}
                     {ib.title}
                   </span>
@@ -556,7 +564,7 @@ export function SeriesDetail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 text-[11px]"
+                  className="h-6 self-end text-[11px] sm:self-center"
                   disabled={ignoringBookId === ib.id}
                   onClick={() => {
                     void handleSetIgnored(ib, false);

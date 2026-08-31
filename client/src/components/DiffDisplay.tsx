@@ -13,7 +13,7 @@ export function DiffDisplay({ expected, actual, original, modified }: DiffDispla
   const diffs: Change[] = diffChars(oldText, newText);
 
   return (
-    <div className="border-border bg-muted/50 rounded-md border p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+    <div className="border-border bg-muted/50 rounded-md border p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
       {diffs.map((part, index) => {
         if (part.added) {
           return (

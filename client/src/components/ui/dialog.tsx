@@ -40,7 +40,7 @@ function DialogContent({ className, children, ...props }: DialogPrimitive.Popup.
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 sm:rounded-lg",
+          "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid max-h-[90dvh] w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border p-4 shadow-lg duration-200 sm:w-full sm:rounded-lg sm:p-6",
           className,
         )}
         {...props}
@@ -70,7 +70,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
+      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
       {...props}
     />
   );

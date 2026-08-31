@@ -179,12 +179,12 @@ export function BookList() {
                 className="border-border bg-card overflow-hidden rounded-lg border shadow-sm"
               >
                 <div className="flex items-center justify-between px-4 py-3">
-                  <AccordionTrigger className="flex-1 py-0 text-left hover:no-underline">
-                    <div className="flex min-w-0 items-center gap-3 pr-4">
+                  <AccordionTrigger className="min-w-0 flex-1 py-0 text-left hover:no-underline">
+                    <div className="flex min-w-0 flex-1 items-center gap-3 pr-4">
                       <div className="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
                         <FolderInput className="h-4 w-4" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-foreground truncate text-sm font-semibold">
                           {book.fileName}
                         </div>

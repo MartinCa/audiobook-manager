@@ -145,13 +145,13 @@ export function Settings() {
                     {items.map((item) => (
                       <div
                         key={item.id}
-                        className="bg-muted/40 flex items-center justify-between rounded px-3 py-2 text-xs"
+                        className="bg-muted/40 flex flex-col justify-between gap-2 rounded px-3 py-2 text-xs sm:flex-row sm:items-center"
                       >
-                        <div className="text-muted-foreground font-mono">
+                        <div className="text-muted-foreground min-w-0 flex-1 font-mono break-all">
                           Pattern:{" "}
                           <span className="text-foreground font-semibold">{item.regex}</span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1 self-end sm:self-center">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -182,7 +182,7 @@ export function Settings() {
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>
               {editingMapping ? "Edit Series Mapping" : "Create Series Mapping"}
@@ -236,11 +236,16 @@ export function Settings() {
               </label>
             </div>
 
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setDialogOpen(false)}
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
                 {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                 {editingMapping ? "Save Changes" : "Create Mapping"}
               </Button>

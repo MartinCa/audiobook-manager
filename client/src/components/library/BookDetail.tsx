@@ -205,8 +205,8 @@ export function BookDetail() {
       </div>
 
       <div className="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-        <div>
-          <h1 className="text-foreground text-2xl font-bold">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-foreground text-2xl font-bold break-words">
             {bookDetail.authors.join(", ")} &mdash; {bookDetail.bookName}
           </h1>
           <p className="text-muted-foreground text-sm">
@@ -330,22 +330,27 @@ export function BookDetail() {
       {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
 
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>Delete Audiobook</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-muted-foreground text-sm">
               Are you sure you want to permanently delete{" "}
-              <strong className="text-foreground">{bookDetail.bookName}</strong>? This removes the
-              audiobook directory and all its files from your library storage.
+              <strong className="text-foreground break-words">{bookDetail.bookName}</strong>? This
+              removes the audiobook directory and all its files from your library storage.
             </p>
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setDeleteConfirmOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
+                className="w-full sm:w-auto"
                 disabled={deleting}
                 onClick={() => {
                   void handleDeleteBook();

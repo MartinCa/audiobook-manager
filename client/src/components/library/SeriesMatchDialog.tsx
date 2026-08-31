@@ -115,7 +115,7 @@ export function SeriesMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
         <DialogHeader>
           <DialogTitle>Bulk Match Series</DialogTitle>
         </DialogHeader>
@@ -144,11 +144,12 @@ export function SeriesMatchDialog({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="w-full sm:w-auto"
                 disabled={loadingSuggestions || matching || series.length === 0}
                 onClick={() => {
                   void handleLoadSuggestions();
@@ -161,11 +162,17 @@ export function SeriesMatchDialog({
                 )}
                 Preview Suggestions
               </Button>
-              <Button variant="ghost" size="sm" disabled={matching} onClick={toggleAll}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={matching}
+                onClick={toggleAll}
+              >
                 {allSelected ? "Deselect All" : "Select All"}
               </Button>
             </div>
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground text-[11px] sm:text-xs">
               {selected.length} of {series.length} selected
             </span>
           </div>
@@ -196,10 +203,10 @@ export function SeriesMatchDialog({
                       checked={isSelected}
                       disabled={matching}
                       onCheckedChange={() => toggleOne(item.name)}
-                      className="mt-0.5"
+                      className="mt-0.5 shrink-0"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="text-foreground font-medium">{item.name}</div>
+                      <div className="text-foreground font-medium break-words">{item.name}</div>
                       <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-[11px]">
                         <span>{(item.authors ?? []).join(", ") || "Unknown author"}</span>
                         <span>&middot;</span>
@@ -210,9 +217,9 @@ export function SeriesMatchDialog({
                             {best === null ? (
                               <span className="italic">no candidates found</span>
                             ) : (
-                              <span className="flex items-center gap-1">
-                                best: <strong>{best.seriesName}</strong> ({best.sourceName},{" "}
-                                {Math.round(best.confidence * 100)}%)
+                              <span className="flex flex-wrap items-center gap-1">
+                                best: <strong className="break-words">{best.seriesName}</strong> (
+                                {best.sourceName}, {Math.round(best.confidence * 100)}%)
                                 {best.confidence < threshold && (
                                   <Badge variant="secondary" className="px-1 text-[10px]">
                                     below threshold
@@ -231,11 +238,17 @@ export function SeriesMatchDialog({
           )}
         </div>
 
-        <div className="border-border flex justify-end gap-2 border-t pt-4">
-          <Button variant="outline" disabled={matching} onClick={() => onOpenChange(false)}>
+        <div className="border-border flex flex-col-reverse items-stretch justify-end gap-2 border-t pt-3 sm:flex-row sm:items-center sm:pt-4">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            disabled={matching}
+            onClick={() => onOpenChange(false)}
+          >
             Close
           </Button>
           <Button
+            className="w-full sm:w-auto"
             disabled={matching || selected.length === 0}
             onClick={() => {
               void handleStartMatch();

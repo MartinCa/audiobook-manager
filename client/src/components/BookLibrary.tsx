@@ -151,7 +151,7 @@ export function BookLibrary() {
                 }}
                 className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
                     {book.coverFilePath ? (
                       <img
@@ -169,8 +169,8 @@ export function BookLibrary() {
                     )}
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-foreground truncate font-semibold">
                         {book.bookName}
                       </span>

@@ -17,9 +17,9 @@ export function OperationProgressBar({
 
   return (
     <div className="border-border bg-card space-y-2 rounded-lg border p-4">
-      <div className="flex items-center justify-between text-sm font-medium">
-        <span>{label}</span>
-        <span>
+      <div className="flex flex-wrap items-center justify-between gap-1 text-sm font-medium">
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="shrink-0">
           {processed} / {total} ({percentage}%)
         </span>
       </div>

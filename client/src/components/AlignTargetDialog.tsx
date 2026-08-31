@@ -55,7 +55,7 @@ export function AlignTargetDialog({
         else onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
         <DialogHeader>
           <DialogTitle>
             {step === "select" ? "Select Target Alignment Value" : "Confirm Alignment"}
@@ -75,15 +75,18 @@ export function AlignTargetDialog({
             >
               {candidates.map((cand) => (
                 <div key={cand.value} className="flex items-center space-x-2">
-                  <RadioGroupItem value={cand.value} id={cand.value} />
-                  <label htmlFor={cand.value} className="cursor-pointer text-sm font-medium">
+                  <RadioGroupItem value={cand.value} id={cand.value} className="shrink-0" />
+                  <label
+                    htmlFor={cand.value}
+                    className="min-w-0 cursor-pointer text-sm font-medium break-words"
+                  >
                     {cand.value}
                   </label>
                 </div>
               ))}
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="custom" id="custom" />
-                <label htmlFor="custom" className="cursor-pointer text-sm font-medium">
+                <RadioGroupItem value="custom" id="custom" className="shrink-0" />
+                <label htmlFor="custom" className="shrink-0 cursor-pointer text-sm font-medium">
                   Custom value:
                 </label>
               </div>
@@ -97,11 +100,11 @@ export function AlignTargetDialog({
               />
             )}
 
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={resetAndClose}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={resetAndClose}>
                 Cancel
               </Button>
-              <Button onClick={handleContinue} disabled={!finalValue}>
+              <Button className="w-full sm:w-auto" onClick={handleContinue} disabled={!finalValue}>
                 Continue
               </Button>
             </div>
@@ -117,11 +120,17 @@ export function AlignTargetDialog({
               book&apos;s m4b tags will be rewritten and the file relocated if needed. This action
               cannot be undone.
             </p>
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setStep("select")}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setStep("select")}
+              >
                 Back
               </Button>
-              <Button onClick={handleConfirm}>Apply</Button>
+              <Button className="w-full sm:w-auto" onClick={handleConfirm}>
+                Apply
+              </Button>
             </div>
           </div>
         )}

@@ -478,7 +478,7 @@ export function LibraryConsistency() {
                                 key={issue.id}
                                 className="border-border bg-muted/30 flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
                               >
-                                <div className="flex min-w-0 items-start gap-3">
+                                <div className="flex min-w-0 flex-1 items-start gap-3">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
@@ -491,18 +491,18 @@ export function LibraryConsistency() {
                                         return next;
                                       });
                                     }}
-                                    className="border-border mt-1 h-4 w-4 rounded"
+                                    className="border-border mt-1 h-4 w-4 shrink-0 rounded"
                                   />
 
-                                  <div className="min-w-0 space-y-1">
+                                  <div className="min-w-0 flex-1 space-y-1">
                                     <Link
                                       to="/library/book/$bookId"
                                       params={{ bookId: String(issue.audiobookId) }}
-                                      className="text-primary text-xs font-semibold hover:underline"
+                                      className="text-primary text-xs font-semibold break-words hover:underline"
                                     >
                                       {issue.authors.join(", ")} &mdash; {issue.bookName}
                                     </Link>
-                                    <p className="text-muted-foreground text-xs">
+                                    <p className="text-muted-foreground text-xs break-words">
                                       {issue.description}
                                     </p>
 
@@ -512,7 +512,7 @@ export function LibraryConsistency() {
                                         actual={issue.actualValue}
                                       />
                                     ) : issue.expectedValue ? (
-                                      <div className="text-muted-foreground text-[11px]">
+                                      <div className="text-muted-foreground text-[11px] break-all">
                                         Expected: {issue.expectedValue}
                                       </div>
                                     ) : null}
@@ -526,7 +526,7 @@ export function LibraryConsistency() {
                                   onClick={() => {
                                     onResolveClick(issue);
                                   }}
-                                  className="shrink-0 self-end sm:self-center"
+                                  className="w-full shrink-0 self-stretch sm:w-auto sm:self-center"
                                 >
                                   {isResolving ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -549,12 +549,17 @@ export function LibraryConsistency() {
 
         {orphanDirs.length > 0 && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
                 <FolderX className="h-5 w-5 text-amber-500" />
                 Orphaned Directories ({orphanDirs.length})
               </h2>
-              <Button variant="destructive" size="sm" onClick={() => setDeleteAllOrphansOpen(true)}>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => setDeleteAllOrphansOpen(true)}
+              >
                 Delete All {orphanDirs.length}
               </Button>
             </div>
@@ -563,12 +568,17 @@ export function LibraryConsistency() {
               {orphanDirs.map((dir) => (
                 <div
                   key={dir.id}
-                  className="border-border bg-card flex items-center justify-between rounded-lg border p-3"
+                  className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 sm:flex-row sm:items-center"
                 >
-                  <span className="text-muted-foreground font-mono text-xs break-all">
+                  <span className="text-muted-foreground min-w-0 flex-1 font-mono text-xs break-all">
                     {dir.directoryPath}
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => setOrphanToDelete(dir)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full shrink-0 sm:w-auto"
+                    onClick={() => setOrphanToDelete(dir)}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -584,7 +594,7 @@ export function LibraryConsistency() {
           if (!open) setPendingResolve(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>Confirm Resolution</DialogTitle>
           </DialogHeader>
@@ -626,12 +636,17 @@ export function LibraryConsistency() {
                   </>
                 ))}
             </p>
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setPendingResolve(null)}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setPendingResolve(null)}
+              >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
+                className="w-full sm:w-auto"
                 disabled={confirmingResolve}
                 onClick={() => {
                   void confirmPendingResolve();
@@ -656,7 +671,7 @@ export function LibraryConsistency() {
           if (!open) setOrphanToDelete(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>Delete Orphaned Directory</DialogTitle>
           </DialogHeader>
@@ -667,12 +682,17 @@ export function LibraryConsistency() {
             <div className="bg-muted rounded p-2 font-mono text-xs break-all">
               {orphanToDelete?.directoryPath}
             </div>
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setOrphanToDelete(null)}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setOrphanToDelete(null)}
+              >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
+                className="w-full sm:w-auto"
                 disabled={deletingOrphan}
                 onClick={() => {
                   void handleDeleteOrphan();
@@ -686,7 +706,7 @@ export function LibraryConsistency() {
       </Dialog>
 
       <Dialog open={deleteAllOrphansOpen} onOpenChange={setDeleteAllOrphansOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle>Delete All Orphaned Directories</DialogTitle>
           </DialogHeader>
@@ -695,12 +715,17 @@ export function LibraryConsistency() {
               This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
               directories and any leftover files in them.
             </p>
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setDeleteAllOrphansOpen(false)}>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setDeleteAllOrphansOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
+                className="w-full sm:w-auto"
                 disabled={deletingOrphan}
                 onClick={() => {
                   void handleDeleteAllOrphans();
