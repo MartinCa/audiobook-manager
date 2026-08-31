@@ -139,6 +139,61 @@ public class AudiobookTagHandlerTests
         }
     }
 
+    // Regression: ATL only clears a raw Track string property (Description, Copyright, Publisher,
+    // Language, Group/Series) when it's assigned an empty string - assigning null is a silent
+    // no-op that leaves whatever the file already had on disk untouched. A book whose Description
+    // field is blanked out in the edit form builds a domain object with Description == null, and
+    // without coercing that to "" before handing it to ATL, the field never actually clears: the
+    // old value survives the save, the round-trip verification in AudiobookService correctly
+    // notices the mismatch, and the whole save/organize fails with a misleading
+    // "non-contiguous QuickTime chapters" error that has nothing to do with the real cause. Only
+    // reproduces against a file that already carries a value in these fields (as any file tagged
+    // by another tool before being discovered by this app would), so the fixture is seeded first.
+    [TestMethod]
+    public void SaveAudiobookTagsToFile_ClearingPreviouslySetFields_ActuallyClearsThem()
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var seeded = new Audiobook(
+                new List<Person> { new Person("Brandon Sanderson") },
+                "The Way of Kings",
+                2010,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length))
+            {
+                Series = "The Stormlight Archive",
+                Description = "An epic fantasy description that should be clearable",
+                Copyright = "Tor Books",
+                Publisher = "Macmillan Audio",
+                Language = "en"
+            };
+            _handler.SaveAudiobookTagsToFile(seeded);
+
+            var cleared = new Audiobook(
+                new List<Person> { new Person("Brandon Sanderson") },
+                "The Way of Kings",
+                2010,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length));
+            // Series, Description, Copyright, Publisher and Language are all left at their default
+            // null - exactly what a domain object built from an empty edit-form field looks like.
+            _handler.SaveAudiobookTagsToFile(cleared);
+
+            var reparsed = _handler.ParseAudiobook(new FileInfo(tempFile));
+
+            Assert.IsNull(reparsed.Series);
+            Assert.IsTrue(string.IsNullOrEmpty(reparsed.Description), $"Description should have cleared, was '{reparsed.Description}'");
+            Assert.IsTrue(string.IsNullOrEmpty(reparsed.Copyright), $"Copyright should have cleared, was '{reparsed.Copyright}'");
+            Assert.IsTrue(string.IsNullOrEmpty(reparsed.Publisher), $"Publisher should have cleared, was '{reparsed.Publisher}'");
+            Assert.IsTrue(string.IsNullOrEmpty(reparsed.Language), $"Language should have cleared, was '{reparsed.Language}'");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     [TestMethod]
     public void SaveAudiobookTagsToFile_WithoutSeries_ParsesBackWithNullSeries()
     {

@@ -212,6 +212,23 @@ empty name that every untagged book linked to. Use `AudiobookTagHandler.ParseGen
 `StringSplitOptions.RemoveEmptyEntries | TrimEntries` semantics. `AudiobookController.MapToDomain`
 also scrubs blank names off incoming DTOs, since the client splits these fields itself.
 
+**Clearing a raw `Track` string property needs `""`, not `null` — ATL silently no-ops on `null`.**
+`SaveAudiobookTagsToFile` assigns several nullable `Audiobook` fields straight to ATL `Track`
+properties (`Description`, `Copyright`, `Publisher`, `Language`, `Group`, `SeriesTitle`). Confirmed
+empirically (see the git history for `AudiobookTagHandler.cs`'s null-coalescing fix): assigning one
+of these properties `null` on an already-tagged file is a silent no-op — `Save()` returns `true`
+and the file keeps whatever value it already had — while assigning `""` actually clears it. A book
+whose Description is blanked out in the edit form builds a domain object with `Description == null`
+(react-hook-form/zod turn an empty field into `undefined`, which serializes to nothing and binds to
+`null` server-side), so without coercing to `?? ""` before the ATL assignment, "clearing" the field
+silently does nothing on a file some other tool had already tagged — then the round-trip
+verification (correctly) catches the leftover value and throws the same misleading
+"non-contiguous QuickTime chapters" message as the unrelated case above, even though no chapters are
+involved. `WriteSpecialTag`-backed fields (`Subtitle`, `Rating`, `Asin`, `Www`, `Mp4Series`, ...) are
+unaffected — that helper already null-checks and calls `AdditionalFields.Remove()` for `null`. Any
+new field written via a raw `Track` property setter (not `WriteSpecialTag`) needs the same `?? ""`
+treatment.
+
 ### Bulk EF operations and the change tracker
 
 `ExecuteDeleteAsync`/`ExecuteUpdateAsync` are strongly preferred over `RemoveRange(dbSet)` +
