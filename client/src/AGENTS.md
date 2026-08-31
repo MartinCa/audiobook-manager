@@ -48,6 +48,6 @@ say so and change it upstream in `@martinrun/frontend-config`.
 ## Do not
 
 - Add a state, data-fetching, or UI library. The stack is decided in `DESIGN.md`.
-- Hand-edit `src/components/ui/**` or `src/lib/api-types.ts`. Both are vendored.
+- Hand-edit `src/components/ui/**`, `src/lib/api-types.ts`, or `src/routeTree.gen.ts`. All are vendored.
 - Refactor files unrelated to the task in hand.
 - Write a response interface by hand. Regenerate from the OpenAPI spec.

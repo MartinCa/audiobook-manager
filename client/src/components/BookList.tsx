@@ -14,6 +14,7 @@ import { BookOrganize } from "./BookOrganize";
 import { untaggedApi, queueApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { formatFileSize } from "@/helpers/formatHelpers";
+import { pathsEqual } from "@/helpers/pathHelpers";
 import { toast } from "sonner";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 
@@ -66,13 +67,22 @@ export function BookList() {
   const totalCount = data?.total ?? 0;
 
   useSignalREvent<ProgressUpdatePayload>("UpdateProgress", (payload) => {
-    setProgressOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
-        progress: payload.progress,
-        message: payload.progressMessage,
-      },
-    }));
+    setProgressOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+
+      if (payload.progress >= 100) {
+        delete next[matchedKey];
+      } else {
+        next[matchedKey] = {
+          progress: payload.progress,
+          message: payload.progressMessage,
+        };
+      }
+      return next;
+    });
 
     if (payload.progress >= 100) {
       void queryClient.invalidateQueries({ queryKey: ["untaggedBooks"] });
@@ -80,12 +90,16 @@ export function BookList() {
   });
 
   useSignalREvent<QueueErrorPayload>("QueueError", (payload) => {
-    setProgressOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
+    setProgressOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+      next[matchedKey] = {
         error: payload.error,
-      },
-    }));
+      };
+      return next;
+    });
     toast.error(`Queue error: ${payload.error}`);
   });
 
@@ -149,7 +163,10 @@ export function BookList() {
           className="space-y-2"
         >
           {books.map((book) => {
-            const override = progressOverrides[book.fullPath];
+            const overrideKey = Object.keys(progressOverrides).find((k) =>
+              pathsEqual(k, book.fullPath),
+            );
+            const override = overrideKey ? progressOverrides[overrideKey] : undefined;
             const isQueued = Boolean(book.queueId || override?.progress != null);
             const progress = override?.progress ?? book.queueProgress;
             const message = override?.message ?? book.queueMessage;

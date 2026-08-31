@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Trash2,
+  Clock,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,10 +28,16 @@ import {
 } from "@/components/ui/accordion";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BookEditForm } from "@/components/BookEditForm";
+import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
+import { DeleteFileDialog } from "../DeleteFileDialog";
+import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { libraryApi, audiobookApi, filesApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
+import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
-import { splitList } from "@/helpers/organizeAudiobookInput";
+import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
+import { toAudiobook } from "@/helpers/audiobookMapping";
+import { pathsEqual } from "@/helpers/pathHelpers";
 import { toast } from "sonner";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { Audiobook } from "@/types/Audiobook";
@@ -163,13 +171,22 @@ export function DiscoveredAudiobooks() {
 
   // SignalR single-item organize events (queued via "Import to Library" below)
   useSignalREvent<OrganizeProgressPayload>("UpdateProgress", (payload) => {
-    setOrganizeOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
-        progress: payload.progress,
-        message: payload.progressMessage,
-      },
-    }));
+    setOrganizeOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+
+      if (payload.progress >= 100) {
+        delete next[matchedKey];
+      } else {
+        next[matchedKey] = {
+          progress: payload.progress,
+          message: payload.progressMessage,
+        };
+      }
+      return next;
+    });
 
     if (payload.progress >= 100) {
       void queryClient.invalidateQueries({
@@ -179,12 +196,16 @@ export function DiscoveredAudiobooks() {
   });
 
   useSignalREvent<OrganizeQueueErrorPayload>("QueueError", (payload) => {
-    setOrganizeOverrides((prev) => ({
-      ...prev,
-      [payload.originalFileLocation]: {
+    setOrganizeOverrides((prev) => {
+      const next = { ...prev };
+      const matchedKey =
+        Object.keys(next).find((k) => pathsEqual(k, payload.originalFileLocation)) ??
+        payload.originalFileLocation;
+      next[matchedKey] = {
         error: payload.error,
-      },
-    }));
+      };
+      return next;
+    });
     toast.error(`Organize failed: ${payload.error}`);
   });
 
@@ -239,10 +260,13 @@ export function DiscoveredAudiobooks() {
     }
   };
 
-  const handleDeleteDiscovered = async (path: string) => {
+  const [deleteTargetPath, setDeleteTargetPath] = useState<string | null>(null);
+
+  const executeDeleteDiscovered = async (path: string) => {
     try {
+      await filesApi.deleteBook(path);
       await libraryApi.deleteDiscovered(path);
-      toast.success("File record removed");
+      toast.success("File deleted and record removed");
       void queryClient.invalidateQueries({
         queryKey: ["discoveredAudiobooks"],
       });
@@ -251,14 +275,35 @@ export function DiscoveredAudiobooks() {
     }
   };
 
-  const handleOrganizeDiscovered = async (path: string, book: Audiobook) => {
+  const proceedOrganizeDiscovered = async (book: Audiobook) => {
+    const path = book.fileInfo?.fullPath ?? "";
     try {
       await audiobookApi.organizeBook(book);
       toast.success("Book added to organization queue");
-      setOrganizeOverrides((prev) => ({
-        ...prev,
-        [path]: { progress: 0, message: "Queued..." },
-      }));
+      if (path) {
+        setOrganizeOverrides((prev) => ({
+          ...prev,
+          [path]: { progress: 0, message: "Queued..." },
+        }));
+      }
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    }
+  };
+
+  const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
+    onReplaceExisting: (book) => proceedOrganizeDiscovered(book),
+    onDeleteNew: (book) => {
+      const path = book.fileInfo?.fullPath;
+      if (path) {
+        setDeleteTargetPath(path);
+      }
+    },
+  });
+
+  const handleOrganizeDiscovered = async (book: Audiobook) => {
+    try {
+      await checkCollisionAndProceed(book, proceedOrganizeDiscovered);
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     }
@@ -372,33 +417,14 @@ export function DiscoveredAudiobooks() {
         <Accordion type="single" collapsible className="space-y-2">
           {books.map((book) => {
             const isSelected = selectedPaths.has(book.fullPath);
-            const override = organizeOverrides[book.fullPath];
+            const overrideKey = Object.keys(organizeOverrides).find((k) =>
+              pathsEqual(k, book.fullPath),
+            );
+            const override = overrideKey ? organizeOverrides[overrideKey] : undefined;
             const isOrganizing = Boolean(override && override.error == null);
             const organizeError = override?.error;
 
-            const initialAudiobook: Audiobook = {
-              authors: splitList(book.authors).map((name) => ({ name })),
-              narrators: splitList(book.narrators).map((name) => ({ name })),
-              bookName: book.bookName,
-              subtitle: book.subtitle ?? undefined,
-              series: book.series ?? undefined,
-              seriesPart: book.seriesPart ?? undefined,
-              year: book.year ?? undefined,
-              genres: splitList(book.genres),
-              description: book.description ?? undefined,
-              copyright: book.copyright ?? undefined,
-              publisher: book.publisher ?? undefined,
-              language: book.language ?? undefined,
-              rating: book.rating ?? undefined,
-              asin: book.asin ?? undefined,
-              www: book.www ?? undefined,
-              durationInSeconds: book.durationInSeconds ?? undefined,
-              fileInfo: {
-                fullPath: book.fullPath,
-                fileName: book.fileName,
-                sizeInBytes: book.sizeInBytes,
-              },
-            };
+            const initialAudiobook = toAudiobook(book);
 
             return (
               <AccordionItem
@@ -426,8 +452,20 @@ export function DiscoveredAudiobooks() {
                           {book.authors ? `${book.authors} — ` : ""}
                           {book.bookName || book.fileName}
                         </div>
-                        <div className="text-muted-foreground truncate text-xs">
-                          {book.fileName}
+                        <div className="text-muted-foreground flex items-center gap-3 text-xs">
+                          <span className="truncate">{book.fileName}</span>
+                          {book.durationInSeconds && (
+                            <span className="flex shrink-0 items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {formatDuration(book.durationInSeconds)}
+                            </span>
+                          )}
+                          {book.sizeInBytes > 0 && (
+                            <span className="flex shrink-0 items-center gap-1">
+                              <HardDrive className="h-3 w-3" />
+                              {formatFileSize(book.sizeInBytes)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -476,28 +514,31 @@ export function DiscoveredAudiobooks() {
                   </div>
                 </AccordionTrigger>
 
-                <AccordionContent className="border-border border-t pt-4 pb-4">
+                <AccordionContent className="border-border space-y-4 border-t pt-4 pb-4">
+                  <AudiobookFileDetails
+                    filePath={book.fullPath}
+                    sizeInBytes={book.sizeInBytes}
+                    durationInSeconds={book.durationInSeconds}
+                  />
+
                   <BookEditForm
                     initialBook={initialAudiobook}
                     currentPath={book.fullPath}
                     coverUrl={filesApi.getCoverUrl(book.fullPath)}
-                    onSave={(edited) => handleOrganizeDiscovered(book.fullPath, edited)}
+                    defaultEmptyLanguage
+                    onSave={(edited) => handleOrganizeDiscovered(edited)}
                     toolbarActions={
-                      // Dismiss/delete shares the search row rather than a row of its own -
-                      // ghost styling keeps it reachable without competing with the primary
-                      // "Import to Library" action, which is the actually common one and stays
-                      // solid in the form's footer.
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
                         onClick={() => {
-                          void handleDeleteDiscovered(book.fullPath);
+                          setDeleteTargetPath(book.fullPath);
                         }}
                       >
                         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                        Dismiss / Delete
+                        Delete File
                       </Button>
                     }
                     formActions={
@@ -512,6 +553,21 @@ export function DiscoveredAudiobooks() {
             );
           })}
         </Accordion>
+      )}
+
+      {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
+
+      {deleteTargetPath && (
+        <DeleteFileDialog
+          open={Boolean(deleteTargetPath)}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTargetPath(null);
+          }}
+          targetPath={deleteTargetPath}
+          onConfirmDelete={() => executeDeleteDiscovered(deleteTargetPath)}
+          title="Delete Discovered Audiobook"
+          description="Are you sure you want to permanently delete this file and its folder contents? This will remove the file from disk and remove its record from discovered audiobooks."
+        />
       )}
 
       {totalPages > 1 && (

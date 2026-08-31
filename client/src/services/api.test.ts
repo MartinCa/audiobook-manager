@@ -46,6 +46,10 @@ describe("api service mappings and contracts", () => {
       expect(dto.filePath).toBe("/audiobooks/Sanderson/The Way of Kings.m4b");
       expect(dto.fileName).toBe("The Way of Kings.m4b");
       expect(dto.sizeInBytes).toBe(1048576000);
+      expect(dto.replaceExisting).toBe(false);
+
+      const replaceDto = toAudiobookDto({ ...sampleAudiobook, replaceExisting: true });
+      expect(replaceDto.replaceExisting).toBe(true);
     });
 
     it("serializes Audiobook to lightweight path preview DTO", () => {

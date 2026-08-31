@@ -525,4 +525,50 @@ public class AudiobookControllerTests
         _organizeTaskService.Verify(
             s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == null)), Times.Once);
     }
+
+    [TestMethod]
+    public async Task DeleteAudiobook_BookNotFound_ReturnsNotFound()
+    {
+        _audiobookService.Setup(s => s.GetAudiobookById(999)).ReturnsAsync((Audiobook?)null);
+
+        var result = await _controller.DeleteAudiobook(999);
+
+        Assert.IsInstanceOfType<NotFoundResult>(result);
+    }
+
+    [TestMethod]
+    public async Task DeleteAudiobook_SaveGateBusy_ReturnsConflict()
+    {
+        var book = new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000));
+        _audiobookService.Setup(s => s.GetAudiobookById(1)).ReturnsAsync(book);
+
+        var saveGate = (AudiobookSaveGate)typeof(AudiobookController)
+            .GetField("_saveGate", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(_controller)!;
+        saveGate.TryAcquire(1, out var lease);
+
+        try
+        {
+            var result = await _controller.DeleteAudiobook(1);
+            Assert.IsInstanceOfType<ConflictResult>(result);
+            _audiobookService.Verify(s => s.DeleteAudiobook(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task DeleteAudiobook_Success_CallsServiceAndReturnsOk()
+    {
+        var book = new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000));
+        _audiobookService.Setup(s => s.GetAudiobookById(1)).ReturnsAsync(book);
+        _audiobookService.Setup(s => s.DeleteAudiobook(1)).Returns(Task.CompletedTask);
+
+        var result = await _controller.DeleteAudiobook(1);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _audiobookService.Verify(s => s.DeleteAudiobook(1), Times.Once);
+    }
 }
