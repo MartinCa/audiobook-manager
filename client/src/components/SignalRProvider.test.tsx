@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import { SignalRProvider } from "./SignalRProvider";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 
@@ -71,7 +71,7 @@ describe("SignalRProvider", () => {
     return <div>Reconnect Subscriber</div>;
   }
 
-  it("dispatches events to subscribers registered before start() resolves", () => {
+  it("dispatches events to subscribers registered before start() resolves", async () => {
     const messageHandler = vi.fn();
 
     render(
@@ -91,7 +91,9 @@ describe("SignalRProvider", () => {
     });
 
     // The handler should now be bound on the hub connection
-    expect(mockHubConnection.on).toHaveBeenCalledWith("UpdateProgress", expect.any(Function));
+    await waitFor(() => {
+      expect(mockHubConnection.on).toHaveBeenCalledWith("UpdateProgress", expect.any(Function));
+    });
 
     // Simulate backend sending an event
     act(() => {
@@ -109,7 +111,7 @@ describe("SignalRProvider", () => {
     });
   });
 
-  it("supports multiple subscribers on the same event and handles unmounting", () => {
+  it("supports multiple subscribers on the same event and handles unmounting", async () => {
     const handler1 = vi.fn();
     const handler2 = vi.fn();
 
@@ -124,6 +126,10 @@ describe("SignalRProvider", () => {
       startPromiseResolve();
     });
 
+    await waitFor(() => {
+      expect(mockHubConnection.on).toHaveBeenCalledWith("UpdateProgress", expect.any(Function));
+    });
+
     act(() => {
       mockOnHandlers["UpdateProgress"]?.({ progress: 50 });
     });
@@ -134,7 +140,7 @@ describe("SignalRProvider", () => {
     unmount();
   });
 
-  it("triggers onReconnected listeners when SignalR reconnects", () => {
+  it("triggers onReconnected listeners when SignalR reconnects", async () => {
     const reconnectedCallback = vi.fn();
 
     render(
@@ -147,7 +153,9 @@ describe("SignalRProvider", () => {
       startPromiseResolve();
     });
 
-    expect(mockReconnectedHandler).toBeDefined();
+    await waitFor(() => {
+      expect(mockReconnectedHandler).toBeDefined();
+    });
 
     act(() => {
       mockReconnectedHandler?.();
