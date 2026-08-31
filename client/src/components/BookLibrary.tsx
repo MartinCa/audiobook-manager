@@ -35,7 +35,6 @@ export function BookLibrary() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const offset = (page - 1) * pageSize;
   const {
     data,
     isLoading: loading,
@@ -43,6 +42,7 @@ export function BookLibrary() {
   } = useQuery({
     queryKey: ["books", debouncedQuery, page, pageSize],
     queryFn: async () => {
+      const offset = (page - 1) * pageSize;
       const [browseRes, issuesRes] = await Promise.all([
         debouncedQuery.trim()
           ? browseApi.searchAudiobooks(debouncedQuery.trim(), pageSize, offset)
