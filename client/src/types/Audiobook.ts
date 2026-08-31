@@ -35,6 +35,8 @@ export interface Audiobook {
 
   durationInSeconds?: number;
 
+  replaceExisting?: boolean;
+
   fileInfo?: BookFileInfo;
 }
 

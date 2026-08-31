@@ -5,9 +5,6 @@ import {
   ArrowLeft,
   Trash2,
   Save,
-  Clock,
-  HardDrive,
-  FileText,
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
@@ -18,9 +15,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BookEditForm } from "../BookEditForm";
 import { DiffDisplay } from "../DiffDisplay";
+import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
+import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { browseApi, audiobookApi, consistencyApi, filesApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
-import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
+import { toAudiobook } from "@/helpers/audiobookMapping";
+import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
@@ -108,7 +108,7 @@ export function BookDetail() {
     })();
   });
 
-  const handleSave = async (updated: Audiobook) => {
+  const proceedSave = async (updated: Audiobook) => {
     setSaving(true);
     try {
       await audiobookApi.updateBook(id, updated);
@@ -116,6 +116,18 @@ export function BookDetail() {
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
       setSaving(false);
+    }
+  };
+
+  const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
+    onReplaceExisting: (book) => proceedSave(book),
+  });
+
+  const handleSave = async (updated: Audiobook) => {
+    try {
+      await checkCollisionAndProceed(updated, proceedSave);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
     }
   };
 
@@ -176,29 +188,7 @@ export function BookDetail() {
     );
   }
 
-  const initialAudiobook: Audiobook = {
-    bookName: bookDetail.bookName ?? undefined,
-    subtitle: bookDetail.subtitle ?? undefined,
-    series: bookDetail.series ?? undefined,
-    seriesPart: bookDetail.seriesPart ?? undefined,
-    year: bookDetail.year ?? undefined,
-    authors: bookDetail.authors.map((name) => ({ name })),
-    narrators: bookDetail.narrators.map((name) => ({ name })),
-    genres: bookDetail.genres,
-    description: bookDetail.description ?? undefined,
-    copyright: bookDetail.copyright ?? undefined,
-    publisher: bookDetail.publisher ?? undefined,
-    language: bookDetail.language ?? undefined,
-    rating: bookDetail.rating ?? undefined,
-    asin: bookDetail.asin ?? undefined,
-    www: bookDetail.www ?? undefined,
-    durationInSeconds: bookDetail.durationInSeconds ?? undefined,
-    fileInfo: {
-      fullPath: bookDetail.filePath,
-      fileName: bookDetail.fileName,
-      sizeInBytes: bookDetail.sizeInBytes,
-    },
-  };
+  const initialAudiobook = toAudiobook(bookDetail);
 
   return (
     <div className="space-y-6">
@@ -262,43 +252,11 @@ export function BookDetail() {
         </div>
 
         <div className="space-y-6 lg:col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-muted-foreground text-sm font-semibold uppercase">
-                Technical Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <div className="flex items-center gap-2">
-                <Clock className="text-muted-foreground h-4 w-4" />
-                <span className="text-foreground font-medium">Duration:</span>
-                <span>
-                  {bookDetail.durationInSeconds
-                    ? formatDuration(bookDetail.durationInSeconds)
-                    : "Unknown"}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <HardDrive className="text-muted-foreground h-4 w-4" />
-                <span className="text-foreground font-medium">File Size:</span>
-                <span>{formatFileSize(bookDetail.sizeInBytes)}</span>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <FileText className="text-muted-foreground h-4 w-4" />
-                  <span className="text-foreground font-medium">File Path:</span>
-                </div>
-                <div
-                  className="bg-muted/60 text-muted-foreground rounded p-2 font-mono text-[11px] break-all"
-                  title={bookDetail.filePath}
-                >
-                  {bookDetail.filePath}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <AudiobookFileDetails
+            filePath={bookDetail.filePath}
+            sizeInBytes={bookDetail.sizeInBytes}
+            durationInSeconds={bookDetail.durationInSeconds}
+          />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -368,6 +326,8 @@ export function BookDetail() {
           </Card>
         </div>
       </div>
+
+      {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
 
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="max-w-md">

@@ -2,16 +2,16 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, FolderPlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BookEditForm } from "./BookEditForm";
 import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
+import { DeleteFileDialog } from "./DeleteFileDialog";
+import { AudiobookFileDetails } from "./AudiobookFileDetails";
 import { audiobookApi, filesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
-import { formatFileSize } from "@/helpers/formatHelpers";
+import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
 import type { BookFileInfo } from "@/types/BookFileInfo";
-import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 interface BookOrganizeProps {
   file?: BookFileInfo;
@@ -30,13 +30,7 @@ export function BookOrganize({
 }: BookOrganizeProps) {
   const targetPath = file?.fullPath ?? bookPath ?? "";
   const [organizing, setOrganizing] = useState(false);
-
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const [duplicateCheck, setDuplicateCheck] = useState<TargetPathCheckResult | null>(null);
-  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
-  const [pendingBook, setPendingBook] = useState<Audiobook | null>(null);
 
   const {
     data: bookDetails = null,
@@ -49,12 +43,6 @@ export function BookOrganize({
   });
 
   const error = parseError ? handleApiError(parseError).message : null;
-
-  const { data: directoryContents = [], isLoading: loadingDirectoryContents } = useQuery({
-    queryKey: ["directoryContents", targetPath],
-    queryFn: () => filesApi.getDirectoryContents(targetPath),
-    enabled: deleteConfirmOpen && Boolean(targetPath),
-  });
 
   const proceedOrganize = async (book: Audiobook) => {
     setOrganizing(true);
@@ -70,17 +58,17 @@ export function BookOrganize({
     }
   };
 
+  const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
+    onReplaceExisting: (book) => proceedOrganize(book),
+    onDeleteNew: () => {
+      setDeleteConfirmOpen(true);
+    },
+  });
+
   const handleOrganizeClick = async (book: Audiobook) => {
     setOrganizing(true);
     try {
-      const check = await audiobookApi.checkTargetPath(book);
-      if (check.exists) {
-        setDuplicateCheck(check);
-        setPendingBook(book);
-        setDuplicateDialogOpen(true);
-        return;
-      }
-      await proceedOrganize(book);
+      await checkCollisionAndProceed(book, proceedOrganize);
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
@@ -89,17 +77,13 @@ export function BookOrganize({
   };
 
   const handleDeleteBook = async () => {
-    setDeleting(true);
     try {
       await filesApi.deleteBook(targetPath);
       toast.success("File deleted successfully");
-      setDeleteConfirmOpen(false);
       onBookDeleted?.();
       onSuccess?.();
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -120,6 +104,15 @@ export function BookOrganize({
           <Trash2 className="text-destructive mr-1.5 h-3.5 w-3.5" />
           Delete Corrupted File
         </Button>
+
+        <DeleteFileDialog
+          open={deleteConfirmOpen}
+          onOpenChange={setDeleteConfirmOpen}
+          targetPath={targetPath}
+          onConfirmDelete={handleDeleteBook}
+          title="Delete Audiobook File"
+          description="Are you sure you want to permanently delete this file and its folder contents? This will permanently remove them from disk."
+        />
       </div>
     );
   }
@@ -130,9 +123,16 @@ export function BookOrganize({
 
   return (
     <div className="space-y-4">
+      <AudiobookFileDetails
+        filePath={targetPath}
+        sizeInBytes={bookDetails.fileInfo?.sizeInBytes ?? file?.sizeInBytes}
+        durationInSeconds={bookDetails.durationInSeconds}
+      />
+
       <BookEditForm
         initialBook={bookDetails}
         currentPath={targetPath}
+        coverUrl={filesApi.getCoverUrl(targetPath)}
         onSave={handleOrganizeClick}
         defaultEmptyLanguage
         formActions={
@@ -160,83 +160,16 @@ export function BookOrganize({
         }
       />
 
-      {duplicateCheck && pendingBook && (
-        <DuplicateTargetDialog
-          open={duplicateDialogOpen}
-          onOpenChange={setDuplicateDialogOpen}
-          newPath={pendingBook.fileInfo?.fullPath ?? targetPath}
-          newSizeInBytes={pendingBook.fileInfo?.sizeInBytes ?? 0}
-          newDurationInSeconds={pendingBook.durationInSeconds}
-          targetPath={duplicateCheck.targetPath}
-          existingSizeInBytes={duplicateCheck.existing?.sizeInBytes}
-          existingDurationInSeconds={duplicateCheck.existing?.durationInSeconds ?? undefined}
-          onReplaceExisting={() => {
-            void (async () => {
-              await proceedOrganize(pendingBook);
-              setDuplicateDialogOpen(false);
-            })();
-          }}
-          onDeleteNew={() => {
-            void (async () => {
-              await handleDeleteBook();
-              setDuplicateDialogOpen(false);
-            })();
-          }}
-        />
-      )}
+      {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
 
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Audiobook File</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              Are you sure you want to permanently delete the following file
-              {directoryContents.length === 1 ? "" : "s"}? This removes the entire containing folder
-              and cannot be undone.
-            </p>
-            {loadingDirectoryContents ? (
-              <div className="text-muted-foreground flex items-center gap-2 text-xs">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Listing folder contents...
-              </div>
-            ) : directoryContents.length > 0 ? (
-              <ul className="max-h-48 space-y-1 overflow-y-auto">
-                {directoryContents.map((f) => (
-                  <li
-                    key={f.fullPath}
-                    className="bg-muted flex items-center justify-between gap-2 rounded p-2 text-xs"
-                  >
-                    <span className="text-foreground truncate font-mono">{f.fileName}</span>
-                    <span className="text-muted-foreground shrink-0">
-                      {formatFileSize(f.sizeInBytes)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="bg-muted text-muted-foreground rounded p-2 font-mono text-xs break-all">
-                {targetPath}
-              </div>
-            )}
-            <div className="border-border flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={deleting}
-                onClick={() => {
-                  void handleDeleteBook();
-                }}
-              >
-                {deleting ? "Deleting..." : "Delete File"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteFileDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        targetPath={targetPath}
+        onConfirmDelete={handleDeleteBook}
+        title="Delete Audiobook File"
+        description="Are you sure you want to permanently delete this file and its folder contents? This will permanently remove them from disk."
+      />
     </div>
   );
 }

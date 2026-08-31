@@ -83,3 +83,20 @@
     --status-unknown: oklch(0.708 0 0);
   }
 }
+
+/*
+ * Tailwind v4 only generates a utility for a variable that is registered in the
+ * theme namespace. shadcn's own entry point does this for the standard tokens;
+ * the status tokens are ours, so they need it here or `bg-status-ok` simply
+ * does not exist — and DESIGN.md section 5 leaves no legal way to use them
+ * (no raw colours, no inline styles).
+ *
+ * `inline` so the utilities resolve to var(--status-*) at use site and keep
+ * picking up the .dark override above.
+ */
+@theme inline {
+  --color-status-ok: var(--status-ok);
+  --color-status-warn: var(--status-warn);
+  --color-status-error: var(--status-error);
+  --color-status-unknown: var(--status-unknown);
+}

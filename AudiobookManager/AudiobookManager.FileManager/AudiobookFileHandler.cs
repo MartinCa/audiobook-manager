@@ -59,10 +59,10 @@ public static class AudiobookFileHandler
         return fullPath.StartsWith(fullPrefix, PathComparison);
     }
 
-    public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
+    public static void RelocateAudiobook(Audiobook audiobook, string newFullPath, bool overwrite = false)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(newFullPath)!);
-        File.Move(audiobook.FileInfo.FullPath, newFullPath);
+        File.Move(audiobook.FileInfo.FullPath, newFullPath, overwrite);
     }
 
     /// <summary>

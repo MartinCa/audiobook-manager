@@ -55,6 +55,7 @@ export function toPathPreviewDto(data: Audiobook) {
     filePath: data.fileInfo?.fullPath,
     fileName: data.fileInfo?.fileName,
     sizeInBytes: data.fileInfo?.sizeInBytes ?? 0,
+    replaceExisting: data.replaceExisting ?? false,
   };
 }
 
@@ -84,6 +85,8 @@ export const audiobookApi = {
 
   updateBook: (id: number, data: Audiobook) =>
     api.put<void>(`/audiobook/${id}`, toAudiobookDto(data)),
+
+  deleteAudiobook: (id: number) => api.delete<void>(`/audiobook/${id}`),
 
   getSaveStatus: (id: number) =>
     api.get<{ audiobookId: number; isSaving: boolean }>(`/audiobook/${id}/save-status`),

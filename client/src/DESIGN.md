@@ -33,7 +33,8 @@ is not listed in **Allowed dependencies** without asking first.
 **Default to the SPA path.** Most projects here are internal tools behind auth on a
 private network. They do not need SSR, RSC, or an SEO story, and the client/server
 component boundary is a recurring source of agent mistakes. Reach for Next.js only when
-there is a stated reason, and write that reason in the project README.
+there is a stated reason, and write that reason in the project README. When using TanStack
+Router, `src/routeTree.gen.ts` is committed to Git as a vendored contract (see Section 7).
 
 ### Allowed dependencies
 
@@ -96,6 +97,49 @@ Components are **copied into this repo** and are therefore our code. That has co
   occasional chore — Renovate cannot do it. Run it when there is a reason to, not on a schedule.
 - Use `shadcn docs <component>` to get current API surface rather than recalling props.
 
+### Known Base UI component quirks
+
+Found empirically, not documented by shadcn or Base UI — no build error, no lint
+warning, no console message, just a UI bug the first time real content or a real
+form hits the component. Patch these right after `add`, the same way you'd handle
+the Accordion keyframe gotcha in [MIGRATION.md](../docs/MIGRATION.md).
+
+**`radio-group.tsx`: the indicator doesn't self-center.** Base UI's
+`Radio.Indicator` centers its own children (the dot icon) but not itself within
+the root circle — unlike `checkbox.tsx`'s root, which already carries
+`grid place-content-center` for the same reason. Add the same two classes to
+`RadioGroupItem`'s root:
+
+```diff
+  <RadioPrimitive.Root
+    className={cn(
+-     "border-primary text-primary ... aspect-square h-4 w-4 cursor-pointer rounded-full border ...",
++     "border-primary text-primary ... grid aspect-square h-4 w-4 cursor-pointer place-content-center rounded-full border ...",
+```
+
+**`dialog.tsx`: `DialogContent` sets no `max-h`/`overflow` of its own.** shadcn's
+own docs describe the fix as a flex header/body/footer split, but nothing in the
+generated component enforces it — so the easy first move,
+`<DialogContent className="max-h-[85vh] overflow-y-auto">` wrapped around content
+that already has its own bounded list or table, produces two independently
+scrolling regions nested inside each other (visibly two scrollbars), and skipping
+the wrapper entirely lets a tall dialog grow straight past the viewport instead of
+scrolling internally. Structure any dialog whose content can overflow as:
+
+```tsx
+<DialogContent className="flex max-h-[85vh] flex-col overflow-hidden">
+  <DialogHeader>...</DialogHeader>
+  <div className="flex-1 overflow-y-auto">...</div>
+  {/* a fixed action row, if any, is a sibling here — not inside the scroll area */}
+</DialogContent>
+```
+
+Drop `max-h-*`/`overflow-y-auto` from any bounded child inside that body — the
+outer body is now the only scroll container (give it `overflow-x-auto` too if the
+content can also overflow horizontally, e.g. a wide table). Skip the split, and
+the outer `max-h`/`overflow-hidden`, for a dialog that can never overflow (a
+confirm prompt, a short form) — it's dead weight there.
+
 ---
 
 ## 4. Structure
@@ -109,7 +153,9 @@ src/
   stores/           zustand stores
   lib/
     api.ts          typed fetch client, single place that knows the base URL
+    api-types.ts    generated OpenAPI types — vendored, do not hand-edit
     utils.ts        cn() and friends
+  routeTree.gen.ts  generated TanStack Router tree — vendored, do not hand-edit
   hooks/            shared hooks only; feature hooks live with the feature
 ```
 
@@ -169,7 +215,12 @@ is ASP.NET Core, FastAPI, Flask, or a Go binary. The rules below keep it that wa
   from it into `src/lib/api-types.ts` and never hand-writes response interfaces. Regenerate
   as a checked-in build step so the diff is visible in review. FastAPI produces a spec from
   its models automatically; ASP.NET Core produces one via its built-in OpenAPI support.
-- Generated types are vendored like shadcn components: never hand-edited, always regenerated.
+- **Generated contract files are committed and vendored.** Both backend types
+  (`src/lib/api-types.ts` from OpenAPI) and routing definitions (`src/routeTree.gen.ts`
+  from TanStack Router) must be committed to Git. Treat them as vendored: never hand-edited,
+  always regenerated. Committing `src/routeTree.gen.ts` ensures fresh clones have complete
+  route types for IDEs and type-aware linting (`projectService: true`) without requiring an
+  upfront build. TanStack Router treats `routeTree.gen.ts` as part of application source code.
 - `src/lib/api.ts` is the only file that knows the base URL, auth header, and error shape.
   Components and query hooks call through it. Swapping backends should touch one file.
 - **JSON is camelCase over the wire**, whichever language produces it. Configure the
@@ -193,6 +244,7 @@ is ASP.NET Core, FastAPI, Flask, or a Go binary. The rules below keep it that wa
 
 - Check whether a shadcn component already exists before building one. It usually does.
 - Do not add a state library, a data-fetching library, or a UI kit. The stack is decided.
+- Do not hand-edit `src/components/ui/**`, `src/lib/api-types.ts`, or `src/routeTree.gen.ts`. All are vendored.
 - Do not refactor unrelated files while completing a task.
 - Prefer deleting code to adding an option. This is a hobby project; there is no user base
   to keep happy.
