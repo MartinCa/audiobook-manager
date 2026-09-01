@@ -70,7 +70,7 @@ importers:
         specifier: 4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@25.9.5)(jiti@2.7.0))
       '@tanstack/router-plugin':
-        specifier: ^1.168.35
+        specifier: 1.168.35
         version: 1.168.35(@tanstack/react-router@1.170.32(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(rolldown@1.2.6)(supports-color@10.2.2)(vite@8.2.2(@types/node@25.9.5)(jiti@2.7.0))
       '@testing-library/jest-dom':
         specifier: 7.0.1
