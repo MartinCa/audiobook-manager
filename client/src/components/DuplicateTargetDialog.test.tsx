@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
 import { filesApi } from "@/services/api";
 
@@ -9,7 +10,18 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe("DuplicateTargetDialog", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders new and existing file paths and triggers callbacks", async () => {
     const onReplaceExisting = vi.fn();
     const onDeleteNew = vi.fn();
@@ -19,7 +31,7 @@ describe("DuplicateTargetDialog", () => {
       { fullPath: "/staging/audiobook.m4b", fileName: "audiobook.m4b", sizeInBytes: 50000000 },
     ]);
 
-    render(
+    renderWithClient(
       <DuplicateTargetDialog
         open={true}
         onOpenChange={onOpenChange}
@@ -45,6 +57,7 @@ describe("DuplicateTargetDialog", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Confirm Deletion of New File")).toBeInTheDocument();
+      expect(screen.getByTestId("folder-path-display")).toHaveTextContent("/staging");
     });
 
     const confirmBtn = screen.getByText("Confirm Delete");
@@ -53,7 +66,7 @@ describe("DuplicateTargetDialog", () => {
   });
 
   it("does not render Delete new file button if onDeleteNew is not provided", () => {
-    render(
+    renderWithClient(
       <DuplicateTargetDialog
         open={true}
         onOpenChange={vi.fn()}
