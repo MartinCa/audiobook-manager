@@ -345,7 +345,7 @@ export function LibraryConsistency() {
                     className="border-border bg-card rounded-lg border px-4 shadow-sm"
                   >
                     <AccordionTrigger className="py-3 hover:no-underline">
-                      <div className="flex w-full items-center justify-between pr-4 text-left">
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-2 text-left">
                         <div className="flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4 text-amber-500" />
                           <span className="text-foreground font-semibold">
