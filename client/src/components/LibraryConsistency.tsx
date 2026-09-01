@@ -178,8 +178,17 @@ export function LibraryConsistency() {
   const handleResolveSingle = async (issue: ConsistencyIssue) => {
     setResolvingIds((prev) => new Set(prev).add(issue.id));
     try {
-      await consistencyApi.resolveIssue(issue.id);
-      toast.success("Issue resolved");
+      const result = await consistencyApi.resolveIssue(issue.id);
+      if (result.actionTaken === "file_recovered") {
+        toast.info(
+          result.message ||
+            "Media file found on disk. Preserved audiobook and refreshed consistency status.",
+        );
+      } else if (result.actionTaken === "audiobook_deleted") {
+        toast.success(result.message || "Audiobook removed from library");
+      } else {
+        toast.success(result.message || "Issue resolved");
+      }
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       setSelectedIssueIds((prev) => {
         const next = new Set(prev);
@@ -603,7 +612,8 @@ export function LibraryConsistency() {
               {pendingResolve?.kind === "single" && (
                 <>
                   This will remove <strong>1 audiobook</strong> with missing media files from the
-                  database and clean up empty directories. This action cannot be undone.
+                  database and clean up empty directories (or keep the book and refresh its status
+                  if the file has been restored to disk). This action cannot be undone.
                 </>
               )}
               {pendingResolve?.kind === "selected" &&
@@ -611,7 +621,8 @@ export function LibraryConsistency() {
                   <>
                     This will remove <strong>the selected {pendingResolve.issueIds.length}</strong>{" "}
                     audiobooks with missing media files from the database and clean up empty
-                    directories. This action cannot be undone.
+                    directories (or keep books and refresh their status if files have been restored
+                    to disk). This action cannot be undone.
                   </>
                 ) : (
                   <>
@@ -625,8 +636,9 @@ export function LibraryConsistency() {
                 (pendingResolve.issueType === "MissingMediaFile" ? (
                   <>
                     This will remove <strong>all {pendingResolve.count}</strong> audiobooks with
-                    missing media files from the database and clean up empty directories. This
-                    action cannot be undone.
+                    missing media files from the database and clean up empty directories (or keep
+                    books and refresh their status if files have been restored to disk). This action
+                    cannot be undone.
                   </>
                 ) : (
                   <>

@@ -388,8 +388,9 @@ public class LibraryConsistencyServiceTests
 
         _issueRepository.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(issue);
 
-        await _service.ResolveIssue(10);
+        var result = await _service.ResolveIssue(10);
 
+        Assert.AreEqual("audiobook_deleted", result.ActionTaken);
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
         _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
     }
@@ -422,11 +423,11 @@ public class LibraryConsistencyServiceTests
 
             _issueRepository.Setup(r => r.GetByIdAsync(11)).ReturnsAsync(issue);
 
-            await _service.ResolveIssue(11);
+            var result = await _service.ResolveIssue(11);
 
+            Assert.AreEqual("file_recovered", result.ActionTaken);
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
-            _issueRepository.Verify(r => r.DeleteAsync(11), Times.Once);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
             Assert.IsTrue(File.Exists(tempFile), "the reappeared file should not be touched");
         }
         finally

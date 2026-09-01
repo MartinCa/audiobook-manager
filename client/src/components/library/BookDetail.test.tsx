@@ -49,7 +49,7 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-import { browseApi, audiobookApi } from "@/services/api";
+import { browseApi, audiobookApi, consistencyApi } from "@/services/api";
 
 describe("BookDetail", () => {
   let queryClient: QueryClient;
@@ -84,7 +84,6 @@ describe("BookDetail", () => {
     fileName: "The Way of Kings.m4b",
     sizeInBytes: 1048576000,
     durationInSeconds: 164000,
-    consistencyIssues: [],
   };
 
   beforeEach(() => {
@@ -96,6 +95,7 @@ describe("BookDetail", () => {
     vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(sampleBookDetail);
     vi.mocked(audiobookApi.deleteAudiobook).mockResolvedValue();
     vi.mocked(audiobookApi.updateBook).mockResolvedValue();
+    vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([]);
   });
 
   function renderWithProviders(bookId = "42") {
@@ -142,6 +142,45 @@ describe("BookDetail", () => {
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Audiobook deleted from library");
+    });
+  });
+
+  it("shows informative info toast when media file was found on disk during resolve", async () => {
+    vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
+      {
+        id: 101,
+        audiobookId: 42,
+        bookName: "The Way of Kings",
+        authors: ["Brandon Sanderson"],
+        issueType: "MissingMediaFile",
+        description: "Media file not found",
+        expectedValue: sampleBookDetail.filePath,
+        actualValue: null,
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+
+    vi.mocked(consistencyApi.resolveIssue).mockResolvedValue({
+      issueId: 101,
+      issueType: "MissingMediaFile",
+      actionTaken: "file_recovered",
+      message:
+        "Media file was found on disk. Preserved audiobook and refreshed consistency status.",
+    });
+
+    renderWithProviders();
+
+    const resolveBtn = await screen.findByRole("button", { name: /resolve/i });
+    fireEvent.click(resolveBtn);
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveIssue).toHaveBeenCalledWith(101);
+    });
+
+    await waitFor(() => {
+      expect(toast.info).toHaveBeenCalledWith(
+        "Media file was found on disk. Preserved audiobook and refreshed consistency status.",
+      );
     });
   });
 });

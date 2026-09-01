@@ -8,4 +8,9 @@ export type ConsistencyIssue = Require<
   "id" | "audiobookId" | "bookName" | "authors" | "issueType" | "description" | "detectedAt"
 >;
 
+export type ConsistencyResolveResult = Require<
+  components["schemas"]["ConsistencyResolveResultDto"],
+  "issueId" | "issueType" | "actionTaken" | "message"
+>;
+
 export type { ConsistencyIssue as default };

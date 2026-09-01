@@ -139,8 +139,21 @@ export function BookDetail() {
   const handleResolveIssue = async (issueId: number) => {
     setResolvingIssueId(issueId);
     try {
-      await consistencyApi.resolveIssue(issueId);
-      toast.success("Issue resolved");
+      const result = await consistencyApi.resolveIssue(issueId);
+      if (result.actionTaken === "file_recovered") {
+        toast.info(
+          result.message ||
+            "Media file found on disk. Preserved audiobook and refreshed consistency status.",
+        );
+      } else if (result.actionTaken === "audiobook_deleted") {
+        toast.success(result.message || "Audiobook removed from library");
+        void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
+        void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+        void navigate({ to: "/library" });
+        return;
+      } else {
+        toast.success(result.message || "Issue resolved");
+      }
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);

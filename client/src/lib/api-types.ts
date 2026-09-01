@@ -208,7 +208,26 @@ export interface paths {
             };
         };
         post?: never;
-        delete?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -850,7 +869,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                    };
                 };
             };
         };
@@ -2032,6 +2055,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/system_info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SystemInfoDto"];
+                        "application/json": components["schemas"]["SystemInfoDto"];
+                        "text/json": components["schemas"]["SystemInfoDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/languages": {
         parameters: {
             query?: never;
@@ -2432,6 +2492,7 @@ export interface components {
             coverFilePath?: string | null;
             /** Format: int32 */
             durationInSeconds?: number | null;
+            replaceExisting?: boolean | null;
             fileInfo?: components["schemas"]["AudiobookFileInfo"];
         };
         AudiobookDetailDto: {
@@ -2546,6 +2607,13 @@ export interface components {
             actualValue?: string | null;
             /** Format: date-time */
             detectedAt?: string;
+        };
+        ConsistencyResolveResultDto: {
+            /** Format: int64 */
+            issueId?: number;
+            issueType?: string | null;
+            actionTaken?: string | null;
+            message?: string | null;
         };
         DiscoveredAudiobookDto: {
             fullPath?: string | null;
@@ -2727,6 +2795,7 @@ export interface components {
             fileName: string;
             /** Format: int64 */
             sizeInBytes?: number;
+            replaceExisting?: boolean;
         };
         OrphanDirectoryDto: {
             /** Format: int64 */
@@ -2831,6 +2900,11 @@ export interface components {
         };
         SimilarValueGroupDto: {
             candidates?: components["schemas"]["SimilarValueCandidateDto"][] | null;
+        };
+        SystemInfoDto: {
+            version?: string | null;
+            commitHash?: string | null;
+            dotNetVersion?: string | null;
         };
         TargetPathCheckDto: {
             targetPath?: string | null;

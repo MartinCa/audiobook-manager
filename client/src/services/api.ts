@@ -5,7 +5,7 @@ import type { AuthorDetail } from "@/types/AuthorDetail";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 import type { PaginatedResult } from "@/types/Common";
-import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
+import type { ConsistencyIssue, ConsistencyResolveResult } from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
@@ -154,7 +154,8 @@ export const consistencyApi = {
   recheckAudiobook: (audiobookId: number) =>
     api.post<ConsistencyIssue[]>(`/consistency/issues/recheck/${audiobookId}`),
 
-  resolveIssue: (id: number) => api.post<void>(`/consistency/issues/${id}/resolve`),
+  resolveIssue: (id: number) =>
+    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
 
   resolveSelected: (issueIds: number[]) =>
     api.post<{ resolved: number; failed: number }>(

@@ -187,7 +187,7 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpPost("issues/{id}/resolve")]
-    public async Task<IActionResult> ResolveIssue(long id)
+    public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveIssue(long id)
     {
         var issue = await _issueRepository.GetByIdAsync(id);
         if (issue == null)
@@ -197,8 +197,8 @@ public class ConsistencyController : ControllerBase
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            await consistencyService.ResolveIssue(id);
-            return Ok();
+            var result = await consistencyService.ResolveIssue(id);
+            return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
         }
         catch (AudiobookBusyException ex)
         {

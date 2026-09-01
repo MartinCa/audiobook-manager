@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
@@ -91,7 +92,7 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveIssue(999);
 
-        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
     }
 
     // A resolve rewrites the book's files, so it takes the same per-audiobook gate a save does.
@@ -122,11 +123,11 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveIssue(1);
 
-        Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
+        Assert.IsInstanceOfType(result.Result, typeof(ConflictObjectResult));
     }
 
     [TestMethod]
-    public async Task ResolveIssue_Success_ReturnsOk()
+    public async Task ResolveIssue_Success_ReturnsOkWithResultDto()
     {
         var issue = new ConsistencyIssue
         {
@@ -142,6 +143,8 @@ public class ConsistencyControllerTests
         var mockScope = new Mock<IServiceScope>();
         var mockServiceProvider = new Mock<IServiceProvider>();
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.ResolveIssue(1))
+            .ReturnsAsync(new ConsistencyResolveResult(1, ConsistencyIssueType.MissingDescTxt, "resolved", "Metadata sidecar files updated."));
 
         mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
             .Returns(mockConsistencyService.Object);
@@ -150,7 +153,11 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveIssue(1);
 
-        Assert.IsInstanceOfType(result, typeof(OkResult));
+        Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
+        var okResult = (OkObjectResult)result.Result!;
+        var dto = (ConsistencyResolveResultDto)okResult.Value!;
+        Assert.AreEqual(1, dto.IssueId);
+        Assert.AreEqual("resolved", dto.ActionTaken);
         mockConsistencyService.Verify(s => s.ResolveIssue(1), Times.Once);
     }
 
