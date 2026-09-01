@@ -171,7 +171,7 @@ export function BookLibrary() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-foreground truncate font-semibold">
+                      <span className="text-foreground max-w-full min-w-0 truncate font-semibold">
                         {book.bookName}
                       </span>
                       {book.year && (

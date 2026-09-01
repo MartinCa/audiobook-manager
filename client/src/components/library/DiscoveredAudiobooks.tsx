@@ -438,7 +438,7 @@ export function DiscoveredAudiobooks() {
                 className="border-border bg-card rounded-lg border px-4 shadow-sm"
               >
                 <AccordionTrigger className="py-3 hover:no-underline">
-                  <div className="flex w-full flex-wrap items-center justify-between gap-3 pr-4 text-left">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2.5 text-left">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       {book.isWellTagged && !book.isDuplicate && (
                         <input
@@ -453,29 +453,33 @@ export function DiscoveredAudiobooks() {
                         />
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="text-foreground truncate font-semibold">
+                        <div className="text-foreground max-w-full min-w-0 truncate font-semibold">
                           {book.authors ? `${book.authors} — ` : ""}
                           {book.bookName || book.fileName}
                         </div>
-                        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs">
-                          <span className="truncate">{book.fileName}</span>
-                          {book.durationInSeconds && (
-                            <span className="flex shrink-0 items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDuration(book.durationInSeconds)}
-                            </span>
-                          )}
-                          {book.sizeInBytes > 0 && (
-                            <span className="flex shrink-0 items-center gap-1">
-                              <HardDrive className="h-3 w-3" />
-                              {formatFileSize(book.sizeInBytes)}
-                            </span>
+                        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                          <span className="max-w-full min-w-0 truncate">{book.fileName}</span>
+                          {(book.durationInSeconds || book.sizeInBytes > 0) && (
+                            <div className="flex shrink-0 items-center gap-3">
+                              {book.durationInSeconds && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {formatDuration(book.durationInSeconds)}
+                                </span>
+                              )}
+                              {book.sizeInBytes > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <HardDrive className="h-3 w-3" />
+                                  {formatFileSize(book.sizeInBytes)}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {book.isWellTagged ? (
                         <Badge
                           variant="secondary"
@@ -494,7 +498,7 @@ export function DiscoveredAudiobooks() {
                       ) : null}
 
                       {isOrganizing && (
-                        <div className="w-44 text-right sm:w-56">
+                        <div className="w-full text-right sm:w-56">
                           {override?.progress != null ? (
                             <OperationProgressBar
                               compact
