@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using AudiobookManager.Database.EntityMappings;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
@@ -30,8 +30,13 @@ public class DatabaseContext : DbContext
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var dbPath = _settings?.DbLocation ?? "testdb.db";
-        var connectionString = $"Data Source={dbPath}";
-        optionsBuilder.UseSqlite(connectionString, options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
+        var connectionStringBuilder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+        {
+            DataSource = dbPath,
+            Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,
+            DefaultTimeout = 30
+        };
+        optionsBuilder.UseSqlite(connectionStringBuilder.ToString(), options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(new AccentFoldingConnectionInterceptor());
     }

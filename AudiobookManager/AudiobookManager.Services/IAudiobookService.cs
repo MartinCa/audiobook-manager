@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Domain;
+using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
 public interface IAudiobookService
@@ -16,4 +16,6 @@ public interface IAudiobookService
     Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null);
 
     Task<Audiobook?> GetAudiobookById(long id);
+
+    Task DeleteAudiobook(long id);
 }

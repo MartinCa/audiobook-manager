@@ -59,10 +59,10 @@ public static class AudiobookFileHandler
         return fullPath.StartsWith(fullPrefix, PathComparison);
     }
 
-    public static void RelocateAudiobook(Audiobook audiobook, string newFullPath)
+    public static void RelocateAudiobook(Audiobook audiobook, string newFullPath, bool overwrite = false)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(newFullPath)!);
-        File.Move(audiobook.FileInfo.FullPath, newFullPath);
+        File.Move(audiobook.FileInfo.FullPath, newFullPath, overwrite);
     }
 
     /// <summary>
@@ -216,6 +216,24 @@ public static class AudiobookFileHandler
             return fileName;
         }
 
+        return GetExistingCoverPath(directoryPath, cleanupDuplicate: true);
+    }
+
+    /// <summary>
+    /// Finds the cover.jpg/cover.png sidecar already sitting in <paramref name="directoryPath"/>,
+    /// if any. Shared by <see cref="WriteCover"/> (when the caller sends no new cover, the
+    /// existing sidecar - if any - is what the book's CoverFilePath resolves to) and by
+    /// FileService's discovered-audiobook cover lookup, which has no Audiobook object to write
+    /// through WriteCover in the first place - an untracked file has no DB row yet.
+    ///
+    /// <paramref name="cleanupDuplicate"/> gates the "both a .jpg and a .png exist, delete the
+    /// .png" tie-break: that is a real (if minor) file mutation, appropriate when WriteCover is
+    /// already saving the book that owns this directory, but never appropriate for a passive
+    /// lookup against a directory nothing has confirmed is even an audiobook's - the discovered
+    /// list preview must stay read-only, so it always passes false.
+    /// </summary>
+    public static string? GetExistingCoverPath(string directoryPath, bool cleanupDuplicate)
+    {
         var jpgPath = JoinPaths(directoryPath, "cover.jpg");
         var pngPath = JoinPaths(directoryPath, "cover.png");
         var jpgExists = File.Exists(jpgPath);
@@ -223,7 +241,10 @@ public static class AudiobookFileHandler
 
         if (jpgExists && pngExists)
         {
-            RemoveFileIfExists(pngPath);
+            if (cleanupDuplicate)
+            {
+                RemoveFileIfExists(pngPath);
+            }
             return jpgPath;
         }
 

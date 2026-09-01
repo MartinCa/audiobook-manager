@@ -1,32 +1,19 @@
-// Global test environment setup for Vitest + jsdom.
-//
-// jsdom does not implement window.visualViewport, which Vuetify's VOverlay
-// location strategies (used by v-dialog, v-menu, v-tooltip, etc.) read from.
-// Without this, mounting any component that opens a Vuetify overlay throws
-// "visualViewport is not defined".
-if (typeof window !== "undefined" && !window.visualViewport) {
-  Object.defineProperty(window, "visualViewport", {
-    writable: true,
-    configurable: true,
-    value: {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    },
+import "@testing-library/jest-dom";
+
+// jsdom doesn't implement matchMedia; ThemeProvider (dark-mode detection) needs it whenever a
+// test renders the app's root layout or anything wrapped in ThemeProvider.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
   });
 }
 
-// jsdom also does not implement ResizeObserver, which several Vuetify
-// components (VSlideGroup/VChipGroup among them) rely on.
-if (typeof window !== "undefined" && !("ResizeObserver" in window)) {
-  class ResizeObserverStub {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-  // @ts-expect-error - minimal stub, not a full ResizeObserver implementation
-  window.ResizeObserver = ResizeObserverStub;
-  // @ts-expect-error
-  globalThis.ResizeObserver = ResizeObserverStub;
-}
+(globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.9.0-test";
+(globalThis as unknown as Record<string, string>).__COMMIT_HASH__ = "test-sha";

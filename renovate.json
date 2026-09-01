@@ -1,6 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>MartinCa/renovate-config"],
+  "extends": [
+    "github>MartinCa/renovate-config",
+    "github>MartinCa/frontend-kit:renovate-frontend"
+  ],
   "packageRules": [
     {
       "matchUpdateTypes": [

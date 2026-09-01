@@ -80,4 +80,14 @@ public class SettingsControllerTests
         CollectionAssert.Contains(
             result.Languages.Single(l => l.Code == "da").Aliases, "dansk");
     }
+
+    [TestMethod]
+    public void GetSystemInfo_ReturnsVersionAndDotNetFramework()
+    {
+        var result = _controller.GetSystemInfo();
+
+        Assert.IsNotNull(result);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.Version));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.DotNetVersion));
+    }
 }

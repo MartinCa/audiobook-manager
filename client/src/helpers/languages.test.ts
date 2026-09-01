@@ -1,12 +1,7 @@
 import { describe, it, expect } from "vitest";
-import {
-  languageLabel,
-  languageSelectItems,
-  normalizeLanguage,
-} from "./languages";
-import { LanguageOption } from "../types/Language";
+import { languageLabel, languageSelectItems, normalizeLanguage } from "./languages";
+import type { LanguageOption } from "@/types/Language";
 
-// Mirrors what GET /settings/languages serves; the helpers hold no list of their own.
 const languages: LanguageOption[] = [
   { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
   {
@@ -17,18 +12,12 @@ const languages: LanguageOption[] = [
 ];
 
 describe("normalizeLanguage", () => {
-  it.each([
-    "en",
-    "EN",
-    "eng",
-    "English",
-    "english",
-    "  English  ",
-    "en-US",
-    "en_GB",
-  ])("folds %s to en", (raw) => {
-    expect(normalizeLanguage(raw, languages)).toBe("en");
-  });
+  it.each(["en", "EN", "eng", "English", "english", "  English  ", "en-US", "en_GB"])(
+    "folds %s to en",
+    (raw) => {
+      expect(normalizeLanguage(raw, languages)).toBe("en");
+    },
+  );
 
   it.each(["da", "DA", "dan", "Danish", "da-DK"])("folds %s to da", (raw) => {
     expect(normalizeLanguage(raw, languages)).toBe("da");
@@ -50,15 +39,17 @@ describe("normalizeLanguage", () => {
     expect(normalizeLanguage(undefined, languages)).toBeUndefined();
   });
 
-  it("returns undefined before the list has been fetched", () => {
-    // The select still renders; it just has nothing to fold onto yet.
-    expect(normalizeLanguage("English", [])).toBeUndefined();
+  it("uses default fallback mapping when languages list is empty", () => {
+    expect(normalizeLanguage("English", [])).toBe("en");
+    expect(normalizeLanguage("Danish", [])).toBe("da");
+    expect(normalizeLanguage("Spanish", [])).toBeUndefined();
   });
 });
 
 describe("languageLabel", () => {
-  it("shows the display name for a managed code", () => {
+  it("shows the display name for a managed code or alias", () => {
     expect(languageLabel("en", languages)).toBe("English");
+    expect(languageLabel("English", languages)).toBe("English");
     expect(languageLabel("da", languages)).toBe("Danish");
   });
 
@@ -73,8 +64,9 @@ describe("languageLabel", () => {
 });
 
 describe("languageSelectItems", () => {
-  it("offers just the managed languages for a supported value", () => {
+  it("offers just the managed languages for a supported value or alias", () => {
     expect(languageSelectItems("en", languages)).toEqual(languages);
+    expect(languageSelectItems("English", languages)).toEqual(languages);
   });
 
   it("offers just the managed languages when nothing is selected", () => {
@@ -82,8 +74,6 @@ describe("languageSelectItems", () => {
     expect(languageSelectItems("", languages)).toEqual(languages);
   });
 
-  // A strict select renders empty for a value it cannot offer, and the next save then silently
-  // wipes a real language off the book.
   it("keeps an unmanaged current value as an option so it survives an unrelated edit", () => {
     expect(languageSelectItems("de", languages)).toEqual([
       { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },

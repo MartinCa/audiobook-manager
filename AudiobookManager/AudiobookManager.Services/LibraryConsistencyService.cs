@@ -205,13 +205,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private static bool IsSidecarIssue(ConsistencyIssueType issueType) =>
         Array.IndexOf(_sidecarIssueTypes, issueType) >= 0;
 
-    public async Task ResolveIssue(long issueId)
+    public async Task<ConsistencyResolveResult> ResolveIssue(long issueId)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
             throw new KeyNotFoundException($"Issue {issueId} not found");
 
-        await ResolveLoadedIssue(issue);
+        var (_, result) = await ResolveLoadedIssue(issue);
+        return result;
     }
 
     /// <summary>
@@ -221,22 +222,19 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// handler runs. A book that is busy fails just this issue: the callers' per-item try/catch
     /// counts it and carries on, and the next check picks the issue up again.
     /// </summary>
-    private async Task<ResolveScope> ResolveLoadedIssue(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveLoadedIssue(ConsistencyIssue issue)
     {
         using var lease = _saveGate.Acquire(issue.AudiobookId);
 
         return await ResolveLoadedIssueCore(issue);
     }
 
-    private async Task<ResolveScope> ResolveLoadedIssueCore(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveLoadedIssueCore(ConsistencyIssue issue)
     {
         switch (issue.IssueType)
         {
             case ConsistencyIssueType.MissingMediaFile:
                 return await ResolveMissingMediaFile(issue);
-
-            case ConsistencyIssueType.WrongFilePath:
-                return await ResolveWrongFilePath(issue);
 
             case ConsistencyIssueType.MissingDescTxt:
             case ConsistencyIssueType.IncorrectDescTxt:
@@ -249,11 +247,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingCoverFile:
                 return await ResolveMissingCover(issue);
 
+            case ConsistencyIssueType.WrongFilePath:
             case ConsistencyIssueType.TagMismatch:
-                return await ResolveTagMismatch(issue);
+                return await ResolveTagOrPathMismatch(issue);
 
             default:
-                return ResolveScope.IssueOnly;
+                return (ResolveScope.IssueOnly, new ConsistencyResolveResult(issue.Id, issue.IssueType, "resolved", "Issue resolved."));
         }
     }
 
@@ -291,7 +290,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
             try
             {
-                var scope = await ResolveLoadedIssue(issue);
+                var (scope, _) = await ResolveLoadedIssue(issue);
                 succeeded++;
 
                 if (scope == ResolveScope.AllForAudiobook)
@@ -313,16 +312,33 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return (succeeded, failed);
     }
 
-    private async Task<ResolveScope> ResolveMissingMediaFile(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveMissingMediaFile(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
         if (File.Exists(audiobook.FileInfoFullPath))
         {
-            // The file has reappeared since the issue was detected; the audiobook is no longer missing.
-            await _issueRepository.DeleteAsync(issue.Id);
-            return ResolveScope.IssueOnly;
+            _logger.LogInformation(
+                "Media file for audiobook {AudiobookId} ('{Title}') found at '{FilePath}'. Preserving audiobook and re-evaluating consistency.",
+                audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
+
+            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+            var newIssues = await Task.Run(() => DetectIssuesForAudiobook(audiobook));
+            if (newIssues.Count > 0)
+            {
+                await _issueRepository.InsertRangeAsync(newIssues);
+            }
+
+            return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+                issue.Id,
+                issue.IssueType,
+                "file_recovered",
+                "Media file was found on disk. Preserved audiobook and refreshed consistency status."));
         }
+
+        _logger.LogInformation(
+            "Media file for audiobook {AudiobookId} ('{Title}') not found at '{FilePath}'. Deleted audiobook from database and cleaned up empty directory.",
+            audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath);
 
@@ -334,70 +350,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             AudiobookFileHandler.RemoveDirIfEmpty(directoryPath);
         }
 
-        return ResolveScope.AllForAudiobook;
+        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+            issue.Id,
+            issue.IssueType,
+            "audiobook_deleted",
+            "Media file not found. Audiobook record deleted from library."));
     }
 
-    private async Task<ResolveScope> ResolveWrongFilePath(ConsistencyIssue issue)
-    {
-        var audiobook = issue.Audiobook;
-
-        if (!File.Exists(audiobook.FileInfoFullPath))
-        {
-            throw new FileNotFoundException(
-                $"Media file not found, cannot resolve wrong file path: {audiobook.FileInfoFullPath}",
-                audiobook.FileInfoFullPath);
-        }
-
-        var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
-        var parsed = _tagHandler.ParseAudiobook(fileInfo);
-
-        var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
-        var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
-
-        if (AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
-        {
-            // The path already matches; the issue is no longer valid.
-            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-            return ResolveScope.AllForAudiobook;
-        }
-
-        var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
-        var newDirectory = Path.GetDirectoryName(expectedFullPath);
-
-        AudiobookFileHandler.RelocateAudiobook(parsed, expectedFullPath);
-
-        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
-        {
-            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
-        }
-
-        // Re-parse from new location
-        var newFileInfo = new FileInfo(expectedFullPath);
-        var newParsed = _tagHandler.ParseAudiobook(newFileInfo);
-
-        AudiobookFileHandler.WriteMetadata(newParsed);
-        var coverPath = AudiobookFileHandler.WriteCover(newParsed);
-
-        var newFileName = Path.GetFileName(expectedFullPath);
-        await _audiobookRepository.UpdateFilePathAsync(audiobook.Id, expectedFullPath, newFileName);
-        await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
-
-        // OS-aware for consistency with the path check above; see the equivalent note in
-        // AudiobookService.RelocateIfPathChangedAsync for why this is defensive rather than a
-        // live bug fix.
-        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
-        {
-            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
-        }
-
-        // Path change invalidates all other checks for this book
-        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-
-        return ResolveScope.AllForAudiobook;
-    }
-
-    private async Task<ResolveScope> ResolveMetadataIssue(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveMetadataIssue(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -405,32 +365,59 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         AudiobookFileHandler.WriteMetadata(parsed);
 
+        _logger.LogInformation(
+            "Rewrote metadata sidecars (desc.txt, reader.txt, metadata.opf) for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
+            audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
+
         // Delete all desc/reader/opf issues for this book since WriteMetadata writes all three
         await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, _sidecarIssueTypes);
 
-        return ResolveScope.SidecarsForAudiobook;
+        return (ResolveScope.SidecarsForAudiobook, new ConsistencyResolveResult(
+            issue.Id,
+            issue.IssueType,
+            "resolved",
+            "Metadata sidecar files updated."));
     }
 
-    private async Task<ResolveScope> ResolveTagMismatch(ConsistencyIssue issue)
+    /// <summary>
+    /// Handles both TagMismatch and WrongFilePath. Both are symptoms of the same thing - the file
+    /// on disk doesn't match the library metadata already in the database - so both are fixed the
+    /// same way: rewrite the m4b tags from the database and let the normal save pipeline relocate
+    /// the file and resync its sidecars if the path changes too. See the "Binding invariant" in
+    /// CLAUDE.md - UpdateAudiobook is the only place allowed to touch these fields.
+    ///
+    /// This used to be two handlers. ResolveWrongFilePath re-parsed tags from the file itself
+    /// (assuming they were already correct) and only relocated it, then deleted every issue for
+    /// the book on success - including a TagMismatch it had never touched, so a coexisting tag
+    /// mismatch silently vanished from the list without ever being fixed. Going through the same
+    /// database-is-truth pipeline as TagMismatch always did closes that gap by construction:
+    /// there's no "assume tags are fine" path left to desync from what actually got resolved.
+    /// </summary>
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveTagOrPathMismatch(ConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
             throw new KeyNotFoundException($"Audiobook {issue.AudiobookId} not found");
 
-        // Rewrite the m4b tags (and relocate/resync sidecars if the path changes) from the
-        // library metadata that's already correct in the database - see the "Binding invariant"
-        // in CLAUDE.md, UpdateAudiobook is the only place that's allowed to touch these fields.
         // The per-audiobook gate is already held by ResolveLoadedIssue.
         var domain = AudiobookService.FromDb(dbAudiobook);
         await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);
 
+        _logger.LogInformation(
+            "Rewrote tags and aligned file path for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
+            issue.AudiobookId, dbAudiobook.BookName, dbAudiobook.FileInfoFullPath);
+
         // Tags (and potentially the file path) changed, invalidating all other checks for this book
         await _issueRepository.DeleteByAudiobookIdAsync(issue.AudiobookId);
 
-        return ResolveScope.AllForAudiobook;
+        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+            issue.Id,
+            issue.IssueType,
+            "resolved",
+            "Tags and file path updated."));
     }
 
-    private async Task<ResolveScope> ResolveMissingCover(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveMissingCover(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -439,39 +426,80 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var coverPath = AudiobookFileHandler.WriteCover(parsed);
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
+        _logger.LogInformation(
+            "Extracted and wrote cover image for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
+            audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
+
         await _issueRepository.DeleteAsync(issue.Id);
 
-        return ResolveScope.IssueOnly;
+        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            issue.Id,
+            issue.IssueType,
+            "resolved",
+            "Cover file created."));
     }
 
-    public async Task ResolveOrphanDirectory(long orphanDirectoryId)
+    public async Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId)
     {
         var directory = await _orphanDirectoryRepository.GetByIdAsync(orphanDirectoryId);
         if (directory == null)
             throw new KeyNotFoundException($"Orphan directory {orphanDirectoryId} not found");
 
-        DeleteOrphanDirectoryFromDisk(directory.DirectoryPath);
+        var deleted = DeleteOrphanDirectoryFromDisk(directory.DirectoryPath);
+        string actionTaken;
+        string message;
+
+        if (deleted)
+        {
+            _logger.LogInformation("Deleted orphan directory from disk: '{DirectoryPath}'", directory.DirectoryPath);
+            actionTaken = "deleted";
+            message = "Orphan directory deleted from disk.";
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Orphan directory '{DirectoryPath}' now contains audio files; skipped disk deletion and removed from orphan list.",
+                directory.DirectoryPath);
+            actionTaken = "retained_has_audio";
+            message = "Directory now contains audio files; preserved directory on disk and removed from orphan list.";
+        }
+
         await _orphanDirectoryRepository.DeleteAsync(orphanDirectoryId);
+
+        return new OrphanDirectoryResolveResult(orphanDirectoryId, directory.DirectoryPath, actionTaken, message);
     }
 
-    public async Task<(int resolved, int failed)> ResolveAllOrphanDirectories()
+    public async Task<(int resolved, int failed, int retained)> ResolveAllOrphanDirectories()
     {
         var directories = await _orphanDirectoryRepository.GetAllAsync();
+        var deleted = 0;
+        var retained = 0;
 
-        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
+        var (_, _, failed) = await BulkOperationRunner.RunAsync(
             directories,
-            directory => ResolveOrphanDirectory(directory.Id),
+            async directory =>
+            {
+                var result = await ResolveOrphanDirectory(directory.Id);
+                if (result.ActionTaken == "deleted")
+                {
+                    deleted++;
+                }
+                else
+                {
+                    retained++;
+                }
+            },
             _logger,
             directory => $"Failed to resolve orphan directory {directory.Id}");
 
-        return (succeeded, failed);
+        return (deleted, failed, retained);
     }
 
-    private static void DeleteOrphanDirectoryFromDisk(string directoryPath)
+    private static bool DeleteOrphanDirectoryFromDisk(string directoryPath)
     {
         if (!Directory.Exists(directoryPath))
         {
-            return;
+            return true;
         }
 
         // Safety net in case a file was added to the directory since it was detected as orphaned
@@ -479,10 +507,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
         if (hasAudioFile)
         {
-            return;
+            return false;
         }
 
         Directory.Delete(directoryPath, recursive: true);
+        return true;
     }
 
     public async Task<(int resolved, int failed)> ResolveIssuesByType(string issueType)

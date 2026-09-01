@@ -1,28 +1,37 @@
-// Plugins
-import vue from "@vitejs/plugin-vue";
-import vuetify from "vite-plugin-vuetify";
-
-// Utilities
+import path from "path";
 import { defineConfig } from "vite";
-import { fileURLToPath, URL } from "node:url";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
-// https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(
+      process.env.VITE_APP_VERSION || process.env.npm_package_version || "dev",
+    ),
+    __COMMIT_HASH__: JSON.stringify(process.env.VITE_COMMIT_HASH || ""),
+  },
   plugins: [
-    vue(),
-    // https://github.com/vuetifyjs/vuetify-loader/tree/next/packages/vite-plugin
-    vuetify({
-      autoImport: true,
-    }),
+    tanstackRouter({ target: "react", autoCodeSplitting: true, routesDirectory: "./src/routes" }),
+    react(),
+    tailwindcss(),
   ],
-  define: { "process.env": {} },
   resolve: {
     alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
-    extensions: [".js", ".json", ".jsx", ".mjs", ".ts", ".tsx", ".vue"],
   },
   server: {
     port: 3000,
+    proxy: {
+      "/api": {
+        target: "http://localhost:5271",
+        changeOrigin: true,
+      },
+      "/hubs": {
+        target: "http://localhost:5271",
+        ws: true,
+      },
+    },
   },
 });

@@ -1,53 +1,66 @@
-import OrganizeAudiobookInput from "../types/OrganizeAudiobookInput";
-import { Audiobook, AudiobookImage } from "../types/Audiobook";
-import BookFileInfo from "../types/BookFileInfo";
-
-// Shared by BookOrganize.vue and library/BookDetail.vue - both edit the same
-// OrganizeAudiobookInput shape and need to turn it back into the Audiobook shape the
-// generate-path/save endpoints expect. Only the duration/fileInfo, which come from whichever
-// already-loaded book the form is editing, differ per caller.
-// Splitting a blank field yields [""], not [] - which the backend would otherwise persist as a
-// Person or Genre row with an empty name.
-function splitList(value: string | undefined, separator: string): string[] {
-  return (value ?? "")
-    .split(separator)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+export function splitList(str: string | null | undefined): string[] {
+  if (!str) return [];
+  return str
+    .split("/")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
-const splitNames = (value: string | undefined): string[] =>
-  splitList(value, ",");
+export function joinList(arr: string[] | null | undefined): string {
+  if (!arr) return "";
+  return arr.filter((s) => s && s.trim().length > 0).join(" / ");
+}
 
-export function convertInputToAudiobook(
-  input: OrganizeAudiobookInput,
-  meta: { durationInSeconds?: number; fileInfo?: BookFileInfo },
-): Audiobook {
-  let cover: AudiobookImage | undefined = undefined;
-  if (input.cover_base64 && input.cover_mime) {
-    cover = {
-      base64Data: input.cover_base64,
-      mimeType: input.cover_mime,
-    };
-  }
+export function cleanDescription(desc?: string): string {
+  if (!desc) return "";
+  return desc.replace(/<[^>]*>?/gm, "").trim();
+}
 
+export function normalizeSeriesPart(part?: string): string {
+  if (!part) return "";
+  return part
+    .replace(/^book\s+/i, "")
+    .replace(/^#/i, "")
+    .trim();
+}
+
+export interface OrganizeAudiobookFormState {
+  bookName?: string;
+  subtitle?: string;
+  authors?: string;
+  narrators?: string;
+  series?: string;
+  seriesPart?: string;
+  year?: number | string;
+  genres?: string;
+  description?: string;
+  copyright?: string;
+  publisher?: string;
+  rating?: string;
+  asin?: string;
+  www?: string;
+  language?: string;
+  cover_base64?: string;
+}
+
+export function convertInputToAudiobook(input: OrganizeAudiobookFormState, fullPath: string) {
   return {
-    authors: splitNames(input.authors).map((name) => ({ name })),
-    narrators: splitNames(input.narrators).map((name) => ({ name })),
-    bookName: input.bookName,
-    subtitle: input.subtitle,
-    series: input.series,
-    seriesPart: input.seriesPart,
-    year: input.year,
-    genres: splitList(input.genres, "/"),
-    description: input.description,
-    copyright: input.copyright,
-    publisher: input.publisher,
-    language: input.language,
-    rating: input.rating?.toString(),
-    asin: input.asin,
-    www: input.www,
-    cover,
-    durationInSeconds: meta.durationInSeconds,
-    fileInfo: meta.fileInfo,
+    fullPath,
+    bookName: input.bookName || "",
+    subtitle: input.subtitle || undefined,
+    authors: splitList(input.authors),
+    narrators: splitList(input.narrators),
+    series: input.series || undefined,
+    seriesPart: input.seriesPart || undefined,
+    year: input.year ? Number(input.year) : undefined,
+    genres: splitList(input.genres),
+    description: input.description || undefined,
+    copyright: input.copyright || undefined,
+    publisher: input.publisher || undefined,
+    rating: input.rating || undefined,
+    asin: input.asin || undefined,
+    www: input.www || undefined,
+    language: input.language || undefined,
+    cover: input.cover_base64 || undefined,
   };
 }

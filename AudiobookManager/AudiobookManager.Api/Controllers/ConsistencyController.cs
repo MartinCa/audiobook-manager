@@ -187,7 +187,7 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpPost("issues/{id}/resolve")]
-    public async Task<IActionResult> ResolveIssue(long id)
+    public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveIssue(long id)
     {
         var issue = await _issueRepository.GetByIdAsync(id);
         if (issue == null)
@@ -197,8 +197,8 @@ public class ConsistencyController : ControllerBase
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            await consistencyService.ResolveIssue(id);
-            return Ok();
+            var result = await consistencyService.ResolveIssue(id);
+            return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
         }
         catch (AudiobookBusyException ex)
         {
@@ -221,14 +221,14 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpPost("orphan-directories/{id}/resolve")]
-    public async Task<IActionResult> ResolveOrphanDirectory(long id)
+    public async Task<ActionResult<OrphanDirectoryResolveResultDto>> ResolveOrphanDirectory(long id)
     {
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            await consistencyService.ResolveOrphanDirectory(id);
-            return Ok();
+            var result = await consistencyService.ResolveOrphanDirectory(id);
+            return Ok(new OrphanDirectoryResolveResultDto(result.Id, result.DirectoryPath, result.ActionTaken, result.Message));
         }
         catch (KeyNotFoundException)
         {
@@ -248,8 +248,8 @@ public class ConsistencyController : ControllerBase
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            var (resolved, failed) = await consistencyService.ResolveAllOrphanDirectories();
-            return Ok(new { resolved, failed });
+            var (resolved, failed, retained) = await consistencyService.ResolveAllOrphanDirectories();
+            return Ok(new { resolved, failed, retained });
         }
         catch (Exception ex)
         {

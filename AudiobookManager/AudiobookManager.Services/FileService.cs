@@ -72,6 +72,22 @@ public class FileService : IFileService
         return FileScanner.ScanDirectoryForFiles(directoryPath);
     }
 
+    public string? GetCoverPath(string filePath)
+    {
+        ValidatePathWithinAllowedBases(filePath);
+
+        var directoryPath = Path.GetDirectoryName(filePath);
+        if (directoryPath is null)
+        {
+            throw new ArgumentException("Could not get directory", nameof(filePath));
+        }
+
+        // Read-only lookup for a discovered (not yet DB-tracked) file's preview - never the
+        // WriteCover path that owns and mutates the directory, so never clean up a duplicate
+        // cover.png/.jpg pair here.
+        return AudiobookFileHandler.GetExistingCoverPath(directoryPath, cleanupDuplicate: false);
+    }
+
     private void ValidateNotRoot(string path)
     {
         if (AudiobookFileHandler.PathsEqual(path, _settings.AudiobookImportPath))

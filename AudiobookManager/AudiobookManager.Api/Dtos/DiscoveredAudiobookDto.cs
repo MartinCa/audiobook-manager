@@ -15,6 +15,14 @@ public class DiscoveredAudiobookDto
     public string? Authors { get; set; }
     public string? Narrators { get; set; }
     public string? Genres { get; set; }
+    public string? Description { get; set; }
+    public string? Copyright { get; set; }
+    public string? Publisher { get; set; }
+    public string? Language { get; set; }
+    public string? Rating { get; set; }
+    public string? Asin { get; set; }
+    public string? Www { get; set; }
+    public int? DurationInSeconds { get; set; }
     public bool IsWellTagged { get; set; }
     public bool IsDuplicate { get; set; }
 
@@ -31,6 +39,14 @@ public class DiscoveredAudiobookDto
         Authors = discovered.Authors;
         Narrators = discovered.Narrators;
         Genres = discovered.Genres;
+        Description = discovered.Description;
+        Copyright = discovered.Copyright;
+        Publisher = discovered.Publisher;
+        Language = discovered.Language;
+        Rating = discovered.Rating;
+        Asin = discovered.Asin;
+        Www = discovered.Www;
+        DurationInSeconds = discovered.DurationInSeconds;
         IsWellTagged = !string.IsNullOrWhiteSpace(discovered.Authors)
             && !string.IsNullOrWhiteSpace(discovered.BookName)
             && discovered.Year.HasValue;

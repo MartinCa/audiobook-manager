@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/theme.css";
+
+/*
+ * Tailwind v4 replaced the old `darkMode: 'class'` config option with this custom variant.
+ * Without it, `dark:` utilities compile to `@media (prefers-color-scheme: dark)` instead of
+ * following the `.dark` class ThemeProvider toggles on <html> — so a manual light/dark
+ * override would silently do nothing unless the OS also happened to match.
+ */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Registers theme.css's semantic CSS variables under Tailwind v4's `--color-*`/`--radius-*`
+ * namespace. Tailwind v4 only generates a utility (bg-background, text-foreground, ...) for a
+ * variable that's mapped here — theme.css alone defines the variables' values, not the
+ * utilities. A normal `shadcn init` scaffold generates this block automatically; this project
+ * was hand-migrated, so it has to be maintained here instead.
+ */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /*
+   * Overrides tw-animate-css's built-in accordion-down/up keyframes, which read a chain of
+   * other libraries' panel-height variables (--radix-accordion-content-height and friends) with
+   * no entry for Base UI's own --accordion-panel-height — so they always fell through to the
+   * `auto` fallback, and a CSS transition can't animate to/from `auto`. Point them at Base UI's
+   * actual variable instead.
+   */
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--accordion-panel-height, auto);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--accordion-panel-height, auto);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+}
