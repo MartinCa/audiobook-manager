@@ -52,7 +52,7 @@ export function DeleteFileDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto py-2 pr-1">
+        <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto py-2 pr-1">
           <p className="text-muted-foreground text-sm">
             {description ??
               (directoryContents.length > 1

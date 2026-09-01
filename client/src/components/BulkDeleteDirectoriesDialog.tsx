@@ -43,15 +43,18 @@ function BulkDirectoryItem({ directoryPath }: { directoryPath: string }) {
       value={directoryPath}
       className="border-border bg-muted/20 rounded-md border px-3"
     >
-      <AccordionTrigger className="py-2.5 text-left hover:no-underline">
-        <div className="flex w-full min-w-0 items-center justify-between gap-2 pr-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Folder className="h-4 w-4 shrink-0 text-amber-500" />
-            <span className="text-foreground truncate font-mono text-xs" title={directoryPath}>
+      <AccordionTrigger className="w-full min-w-0 py-2.5 text-left hover:no-underline">
+        <div className="flex w-full min-w-0 items-start justify-between gap-3 pr-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <Folder className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <span
+              className="text-foreground text-left font-mono text-xs break-all"
+              title={directoryPath}
+            >
               {directoryPath}
             </span>
           </div>
-          <div className="text-muted-foreground shrink-0 font-mono text-[11px]">
+          <div className="text-muted-foreground shrink-0 pt-0.5 font-mono text-[11px] whitespace-nowrap">
             {isLoading ? (
               <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
             ) : (
@@ -101,7 +104,7 @@ export function BulkDeleteDirectoriesDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto py-2 pr-1">
+        <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto py-2 pr-1">
           <p className="text-muted-foreground text-sm">
             {description ??
               `This will permanently delete all ${directories.length} directories and their contained files from disk.`}

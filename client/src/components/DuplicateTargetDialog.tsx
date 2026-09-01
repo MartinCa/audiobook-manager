@@ -67,7 +67,7 @@ export function DuplicateTargetDialog({
         </DialogHeader>
 
         {confirmDelete ? (
-          <div className="flex-1 space-y-4 overflow-y-auto py-2 pr-1">
+          <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto py-2 pr-1">
             <p className="text-muted-foreground text-sm">
               Are you sure you want to permanently delete the new file
               {directoryContents.length > 1 ? " and its folder contents" : ""}? This cannot be
