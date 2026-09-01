@@ -295,4 +295,106 @@ describe("BookEditForm", () => {
     fireEvent.pointerDown(screen.getByRole("option", { name: "The Stormlight Archive" }));
     expect(seriesInput).toHaveValue("The Stormlight Archive");
   });
+
+  it("hides empty optional fields by default and expands them when toggle button is clicked", () => {
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    // Primary fields are present
+    expect(screen.getByDisplayValue("Jane Author")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Original Title")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Fantasy / Fiction")).toBeInTheDocument();
+
+    // Secondary fields are hidden by default when empty
+    expect(screen.queryByPlaceholderText("Narrator Name")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Subtitle")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Publisher")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Copyright year / owner")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("e.g. 4.5")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("B0...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("https://...")).not.toBeInTheDocument();
+
+    // Toggle button displays count of hidden fields
+    const toggleBtn = screen.getByRole("button", { name: /Show additional fields \(7 hidden\)/i });
+    expect(toggleBtn).toBeInTheDocument();
+
+    // Click toggle button to expand
+    fireEvent.click(toggleBtn);
+
+    // Now all secondary fields are visible
+    expect(screen.getByPlaceholderText("Narrator Name")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Subtitle")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Publisher")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Copyright year / owner")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. 4.5")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("B0...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("https://...")).toBeInTheDocument();
+
+    // Toggle button now allows hiding empty fields
+    const hideBtn = screen.getByRole("button", { name: /Hide empty optional fields/i });
+    expect(hideBtn).toBeInTheDocument();
+
+    fireEvent.click(hideBtn);
+    expect(screen.queryByPlaceholderText("Narrator Name")).not.toBeInTheDocument();
+  });
+
+  it("automatically displays optional fields that have non-empty values", () => {
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          narrators: [{ name: "Michael Kramer" }],
+          subtitle: "A Great Story",
+          publisher: "Tor Books",
+          rating: "4.8",
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    // Populated optional fields are visible
+    expect(screen.getByDisplayValue("Michael Kramer")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("A Great Story")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Tor Books")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("4.8")).toBeInTheDocument();
+
+    // Empty optional fields remain hidden
+    expect(screen.queryByPlaceholderText("Copyright year / owner")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("B0...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("https://...")).not.toBeInTheDocument();
+
+    // Remaining hidden count is 3 (copyright, asin, www)
+    expect(
+      screen.getByRole("button", { name: /Show additional fields \(3 hidden\)/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("only displays File Location / Target Path when target differs from current path", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.generateNewPath).mockImplementation((book) => {
+      const author = book.authors?.[0]?.name || "Unknown";
+      const year = book.year || "Unknown";
+      const title = book.bookName || "Untitled";
+      return Promise.resolve(`/library/${author}/${year} - ${title}/${title}.m4b`);
+    });
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        currentPath="/library/Jane Author/2020 - Original Title/Original Title.m4b"
+        onSave={vi.fn()}
+      />,
+    );
+
+    // Initial path matches currentPath so File Location / Target Path is not rendered
+    await waitFor(() => expect(audiobookApi.generateNewPath).toHaveBeenCalled());
+    expect(screen.queryByText(/File Location \/ Target Path/i)).not.toBeInTheDocument();
+
+    // Changing title causes target path to differ and renders DiffDisplay
+    const titleInput = screen.getByDisplayValue("Original Title");
+    fireEvent.change(titleInput, { target: { value: "New Path" } });
+
+    expect(
+      await screen.findByText(/File Location \/ Target Path/i, undefined, { timeout: 3000 }),
+    ).toBeInTheDocument();
+  });
 });

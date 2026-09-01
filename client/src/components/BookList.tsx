@@ -200,9 +200,10 @@ export function BookList() {
 
                   <div className="flex shrink-0 items-center gap-2">
                     {isQueued && (
-                      <div className="w-36 text-right">
+                      <div className="w-44 text-right sm:w-56">
                         {progress != null && (
                           <OperationProgressBar
+                            compact
                             processed={progress}
                             total={100}
                             label={message || "Organizing..."}

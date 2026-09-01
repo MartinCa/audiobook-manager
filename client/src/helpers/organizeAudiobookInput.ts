@@ -24,6 +24,18 @@ export function normalizeSeriesPart(part?: string): string {
     .trim();
 }
 
+export const DEFAULT_COLLAPSED_FIELDS = [
+  "narrators",
+  "subtitle",
+  "publisher",
+  "copyright",
+  "rating",
+  "asin",
+  "www",
+] as const;
+
+export type CollapsedField = (typeof DEFAULT_COLLAPSED_FIELDS)[number];
+
 export interface OrganizeAudiobookFormState {
   bookName?: string;
   subtitle?: string;

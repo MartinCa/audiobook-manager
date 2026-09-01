@@ -1,9 +1,18 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, RotateCcw, ExternalLink, Trash2, Save, Loader2 } from "lucide-react";
+import {
+  Search,
+  RotateCcw,
+  ExternalLink,
+  Trash2,
+  Save,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +34,8 @@ import {
   splitList,
   cleanDescription,
   normalizeSeriesPart,
+  DEFAULT_COLLAPSED_FIELDS,
+  type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
 import { normalizeLanguage, languageSelectItems } from "@/helpers/languages";
 import { findSimilarExisting } from "@/helpers/similarValueMatcher";
@@ -154,6 +165,7 @@ export function BookEditForm({
   const [saving, setSaving] = useState(false);
   const [authorHint, setAuthorHint] = useState<string | null>(null);
   const [seriesHint, setSeriesHint] = useState<string | null>(null);
+  const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
 
   // Entry-time duplicate prevention: flat name lists to check a typed Author/Series value
@@ -181,6 +193,20 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
+
+  const isFieldVisible = useCallback(
+    (field: CollapsedField) => {
+      if (showAllOptionalFields) return true;
+      const val = watchedValues[field];
+      return Boolean(val && String(val).trim().length > 0);
+    },
+    [showAllOptionalFields, watchedValues],
+  );
+
+  const hiddenFieldsCount = useMemo(
+    () => DEFAULT_COLLAPSED_FIELDS.filter((f) => !isFieldVisible(f)).length,
+    [isFieldVisible],
+  );
 
   useEffect(() => {
     if (!languagesRes) return;
@@ -349,6 +375,7 @@ export function BookEditForm({
   const handleReset = () => {
     form.reset(valuesFromBook(initialBook));
     setCover(initialBook.cover);
+    setShowAllOptionalFields(false);
     onReset?.();
   };
 
@@ -376,20 +403,14 @@ export function BookEditForm({
         )}
       </div>
 
-      {currentPath && (
+      {currentPath && newPath && newPath !== currentPath ? (
         <div className="space-y-1">
           <label className="text-muted-foreground text-xs font-semibold uppercase">
             File Location / Target Path
           </label>
-          {newPath && newPath !== currentPath ? (
-            <DiffDisplay actual={currentPath} expected={newPath} />
-          ) : (
-            <div className="border-border bg-muted/40 text-muted-foreground rounded-md border p-2 font-mono text-xs break-all">
-              {currentPath}
-            </div>
-          )}
+          <DiffDisplay actual={currentPath} expected={newPath} />
         </div>
-      )}
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
         <div className="md:col-span-1">
@@ -402,8 +423,8 @@ export function BookEditForm({
         </div>
 
         <div className="space-y-4 md:col-span-3">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">
                 Authors <span className="text-destructive">*</span>
               </label>
@@ -450,12 +471,16 @@ export function BookEditForm({
               )}
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Narrators</label>
-              <Input {...form.register("narrators")} placeholder="Narrator Name" />
-            </div>
+            {isFieldVisible("narrators") && (
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-xs font-medium">Narrators</label>
+                <Input {...form.register("narrators")} placeholder="Narrator Name" />
+              </div>
+            )}
+          </div>
 
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">
                 Book Title <span className="text-destructive">*</span>
               </label>
@@ -471,12 +496,16 @@ export function BookEditForm({
               )}
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Subtitle</label>
-              <Input {...form.register("subtitle")} placeholder="Subtitle" />
-            </div>
+            {isFieldVisible("subtitle") && (
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-xs font-medium">Subtitle</label>
+                <Input {...form.register("subtitle")} placeholder="Subtitle" />
+              </div>
+            )}
+          </div>
 
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">Series</label>
               <Controller
                 control={form.control}
@@ -512,12 +541,14 @@ export function BookEditForm({
               )}
             </div>
 
-            <div>
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">Series Part / Book #</label>
               <Input {...form.register("seriesPart")} placeholder="e.g. 1 or 2.5" />
             </div>
+          </div>
 
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">
                 Year <span className="text-destructive">*</span>
               </label>
@@ -534,7 +565,7 @@ export function BookEditForm({
               )}
             </div>
 
-            <div>
+            <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">Genres (separated by /)</label>
               <Input {...form.register("genres")} placeholder="Fantasy / Fiction" />
             </div>
@@ -549,7 +580,7 @@ export function BookEditForm({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium">Language</label>
               <Controller
@@ -579,42 +610,78 @@ export function BookEditForm({
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Publisher</label>
-              <Input {...form.register("publisher")} placeholder="Publisher" />
-            </div>
+            {isFieldVisible("publisher") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Publisher</label>
+                <Input {...form.register("publisher")} placeholder="Publisher" />
+              </div>
+            )}
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Copyright</label>
-              <Input {...form.register("copyright")} placeholder="Copyright year / owner" />
-            </div>
+            {isFieldVisible("copyright") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Copyright</label>
+                <Input {...form.register("copyright")} placeholder="Copyright year / owner" />
+              </div>
+            )}
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Rating</label>
-              <Input {...form.register("rating")} placeholder="e.g. 4.5" />
-            </div>
+            {isFieldVisible("rating") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Rating</label>
+                <Input {...form.register("rating")} placeholder="e.g. 4.5" />
+              </div>
+            )}
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">ASIN</label>
-              <Input {...form.register("asin")} placeholder="B0..." />
-            </div>
+            {isFieldVisible("asin") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">ASIN</label>
+                <Input {...form.register("asin")} placeholder="B0..." />
+              </div>
+            )}
 
-            <div>
-              <label className="mb-1 flex items-center justify-between text-xs font-medium">
-                <span>Web link / URL</span>
-                {watchedValues.www && (
-                  <a
-                    href={watchedValues.www}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary flex items-center hover:underline"
-                  >
-                    <ExternalLink className="mr-0.5 h-3 w-3" /> Preview
-                  </a>
-                )}
-              </label>
-              <Input {...form.register("www")} placeholder="https://..." />
-            </div>
+            {isFieldVisible("www") && (
+              <div>
+                <label className="mb-1 flex items-center justify-between text-xs font-medium">
+                  <span>Web link / URL</span>
+                  {watchedValues.www && (
+                    <a
+                      href={watchedValues.www}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary flex items-center hover:underline"
+                    >
+                      <ExternalLink className="mr-0.5 h-3 w-3" /> Preview
+                    </a>
+                  )}
+                </label>
+                <Input {...form.register("www")} placeholder="https://..." />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center pt-1">
+            {hiddenFieldsCount > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground h-8 text-xs"
+                onClick={() => setShowAllOptionalFields(true)}
+              >
+                <ChevronDown className="mr-1.5 h-3.5 w-3.5" />
+                Show additional fields ({hiddenFieldsCount} hidden)
+              </Button>
+            ) : showAllOptionalFields ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground h-8 text-xs"
+                onClick={() => setShowAllOptionalFields(false)}
+              >
+                <ChevronUp className="mr-1.5 h-3.5 w-3.5" />
+                Hide empty optional fields
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

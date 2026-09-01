@@ -494,9 +494,10 @@ export function DiscoveredAudiobooks() {
                       ) : null}
 
                       {isOrganizing && (
-                        <div className="w-36 text-right">
+                        <div className="w-44 text-right sm:w-56">
                           {override?.progress != null ? (
                             <OperationProgressBar
+                              compact
                               processed={override.progress}
                               total={100}
                               label={override.message || "Organizing..."}
