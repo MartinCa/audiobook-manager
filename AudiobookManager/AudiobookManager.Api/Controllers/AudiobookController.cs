@@ -139,6 +139,7 @@ public class AudiobookController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteAudiobook(long id)
     {
+        _logger.LogInformation("Delete audiobook requested for id {AudiobookId}", id);
         var book = await _audiobookService.GetAudiobookById(id);
         if (book == null)
         {

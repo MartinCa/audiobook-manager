@@ -1,3 +1,4 @@
+using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Options;
@@ -25,11 +26,17 @@ public class FileServiceTests
         Directory.CreateDirectory(_importPath);
         Directory.CreateDirectory(_libraryPath);
 
-        _service = new FileService(Options.Create(new AudiobookManagerSettings
-        {
-            AudiobookImportPath = _importPath,
-            AudiobookLibraryPath = _libraryPath,
-        }));
+        var fileOperations = new FileOperations();
+        var fileHandler = new AudiobookFileHandler(fileOperations);
+
+        _service = new FileService(
+            fileOperations,
+            fileHandler,
+            Options.Create(new AudiobookManagerSettings
+            {
+                AudiobookImportPath = _importPath,
+                AudiobookLibraryPath = _libraryPath,
+            }));
     }
 
     [TestCleanup]

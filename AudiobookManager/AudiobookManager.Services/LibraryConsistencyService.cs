@@ -20,6 +20,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IAudiobookTagHandler _tagHandler;
+    private readonly IAudiobookFileHandler _fileHandler;
+    private readonly IFileOperations _fileOperations;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILogger<LibraryConsistencyService> _logger;
@@ -30,6 +32,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
         IAudiobookTagHandler tagHandler,
+        IAudiobookFileHandler fileHandler,
+        IFileOperations fileOperations,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
         ILogger<LibraryConsistencyService> logger)
@@ -39,6 +43,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _issueRepository = issueRepository;
         _orphanDirectoryRepository = orphanDirectoryRepository;
         _tagHandler = tagHandler;
+        _fileHandler = fileHandler;
+        _fileOperations = fileOperations;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
         _logger = logger;
@@ -347,7 +353,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         if (directoryPath != null)
         {
-            AudiobookFileHandler.RemoveDirIfEmpty(directoryPath);
+            _fileHandler.RemoveDirIfEmpty(directoryPath);
         }
 
         return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
@@ -363,7 +369,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
         var parsed = _tagHandler.ParseAudiobook(fileInfo);
 
-        AudiobookFileHandler.WriteMetadata(parsed);
+        _fileHandler.WriteMetadata(parsed);
 
         _logger.LogInformation(
             "Rewrote metadata sidecars (desc.txt, reader.txt, metadata.opf) for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
@@ -423,7 +429,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
         var parsed = _tagHandler.ParseAudiobook(fileInfo);
 
-        var coverPath = AudiobookFileHandler.WriteCover(parsed);
+        var coverPath = _fileHandler.WriteCover(parsed);
         await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
 
         _logger.LogInformation(
@@ -495,7 +501,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return (deleted, failed, retained);
     }
 
-    private static bool DeleteOrphanDirectoryFromDisk(string directoryPath)
+    private bool DeleteOrphanDirectoryFromDisk(string directoryPath)
     {
         if (!Directory.Exists(directoryPath))
         {
@@ -510,7 +516,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             return false;
         }
 
-        Directory.Delete(directoryPath, recursive: true);
+        _fileOperations.DeleteDirectory(directoryPath, recursive: true, "resolving orphan directory");
         return true;
     }
 

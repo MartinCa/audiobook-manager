@@ -16,6 +16,8 @@ namespace AudiobookManager.Test.Services;
 public class AudiobookServiceTests
 {
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
+    private IAudiobookFileHandler _fileHandler = null!;
+    private IFileOperations _fileOperations = null!;
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IGenreRepository> _genreRepository = null!;
@@ -28,6 +30,8 @@ public class AudiobookServiceTests
     public void Setup()
     {
         _tagHandler = new Mock<IAudiobookTagHandler>();
+        _fileOperations = new FileOperations();
+        _fileHandler = new AudiobookFileHandler(_fileOperations);
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _personRepository = new Mock<IPersonRepository>();
         _genreRepository = new Mock<IGenreRepository>();
@@ -40,6 +44,8 @@ public class AudiobookServiceTests
 
         _service = new AudiobookService(
             _tagHandler.Object,
+            _fileHandler,
+            _fileOperations,
             _settings,
             _audiobookRepository.Object,
             _personRepository.Object,
@@ -210,6 +216,8 @@ public class AudiobookServiceTests
 
         _service = new AudiobookService(
             _tagHandler.Object,
+            _fileHandler,
+            _fileOperations,
             _settings,
             _audiobookRepository.Object,
             _personRepository.Object,
@@ -909,11 +917,54 @@ public class AudiobookServiceTests
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(10), Times.Once);
             Assert.IsFalse(File.Exists(filePath));
             Assert.IsFalse(Directory.Exists(bookDir));
+
+            _logger.Verify(
+                l => l.Log(
+                    LogLevel.Information,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Deleting audiobook 10")),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
         finally
         {
             CleanupTestRoot(_testRoot);
         }
+    }
+
+    [TestMethod]
+    public async Task InsertAudiobook_LogsCreation()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author1") },
+            "Logged Book",
+            2024,
+            new AudiobookFileInfo("/path/logged.m4b", "logged.m4b", 1000));
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbPerson> { ["Author1"] = new DbPerson(1, "Author1") });
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 77;
+                return db;
+            });
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        Assert.AreEqual(77, result.Id);
+        _logger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Added audiobook 77")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     #endregion

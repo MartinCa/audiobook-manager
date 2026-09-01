@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.FileManager;
@@ -7,6 +7,8 @@ public static class DependencyInjection
     public static IServiceCollection SetupFileManager(this IServiceCollection services)
     {
         services
+        .AddScoped<IFileOperations, FileOperations>()
+        .AddScoped<IAudiobookFileHandler, AudiobookFileHandler>()
         .AddScoped<IAudiobookTagHandler, AudiobookTagHandler>();
 
         services.AddSingleton<IAtlLogging>(sp =>
