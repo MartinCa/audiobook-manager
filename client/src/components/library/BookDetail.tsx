@@ -3,8 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Trash2,
-  Save,
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
@@ -12,10 +10,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BookEditForm } from "../BookEditForm";
 import { DiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
+import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { browseApi, audiobookApi, consistencyApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
@@ -199,11 +197,6 @@ export function BookDetail() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </Button>
-
-        <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete Audiobook
-        </Button>
       </div>
 
       <div className="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
@@ -238,16 +231,11 @@ export function BookDetail() {
                 currentPath={bookDetail.filePath}
                 coverUrl={browseApi.getCoverUrl(id)}
                 onSave={handleSave}
-                formActions={
-                  <Button type="submit" disabled={saving}>
-                    {saving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    Save Changes
-                  </Button>
-                }
+                onDelete={() => setDeleteConfirmOpen(true)}
+                deleteLabel="Delete Audiobook"
+                deleteDisabled={deleting}
+                submitLabel="Save Changes"
+                isSaving={saving}
               />
             </CardContent>
           </Card>
@@ -331,39 +319,14 @@ export function BookDetail() {
 
       {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
 
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Delete Audiobook</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-sm">
-              Are you sure you want to permanently delete{" "}
-              <strong className="text-foreground break-words">{bookDetail.bookName}</strong>? This
-              removes the audiobook directory and all its files from your library storage.
-            </p>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setDeleteConfirmOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={deleting}
-                onClick={() => {
-                  void handleDeleteBook();
-                }}
-              >
-                {deleting ? "Deleting..." : "Delete Permanently"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteFileDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        targetPath={bookDetail.filePath}
+        onConfirmDelete={handleDeleteBook}
+        title="Delete Audiobook"
+        description={`Are you sure you want to permanently delete "${bookDetail.bookName}"? This removes the audiobook directory and all its files from your library storage.`}
+      />
     </div>
   );
 }

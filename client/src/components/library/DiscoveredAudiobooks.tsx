@@ -12,7 +12,6 @@ import {
   FileAudio,
   CheckCircle2,
   AlertTriangle,
-  Trash2,
   Clock,
   HardDrive,
 } from "lucide-react";
@@ -520,40 +519,30 @@ export function DiscoveredAudiobooks() {
                   </div>
                 </AccordionTrigger>
 
-                <AccordionContent className="border-border space-y-4 border-t pt-4 pb-4">
-                  <AudiobookFileDetails
-                    filePath={book.fullPath}
-                    sizeInBytes={book.sizeInBytes}
-                    durationInSeconds={book.durationInSeconds}
-                  />
+                <AccordionContent className="border-border border-t pt-4 pb-4">
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+                    <div className="space-y-6 lg:col-span-3">
+                      <BookEditForm
+                        initialBook={initialAudiobook}
+                        currentPath={book.fullPath}
+                        coverUrl={filesApi.getCoverUrl(book.fullPath)}
+                        defaultEmptyLanguage
+                        onSave={(edited) => handleOrganizeDiscovered(edited)}
+                        onDelete={() => setDeleteTargetPath(book.fullPath)}
+                        deleteLabel="Delete File"
+                        submitLabel="Import to Library"
+                        submitIcon={<FolderInput className="mr-2 h-4 w-4" />}
+                      />
+                    </div>
 
-                  <BookEditForm
-                    initialBook={initialAudiobook}
-                    currentPath={book.fullPath}
-                    coverUrl={filesApi.getCoverUrl(book.fullPath)}
-                    defaultEmptyLanguage
-                    onSave={(edited) => handleOrganizeDiscovered(edited)}
-                    toolbarActions={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setDeleteTargetPath(book.fullPath);
-                        }}
-                      >
-                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                        Delete File
-                      </Button>
-                    }
-                    formActions={
-                      <Button type="submit">
-                        <FolderInput className="mr-2 h-4 w-4" />
-                        Import to Library
-                      </Button>
-                    }
-                  />
+                    <div className="space-y-6 lg:col-span-1">
+                      <AudiobookFileDetails
+                        filePath={book.fullPath}
+                        sizeInBytes={book.sizeInBytes}
+                        durationInSeconds={book.durationInSeconds}
+                      />
+                    </div>
+                  </div>
                 </AccordionContent>
               </AccordionItem>
             );

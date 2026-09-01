@@ -211,4 +211,44 @@ describe("BookEditForm", () => {
     expect(saved.language).toBe("en");
     expect(saved.bookName).toBe("Scraped Book");
   });
+
+  it("renders delete button when onDelete is provided and triggers callback on click", () => {
+    const onDelete = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={vi.fn()}
+        onDelete={onDelete}
+        deleteLabel="Delete Audiobook"
+      />,
+    );
+
+    const deleteBtn = screen.getByRole("button", { name: "Delete Audiobook" });
+    expect(deleteBtn).toBeInTheDocument();
+
+    fireEvent.click(deleteBtn);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders custom submitLabel and disables action buttons when isSaving is true", () => {
+    const onDelete = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={vi.fn()}
+        onDelete={onDelete}
+        submitLabel="Organize into Library"
+        isSaving={true}
+      />,
+    );
+
+    const submitBtn = screen.getByRole("button", { name: "Organize into Library" });
+    expect(submitBtn).toBeDisabled();
+
+    const deleteBtn = screen.getByRole("button", { name: "Delete File" });
+    expect(deleteBtn).toBeDisabled();
+
+    const resetBtn = screen.getByRole("button", { name: "Reset" });
+    expect(resetBtn).toBeDisabled();
+  });
 });

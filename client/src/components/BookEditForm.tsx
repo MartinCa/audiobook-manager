@@ -3,7 +3,7 @@ import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, RotateCcw, ExternalLink } from "lucide-react";
+import { Search, RotateCcw, ExternalLink, Trash2, Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,6 +114,12 @@ export interface BookEditFormProps {
   coverUrl?: string;
   onSave: (book: Audiobook) => void | Promise<void>;
   onReset?: () => void;
+  onDelete?: () => void;
+  deleteLabel?: string;
+  deleteDisabled?: boolean;
+  submitLabel?: string;
+  submitIcon?: ReactNode;
+  isSaving?: boolean;
   toolbarActions?: ReactNode;
   formActions?: ReactNode;
   /**
@@ -131,6 +137,12 @@ export function BookEditForm({
   coverUrl,
   onSave,
   onReset,
+  onDelete,
+  deleteLabel,
+  deleteDisabled = false,
+  submitLabel,
+  submitIcon,
+  isSaving = false,
   toolbarActions,
   formActions,
   defaultEmptyLanguage = false,
@@ -356,7 +368,11 @@ export function BookEditForm({
           <Search className="text-primary mr-2 h-4 w-4" />
           Search Online Metadata
         </Button>
-        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">{toolbarActions}</div>
+        {toolbarActions && (
+          <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+            {toolbarActions}
+          </div>
+        )}
       </div>
 
       {currentPath && (
@@ -582,15 +598,45 @@ export function BookEditForm({
       </div>
 
       <div className="border-border flex flex-col-reverse justify-between gap-3 border-t pt-4 sm:flex-row sm:items-center">
-        <Button type="button" variant="outline" onClick={handleReset} className="w-full sm:w-auto">
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reset
-        </Button>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleReset}
+            disabled={saving || isSaving}
+            className="w-full sm:w-auto"
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+
+          {onDelete && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onDelete}
+              disabled={deleteDisabled || saving || isSaving}
+              className="text-destructive hover:bg-destructive/10 border-destructive/30 hover:border-destructive/60 w-full sm:w-auto"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {deleteLabel || "Delete File"}
+            </Button>
+          )}
+        </div>
 
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {formActions || (
-            <Button type="submit" disabled={saving} className="w-full sm:w-auto">
-              {saving ? "Saving..." : "Save Audiobook"}
+            <Button
+              type="submit"
+              disabled={saving || isSaving}
+              className="w-full sm:w-auto"
+            >
+              {saving || isSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                submitIcon || <Save className="mr-2 h-4 w-4" />
+              )}
+              {submitLabel || "Save Audiobook"}
             </Button>
           )}
         </div>

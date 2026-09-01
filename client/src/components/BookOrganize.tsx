@@ -123,42 +123,30 @@ export function BookOrganize({
 
   return (
     <div className="space-y-4">
-      <AudiobookFileDetails
-        filePath={targetPath}
-        sizeInBytes={bookDetails.fileInfo?.sizeInBytes ?? file?.sizeInBytes}
-        durationInSeconds={bookDetails.durationInSeconds}
-      />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="space-y-6 lg:col-span-3">
+          <BookEditForm
+            initialBook={bookDetails}
+            currentPath={targetPath}
+            coverUrl={filesApi.getCoverUrl(targetPath)}
+            onSave={handleOrganizeClick}
+            defaultEmptyLanguage
+            onDelete={() => setDeleteConfirmOpen(true)}
+            deleteLabel="Delete File"
+            submitLabel="Organize into Library"
+            submitIcon={<FolderPlus className="mr-2 h-4 w-4" />}
+            isSaving={organizing}
+          />
+        </div>
 
-      <BookEditForm
-        initialBook={bookDetails}
-        currentPath={targetPath}
-        coverUrl={filesApi.getCoverUrl(targetPath)}
-        onSave={handleOrganizeClick}
-        defaultEmptyLanguage
-        formActions={
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDeleteConfirmOpen(true)}
-              className="text-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Delete File
-            </Button>
-
-            <Button type="submit" size="sm" disabled={organizing}>
-              {organizing ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Organize into Library
-            </Button>
-          </div>
-        }
-      />
+        <div className="space-y-6 lg:col-span-1">
+          <AudiobookFileDetails
+            filePath={targetPath}
+            sizeInBytes={bookDetails.fileInfo?.sizeInBytes ?? file?.sizeInBytes}
+            durationInSeconds={bookDetails.durationInSeconds}
+          />
+        </div>
+      </div>
 
       {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
 
