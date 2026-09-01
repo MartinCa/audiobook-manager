@@ -183,18 +183,26 @@ export function BookEditForm({
   }, [languagesRes]);
 
   useEffect(() => {
+    let cancelled = false;
     const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
     if (!values.bookName?.trim() || !values.authors?.trim()) return;
 
-    const book = buildAudiobook(values, cover, initialBook);
+    const book = buildAudiobook(values, undefined, initialBook);
     const timer = setTimeout(() => {
       void audiobookApi
         .generateNewPath(book)
-        .then((generated) => setNewPath(generated))
+        .then((generated) => {
+          if (!cancelled) {
+            setNewPath(generated);
+          }
+        })
         .catch(() => {});
     }, 300);
-    return () => clearTimeout(timer);
-  }, [watchedValues, cover, initialBook]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [watchedValues, initialBook]);
 
   const [tagPreviewOpen, setTagPreviewOpen] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<MetadataSearchResult | null>(null);

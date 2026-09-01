@@ -37,6 +37,7 @@ export function MissingTags() {
 
   useEffect(() => {
     if (backfilling && backfillStatus && !backfillStatus.isRunning) {
+      setBackfilling(false);
       toast.success("Language backfill operation completed");
       void queryClient.invalidateQueries({
         queryKey: ["missingTagsAudiobooks"],

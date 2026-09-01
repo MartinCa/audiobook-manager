@@ -61,7 +61,7 @@ export function BookOrganize({
   const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
     onReplaceExisting: (book) => proceedOrganize(book),
     onDeleteNew: () => {
-      setDeleteConfirmOpen(true);
+      void handleDeleteBook();
     },
   });
 

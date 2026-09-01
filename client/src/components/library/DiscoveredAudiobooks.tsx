@@ -296,7 +296,7 @@ export function DiscoveredAudiobooks() {
     onDeleteNew: (book) => {
       const path = book.fileInfo?.fullPath;
       if (path) {
-        setDeleteTargetPath(path);
+        void executeDeleteDiscovered(path);
       }
     },
   });

@@ -24,10 +24,45 @@ describe("CoverEditor", () => {
     expect(screen.getByText("Click to set cover")).toBeInTheDocument();
   });
 
-  it("shows the placeholder when no coverUrl or base64Data is given", () => {
-    render(<CoverEditor onCoverChange={vi.fn()} />);
+  it("fetches image from URL and calls onCoverChange with base64 data", async () => {
+    const onCoverChange = vi.fn();
+    const mockBlob = new Blob(["fake-image-bytes"], { type: "image/png" });
 
-    expect(screen.queryByAltText("Cover Preview")).not.toBeInTheDocument();
-    expect(screen.getByText("Click to set cover")).toBeInTheDocument();
+    class MockFileReader {
+      result = "data:image/png;base64,ZmFrZS1pbWFnZQ==";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(mockBlob),
+    } as unknown as Response);
+
+    render(<CoverEditor onCoverChange={onCoverChange} />);
+
+    // Open cover dialog
+    const openBtn = screen.getByRole("button", { name: /upload cover/i });
+    fireEvent.click(openBtn);
+
+    const input = screen.getByPlaceholderText("https://example.com/cover.jpg");
+    fireEvent.change(input, { target: { value: "https://example.com/cover.png" } });
+
+    const fetchBtn = screen.getByRole("button", { name: "Fetch" });
+    fireEvent.click(fetchBtn);
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/metadata-search/proxy-image?url=https%3A%2F%2Fexample.com%2Fcover.png",
+      );
+      expect(onCoverChange).toHaveBeenCalled();
+    });
   });
 });

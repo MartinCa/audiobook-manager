@@ -17,7 +17,7 @@ import { BookEditForm } from "../BookEditForm";
 import { DiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { browseApi, audiobookApi, consistencyApi, filesApi } from "@/services/api";
+import { browseApi, audiobookApi, consistencyApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
@@ -161,8 +161,10 @@ export function BookDetail() {
     if (!bookDetail) return;
     setDeleting(true);
     try {
-      await filesApi.deleteBook(bookDetail.filePath);
+      await audiobookApi.deleteAudiobook(id);
       toast.success("Audiobook deleted from library");
+      void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
+      void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
       void navigate({ to: "/library" });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);

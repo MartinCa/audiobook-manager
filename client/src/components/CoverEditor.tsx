@@ -62,17 +62,24 @@ export function CoverEditor({
       }
       const blob = await response.blob();
       const contentType = blob.type || "image/jpeg";
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            const resStr = reader.result;
+            const base64Index = resStr.indexOf(";base64,");
+            resolve(base64Index !== -1 ? resStr.substring(base64Index + 8) : resStr);
+          } else {
+            reject(new Error("Failed to read image as data URL"));
+          }
+        };
+        reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+        reader.readAsDataURL(blob);
+      });
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        const base64Index = result.indexOf(";base64,");
-        const cleanBase64 = base64Index !== -1 ? result.substring(base64Index + 8) : result;
-        onCoverChange(cleanBase64, contentType);
-        setUrlInput("");
-        setDialogOpen(false);
-      };
-      reader.readAsDataURL(blob);
+      onCoverChange(base64Data, contentType);
+      setUrlInput("");
+      setDialogOpen(false);
     } catch (err: unknown) {
       setUrlError(err instanceof Error ? err.message : "Failed to load image from URL");
     } finally {

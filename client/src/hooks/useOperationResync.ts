@@ -11,24 +11,44 @@ import type { OperationStatus } from "@/types/OperationStatus";
  */
 export function useOperationResync(key: string, onStatus: (status: OperationStatus) => void): void {
   const onStatusRef = useRef(onStatus);
+  const keyRef = useRef(key);
 
   useEffect(() => {
     onStatusRef.current = onStatus;
   });
 
+  useEffect(() => {
+    keyRef.current = key;
+  }, [key]);
+
   const refresh = (): void => {
+    const requestedKey = keyRef.current;
     operationsApi
-      .getStatus(key)
-      .then((status) => onStatusRef.current(status))
+      .getStatus(requestedKey)
+      .then((status) => {
+        if (keyRef.current === requestedKey) {
+          onStatusRef.current(status);
+        }
+      })
       .catch(() => {
         // Leave current state as-is if the status check itself fails.
       });
   };
 
   useEffect(() => {
-    refresh();
-    // Only re-run when the operation key itself changes; `refresh` closes over a ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let mounted = true;
+    operationsApi
+      .getStatus(key)
+      .then((status) => {
+        if (mounted && keyRef.current === key) {
+          onStatusRef.current(status);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
   }, [key]);
 
   useSignalRReconnected(refresh);
