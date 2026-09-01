@@ -27,6 +27,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Toaster } from "@/components/ui/sonner";
 import LibrarySearch from "@/components/LibrarySearch";
+import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 
 export function RootLayout() {
   const location = useLocation();
@@ -295,6 +296,20 @@ export function RootLayout() {
                     <span>Settings</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
+
+                <DropdownMenuSeparator />
+
+                <div className="text-muted-foreground flex items-center justify-between px-2 py-1.5 text-xs">
+                  <span>Version</span>
+                  <a
+                    href={getReleaseUrl(__APP_VERSION__)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-foreground font-mono transition-colors"
+                  >
+                    {formatVersion(__APP_VERSION__)}
+                  </a>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -304,6 +319,20 @@ export function RootLayout() {
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <Outlet />
       </main>
+
+      <footer className="border-border text-muted-foreground border-t py-4 text-xs">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <span>Audiobook Manager</span>
+          <a
+            href={getReleaseUrl(__APP_VERSION__)}
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-foreground font-mono transition-colors"
+          >
+            {formatVersion(__APP_VERSION__)}
+          </a>
+        </div>
+      </footer>
 
       <Toaster richColors />
     </div>

@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings as SettingsIcon, Plus, Trash2, Edit2, Loader2, BookMarked } from "lucide-react";
+import {
+  Settings as SettingsIcon,
+  Plus,
+  Trash2,
+  Edit2,
+  Loader2,
+  BookMarked,
+  Info,
+  ExternalLink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { TypeaheadInput } from "@/components/TypeaheadInput";
 import { settingsApi, similarValuesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
+import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 import { toast } from "sonner";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 
@@ -31,6 +41,12 @@ export function Settings() {
     queryKey: ["similarValueNames", "series"],
     queryFn: () => similarValuesApi.getSeriesNames(),
     staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: systemInfo } = useQuery({
+    queryKey: ["systemInfo"],
+    queryFn: () => settingsApi.getSystemInfo(),
+    staleTime: 60 * 60 * 1000,
   });
 
   const handleOpenCreate = () => {
@@ -185,6 +201,62 @@ export function Settings() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Info className="text-primary h-4 w-4" />
+            About & System Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="border-border bg-muted/40 space-y-1 rounded-lg border p-3">
+              <span className="text-muted-foreground text-xs font-semibold uppercase">
+                App Version
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-foreground font-mono text-sm font-medium">
+                  {formatVersion(systemInfo?.version || __APP_VERSION__)}
+                </span>
+                <a
+                  href={getReleaseUrl(systemInfo?.version || __APP_VERSION__)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary flex items-center gap-1 text-xs hover:underline"
+                >
+                  Release Notes <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+
+            <div className="border-border bg-muted/40 space-y-1 rounded-lg border p-3">
+              <span className="text-muted-foreground text-xs font-semibold uppercase">
+                Commit Hash
+              </span>
+              <div className="text-foreground truncate font-mono text-xs">
+                {systemInfo?.commitHash || __COMMIT_HASH__ || "dev"}
+              </div>
+            </div>
+
+            <div className="border-border bg-muted/40 space-y-1 rounded-lg border p-3">
+              <span className="text-muted-foreground text-xs font-semibold uppercase">
+                Backend Runtime
+              </span>
+              <div className="text-foreground text-xs font-medium">
+                {systemInfo?.dotNetVersion || ".NET"}
+              </div>
+            </div>
+
+            <div className="border-border bg-muted/40 space-y-1 rounded-lg border p-3">
+              <span className="text-muted-foreground text-xs font-semibold uppercase">
+                Database
+              </span>
+              <div className="text-foreground text-xs font-medium">SQLite (via EF Core)</div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

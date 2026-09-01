@@ -14,3 +14,6 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     dispatchEvent: () => false,
   });
 }
+
+(globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.9.0-test";
+(globalThis as unknown as Record<string, string>).__COMMIT_HASH__ = "test-sha";

@@ -19,6 +19,7 @@ import type { OrphanDirectory } from "@/types/OrphanDirectory";
 import type { SeriesDetail, SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
+import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 export function toAudiobookDto(data: Audiobook) {
@@ -314,6 +315,8 @@ export const metadataSearchApi = {
 
 // Settings
 export const settingsApi = {
+  getSystemInfo: () => api.get<SystemInfo>("/settings/system_info"),
+
   getLanguages: () => api.get<LanguageOptions>("/settings/languages"),
 
   getSeriesMappings: () => api.get<SeriesMapping[]>("/settings/series_mappings"),

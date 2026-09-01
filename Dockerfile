@@ -1,16 +1,24 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:620e765fe18186c08399f7aa978f79f04b6bbf0ee1b3b8a91e2d5c9619e59da1 AS build-env
 WORKDIR /app
 
+ARG APP_VERSION=dev
+ARG COMMIT_HASH=""
+
 # Copy everything
 COPY ./AudiobookManager ./
 # Restore as distinct layers
 RUN dotnet restore
 # Build and publish a release
-RUN dotnet publish -c Release -o out
+RUN dotnet publish -c Release -p:Version=${APP_VERSION} -p:InformationalVersion="${APP_VERSION}${COMMIT_HASH:++$COMMIT_HASH}" -o out
 
 # Build client app
 FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build-node
 WORKDIR /app
+
+ARG APP_VERSION=dev
+ARG COMMIT_HASH=""
+ENV VITE_APP_VERSION=$APP_VERSION
+ENV VITE_COMMIT_HASH=$COMMIT_HASH
 
 RUN corepack enable
 
