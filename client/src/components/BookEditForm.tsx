@@ -626,11 +626,7 @@ export function BookEditForm({
 
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {formActions || (
-            <Button
-              type="submit"
-              disabled={saving || isSaving}
-              className="w-full sm:w-auto"
-            >
+            <Button type="submit" disabled={saving || isSaving} className="w-full sm:w-auto">
               {saving || isSaving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
