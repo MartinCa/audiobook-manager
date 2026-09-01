@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Library,
   Search,
+  X,
   RefreshCw,
   Clock,
   AlertTriangle,
@@ -19,33 +20,51 @@ import { LibraryViewTabs } from "./library/LibraryViewTabs";
 import { LibraryToolsMenu } from "./library/LibraryToolsMenu";
 import { browseApi, consistencyApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
+import { Route } from "@/routes/library/index";
 
 export function BookLibrary() {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [page, setPage] = useState(1);
+  const { q = "", page = 1 } = Route.useSearch();
+  const [prevQ, setPrevQ] = useState(q);
+  const [searchQuery, setSearchQuery] = useState(q);
   const pageSize = 20;
+
+  if (prevQ !== q) {
+    setPrevQ(q);
+    if (searchQuery.trim() !== q) {
+      setSearchQuery(q);
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-      setPage(1);
+      const trimmed = searchQuery.trim();
+      if (trimmed !== q) {
+        void navigate({
+          to: "/library",
+          search: (prev) => ({
+            ...prev,
+            q: trimmed || undefined,
+            page: undefined,
+          }),
+          replace: true,
+        });
+      }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, q, navigate]);
 
   const {
     data,
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["books", debouncedQuery, page, pageSize],
+    queryKey: ["books", q, page, pageSize],
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
       const [browseRes, issuesRes] = await Promise.all([
-        debouncedQuery.trim()
-          ? browseApi.searchAudiobooks(debouncedQuery.trim(), pageSize, offset)
+        q.trim()
+          ? browseApi.searchAudiobooks(q.trim(), pageSize, offset)
           : browseApi.getAudiobooks(pageSize, offset),
         consistencyApi.getIssues().catch(() => []),
       ]);
@@ -62,6 +81,31 @@ export function BookLibrary() {
       };
     },
   });
+
+  const handlePageChange = (newPage: number) => {
+    void navigate({
+      to: "/library",
+      search: (prev) => ({
+        ...prev,
+        page: newPage > 1 ? newPage : undefined,
+      }),
+    });
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    if (q) {
+      void navigate({
+        to: "/library",
+        search: (prev) => ({
+          ...prev,
+          q: undefined,
+          page: undefined,
+        }),
+        replace: true,
+      });
+    }
+  };
 
   const books = data?.books ?? [];
   const totalCount = data?.totalCount ?? 0;
@@ -112,8 +156,34 @@ export function BookLibrary() {
             placeholder="Search title, author, series, narrator..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const trimmed = searchQuery.trim();
+                if (trimmed !== q) {
+                  void navigate({
+                    to: "/library",
+                    search: (prev) => ({
+                      ...prev,
+                      q: trimmed || undefined,
+                      page: undefined,
+                    }),
+                    replace: true,
+                  });
+                }
+              }
+            }}
+            className="pr-9 pl-9"
           />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              aria-label="Clear search"
+              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
 
         <div className="text-muted-foreground text-xs">
@@ -131,7 +201,7 @@ export function BookLibrary() {
           <Library className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
           <h3 className="text-foreground text-lg font-medium">No audiobooks found</h3>
           <p className="text-muted-foreground mt-1 text-sm">
-            {debouncedQuery
+            {q
               ? "No audiobooks matched your query."
               : "No audiobooks have been organized yet. Check your organize queue or import discovered files."}
           </p>
@@ -224,7 +294,7 @@ export function BookLibrary() {
               variant="outline"
               size="sm"
               disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              onClick={() => handlePageChange(Math.max(1, page - 1))}
             >
               Previous
             </Button>
@@ -232,7 +302,7 @@ export function BookLibrary() {
               variant="outline"
               size="sm"
               disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
             >
               Next
             </Button>

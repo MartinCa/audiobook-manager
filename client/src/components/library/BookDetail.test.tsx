@@ -104,7 +104,7 @@ describe("BookDetail", () => {
       history: createMemoryHistory({ initialEntries: [`/library/book/${bookId}`] }),
     });
 
-    return render(
+    const result = render(
       <ThemeProvider defaultTheme="system" storageKey="theme">
         <SignalRContext.Provider value={mockSignalRValue}>
           <QueryClientProvider client={queryClient}>
@@ -113,6 +113,8 @@ describe("BookDetail", () => {
         </SignalRContext.Provider>
       </ThemeProvider>,
     );
+
+    return { ...result, router };
   }
 
   it("renders book details form with book metadata", async () => {
@@ -122,6 +124,17 @@ describe("BookDetail", () => {
     expect(screen.getByDisplayValue("Brandon Sanderson")).toBeInTheDocument();
     expect(screen.getByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
     expect(screen.getByDisplayValue("2010")).toBeInTheDocument();
+  });
+
+  it("navigates to /library fallback when Back to Library is clicked on direct landing", async () => {
+    const { router } = renderWithProviders();
+
+    const backBtn = await screen.findByRole("button", { name: /back to library/i });
+    fireEvent.click(backBtn);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
   });
 
   it("deletes audiobook using audiobookApi.deleteAudiobook with database removal", async () => {

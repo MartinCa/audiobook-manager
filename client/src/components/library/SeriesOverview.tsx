@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookMarked,
   Search,
+  X,
   RefreshCw,
   CheckCircle2,
   AlertCircle,
@@ -24,6 +25,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { foldAccents } from "@/helpers/similarValueMatcher";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
+import { Route } from "@/routes/library/series/index";
 
 interface SeriesRefreshProgressPayload {
   processed: number;
@@ -42,7 +44,47 @@ interface SeriesRefreshCompletePayload {
 export function SeriesOverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState("");
+  const { q = "" } = Route.useSearch();
+  const [prevQ, setPrevQ] = useState(q);
+  const [filter, setFilter] = useState(q);
+
+  if (prevQ !== q) {
+    setPrevQ(q);
+    if (filter.trim() !== q) {
+      setFilter(q);
+    }
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = filter.trim();
+      if (trimmed !== q) {
+        void navigate({
+          to: "/library/series",
+          search: (prev) => ({
+            ...prev,
+            q: trimmed || undefined,
+          }),
+          replace: true,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filter, q, navigate]);
+
+  const handleClearFilter = () => {
+    setFilter("");
+    if (q) {
+      void navigate({
+        to: "/library/series",
+        search: (prev) => ({
+          ...prev,
+          q: undefined,
+        }),
+        replace: true,
+      });
+    }
+  };
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<SeriesRefreshProgressPayload | null>(null);
@@ -163,8 +205,33 @@ export function SeriesOverviewPage() {
           placeholder="Filter series or authors..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="pl-9"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const trimmed = filter.trim();
+              if (trimmed !== q) {
+                void navigate({
+                  to: "/library/series",
+                  search: (prev) => ({
+                    ...prev,
+                    q: trimmed || undefined,
+                  }),
+                  replace: true,
+                });
+              }
+            }
+          }}
+          className="pr-9 pl-9"
         />
+        {filter ? (
+          <button
+            type="button"
+            onClick={handleClearFilter}
+            aria-label="Clear filter"
+            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       {loading && seriesList.length === 0 ? (

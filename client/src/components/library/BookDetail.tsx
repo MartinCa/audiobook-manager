@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,8 +33,17 @@ interface SaveErrorPayload {
 export function BookDetail() {
   const { bookId } = Route.useParams();
   const navigate = useNavigate();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const id = Number(bookId);
+
+  const handleBack = () => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+    } else {
+      void navigate({ to: "/library" });
+    }
+  };
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -194,7 +203,7 @@ export function BookDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </Button>
