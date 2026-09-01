@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides architecture guidance, binding invariants, and conventions for AI coding assistants and contributors working in this repository.
 
 ## Project Overview
 
 Audiobook Manager is a full-stack web application that organizes m4b audiobook files from an import directory into a structured library, with metadata scraping and Audiobookshelf integration. Backend is ASP.NET Core (net10.0), frontend is React 19 + Tailwind CSS + shadcn/ui on Base UI primitives (TypeScript), database is SQLite via EF Core, deployed via Docker.
 
-The frontend follows the shared conventions in `client/src/DESIGN.md` (from [MartinCa/frontend-kit](https://github.com/MartinCa/frontend-kit)) — read that file before writing any frontend code; it is binding, and this file does not repeat its rules. `client/src/AGENTS.md` points back to it and lists a few project-local shortcuts.
+Frontend guidelines are further detailed in `client/src/AGENTS.md` (project-local shortcuts and house rules) and `client/src/DESIGN.md` (shared conventions from [MartinCa/frontend-kit](https://github.com/MartinCa/frontend-kit)) — read those files before writing any frontend code; they are binding, and this file does not repeat their rules.
 
 ### Audiobookshelf compatibility
 
@@ -586,7 +586,7 @@ change is not complete until the tests covering it exist and pass.
 - **Bug fixes** — first write a test that fails against the unfixed code and passes with the
   fix, so the specific bug can never silently return. Reference the failure in the test name
   (e.g. `..._DoesNotResurrectStaleSidecarsOnRelocation`).
-- **Invariants** — behavior CLAUDE.md calls out as an invariant (the Author/Series/SeriesPart/
+- **Invariants** — behavior AGENTS.md calls out as an invariant (the Author/Series/SeriesPart/
   Year/BookName binding rule, "no hardcoded source list on the frontend", Hardcover's
   disabled pattern-matching operators, Missing Tags covering every writable tag field) deserves
   an explicit regression guard, since the cost of a silent regression there is high.
