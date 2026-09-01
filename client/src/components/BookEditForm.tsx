@@ -18,6 +18,7 @@ import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
 import { TagPreviewDialog } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
+import { TypeaheadInput } from "./TypeaheadInput";
 import { audiobookApi, settingsApi, similarValuesApi } from "@/services/api";
 import {
   joinList,
@@ -406,16 +407,26 @@ export function BookEditForm({
               <label className="mb-1 block text-xs font-medium">
                 Authors <span className="text-destructive">*</span>
               </label>
-              <Input
-                {...form.register("authors", {
-                  onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
-                    const primaryAuthor = splitList(e.target.value)[0];
-                    const matches = findSimilarExisting(primaryAuthor, authorNames);
-                    setAuthorHint(matches[0] && matches[0] !== primaryAuthor ? matches[0] : null);
-                  },
-                })}
-                placeholder="Author Name, Second Author"
-                aria-invalid={Boolean(form.formState.errors.authors)}
+              <Controller
+                control={form.control}
+                name="authors"
+                render={({ field }) => (
+                  <TypeaheadInput
+                    ref={field.ref}
+                    value={field.value ?? ""}
+                    onValueChange={(val) => field.onChange(val)}
+                    candidates={authorNames}
+                    multiValue={true}
+                    placeholder="Author Name, Second Author"
+                    aria-invalid={Boolean(form.formState.errors.authors)}
+                    onBlur={(e) => {
+                      field.onBlur();
+                      const primaryAuthor = splitList(e.target.value)[0];
+                      const matches = findSimilarExisting(primaryAuthor, authorNames);
+                      setAuthorHint(matches[0] && matches[0] !== primaryAuthor ? matches[0] : null);
+                    }}
+                  />
+                )}
               />
               {form.formState.errors.authors && (
                 <p className="text-destructive mt-1 text-xs">
@@ -467,14 +478,25 @@ export function BookEditForm({
 
             <div>
               <label className="mb-1 block text-xs font-medium">Series</label>
-              <Input
-                {...form.register("series", {
-                  onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
-                    const matches = findSimilarExisting(e.target.value, seriesNames);
-                    setSeriesHint(matches[0] && matches[0] !== e.target.value ? matches[0] : null);
-                  },
-                })}
-                placeholder="Series name"
+              <Controller
+                control={form.control}
+                name="series"
+                render={({ field }) => (
+                  <TypeaheadInput
+                    ref={field.ref}
+                    value={field.value ?? ""}
+                    onValueChange={(val) => field.onChange(val)}
+                    candidates={seriesNames}
+                    placeholder="Series name"
+                    onBlur={(e) => {
+                      field.onBlur();
+                      const matches = findSimilarExisting(e.target.value, seriesNames);
+                      setSeriesHint(
+                        matches[0] && matches[0] !== e.target.value ? matches[0] : null,
+                      );
+                    }}
+                  />
+                )}
               />
               {seriesHint && (
                 <button

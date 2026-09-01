@@ -251,4 +251,48 @@ describe("BookEditForm", () => {
     const resetBtn = screen.getByRole("button", { name: "Reset" });
     expect(resetBtn).toBeDisabled();
   });
+
+  it("offers live author typeahead suggestions while typing and selects on click", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce([
+      "Brandon Sanderson",
+      "Patrick Rothfuss",
+    ]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    const authorsInput = screen.getByDisplayValue("Jane Author");
+    fireEvent.focus(authorsInput);
+    fireEvent.change(authorsInput, { target: { value: "Sand" } });
+
+    expect(await screen.findByRole("option", { name: "Brandon Sanderson" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("option", { name: "Brandon Sanderson" }));
+    expect(authorsInput).toHaveValue("Brandon Sanderson");
+  });
+
+  it("offers live series typeahead suggestions while typing and selects on click", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getSeriesNames).mockResolvedValueOnce([
+      "The Stormlight Archive",
+      "Mistborn",
+    ]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(similarValuesApi.getSeriesNames).toHaveBeenCalled());
+
+    const seriesInput = screen.getByPlaceholderText("Series name");
+    fireEvent.focus(seriesInput);
+    fireEvent.change(seriesInput, { target: { value: "Storm" } });
+
+    expect(
+      await screen.findByRole("option", { name: "The Stormlight Archive" }),
+    ).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("option", { name: "The Stormlight Archive" }));
+    expect(seriesInput).toHaveValue("The Stormlight Archive");
+  });
 });

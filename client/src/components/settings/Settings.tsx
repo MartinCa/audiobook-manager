@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { settingsApi } from "@/services/api";
+import { TypeaheadInput } from "@/components/TypeaheadInput";
+import { settingsApi, similarValuesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
@@ -24,6 +25,12 @@ export function Settings() {
   const { data: mappings = [], isLoading: loading } = useQuery({
     queryKey: ["seriesMappings"],
     queryFn: () => settingsApi.getSeriesMappings(),
+  });
+
+  const { data: seriesNames = [] } = useQuery({
+    queryKey: ["similarValueNames", "series"],
+    queryFn: () => similarValuesApi.getSeriesNames(),
+    staleTime: 5 * 60 * 1000,
   });
 
   const handleOpenCreate = () => {
@@ -199,10 +206,11 @@ export function Settings() {
               <label className="text-muted-foreground text-xs font-semibold uppercase">
                 Target Series Name <span className="text-destructive">*</span>
               </label>
-              <Input
+              <TypeaheadInput
                 placeholder="The Wheel of Time"
                 value={mappedSeries}
-                onChange={(e) => setMappedSeries(e.target.value)}
+                onValueChange={setMappedSeries}
+                candidates={seriesNames}
                 required
               />
             </div>
