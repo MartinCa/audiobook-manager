@@ -44,7 +44,7 @@ describe("CoverEditor", () => {
       ok: true,
       status: 200,
       blob: vi.fn().mockResolvedValue(mockBlob),
-    } as unknown as Response);
+    });
 
     render(<CoverEditor onCoverChange={onCoverChange} />);
 

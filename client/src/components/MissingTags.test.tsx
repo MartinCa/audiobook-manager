@@ -3,10 +3,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MissingTags } from "./MissingTags";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
+import type * as SonnerModule from "sonner";
 import { toast } from "sonner";
 
 vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("sonner")>();
+  const actual = await importOriginal<typeof SonnerModule>();
   return {
     ...actual,
     toast: {
@@ -92,9 +93,11 @@ describe("MissingTags", () => {
 
   it("runs language backfill and stops polling once complete without infinite loop", async () => {
     vi.mocked(missingTagsApi.startLanguageBackfill).mockResolvedValue();
+
+    // Starts running
     vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: false,
-      processed: 10,
+      isRunning: true,
+      processed: 5,
       total: 10,
     });
 
@@ -109,15 +112,27 @@ describe("MissingTags", () => {
       expect(missingTagsApi.startLanguageBackfill).toHaveBeenCalled();
     });
 
+    // Verify progress bar is visible while running
+    expect(await screen.findByText(/50%/)).toBeInTheDocument();
+
+    // Completes
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 10,
+      total: 10,
+    });
+
+    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Language backfill operation completed");
     });
 
     // Verify toast was only triggered once (not looped)
     expect(
-      vi.mocked(toast.success).mock.calls.filter(
-        (call) => call[0] === "Language backfill operation completed",
-      ),
+      vi
+        .mocked(toast.success)
+        .mock.calls.filter((call) => call[0] === "Language backfill operation completed"),
     ).toHaveLength(1);
   });
 });

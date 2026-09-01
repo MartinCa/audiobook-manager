@@ -5,10 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
+import type * as SonnerModule from "sonner";
 import { toast } from "sonner";
 
 vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("sonner")>();
+  const actual = await importOriginal<typeof SonnerModule>();
   return {
     ...actual,
     toast: {
@@ -25,7 +26,7 @@ vi.mock("@/services/api", () => ({
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
   },
   audiobookApi: {
-    saveAudiobook: vi.fn(),
+    updateBook: vi.fn(),
     deleteAudiobook: vi.fn(),
     checkTargetPath: vi.fn().mockResolvedValue({ exists: false, targetPath: "/library/Book.m4b" }),
     generateNewPath: vi.fn().mockResolvedValue("Author/Book/Book.m4b"),

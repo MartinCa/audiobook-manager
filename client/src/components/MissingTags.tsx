@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Tag, BookOpen, ChevronRight, Globe, Loader2 } from "lucide-react";
@@ -13,7 +13,6 @@ import { toast } from "sonner";
 
 export function MissingTags() {
   const queryClient = useQueryClient();
-  const [backfilling, setBackfilling] = useState(false);
 
   const { data: fields = [], isLoading: loadingFields } = useQuery({
     queryKey: ["missingTagFields"],
@@ -31,19 +30,21 @@ export function MissingTags() {
   const { data: backfillStatus } = useQuery({
     queryKey: ["languageBackfillStatus"],
     queryFn: () => operationsApi.getStatus("language-backfill"),
-    enabled: backfilling,
-    refetchInterval: backfilling ? 1500 : false,
+    refetchInterval: (query) => (query.state.data?.isRunning ? 1500 : false),
   });
 
+  const prevRunningRef = useRef(false);
+
   useEffect(() => {
-    if (backfilling && backfillStatus && !backfillStatus.isRunning) {
-      setBackfilling(false);
+    const isRunning = Boolean(backfillStatus?.isRunning);
+    if (prevRunningRef.current && !isRunning) {
       toast.success("Language backfill operation completed");
       void queryClient.invalidateQueries({
         queryKey: ["missingTagsAudiobooks"],
       });
     }
-  }, [backfilling, backfillStatus, queryClient]);
+    prevRunningRef.current = isRunning;
+  }, [backfillStatus?.isRunning, queryClient]);
 
   const toggleField = (key: string) => {
     setSelectedFields(
@@ -66,17 +67,16 @@ export function MissingTags() {
   };
 
   const handleStartLanguageBackfill = async () => {
-    setBackfilling(true);
     try {
       await missingTagsApi.startLanguageBackfill();
       toast.success("Language backfill started in background");
+      void queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-      setBackfilling(false);
     }
   };
 
-  const isBackfillRunning = backfilling && backfillStatus?.isRunning;
+  const isBackfillRunning = Boolean(backfillStatus?.isRunning);
 
   return (
     <div className="space-y-6">
