@@ -11,6 +11,8 @@ namespace AudiobookManager.Services;
 public class AudiobookService : IAudiobookService
 {
     private readonly IAudiobookTagHandler _tagHandler;
+    private readonly IAudiobookFileHandler _fileHandler;
+    private readonly IFileOperations _fileOperations;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<AudiobookService> _logger;
 
@@ -21,6 +23,8 @@ public class AudiobookService : IAudiobookService
 
     public AudiobookService(
         IAudiobookTagHandler tagHandler,
+        IAudiobookFileHandler fileHandler,
+        IFileOperations fileOperations,
         IOptions<AudiobookManagerSettings> settings,
         IAudiobookRepository audiobookRepository,
         IPersonRepository personRepository,
@@ -29,6 +33,8 @@ public class AudiobookService : IAudiobookService
         ILogger<AudiobookService> logger)
     {
         _tagHandler = tagHandler;
+        _fileHandler = fileHandler;
+        _fileOperations = fileOperations;
         _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _personRepository = personRepository;
@@ -200,11 +206,11 @@ public class AudiobookService : IAudiobookService
 
         await progressAction("Reparsed", 85);
 
-        AudiobookFileHandler.WriteMetadata(newParsed);
+        _fileHandler.WriteMetadata(newParsed);
 
         await progressAction("Written metadata files", 90);
 
-        newParsed.CoverFilePath = AudiobookFileHandler.WriteCover(newParsed);
+        newParsed.CoverFilePath = _fileHandler.WriteCover(newParsed);
 
         await progressAction("Written cover", 95);
 
@@ -256,6 +262,9 @@ public class AudiobookService : IAudiobookService
                     newFullPath, AudiobookFileHandler.PathsEqual);
                 if (existingAudiobook is not null)
                 {
+                    _logger.LogInformation(
+                        "Replacing existing audiobook {AudiobookId} ('{Title}') at '{TargetPath}'",
+                        existingAudiobook.Id, existingAudiobook.BookName, newFullPath);
                     await _issueRepository.DeleteByAudiobookIdAsync(existingAudiobook.Id);
                     await _audiobookRepository.DeleteAudiobookAsync(existingAudiobook.Id);
                 }
@@ -273,7 +282,7 @@ public class AudiobookService : IAudiobookService
 
         sw?.Restart();
 
-        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath, overwrite: audiobook.ReplaceExisting == true);
+        _fileHandler.RelocateAudiobook(audiobook, newFullPath, overwrite: audiobook.ReplaceExisting == true);
 
         if (sw is not null)
         {
@@ -296,9 +305,9 @@ public class AudiobookService : IAudiobookService
         var newDirectory = Path.GetDirectoryName(newFullPath);
         if (oldDirectory is not null && newDirectory is not null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
         {
-            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
-            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
-            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+            _fileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
+            _fileHandler.RemoveSidecarFiles(oldDirectory);
+            _fileHandler.RemoveDirIfEmpty(oldDirectory);
         }
 
         return newFullPath;
@@ -352,6 +361,9 @@ public class AudiobookService : IAudiobookService
         };
 
         var result = await _audiobookRepository.InsertAudiobook(dbAudiobook);
+        _logger.LogInformation(
+            "Added audiobook {AudiobookId} ('{Title}') to library at '{FilePath}'",
+            result.Id, result.BookName, result.FileInfoFullPath);
         return FromDb(result);
     }
 
@@ -360,9 +372,7 @@ public class AudiobookService : IAudiobookService
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(id);
         if (dbAudiobook == null) return null;
 
-        var domain = FromDb(dbAudiobook);
-        domain.Id = dbAudiobook.Id;
-        return domain;
+        return FromDb(dbAudiobook);
     }
 
     public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null)
@@ -404,6 +414,9 @@ public class AudiobookService : IAudiobookService
         existing.Genres = genres;
 
         await _audiobookRepository.UpdateAudiobookAsync(existing);
+        _logger.LogInformation(
+            "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
+            existing.Id, existing.BookName, existing.FileInfoFullPath);
 
         await progressAction("Done", 100);
 
@@ -418,27 +431,31 @@ public class AudiobookService : IAudiobookService
             return;
         }
 
+        var directoryPath = Path.GetDirectoryName(existing.FileInfoFullPath);
+        _logger.LogInformation(
+            "Deleting audiobook {AudiobookId} ('{Title}') from library (path: '{FilePath}')",
+            existing.Id, existing.BookName, existing.FileInfoFullPath);
+
         await _issueRepository.DeleteByAudiobookIdAsync(id);
         await _audiobookRepository.DeleteAudiobookAsync(id);
 
         if (File.Exists(existing.FileInfoFullPath))
         {
-            var directoryPath = Path.GetDirectoryName(existing.FileInfoFullPath);
             if (directoryPath != null)
             {
                 if ((string.IsNullOrEmpty(_settings.AudiobookLibraryPath) || !AudiobookFileHandler.PathsEqual(directoryPath, _settings.AudiobookLibraryPath)) &&
                     (string.IsNullOrEmpty(_settings.AudiobookImportPath) || !AudiobookFileHandler.PathsEqual(directoryPath, _settings.AudiobookImportPath)))
                 {
-                    Directory.Delete(directoryPath, true);
+                    _fileOperations.DeleteDirectory(directoryPath, true, $"audiobook {existing.Id} ('{existing.BookName}') deleted from library");
                     var parentDir = Path.GetDirectoryName(directoryPath);
                     if (parentDir != null)
                     {
-                        AudiobookFileHandler.RemoveDirIfEmpty(parentDir);
+                        _fileHandler.RemoveDirIfEmpty(parentDir);
                     }
                 }
                 else
                 {
-                    File.Delete(existing.FileInfoFullPath);
+                    _fileOperations.DeleteFile(existing.FileInfoFullPath, $"audiobook {existing.Id} ('{existing.BookName}') deleted from library (root file)");
                 }
             }
         }
@@ -452,6 +469,7 @@ public class AudiobookService : IAudiobookService
             audiobookDb.Year,
             new AudiobookFileInfo(audiobookDb.FileInfoFullPath, audiobookDb.FileInfoFileName, audiobookDb.FileInfoSizeInBytes))
         {
+            Id = audiobookDb.Id,
             Narrators = audiobookDb.Narrators.Select(FromDbPerson).ToList(),
             BookName = audiobookDb.BookName,
             Subtitle = audiobookDb.Subtitle,

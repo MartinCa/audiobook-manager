@@ -5,6 +5,8 @@ using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -13,13 +15,15 @@ namespace AudiobookManager.Test.Controllers;
 public class FilesControllerTests
 {
     private Mock<IFileService> _fileService = null!;
+    private Mock<ILogger<FilesController>> _logger = null!;
     private FilesController _controller = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _fileService = new Mock<IFileService>();
-        _controller = new FilesController(_fileService.Object)
+        _logger = new Mock<ILogger<FilesController>>();
+        _controller = new FilesController(_fileService.Object, _logger.Object)
         {
             // GetCover sets a response header, which needs a real HttpContext behind it -
             // ControllerBase.Response is null without one.
@@ -141,6 +145,14 @@ public class FilesControllerTests
         var okResult = result as OkResult;
         Assert.IsNotNull(okResult);
         Assert.AreEqual(StatusCodes.Status200OK, okResult.StatusCode);
+        _logger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Delete directory requested for path '/path'")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     [TestMethod]

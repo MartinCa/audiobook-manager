@@ -1,10 +1,12 @@
-﻿using AudiobookManager.Domain;
+using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
 
 namespace AudiobookManager.Test.FileManager;
 [TestClass]
 public class AudiobookFileHandlerTests
 {
+    private readonly IAudiobookFileHandler _fileHandler = new AudiobookFileHandler(new FileOperations());
+
     [TestMethod]
     public void GetSafeCombinedPath_Test()
     {
@@ -348,7 +350,7 @@ public class AudiobookFileHandlerTests
                 Narrators = new List<Person> { new Person("Narrator One"), new Person("Narrator Two") }
             };
 
-            AudiobookFileHandler.WriteMetadata(audiobook);
+            _fileHandler.WriteMetadata(audiobook);
 
             var descPath = Path.Combine(tempDir, "desc.txt");
             var readerPath = Path.Combine(tempDir, "reader.txt");
@@ -400,7 +402,7 @@ public class AudiobookFileHandlerTests
                 Narrators = new List<Person>()
             };
 
-            AudiobookFileHandler.WriteMetadata(audiobook);
+            _fileHandler.WriteMetadata(audiobook);
 
             Assert.IsFalse(File.Exists(descPath));
             Assert.IsFalse(File.Exists(readerPath));
@@ -430,7 +432,7 @@ public class AudiobookFileHandlerTests
                 2024,
                 new AudiobookFileInfo(tempFile, "test.m4b", 100));
 
-            AudiobookFileHandler.WriteMetadata(audiobook);
+            _fileHandler.WriteMetadata(audiobook);
 
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")));
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "reader.txt")));
@@ -468,7 +470,7 @@ public class AudiobookFileHandlerTests
                 Cover = new AudiobookImage(Convert.ToBase64String(jpegBytes), "image/jpeg")
             };
 
-            var result = AudiobookFileHandler.WriteCover(audiobook);
+            var result = _fileHandler.WriteCover(audiobook);
 
             Assert.IsNotNull(result);
             Assert.IsTrue(File.Exists(Path.Combine(tempDir, "cover.jpg")));
@@ -579,7 +581,7 @@ public class AudiobookFileHandlerTests
                 Cover = new AudiobookImage(base64, "image/jpeg")
             };
 
-            var result = AudiobookFileHandler.WriteCover(audiobook);
+            var result = _fileHandler.WriteCover(audiobook);
 
             Assert.IsNotNull(result);
             Assert.IsTrue(result.EndsWith("cover.jpg"));
@@ -611,7 +613,7 @@ public class AudiobookFileHandlerTests
                 2024,
                 new AudiobookFileInfo(tempFile, "test.m4b", 100));
 
-            var result = AudiobookFileHandler.WriteCover(audiobook);
+            var result = _fileHandler.WriteCover(audiobook);
 
             Assert.IsNull(result);
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "cover.jpg")));
@@ -634,7 +636,7 @@ public class AudiobookFileHandlerTests
             var jpgPath = Path.Combine(tempDir, "cover.jpg");
             File.WriteAllBytes(jpgPath, new byte[] { 0xFF, 0xD8, 0xFF });
 
-            var result = AudiobookFileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
+            var result = _fileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
 
             Assert.AreEqual(jpgPath, result);
         }
@@ -652,7 +654,7 @@ public class AudiobookFileHandlerTests
 
         try
         {
-            var result = AudiobookFileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
+            var result = _fileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
 
             Assert.IsNull(result);
         }
@@ -678,7 +680,7 @@ public class AudiobookFileHandlerTests
             File.WriteAllBytes(jpgPath, new byte[] { 0xFF, 0xD8, 0xFF });
             File.WriteAllBytes(pngPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
 
-            var result = AudiobookFileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
+            var result = _fileHandler.GetExistingCoverPath(tempDir, cleanupDuplicate: false);
 
             Assert.AreEqual(jpgPath, result);
             Assert.IsTrue(File.Exists(jpgPath));
@@ -704,7 +706,7 @@ public class AudiobookFileHandlerTests
             File.WriteAllText(Path.Combine(tempDir, "metadata.opf"), "<package/>");
             File.WriteAllText(Path.Combine(tempDir, "keep.me"), "unrelated file");
 
-            AudiobookFileHandler.RemoveSidecarFiles(tempDir);
+            _fileHandler.RemoveSidecarFiles(tempDir);
 
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "desc.txt")));
             Assert.IsFalse(File.Exists(Path.Combine(tempDir, "reader.txt")));
@@ -723,6 +725,6 @@ public class AudiobookFileHandlerTests
     {
         var missingDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
 
-        AudiobookFileHandler.RemoveSidecarFiles(missingDir);
+        _fileHandler.RemoveSidecarFiles(missingDir);
     }
 }

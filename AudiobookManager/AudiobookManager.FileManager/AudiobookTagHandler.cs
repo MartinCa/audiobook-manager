@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using ATL;
 using AudiobookManager.Domain;
 using Microsoft.Extensions.Logging;
@@ -83,7 +83,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             throw new ArgumentNullException(nameof(audiobook), "FileInfo is null");
         }
 
-        _logger.LogInformation("({audiobookFile}) Starting saving tracks", audiobook.FileInfo.FullPath);
+        _logger.LogInformation("({audiobookFile}) Saving tags to m4b file", audiobook.FileInfo.FullPath);
 
         var track = new Track(audiobook.FileInfo.FullPath);
 
@@ -170,7 +170,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             throw new Exception("Tags could not be saved");
         }
 
-        _logger.LogInformation("({audiobookFile}) tags saved", audiobook.FileInfo.FullPath);
+        _logger.LogInformation("({audiobookFile}) Tags saved successfully to m4b file", audiobook.FileInfo.FullPath);
     }
 
     /// <summary>

@@ -2,17 +2,22 @@ using System.Xml.Linq;
 using AudiobookManager.Domain;
 
 namespace AudiobookManager.FileManager;
-public static class AudiobookFileHandler
+
+public class AudiobookFileHandler : IAudiobookFileHandler
 {
-    private const string _replacementInvalidPathSeparator = "_";
-    private const string _replaceInvalidPathOrFileNameCharacter = "";
-    private const char _preferredDirectorySeparatorChar = '/';
-    private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
     private static readonly string[] _sidecarFileNames = new[] { "desc.txt", "reader.txt", "cover.jpg", "cover.png", "metadata.opf" };
     private static readonly string[] _coverExtensions = new[] { ".jpg", ".png" };
 
     private static readonly XNamespace _opfNamespace = "http://www.idpf.org/2007/opf";
     private static readonly XNamespace _dcNamespace = "http://purl.org/dc/elements/1.1/";
+
+    private readonly IFileOperations _fileOperations;
+    private static readonly IFileOperations _defaultFileOperations = new FileOperations();
+
+    public AudiobookFileHandler(IFileOperations fileOperations)
+    {
+        _fileOperations = fileOperations;
+    }
 
     // Windows and macOS file systems are case-insensitive while Linux is case-sensitive, so two
     // paths differing only in case refer to the same file on the former but not the latter.
@@ -59,11 +64,18 @@ public static class AudiobookFileHandler
         return fullPath.StartsWith(fullPrefix, PathComparison);
     }
 
-    public static void RelocateAudiobook(Audiobook audiobook, string newFullPath, bool overwrite = false)
+    public void RelocateAudiobook(Audiobook audiobook, string newFullPath, bool overwrite = false)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(newFullPath)!);
-        File.Move(audiobook.FileInfo.FullPath, newFullPath, overwrite);
+        var targetDir = Path.GetDirectoryName(newFullPath);
+        if (!string.IsNullOrEmpty(targetDir))
+        {
+            _fileOperations.CreateDirectory(targetDir, "audiobook relocation");
+        }
+        _fileOperations.MoveFile(audiobook.FileInfo.FullPath, newFullPath, overwrite, "audiobook relocation");
     }
+
+    public static void RelocateAudiobookStatic(Audiobook audiobook, string newFullPath, bool overwrite = false) =>
+        new AudiobookFileHandler(_defaultFileOperations).RelocateAudiobook(audiobook, newFullPath, overwrite);
 
     /// <summary>
     /// Writes the sidecars this application owns (desc.txt, reader.txt, metadata.opf) from the
@@ -76,7 +88,7 @@ public static class AudiobookFileHandler
     /// preference to the m4b's own tag. Nothing rewrote or reported it, so the old text stayed
     /// on disk indefinitely.
     /// </summary>
-    public static void WriteMetadata(Audiobook audiobook)
+    public void WriteMetadata(Audiobook audiobook)
     {
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
 
@@ -86,7 +98,7 @@ public static class AudiobookFileHandler
         }
         else
         {
-            RemoveFileIfExists(JoinPaths(directoryPath, "desc.txt"));
+            _fileOperations.DeleteFileIfExists(JoinPaths(directoryPath, "desc.txt"), "empty description sidecar cleanup");
         }
 
         if (audiobook.Narrators.Any())
@@ -95,17 +107,23 @@ public static class AudiobookFileHandler
         }
         else
         {
-            RemoveFileIfExists(JoinPaths(directoryPath, "reader.txt"));
+            _fileOperations.DeleteFileIfExists(JoinPaths(directoryPath, "reader.txt"), "empty narrators sidecar cleanup");
         }
 
         WriteOpf(audiobook);
     }
 
-    public static void WriteOpf(Audiobook audiobook)
+    public static void WriteMetadataStatic(Audiobook audiobook) =>
+        new AudiobookFileHandler(_defaultFileOperations).WriteMetadata(audiobook);
+
+    public void WriteOpf(Audiobook audiobook)
     {
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
         MakeMetadataFile(directoryPath, "metadata.opf", BuildOpfContent(audiobook));
     }
+
+    public static void WriteOpfStatic(Audiobook audiobook) =>
+        new AudiobookFileHandler(_defaultFileOperations).WriteOpf(audiobook);
 
     /// <summary>
     /// Builds the metadata.opf sidecar content (Calibre/Audiobookshelf's standard OPF format,
@@ -192,17 +210,14 @@ public static class AudiobookFileHandler
         return writer.ToString();
     }
 
-    public static string? WriteCover(Audiobook audiobook)
+    public string? WriteCover(Audiobook audiobook)
     {
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfo.FullPath)!;
         if (audiobook.Cover is not null)
         {
             var coverExtension = GetMimeFileExt(audiobook.Cover.MimeType);
             var fileName = JoinPaths(directoryPath, $"cover{coverExtension}");
-            using (var fs = new FileStream(fileName, FileMode.Create, FileAccess.Write))
-            {
-                fs.Write(Convert.FromBase64String(audiobook.Cover.Base64Data));
-            }
+            _fileOperations.WriteAllBytes(fileName, Convert.FromBase64String(audiobook.Cover.Base64Data), "audiobook cover image");
 
             // Replacing a JPEG cover with a PNG one (or the reverse) used to leave both files in
             // the directory. Only one of them is the cover this book actually has, and which of
@@ -210,7 +225,7 @@ public static class AudiobookFileHandler
             // goes, rather than leaving a stale image behind to compete with the real one.
             foreach (var otherExtension in _coverExtensions.Where(e => e != coverExtension))
             {
-                RemoveFileIfExists(JoinPaths(directoryPath, $"cover{otherExtension}"));
+                _fileOperations.DeleteFileIfExists(JoinPaths(directoryPath, $"cover{otherExtension}"), "conflicting cover format cleanup");
             }
 
             return fileName;
@@ -218,6 +233,9 @@ public static class AudiobookFileHandler
 
         return GetExistingCoverPath(directoryPath, cleanupDuplicate: true);
     }
+
+    public static string? WriteCoverStatic(Audiobook audiobook) =>
+        new AudiobookFileHandler(_defaultFileOperations).WriteCover(audiobook);
 
     /// <summary>
     /// Finds the cover.jpg/cover.png sidecar already sitting in <paramref name="directoryPath"/>,
@@ -232,7 +250,7 @@ public static class AudiobookFileHandler
     /// lookup against a directory nothing has confirmed is even an audiobook's - the discovered
     /// list preview must stay read-only, so it always passes false.
     /// </summary>
-    public static string? GetExistingCoverPath(string directoryPath, bool cleanupDuplicate)
+    public string? GetExistingCoverPath(string directoryPath, bool cleanupDuplicate)
     {
         var jpgPath = JoinPaths(directoryPath, "cover.jpg");
         var pngPath = JoinPaths(directoryPath, "cover.png");
@@ -243,7 +261,7 @@ public static class AudiobookFileHandler
         {
             if (cleanupDuplicate)
             {
-                RemoveFileIfExists(pngPath);
+                _fileOperations.DeleteFileIfExists(pngPath, "duplicate cover format cleanup (preferring jpg)");
             }
             return jpgPath;
         }
@@ -261,12 +279,15 @@ public static class AudiobookFileHandler
         return null;
     }
 
+    public static string? GetExistingCoverPathStatic(string directoryPath, bool cleanupDuplicate) =>
+        new AudiobookFileHandler(_defaultFileOperations).GetExistingCoverPath(directoryPath, cleanupDuplicate);
+
     /// <summary>
     /// Moves existing cover sidecar files from <paramref name="oldDirectory"/> to
     /// <paramref name="newDirectory"/> before <paramref name="oldDirectory"/> is cleaned up,
     /// so a book without embedded artwork in its m4b does not lose its cover image on relocation.
     /// </summary>
-    public static void MigrateSidecarFiles(string oldDirectory, string newDirectory)
+    public void MigrateSidecarFiles(string oldDirectory, string newDirectory)
     {
         if (Directory.Exists(oldDirectory) && Directory.Exists(newDirectory) && !PathsEqual(oldDirectory, newDirectory))
         {
@@ -276,29 +297,24 @@ public static class AudiobookFileHandler
                 var newCover = JoinPaths(newDirectory, $"cover{coverExt}");
                 if (File.Exists(oldCover) && !File.Exists(newCover))
                 {
-                    File.Move(oldCover, newCover);
+                    _fileOperations.MoveFile(oldCover, newCover, false, "migrating cover sidecar to new directory");
                 }
             }
         }
     }
 
-    private static void RemoveFileIfExists(string filePath)
+    public static void MigrateSidecarFilesStatic(string oldDirectory, string newDirectory) =>
+        new AudiobookFileHandler(_defaultFileOperations).MigrateSidecarFiles(oldDirectory, newDirectory);
+
+    public void RemoveDirIfEmpty(string directoryPath)
     {
-        if (File.Exists(filePath))
-        {
-            File.Delete(filePath);
-        }
+        _fileOperations.DeleteDirectoryIfEmpty(directoryPath, "cleaning up empty directory");
     }
 
-    public static void RemoveDirIfEmpty(string directoryPath)
-    {
-        if (Directory.Exists(directoryPath) && !Directory.GetFiles(directoryPath).Any() && !Directory.GetDirectories(directoryPath).Any())
-        {
-            Directory.Delete(directoryPath);
-        }
-    }
+    public static void RemoveDirIfEmptyStatic(string directoryPath) =>
+        new AudiobookFileHandler(_defaultFileOperations).RemoveDirIfEmpty(directoryPath);
 
-    public static void RemoveSidecarFiles(string directoryPath)
+    public void RemoveSidecarFiles(string directoryPath)
     {
         if (!Directory.Exists(directoryPath))
         {
@@ -308,12 +324,12 @@ public static class AudiobookFileHandler
         foreach (var fileName in _sidecarFileNames)
         {
             var filePath = JoinPaths(directoryPath, fileName);
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-            }
+            _fileOperations.DeleteFileIfExists(filePath, "cleaning up old directory sidecar");
         }
     }
+
+    public static void RemoveSidecarFilesStatic(string directoryPath) =>
+        new AudiobookFileHandler(_defaultFileOperations).RemoveSidecarFiles(directoryPath);
 
     public static string GenerateRelativeAudiobookPath(Audiobook audiobook)
     {
@@ -343,13 +359,43 @@ public static class AudiobookFileHandler
         return CombinePathAndFilename(pathParts, fileName, Path.GetExtension(audiobook.FileInfo.FullPath));
     }
 
-    public static string JoinPaths(string path1, string path2) => $"{GetSafeCompletePath(path1)}{GetDirectorySeparator()}{GetSafeCompletePath(path2)}";
+    public static string JoinPaths(string path1, string path2) => $"{path1.GetSafeCompletePath()}{AudiobookPathExtensions.GetDirectorySeparator()}{path2.GetSafeCompletePath()}";
 
     public static string CombinePathAndFilename(IEnumerable<string> pathParts, string fileName, string extension) =>
-        GetSafeCombinedPath(pathParts.Concat(new[] { $"{fileName}{GetExtensionWithDot(extension)}" }));
+        GetSafeCombinedPath(pathParts.Concat(new[] { $"{fileName}{extension.GetExtensionWithDot()}" }));
 
     public static string GetSafeCombinedPath(IEnumerable<string> pathParts) =>
-        pathParts.Aggregate(string.Empty, (acc, curr) => string.IsNullOrEmpty(acc) ? GetSafeFileName(curr) : acc + GetDirectorySeparator() + GetSafeFileName(curr));
+        pathParts.Aggregate(string.Empty, (acc, curr) => string.IsNullOrEmpty(acc) ? curr.GetSafeFileName() : acc + AudiobookPathExtensions.GetDirectorySeparator() + curr.GetSafeFileName());
+
+    public static string GetSafeCompletePath(string path) => path.GetSafeCompletePath();
+
+    public static string GetSafeFileName(string fileName) => fileName.GetSafeFileName();
+
+    public static char GetDirectorySeparator() => AudiobookPathExtensions.GetDirectorySeparator();
+
+    private void MakeMetadataFile(string directoryPath, string fileName, string content)
+    {
+        var filePath = JoinPaths(directoryPath, fileName);
+        _fileOperations.WriteAllText(filePath, content, $"audiobook {fileName} sidecar");
+    }
+
+    private static string GetMimeFileExt(string mimeType)
+    {
+        return mimeType switch
+        {
+            "image/jpeg" => ".jpg",
+            "image/png" => ".png",
+            _ => throw new Exception($"Unsupported mime type {mimeType}")
+        };
+    }
+}
+
+public static class AudiobookPathExtensions
+{
+    private const string _replacementInvalidPathSeparator = "_";
+    private const string _replaceInvalidPathOrFileNameCharacter = "";
+    private const char _preferredDirectorySeparatorChar = '/';
+    private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
 
     public static string GetSafeCompletePath(this string path)
         => path.ReplaceChars(Path.GetInvalidPathChars(), _replaceInvalidPathOrFileNameCharacter);
@@ -359,7 +405,7 @@ public static class AudiobookFileHandler
 
     public static char GetDirectorySeparator() => _systemDirectorySeparators.Contains(_preferredDirectorySeparatorChar) ? _preferredDirectorySeparatorChar : Path.DirectorySeparatorChar;
 
-    private static string GetExtensionWithDot(this string extension) => extension.StartsWith('.') ? extension : $".{extension}";
+    public static string GetExtensionWithDot(this string extension) => extension.StartsWith('.') ? extension : $".{extension}";
 
     private static string ReplaceCharsAndPathSeparators(this string inputString, char[] charsToReplace, string replacementString) =>
         inputString.ReplacePathSeparators().ReplaceChars(charsToReplace, replacementString);
@@ -390,20 +436,4 @@ public static class AudiobookFileHandler
 
     private static string ReplacePathSeparators(this string path)
         => path.ReplaceChars(_systemDirectorySeparators, _replacementInvalidPathSeparator);
-
-    private static void MakeMetadataFile(string directoryPath, string fileName, string content)
-    {
-        var filePath = JoinPaths(directoryPath, fileName);
-        File.WriteAllText(filePath, content);
-    }
-
-    private static string GetMimeFileExt(string mimeType)
-    {
-        return mimeType switch
-        {
-            "image/jpeg" => ".jpg",
-            "image/png" => ".png",
-            _ => throw new Exception($"Unsupported mime type {mimeType}")
-        };
-    }
 }

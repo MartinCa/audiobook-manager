@@ -570,5 +570,13 @@ public class AudiobookControllerTests
 
         Assert.IsInstanceOfType<OkResult>(result);
         _audiobookService.Verify(s => s.DeleteAudiobook(1), Times.Once);
+        _logger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Delete audiobook requested for id 1")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 }

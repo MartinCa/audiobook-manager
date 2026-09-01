@@ -7,10 +7,17 @@ namespace AudiobookManager.Services;
 
 public class FileService : IFileService
 {
+    private readonly IFileOperations _fileOperations;
+    private readonly IAudiobookFileHandler _fileHandler;
     private readonly AudiobookManagerSettings _settings;
 
-    public FileService(IOptions<AudiobookManagerSettings> settings)
+    public FileService(
+        IFileOperations fileOperations,
+        IAudiobookFileHandler fileHandler,
+        IOptions<AudiobookManagerSettings> settings)
     {
+        _fileOperations = fileOperations;
+        _fileHandler = fileHandler;
         _settings = settings.Value;
     }
 
@@ -29,17 +36,17 @@ public class FileService : IFileService
             if (AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookImportPath) ||
                 AudiobookFileHandler.PathsEqual(parentDir, _settings.AudiobookLibraryPath))
             {
-                File.Delete(directoryPath);
+                _fileOperations.DeleteFile(directoryPath, "user requested deletion of file in root directory");
                 return;
             }
 
             ValidateNotRoot(parentDir);
-            Directory.Delete(parentDir, true);
+            _fileOperations.DeleteDirectory(parentDir, true, "user requested deletion of file parent directory");
             return;
         }
 
         ValidateNotRoot(directoryPath);
-        Directory.Delete(directoryPath, true);
+        _fileOperations.DeleteDirectory(directoryPath, true, "user requested deletion of directory");
     }
 
     public IList<AudiobookFileInfo> GetDirectoryContents(string directoryPath)
@@ -85,7 +92,7 @@ public class FileService : IFileService
         // Read-only lookup for a discovered (not yet DB-tracked) file's preview - never the
         // WriteCover path that owns and mutates the directory, so never clean up a duplicate
         // cover.png/.jpg pair here.
-        return AudiobookFileHandler.GetExistingCoverPath(directoryPath, cleanupDuplicate: false);
+        return _fileHandler.GetExistingCoverPath(directoryPath, cleanupDuplicate: false);
     }
 
     private void ValidateNotRoot(string path)

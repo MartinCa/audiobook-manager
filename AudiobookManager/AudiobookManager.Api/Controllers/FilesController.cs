@@ -10,10 +10,12 @@ namespace AudiobookManager.Api.Controllers;
 public class FilesController : ControllerBase
 {
     private readonly IFileService _fileService;
+    private readonly ILogger<FilesController> _logger;
 
-    public FilesController(IFileService fileService)
+    public FilesController(IFileService fileService, ILogger<FilesController> logger)
     {
         _fileService = fileService;
+        _logger = logger;
     }
 
     [HttpPost("directory_contents")]
@@ -78,6 +80,7 @@ public class FilesController : ControllerBase
     [HttpPost("delete_directory")]
     public IActionResult DeleteDirectory([FromBody] PathDto dto)
     {
+        _logger.LogInformation("Delete directory requested for path '{Path}'", dto.Path);
         try
         {
             _fileService.DeleteDirectory(dto.Path);

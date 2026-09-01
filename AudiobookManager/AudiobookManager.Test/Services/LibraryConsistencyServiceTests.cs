@@ -17,11 +17,28 @@ public class LibraryConsistencyServiceTests
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
+    private IAudiobookFileHandler _fileHandler = null!;
+    private IFileOperations _fileOperations = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
     private AudiobookSaveGate _saveGate = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private LibraryConsistencyService _service = null!;
+
+    private LibraryConsistencyService CreateService(IOptions<AudiobookManagerSettings>? settings = null)
+    {
+        return new LibraryConsistencyService(
+            settings ?? _settings,
+            _audiobookRepository.Object,
+            _issueRepository.Object,
+            _orphanDirectoryRepository.Object,
+            _tagHandler.Object,
+            _fileHandler,
+            _fileOperations,
+            _audiobookService.Object,
+            _saveGate,
+            _logger.Object);
+    }
 
     [TestInitialize]
     public void Setup()
@@ -30,6 +47,8 @@ public class LibraryConsistencyServiceTests
         _issueRepository = new Mock<IConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _tagHandler = new Mock<IAudiobookTagHandler>();
+        _fileOperations = new FileOperations();
+        _fileHandler = new AudiobookFileHandler(_fileOperations);
         _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
         _saveGate = new AudiobookSaveGate();
@@ -38,15 +57,7 @@ public class LibraryConsistencyServiceTests
             AudiobookLibraryPath = "/library"
         });
 
-        _service = new LibraryConsistencyService(
-            _settings,
-            _audiobookRepository.Object,
-            _issueRepository.Object,
-            _orphanDirectoryRepository.Object,
-            _tagHandler.Object,
-            _audiobookService.Object,
-            _saveGate,
-            _logger.Object);
+        _service = CreateService();
     }
 
     #region Bulk resolve cascades
@@ -862,10 +873,7 @@ public class LibraryConsistencyServiceTests
             await File.WriteAllTextAsync(Path.Combine(orphanBookDir, "desc.txt"), "leftover");
 
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
-            var service = new LibraryConsistencyService(
-                settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
-                _saveGate, _logger.Object);
+            var service = CreateService(settings);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -902,10 +910,7 @@ public class LibraryConsistencyServiceTests
             await File.WriteAllTextAsync(Path.Combine(deepBookDir, "book.m4b"), "fake audio");
 
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
-            var service = new LibraryConsistencyService(
-                settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
-                _saveGate, _logger.Object);
+            var service = CreateService(settings);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -942,10 +947,7 @@ public class LibraryConsistencyServiceTests
             await File.WriteAllTextAsync(Path.Combine(orphanDir, "desc.txt"), "leftover");
 
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
-            var service = new LibraryConsistencyService(
-                settings, _audiobookRepository.Object, _issueRepository.Object,
-                _orphanDirectoryRepository.Object, _tagHandler.Object, _audiobookService.Object,
-                _saveGate, _logger.Object);
+            var service = CreateService(settings);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -981,15 +983,7 @@ public class LibraryConsistencyServiceTests
             await File.WriteAllTextAsync(Path.Combine(orphanDir, "desc.txt"), "leftover");
 
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
 
@@ -1147,15 +1141,7 @@ public class LibraryConsistencyServiceTests
         try
         {
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             var placeholderParsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author") },
@@ -1210,15 +1196,7 @@ public class LibraryConsistencyServiceTests
         try
         {
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             var placeholderParsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author") },
@@ -1268,15 +1246,7 @@ public class LibraryConsistencyServiceTests
         try
         {
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             var placeholderParsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author") },
@@ -1332,15 +1302,7 @@ public class LibraryConsistencyServiceTests
         try
         {
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             var placeholderParsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author") },
@@ -1403,15 +1365,7 @@ public class LibraryConsistencyServiceTests
         try
         {
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = tempDir });
-            var service = new LibraryConsistencyService(
-                settings,
-                _audiobookRepository.Object,
-                _issueRepository.Object,
-                _orphanDirectoryRepository.Object,
-                _tagHandler.Object,
-                _audiobookService.Object,
-                _saveGate,
-                _logger.Object);
+            var service = CreateService(settings);
 
             var placeholderParsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author") },
