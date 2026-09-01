@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Search, ChevronRight, Loader2, BookOpen } from "lucide-react";
@@ -7,10 +7,37 @@ import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
 import { foldAccents } from "@/helpers/similarValueMatcher";
+import { Route } from "@/routes/library/authors/index";
 
 export function AuthorsList() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState("");
+  const { q = "" } = Route.useSearch();
+  const [prevQ, setPrevQ] = useState(q);
+  const [filter, setFilter] = useState(q);
+
+  if (prevQ !== q) {
+    setPrevQ(q);
+    if (filter.trim() !== q) {
+      setFilter(q);
+    }
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = filter.trim();
+      if (trimmed !== q) {
+        void navigate({
+          to: "/library/authors",
+          search: (prev) => ({
+            ...prev,
+            q: trimmed || undefined,
+          }),
+          replace: true,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filter, q, navigate]);
 
   const { data: authors = [], isLoading: loading } = useQuery({
     queryKey: ["authors"],
@@ -19,8 +46,8 @@ export function AuthorsList() {
 
   const filteredAuthors = authors.filter((a) => {
     if (!filter.trim()) return true;
-    const q = foldAccents(filter.trim().toLowerCase());
-    return foldAccents(a.name.toLowerCase()).includes(q);
+    const query = foldAccents(filter.trim().toLowerCase());
+    return foldAccents(a.name.toLowerCase()).includes(query);
   });
 
   return (
@@ -43,6 +70,21 @@ export function AuthorsList() {
           placeholder="Filter authors..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const trimmed = filter.trim();
+              if (trimmed !== q) {
+                void navigate({
+                  to: "/library/authors",
+                  search: (prev) => ({
+                    ...prev,
+                    q: trimmed || undefined,
+                  }),
+                  replace: true,
+                });
+              }
+            }
+          }}
           className="pl-9"
         />
       </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,6 +24,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { foldAccents } from "@/helpers/similarValueMatcher";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
+import { Route } from "@/routes/library/series/index";
 
 interface SeriesRefreshProgressPayload {
   processed: number;
@@ -42,7 +43,33 @@ interface SeriesRefreshCompletePayload {
 export function SeriesOverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState("");
+  const { q = "" } = Route.useSearch();
+  const [prevQ, setPrevQ] = useState(q);
+  const [filter, setFilter] = useState(q);
+
+  if (prevQ !== q) {
+    setPrevQ(q);
+    if (filter.trim() !== q) {
+      setFilter(q);
+    }
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = filter.trim();
+      if (trimmed !== q) {
+        void navigate({
+          to: "/library/series",
+          search: (prev) => ({
+            ...prev,
+            q: trimmed || undefined,
+          }),
+          replace: true,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filter, q, navigate]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<SeriesRefreshProgressPayload | null>(null);
@@ -163,6 +190,21 @@ export function SeriesOverviewPage() {
           placeholder="Filter series or authors..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const trimmed = filter.trim();
+              if (trimmed !== q) {
+                void navigate({
+                  to: "/library/series",
+                  search: (prev) => ({
+                    ...prev,
+                    q: trimmed || undefined,
+                  }),
+                  replace: true,
+                });
+              }
+            }
+          }}
           className="pl-9"
         />
       </div>

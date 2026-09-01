@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,16 @@ import { Route } from "@/routes/library/authors/$authorId";
 export function AuthorDetail() {
   const { authorId } = Route.useParams();
   const navigate = useNavigate();
+  const router = useRouter();
   const id = Number(authorId);
+
+  const handleBack = () => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+    } else {
+      void navigate({ to: "/library/authors" });
+    }
+  };
 
   const { data: detail, isLoading: loading } = useQuery({
     queryKey: ["author", id],
@@ -41,7 +50,7 @@ export function AuthorDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" render={<Link to="/library/authors" />}>
+        <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Authors
         </Button>

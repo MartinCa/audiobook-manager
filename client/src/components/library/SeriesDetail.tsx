@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -38,8 +38,22 @@ export function SeriesDetail() {
   const { seriesName } = Route.useParams();
   const { authorId } = Route.useSearch();
   const navigate = useNavigate();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const decodedSeriesName = decodeURIComponent(seriesName || "");
+
+  const handleBack = () => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+    } else if (authorId) {
+      void navigate({
+        to: "/library/authors/$authorId",
+        params: { authorId: String(authorId) },
+      });
+    } else {
+      void navigate({ to: "/library/series" });
+    }
+  };
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -205,9 +219,7 @@ export function SeriesDetail() {
             variant="ghost"
             size="sm"
             className="w-full justify-start sm:w-auto"
-            render={
-              <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
-            }
+            onClick={handleBack}
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Author
@@ -217,7 +229,7 @@ export function SeriesDetail() {
             variant="ghost"
             size="sm"
             className="w-full justify-start sm:w-auto"
-            render={<Link to="/library/series" />}
+            onClick={handleBack}
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Series
