@@ -9,7 +9,7 @@ COPY ./AudiobookManager ./
 # Restore as distinct layers
 RUN dotnet restore
 # Build and publish a release
-RUN dotnet publish -c Release -p:Version=${APP_VERSION} -p:InformationalVersion="${APP_VERSION}${COMMIT_HASH:++$COMMIT_HASH}" -o out
+RUN dotnet publish AudiobookManager.Api/AudiobookManager.Api.csproj -c Release --no-restore -p:InformationalVersion="${APP_VERSION}${COMMIT_HASH:++$COMMIT_HASH}" -o out
 
 # Build client app
 FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build-node
@@ -19,6 +19,7 @@ ARG APP_VERSION=dev
 ARG COMMIT_HASH=""
 ENV VITE_APP_VERSION=$APP_VERSION
 ENV VITE_COMMIT_HASH=$COMMIT_HASH
+ENV CI=true
 
 RUN corepack enable
 
