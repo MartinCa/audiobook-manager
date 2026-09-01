@@ -14,6 +14,7 @@ import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
+import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
 import { Route } from "@/routes/library/book.$bookId";
@@ -140,19 +141,12 @@ export function BookDetail() {
     setResolvingIssueId(issueId);
     try {
       const result = await consistencyApi.resolveIssue(issueId);
-      if (result.actionTaken === "file_recovered") {
-        toast.info(
-          result.message ||
-            "Media file found on disk. Preserved audiobook and refreshed consistency status.",
-        );
-      } else if (result.actionTaken === "audiobook_deleted") {
-        toast.success(result.message || "Audiobook removed from library");
+      notifyConsistencyResolveResult(result);
+      if (result.actionTaken === "audiobook_deleted") {
         void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
         void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
         void navigate({ to: "/library" });
         return;
-      } else {
-        toast.success(result.message || "Issue resolved");
       }
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
     } catch (err: unknown) {
@@ -291,7 +285,7 @@ export function BookDetail() {
                       <div className="flex items-center justify-between font-semibold">
                         <div className="flex items-center gap-1.5">
                           <AlertTriangle className="h-3.5 w-3.5" />
-                          <span>{issue.issueType}</span>
+                          <span>{getIssueTypeLabel(issue.issueType)}</span>
                         </div>
                         <Button
                           size="sm"
