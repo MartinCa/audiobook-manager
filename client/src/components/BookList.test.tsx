@@ -96,7 +96,7 @@ describe("BookList", () => {
     });
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
-    expect(screen.getByText("45 / 100 (45%)")).toBeInTheDocument();
+    expect(screen.getByText("45%")).toBeInTheDocument();
 
     // Send completion
     act(() => {
@@ -132,6 +132,6 @@ describe("BookList", () => {
     });
 
     expect(await screen.findByText(/Relocating/)).toBeInTheDocument();
-    expect(screen.getByText("60 / 100 (60%)")).toBeInTheDocument();
+    expect(screen.getByText("60%")).toBeInTheDocument();
   });
 });

@@ -259,7 +259,7 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
-    expect(screen.getByText("38 / 100 (38%)")).toBeInTheDocument();
+    expect(screen.getByText("38%")).toBeInTheDocument();
 
     // SignalR sends saved tags at 70%
     act(() => {
@@ -271,7 +271,7 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     expect(await screen.findByText(/Saved tags/)).toBeInTheDocument();
-    expect(screen.getByText("70 / 100 (70%)")).toBeInTheDocument();
+    expect(screen.getByText("70%")).toBeInTheDocument();
 
     // SignalR sends completion (100%)
     act(() => {
@@ -321,6 +321,6 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
-    expect(screen.getByText("38 / 100 (38%)")).toBeInTheDocument();
+    expect(screen.getByText("38%")).toBeInTheDocument();
   });
 });

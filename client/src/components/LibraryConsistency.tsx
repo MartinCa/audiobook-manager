@@ -355,7 +355,7 @@ export function LibraryConsistency() {
                             <TooltipTrigger
                               render={
                                 <Info
-                                  className="text-muted-foreground h-3.5 w-3.5"
+                                  className="text-muted-foreground hidden h-3.5 w-3.5 sm:inline-block"
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               }
@@ -376,6 +376,11 @@ export function LibraryConsistency() {
 
                     <AccordionContent className="border-border border-t pt-4 pb-4">
                       <div className="space-y-4">
+                        <div className="border-border/60 bg-muted/40 text-muted-foreground flex items-start gap-2.5 rounded-md border p-3 text-xs leading-relaxed">
+                          <Info className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{getBulkResolveDescription(type)}</span>
+                        </div>
+
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <input
