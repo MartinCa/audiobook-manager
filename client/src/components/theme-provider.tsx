@@ -1,4 +1,10 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 /**
  * Defaults to the OS preference and keeps the .dark class (see
@@ -18,7 +24,9 @@ interface ThemeProviderState {
   setTheme: (theme: Theme) => void;
 }
 
-const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undefined);
+const ThemeProviderContext = createContext<ThemeProviderState | undefined>(
+  undefined,
+);
 
 const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
@@ -42,7 +50,9 @@ function systemPrefersDark(): boolean {
 function readStoredTheme(storageKey: string): Theme | null {
   try {
     const stored = localStorage.getItem(storageKey);
-    return stored === "light" || stored === "dark" || stored === "system" ? stored : null;
+    return stored === "light" || stored === "dark" || stored === "system"
+      ? stored
+      : null;
   } catch {
     return null;
   }
@@ -65,7 +75,9 @@ export function ThemeProvider({
   defaultTheme?: Theme;
   storageKey?: string;
 }) {
-  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme(storageKey) ?? defaultTheme);
+  const [theme, setThemeState] = useState<Theme>(
+    () => readStoredTheme(storageKey) ?? defaultTheme,
+  );
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
     theme === "system" ? (systemPrefersDark() ? "dark" : "light") : theme,
   );

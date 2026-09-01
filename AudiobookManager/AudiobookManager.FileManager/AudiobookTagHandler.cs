@@ -114,30 +114,21 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.WriteSpecialTag(SpecialTagField.Subtitle, audiobook.Subtitle);
         track.Year = audiobook.Year;
         track.Artist = GetStringFromListOfPersons(audiobook.Authors.Concat(audiobook.Narrators));
-        // ATL only clears a raw Track string property (as opposed to an AdditionalFields entry -
-        // see WriteSpecialTag, which explicitly removes the key) when it's assigned an empty
-        // string; assigning null is a silent no-op that leaves whatever value the file already
-        // had on disk untouched. Every nullable field here has to be coerced to "" or "clearing"
-        // it (e.g. blanking Description in the edit form on a file some other tool already
-        // tagged) does nothing, and the round-trip verification below then fails with a
-        // misleading "non-contiguous QuickTime chapters" hint that has nothing to do with the
-        // real cause. WriteSpecialTag-backed fields (Subtitle, Rating, Asin, Www, Mp4Series, ...)
-        // are unaffected - they already null-check and Remove().
-        track.Group = group ?? "";
+        track.Group = group;
         track.Title = title;
         track.SortAlbum = albumSort;
         track.Genre = string.Join("/", audiobook.Genres);
-        track.Description = audiobook.Description ?? "";
-        track.Copyright = audiobook.Copyright ?? "";
-        track.Publisher = audiobook.Publisher ?? "";
-        track.Language = audiobook.Language ?? "";
+        track.Description = audiobook.Description;
+        track.Copyright = audiobook.Copyright;
+        track.Publisher = audiobook.Publisher;
+        track.Language = audiobook.Language;
         track.WriteSpecialTag(SpecialTagField.Rating, audiobook.Rating);
         track.WriteSpecialTag(SpecialTagField.ASIN, audiobook.Asin);
         track.WriteSpecialTag(SpecialTagField.Www, audiobook.Www);
-        track.Comment = audiobook.Description ?? "";
+        track.Comment = audiobook.Description;
 
         track.WriteSpecialTag(SpecialTagField.ShowMovement, !string.IsNullOrEmpty(audiobook.Series) ? "1" : "0");
-        track.SeriesTitle = audiobook.Series ?? "";
+        track.SeriesTitle = audiobook.Series;
         track.WriteSpecialTag(SpecialTagField.Mp4Series, audiobook.Series);
         track.WriteSeriesPart(audiobook.SeriesPart);
 

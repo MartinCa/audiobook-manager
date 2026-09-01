@@ -1,744 +1,193 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  ShieldAlert,
-  Play,
-  CheckCircle2,
-  AlertTriangle,
-  FolderX,
-  Loader2,
-  Info,
-} from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { AlertTriangle, Play, CheckCircle2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { OperationProgressBar } from "./OperationProgressBar";
-import { DiffDisplay } from "./DiffDisplay";
-import { consistencyApi } from "@/services/api";
-import { useSignalREvent } from "@/hooks/useSignalR";
-import { useOperationResync } from "@/hooks/useOperationResync";
-import { handleApiError } from "@/lib/api";
+import { api, handleApiError } from "@/lib/api";
+import { type ConsistencyIssue } from "@/types/domain";
+import OperationProgressBar from "./OperationProgressBar";
 import { toast } from "sonner";
-import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
-import type { OrphanDirectory } from "@/types/OrphanDirectory";
 
-interface ProgressPayload {
-  message: string;
-  booksChecked: number;
-  totalBooks: number;
-  issuesFound: number;
-}
-
-interface CompletePayload {
-  totalBooksChecked: number;
-  totalIssuesFound: number;
-}
-
-const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
-
-const ISSUE_TYPE_LABELS: Record<string, string> = {
-  MissingMediaFile: "Missing Media Files",
-  WrongFilePath: "Wrong File Paths",
-  MissingDescTxt: "Missing Description Files",
-  IncorrectDescTxt: "Incorrect Description Files",
-  MissingReaderTxt: "Missing Reader Files",
-  IncorrectReaderTxt: "Incorrect Reader Files",
-  MissingCoverFile: "Missing Cover Files",
-  MissingOpfFile: "Missing OPF Files",
-  IncorrectOpfFile: "Incorrect OPF Files",
-  TagMismatch: "Tag Mismatches",
-};
-
-function getIssueTypeLabel(issueType: string): string {
-  return ISSUE_TYPE_LABELS[issueType] ?? issueType;
-}
-
-const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
-  WrongFilePath:
-    "Each audiobook file will be moved to its correct location based on library metadata.",
-  MissingDescTxt:
-    "A desc.txt sidecar file containing the book description will be created or updated for each affected book.",
-  IncorrectDescTxt:
-    "A desc.txt sidecar file containing the book description will be created or updated for each affected book.",
-  MissingReaderTxt:
-    "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.",
-  IncorrectReaderTxt:
-    "A reader.txt sidecar file containing narrator information will be created or updated for each affected book.",
-  MissingCoverFile: "The cover image will be extracted from each affected audiobook file.",
-  MissingOpfFile: "A metadata.opf sidecar file will be created or updated for each affected book.",
-  IncorrectOpfFile:
-    "A metadata.opf sidecar file will be created or updated for each affected book.",
-  TagMismatch:
-    "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.",
-};
-
-function getBulkResolveDescription(issueType: string): string {
-  return BULK_RESOLVE_DESCRIPTIONS[issueType] ?? "Continue?";
-}
-
-type PendingResolve =
-  | { kind: "single"; issue: ConsistencyIssue }
-  | { kind: "selected"; issueType: string; issueIds: number[] }
-  | { kind: "byType"; issueType: string; count: number };
-
-export function LibraryConsistency() {
-  const queryClient = useQueryClient();
-
-  // Check state
-  const [checking, setChecking] = useState(false);
-  const [checkProgress, setCheckProgress] = useState<ProgressPayload | null>(null);
-  const [checkCompleteResult, setCheckCompleteResult] = useState<CompletePayload | null>(null);
-
-  // Selection state
-  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<number>>(new Set());
-  const [resolvingIds, setResolvingIds] = useState<Set<number>>(new Set());
-  const [resolvingTypes, setResolvingTypes] = useState<Set<string>>(new Set());
-  const [resolvingSelected, setResolvingSelected] = useState(false);
-
-  // Orphan dialog state
-  const [orphanToDelete, setOrphanToDelete] = useState<OrphanDirectory | null>(null);
-  const [deleteAllOrphansOpen, setDeleteAllOrphansOpen] = useState(false);
-  const [deletingOrphan, setDeletingOrphan] = useState(false);
-
-  // Resolve confirmation state
-  const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
-  const [confirmingResolve, setConfirmingResolve] = useState(false);
-
-  const { data, isLoading: loading } = useQuery({
-    queryKey: ["consistency"],
-    queryFn: async () => {
-      const [issuesData, orphansData] = await Promise.all([
-        consistencyApi.getIssues(),
-        consistencyApi.getOrphanDirectories().catch(() => []),
-      ]);
-      return { issues: issuesData, orphanDirs: orphansData };
-    },
+export const LibraryConsistency: React.FC = () => {
+  const [issues, setIssues] = useState<ConsistencyIssue[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [resolving, setResolving] = useState(false);
+  const [progress, setProgress] = useState<{
+    processed: number;
+    total: number;
+  }>({
+    processed: 0,
+    total: 0,
   });
 
-  const issues = data?.issues ?? [];
-  const orphanDirs = data?.orphanDirs ?? [];
+  const fetchIssues = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<ConsistencyIssue[]>("/consistency/issues");
+      setIssues(res.data || []);
+    } catch (err) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  useSignalREvent<ProgressPayload>("ConsistencyCheckProgress", (data) => {
-    setChecking(true);
-    setCheckProgress(data);
-  });
+  useEffect(() => {
+    fetchIssues();
+  }, []);
 
-  useSignalREvent<CompletePayload>("ConsistencyCheckComplete", (data) => {
-    setChecking(false);
-    setCheckProgress(null);
-    setCheckCompleteResult(data);
-    toast.success(
-      `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
-    );
-    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-  });
+  const handleRunCheck = async () => {
+    setLoading(true);
+    try {
+      await api.post("/consistency/check");
+      toast.info("Library consistency check started");
+    } catch (err) {
+      toast.error(handleApiError(err).message);
+      setLoading(false);
+    }
+  };
 
-  // Recover from a missed check (started elsewhere, or events missed while disconnected) on
-  // mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(CONSISTENCY_CHECK_OPERATION_KEY, (status) => {
-    if (status.isRunning) {
-      setChecking(true);
-      setCheckProgress(
-        (prev) =>
-          prev ?? {
-            message: "Resuming check...",
-            booksChecked: status.processed,
-            totalBooks: status.total,
-            issuesFound: 0,
-          },
-      );
+  const handleResolveSelected = async () => {
+    if (selectedIds.length === 0) return;
+    setResolving(true);
+    setProgress({ processed: 0, total: selectedIds.length });
+    try {
+      await api.post("/consistency/resolve-batch", { ids: selectedIds });
+      toast.success("Batch resolution initiated");
+      setSelectedIds([]);
+    } catch (err) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleToggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(issues.map((i) => i.id));
     } else {
-      setChecking(false);
-      setCheckProgress(null);
-    }
-  });
-
-  const handleStartCheck = async () => {
-    setChecking(true);
-    setCheckCompleteResult(null);
-    try {
-      await consistencyApi.startCheck();
-      toast.success("Consistency check started in background");
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-      setChecking(false);
+      setSelectedIds([]);
     }
   };
 
-  const handleResolveSingle = async (issue: ConsistencyIssue) => {
-    setResolvingIds((prev) => new Set(prev).add(issue.id));
-    try {
-      await consistencyApi.resolveIssue(issue.id);
-      toast.success("Issue resolved");
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setSelectedIssueIds((prev) => {
-        const next = new Set(prev);
-        next.delete(issue.id);
-        return next;
-      });
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setResolvingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(issue.id);
-        return next;
-      });
-    }
-  };
-
-  const handleResolveSelected = async (issueIds: number[]) => {
-    if (issueIds.length === 0) return;
-    setResolvingSelected(true);
-    try {
-      const res = await consistencyApi.resolveSelected(issueIds);
-      toast.success(`Resolved ${res.resolved} issues (${res.failed} failed)`);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setSelectedIssueIds(new Set());
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setResolvingSelected(false);
-    }
-  };
-
-  const handleResolveByType = async (issueType: string) => {
-    setResolvingTypes((prev) => new Set(prev).add(issueType));
-    try {
-      const res = await consistencyApi.resolveByType(issueType);
-      toast.success(`Resolved ${res.resolved} issues of type "${issueType}"`);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setResolvingTypes((prev) => {
-        const next = new Set(prev);
-        next.delete(issueType);
-        return next;
-      });
-    }
-  };
-
-  const onResolveClick = (issue: ConsistencyIssue) => {
-    if (issue.issueType === "MissingMediaFile") {
-      setPendingResolve({ kind: "single", issue });
+  const handleToggleSelect = (id: number, checked: boolean) => {
+    if (checked) {
+      setSelectedIds((prev) => [...prev, id]);
     } else {
-      void handleResolveSingle(issue);
+      setSelectedIds((prev) => prev.filter((i) => i !== id));
     }
   };
-
-  const onResolveSelectedClick = (issueType: string, issueIds: number[]) => {
-    if (issueIds.length === 0) return;
-    setPendingResolve({ kind: "selected", issueType, issueIds });
-  };
-
-  const onResolveByTypeClick = (issueType: string, count: number) => {
-    setPendingResolve({ kind: "byType", issueType, count });
-  };
-
-  const confirmPendingResolve = async () => {
-    if (!pendingResolve) return;
-    setConfirmingResolve(true);
-    try {
-      if (pendingResolve.kind === "single") {
-        await handleResolveSingle(pendingResolve.issue);
-      } else if (pendingResolve.kind === "selected") {
-        await handleResolveSelected(pendingResolve.issueIds);
-      } else {
-        await handleResolveByType(pendingResolve.issueType);
-      }
-      setPendingResolve(null);
-    } finally {
-      setConfirmingResolve(false);
-    }
-  };
-
-  const handleDeleteOrphan = async () => {
-    if (!orphanToDelete) return;
-    setDeletingOrphan(true);
-    try {
-      await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
-      toast.success("Orphaned directory removed");
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setOrphanToDelete(null);
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setDeletingOrphan(false);
-    }
-  };
-
-  const handleDeleteAllOrphans = async () => {
-    setDeletingOrphan(true);
-    try {
-      const res = await consistencyApi.resolveAllOrphanDirectories();
-      toast.success(`Deleted ${res.resolved} orphaned directories`);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setDeleteAllOrphansOpen(false);
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setDeletingOrphan(false);
-    }
-  };
-
-  // Group issues by issueType
-  const groupedIssues = issues.reduce<Record<string, ConsistencyIssue[]>>((acc, issue) => {
-    const list = acc[issue.issueType] || [];
-    list.push(issue);
-    acc[issue.issueType] = list;
-    return acc;
-  }, {});
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Library
-        </Button>
-
-        <Button
-          variant="default"
-          onClick={() => {
-            void handleStartCheck();
-          }}
-          disabled={checking}
-        >
-          <Play className={`mr-2 h-4 w-4 ${checking ? "animate-spin" : ""}`} />
-          {checking ? "Running Check..." : "Run Consistency Check"}
-        </Button>
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <AlertTriangle className="h-6 w-6 text-amber-500" />
+            Library Consistency
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Check for missing sidecar files, broken paths, or mismatched tags in
+            your library.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleRunCheck}
+            disabled={loading || resolving}
+          >
+            <Play className="h-4 w-4 mr-2" />
+            Run Check
+          </Button>
+          <Button
+            onClick={handleResolveSelected}
+            disabled={selectedIds.length === 0 || resolving}
+          >
+            <Wrench className="h-4 w-4 mr-2" />
+            Resolve Selected ({selectedIds.length})
+          </Button>
+        </div>
       </div>
 
-      <div>
-        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
-          <ShieldAlert className="text-primary h-6 w-6" />
-          Library Consistency
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Verifies that every book in the library has the correct file path, sidecar metadata files
-          (desc.txt, reader.txt), and a cover image, and detects leftover orphaned folders.
-        </p>
-      </div>
-
-      {checking && checkProgress && (
+      {resolving && (
         <OperationProgressBar
-          processed={checkProgress.booksChecked}
-          total={checkProgress.totalBooks}
-          label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
+          processed={progress.processed}
+          total={progress.total}
+          label="Resolving issues..."
         />
       )}
 
-      {checkCompleteResult && (
-        <div className="border-primary/20 bg-primary/10 text-foreground rounded-lg border p-3 text-xs">
-          Check complete: {checkCompleteResult.totalBooksChecked} books checked,{" "}
-          {checkCompleteResult.totalIssuesFound} issues found.
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">
+          Loading consistency issues...
         </div>
-      )}
-
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-foreground text-lg font-bold">Issues ({issues.length})</h2>
-
-          {loading ? (
-            <div className="text-muted-foreground flex items-center justify-center py-12">
-              <Loader2 className="text-primary mr-2 h-6 w-6 animate-spin" />
-              <span className="text-sm">Checking issues...</span>
+      ) : issues.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
+            <h3 className="font-semibold text-lg">
+              No Consistency Issues Found
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Your library files, sidecars, and database entries are completely
+              consistent!
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-border">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                checked={
+                  selectedIds.length === issues.length && issues.length > 0
+                }
+                onCheckedChange={handleToggleSelectAll}
+              />
+              <span className="text-sm font-semibold">Select All Issues</span>
             </div>
-          ) : issues.length === 0 ? (
-            <Card className="mt-3 p-8 text-center">
-              <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-500" />
-              <h3 className="text-foreground text-base font-semibold">
-                No Consistency Issues Found
-              </h3>
-              <p className="text-muted-foreground mt-1 text-xs">
-                All files, tags, and sidecar assets match their expected state.
-              </p>
-            </Card>
-          ) : (
-            <Accordion type="multiple" className="mt-3 space-y-3">
-              {Object.entries(groupedIssues).map(([type, typeIssues]) => {
-                const isResolvingType = resolvingTypes.has(type);
-                const selectedInGroup = typeIssues.filter((i) => selectedIssueIds.has(i.id));
-
-                return (
-                  <AccordionItem
-                    key={type}
-                    value={type}
-                    className="border-border bg-card rounded-lg border px-4 shadow-sm"
-                  >
-                    <AccordionTrigger className="py-3 hover:no-underline">
-                      <div className="flex w-full items-center justify-between pr-4 text-left">
-                        <div className="flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 text-amber-500" />
-                          <span className="text-foreground font-semibold">
-                            {getIssueTypeLabel(type)}
-                          </span>
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Info
-                                  className="text-muted-foreground h-3.5 w-3.5"
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              }
-                            />
-                            <TooltipContent className="max-w-xs">
-                              {getBulkResolveDescription(type)}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <Badge
-                          variant="secondary"
-                          className="bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                        >
-                          {typeIssues.length}
-                        </Badge>
-                      </div>
-                    </AccordionTrigger>
-
-                    <AccordionContent className="border-border border-t pt-4 pb-4">
-                      <div className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={
-                                selectedInGroup.length === typeIssues.length &&
-                                typeIssues.length > 0
-                              }
-                              onChange={(e) => {
-                                const check = e.target.checked;
-                                setSelectedIssueIds((prev) => {
-                                  const next = new Set(prev);
-                                  for (const i of typeIssues) {
-                                    if (check) next.add(i.id);
-                                    else next.delete(i.id);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              className="border-border h-4 w-4 rounded"
-                            />
-                            <span className="text-muted-foreground text-xs">
-                              Select all visible ({selectedInGroup.length} selected)
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {selectedInGroup.length > 0 && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={resolvingSelected}
-                                onClick={() => {
-                                  onResolveSelectedClick(
-                                    type,
-                                    selectedInGroup.map((i) => i.id),
-                                  );
-                                }}
-                              >
-                                Resolve Selected ({selectedInGroup.length})
-                              </Button>
-                            )}
-
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={isResolvingType}
-                              onClick={() => {
-                                onResolveByTypeClick(type, typeIssues.length);
-                              }}
-                            >
-                              {isResolvingType ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : null}
-                              Resolve All {typeIssues.length}
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          {typeIssues.map((issue) => {
-                            const isResolving = resolvingIds.has(issue.id);
-                            const isChecked = selectedIssueIds.has(issue.id);
-
-                            return (
-                              <div
-                                key={issue.id}
-                                className="border-border bg-muted/30 flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
-                              >
-                                <div className="flex min-w-0 flex-1 items-start gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setSelectedIssueIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (checked) next.add(issue.id);
-                                        else next.delete(issue.id);
-                                        return next;
-                                      });
-                                    }}
-                                    className="border-border mt-1 h-4 w-4 shrink-0 rounded"
-                                  />
-
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    <Link
-                                      to="/library/book/$bookId"
-                                      params={{ bookId: String(issue.audiobookId) }}
-                                      className="text-primary text-xs font-semibold break-words hover:underline"
-                                    >
-                                      {issue.authors.join(", ")} &mdash; {issue.bookName}
-                                    </Link>
-                                    <p className="text-muted-foreground text-xs break-words">
-                                      {issue.description}
-                                    </p>
-
-                                    {issue.expectedValue && issue.actualValue ? (
-                                      <DiffDisplay
-                                        expected={issue.expectedValue}
-                                        actual={issue.actualValue}
-                                      />
-                                    ) : issue.expectedValue ? (
-                                      <div className="text-muted-foreground text-[11px] break-all">
-                                        Expected: {issue.expectedValue}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                </div>
-
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={isResolving}
-                                  onClick={() => {
-                                    onResolveClick(issue);
-                                  }}
-                                  className="w-full shrink-0 self-stretch sm:w-auto sm:self-center"
-                                >
-                                  {isResolving ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    "Resolve"
-                                  )}
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                );
-              })}
-            </Accordion>
-          )}
-        </div>
-
-        {orphanDirs.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-                <FolderX className="h-5 w-5 text-amber-500" />
-                Orphaned Directories ({orphanDirs.length})
-              </h2>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => setDeleteAllOrphansOpen(true)}
+            <span className="text-xs text-muted-foreground">
+              Total Issues: {issues.length}
+            </span>
+          </CardHeader>
+          <CardContent className="p-0 divide-y divide-border">
+            {issues.map((issue) => (
+              <div
+                key={issue.id}
+                className="p-4 flex items-start space-x-3 hover:bg-muted/30 transition-colors"
               >
-                Delete All {orphanDirs.length}
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              {orphanDirs.map((dir) => (
-                <div
-                  key={dir.id}
-                  className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 sm:flex-row sm:items-center"
-                >
-                  <span className="text-muted-foreground min-w-0 flex-1 font-mono text-xs break-all">
-                    {dir.directoryPath}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full shrink-0 sm:w-auto"
-                    onClick={() => setOrphanToDelete(dir)}
-                  >
-                    Delete
-                  </Button>
+                <Checkbox
+                  checked={selectedIds.includes(issue.id)}
+                  onCheckedChange={(checked) =>
+                    handleToggleSelect(issue.id, !!checked)
+                  }
+                  className="mt-1"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-sm">
+                      {issue.audiobookName}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-xs"
+                    >
+                      {issue.type}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    {issue.details}
+                  </p>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <Dialog
-        open={Boolean(pendingResolve)}
-        onOpenChange={(open) => {
-          if (!open) setPendingResolve(null);
-        }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Confirm Resolution</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              {pendingResolve?.kind === "single" && (
-                <>
-                  This will remove <strong>1 audiobook</strong> with missing media files from the
-                  database and clean up empty directories. This action cannot be undone.
-                </>
-              )}
-              {pendingResolve?.kind === "selected" &&
-                (pendingResolve.issueType === "MissingMediaFile" ? (
-                  <>
-                    This will remove <strong>the selected {pendingResolve.issueIds.length}</strong>{" "}
-                    audiobooks with missing media files from the database and clean up empty
-                    directories. This action cannot be undone.
-                  </>
-                ) : (
-                  <>
-                    This will resolve the selected <strong>{pendingResolve.issueIds.length}</strong>{" "}
-                    {getIssueTypeLabel(pendingResolve.issueType)} issue
-                    {pendingResolve.issueIds.length === 1 ? "" : "s"}.{" "}
-                    {getBulkResolveDescription(pendingResolve.issueType)}
-                  </>
-                ))}
-              {pendingResolve?.kind === "byType" &&
-                (pendingResolve.issueType === "MissingMediaFile" ? (
-                  <>
-                    This will remove <strong>all {pendingResolve.count}</strong> audiobooks with
-                    missing media files from the database and clean up empty directories. This
-                    action cannot be undone.
-                  </>
-                ) : (
-                  <>
-                    This will resolve all <strong>{pendingResolve.count}</strong>{" "}
-                    {getIssueTypeLabel(pendingResolve.issueType)} issues.{" "}
-                    {getBulkResolveDescription(pendingResolve.issueType)}
-                  </>
-                ))}
-            </p>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setPendingResolve(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={confirmingResolve}
-                onClick={() => {
-                  void confirmPendingResolve();
-                }}
-              >
-                {confirmingResolve
-                  ? "Resolving..."
-                  : pendingResolve?.kind === "selected"
-                    ? "Resolve Selected"
-                    : pendingResolve?.kind === "byType"
-                      ? "Resolve All"
-                      : "Remove"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(orphanToDelete)}
-        onOpenChange={(open) => {
-          if (!open) setOrphanToDelete(null);
-        }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Delete Orphaned Directory</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              Are you sure you want to permanently delete this empty or orphaned folder?
-            </p>
-            <div className="bg-muted rounded p-2 font-mono text-xs break-all">
-              {orphanToDelete?.directoryPath}
-            </div>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setOrphanToDelete(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={deletingOrphan}
-                onClick={() => {
-                  void handleDeleteOrphan();
-                }}
-              >
-                {deletingOrphan ? "Deleting..." : "Delete Permanently"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={deleteAllOrphansOpen} onOpenChange={setDeleteAllOrphansOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Delete All Orphaned Directories</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
-              directories and any leftover files in them.
-            </p>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setDeleteAllOrphansOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={deletingOrphan}
-                onClick={() => {
-                  void handleDeleteAllOrphans();
-                }}
-              >
-                {deletingOrphan ? "Deleting..." : "Delete All"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-}
-
+};
 export default LibraryConsistency;

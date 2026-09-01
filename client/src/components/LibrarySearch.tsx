@@ -1,172 +1,52 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
+import React, { useState } from "react";
+import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { browseApi } from "@/services/api";
+import { Button } from "@/components/ui/button";
 
-export function LibrarySearch() {
-  const navigate = useNavigate();
+interface LibrarySearchProps {
+  onSearch: (query: string) => void;
+  onFilterAuthor?: (author: string) => void;
+  onFilterSeries?: (series: string) => void;
+}
+
+export const LibrarySearch: React.FC<LibrarySearchProps> = ({ onSearch }) => {
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [focused, setFocused] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(query.trim());
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  const { data: results = null, isLoading: loading } = useQuery({
-    queryKey: ["quickSearch", debouncedQuery],
-    queryFn: () => browseApi.searchLibrary(debouncedQuery, 5),
-    enabled: Boolean(debouncedQuery),
-  });
-
-  // Click outside to close dropdown
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setFocused(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const handleSelectBook = (bookId: number) => {
-    setFocused(false);
-    setQuery("");
-    void navigate({ to: "/library/book/$bookId", params: { bookId: String(bookId) } });
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSearch(query);
   };
 
-  const handleSelectAuthor = (authorId: number) => {
-    setFocused(false);
+  const handleClear = () => {
     setQuery("");
-    void navigate({ to: "/library/authors/$authorId", params: { authorId: String(authorId) } });
+    onSearch("");
   };
-
-  const handleSelectSeries = (seriesName: string) => {
-    setFocused(false);
-    setQuery("");
-    void navigate({ to: "/library/series/$seriesName", params: { seriesName } });
-  };
-
-  const hasResults =
-    results &&
-    (results.books.length > 0 || results.authors.length > 0 || results.series.length > 0);
-
-  const isOpen = focused && Boolean(debouncedQuery) && Boolean(hasResults);
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-sm">
-      <div className="relative">
-        <Search className="text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4" />
+    <form
+      onSubmit={handleSearch}
+      className="flex gap-2 items-center"
+    >
+      <div className="relative flex-1">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Quick search books, authors, series..."
+          placeholder="Search library by title, author, narrator, series..."
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setFocused(true);
-          }}
-          onFocus={() => setFocused(true)}
-          className="h-9 pr-8 pl-8 text-xs"
+          onChange={(e) => setQuery(e.target.value)}
+          className="pl-9 pr-8"
         />
-        {loading ? (
-          <Loader2 className="text-muted-foreground absolute top-2.5 right-2.5 h-4 w-4 animate-spin" />
-        ) : query ? (
+        {query && (
           <button
             type="button"
-            onClick={() => {
-              setQuery("");
-              setFocused(false);
-            }}
-            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5"
+            onClick={handleClear}
+            className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
-        ) : null}
+        )}
       </div>
-
-      {isOpen && results && (
-        <div className="border-border bg-popover text-popover-foreground absolute top-full right-0 left-0 z-50 mt-1 max-h-96 overflow-y-auto rounded-md border p-2 shadow-lg">
-          {results.books.length > 0 && (
-            <div className="mb-2">
-              <div className="text-muted-foreground px-2 py-1 text-[11px] font-semibold uppercase">
-                Books
-              </div>
-              {results.books.map((b) => (
-                <div
-                  key={`book-${b.id}`}
-                  onClick={() => handleSelectBook(b.id)}
-                  className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors"
-                >
-                  <BookOpen className="text-primary h-3.5 w-3.5 shrink-0" />
-                  <div className="truncate">
-                    <span className="text-foreground font-medium">{b.bookName}</span>
-                    {b.authors.length > 0 && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        &middot; {b.authors.join(", ")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {results.authors.length > 0 && (
-            <div className="mb-2">
-              <div className="text-muted-foreground px-2 py-1 text-[11px] font-semibold uppercase">
-                Authors
-              </div>
-              {results.authors.map((a) => (
-                <div
-                  key={`author-${a.id}`}
-                  onClick={() => handleSelectAuthor(a.id)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
-                    <Users className="text-primary h-3.5 w-3.5 shrink-0" />
-                    <span className="text-foreground truncate font-medium">{a.name}</span>
-                  </div>
-                  <span className="text-muted-foreground shrink-0 text-[10px]">
-                    {a.bookCount} {a.bookCount === 1 ? "book" : "books"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {results.series.length > 0 && (
-            <div>
-              <div className="text-muted-foreground px-2 py-1 text-[11px] font-semibold uppercase">
-                Series
-              </div>
-              {results.series.map((s) => (
-                <div
-                  key={`series-${s.name}`}
-                  onClick={() => handleSelectSeries(s.name)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
-                    <BookMarked className="text-primary h-3.5 w-3.5 shrink-0" />
-                    <span className="text-foreground truncate font-medium">{s.name}</span>
-                  </div>
-                  <span className="text-muted-foreground shrink-0 text-[10px]">
-                    {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      <Button type="submit">Search</Button>
+    </form>
   );
-}
-
+};
 export default LibrarySearch;

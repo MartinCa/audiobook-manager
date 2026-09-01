@@ -23,7 +23,6 @@ public class OrganizeAudiobookDto
     [Required] public string FilePath { get; set; } = null!;
     [Required] public string FileName { get; set; } = null!;
     public long SizeInBytes { get; set; }
-    public bool ReplaceExisting { get; set; } = false;
 }
 
 public class OrganizeAudiobookCoverDto

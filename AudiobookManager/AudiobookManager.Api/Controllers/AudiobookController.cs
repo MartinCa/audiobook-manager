@@ -1,4 +1,4 @@
-using AudiobookManager.Api.Async;
+﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
@@ -136,31 +136,6 @@ public class AudiobookController : ControllerBase
     public AudiobookSaveStatusDto GetSaveStatus(long id) =>
         new(id, _saveGate.IsBusy(id));
 
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteAudiobook(long id)
-    {
-        var book = await _audiobookService.GetAudiobookById(id);
-        if (book == null)
-        {
-            return NotFound();
-        }
-
-        if (!_saveGate.TryAcquire(id, out var saveLease))
-        {
-            return Conflict();
-        }
-
-        try
-        {
-            await _audiobookService.DeleteAudiobook(id);
-            return Ok();
-        }
-        finally
-        {
-            saveLease.Dispose();
-        }
-    }
-
     private static List<string> CleanNames(IEnumerable<string>? values) =>
         (values ?? Enumerable.Empty<string>())
             .Select(v => v?.Trim() ?? string.Empty)
@@ -212,8 +187,7 @@ public class AudiobookController : ControllerBase
             Rating = dto.Rating,
             Asin = dto.Asin,
             Www = dto.Www,
-            Cover = cover,
-            ReplaceExisting = dto.ReplaceExisting
+            Cover = cover
         };
     }
 }

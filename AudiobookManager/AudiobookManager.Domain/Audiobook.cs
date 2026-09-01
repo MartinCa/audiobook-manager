@@ -1,4 +1,4 @@
-namespace AudiobookManager.Domain;
+﻿namespace AudiobookManager.Domain;
 
 public class Audiobook
 {
@@ -22,7 +22,6 @@ public class Audiobook
     public string? CoverFilePath { get; set; }
 
     public int? DurationInSeconds { get; set; }
-    public bool? ReplaceExisting { get; set; }
 
     public AudiobookFileInfo FileInfo { get; set; }
 

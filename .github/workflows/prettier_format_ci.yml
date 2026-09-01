@@ -22,15 +22,12 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24.x"
-
-      - name: Enable Corepack
-        run: corepack enable
+          node-version: "19.x"
 
       - name: Install
         working-directory: ./client
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Prettier Formatting
         working-directory: ./client
-        run: pnpm run format-check
+        run: npm run format-check

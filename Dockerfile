@@ -9,18 +9,15 @@ RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
 # Build client app
-FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build-node
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS build-node
 WORKDIR /app
+COPY /client/package*.json ./
 
-RUN corepack enable
-
-COPY /client/package.json /client/pnpm-lock.yaml /client/pnpm-workspace.yaml ./
-
-RUN pnpm install --frozen-lockfile
+RUN npm install
 
 COPY /client ./
 
-RUN pnpm run build
+RUN npm run build
 
 # Build runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:c4b29bf368004ad9076c1ab9bc91fb373561e3905b4345637e14e8b8c57e3be8

@@ -1,13 +1,12 @@
-import type { components } from "@/lib/api-types";
-import type { Require } from "@/lib/dto";
+export interface MissingTagField {
+  key: string;
+  label: string;
+  isCriticalByDefault: boolean;
+}
 
-// AudiobookManager.Api/Dtos/MissingTagDto.cs: every field on both records is non-nullable.
-export type MissingTagField = Require<
-  components["schemas"]["MissingTagFieldDto"],
-  "key" | "label" | "isCriticalByDefault"
->;
-
-export type AudiobookMissingTags = Require<
-  components["schemas"]["AudiobookMissingTagsDto"],
-  "audiobookId" | "bookName" | "authors" | "missingFields"
->;
+export interface AudiobookMissingTags {
+  audiobookId: number;
+  bookName: string;
+  authors: string[];
+  missingFields: string[];
+}

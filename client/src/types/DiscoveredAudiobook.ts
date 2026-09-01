@@ -1,14 +1,20 @@
-import type { components } from "@/lib/api-types";
-import type { Require } from "@/lib/dto";
+export default interface DiscoveredAudiobook {
+  fullPath: string;
+  fileName: string;
+  sizeInBytes: number;
+  bookName: string;
+  subtitle?: string;
+  series?: string;
+  seriesPart?: string;
+  year?: number;
+  authors?: string;
+  narrators?: string;
+  genres?: string;
+  isWellTagged: boolean;
+  isDuplicate: boolean;
 
-// AudiobookManager.Api/Dtos/DiscoveredAudiobookDto.cs: a flat shape (no nested fileInfo) with
-// authors/narrators/genres as "/"-joined strings, not arrays — same convention as the organize
-// form fields (see helpers/organizeAudiobookInput.ts's splitList/joinList). fullPath, fileName,
-// sizeInBytes, bookName, isWellTagged, and isDuplicate are non-nullable on the backend record;
-// everything else (including year) is genuinely nullable.
-export type DiscoveredAudiobook = Require<
-  components["schemas"]["DiscoveredAudiobookDto"],
-  "fullPath" | "fileName" | "sizeInBytes" | "bookName" | "isWellTagged" | "isDuplicate"
->;
-
-export type { DiscoveredAudiobook as default };
+  queueId?: string;
+  queueProgress?: number;
+  queueMessage?: string;
+  error?: string;
+}
