@@ -439,35 +439,67 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             "Cover file created."));
     }
 
-    public async Task ResolveOrphanDirectory(long orphanDirectoryId)
+    public async Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId)
     {
         var directory = await _orphanDirectoryRepository.GetByIdAsync(orphanDirectoryId);
         if (directory == null)
             throw new KeyNotFoundException($"Orphan directory {orphanDirectoryId} not found");
 
-        DeleteOrphanDirectoryFromDisk(directory.DirectoryPath);
-        _logger.LogInformation("Deleted orphan directory from disk: '{DirectoryPath}'", directory.DirectoryPath);
+        var deleted = DeleteOrphanDirectoryFromDisk(directory.DirectoryPath);
+        string actionTaken;
+        string message;
+
+        if (deleted)
+        {
+            _logger.LogInformation("Deleted orphan directory from disk: '{DirectoryPath}'", directory.DirectoryPath);
+            actionTaken = "deleted";
+            message = "Orphan directory deleted from disk.";
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Orphan directory '{DirectoryPath}' now contains audio files; skipped disk deletion and removed from orphan list.",
+                directory.DirectoryPath);
+            actionTaken = "retained_has_audio";
+            message = "Directory now contains audio files; preserved directory on disk and removed from orphan list.";
+        }
+
         await _orphanDirectoryRepository.DeleteAsync(orphanDirectoryId);
+
+        return new OrphanDirectoryResolveResult(orphanDirectoryId, directory.DirectoryPath, actionTaken, message);
     }
 
-    public async Task<(int resolved, int failed)> ResolveAllOrphanDirectories()
+    public async Task<(int resolved, int failed, int retained)> ResolveAllOrphanDirectories()
     {
         var directories = await _orphanDirectoryRepository.GetAllAsync();
+        var deleted = 0;
+        var retained = 0;
 
-        var (_, succeeded, failed) = await BulkOperationRunner.RunAsync(
+        var (_, _, failed) = await BulkOperationRunner.RunAsync(
             directories,
-            directory => ResolveOrphanDirectory(directory.Id),
+            async directory =>
+            {
+                var result = await ResolveOrphanDirectory(directory.Id);
+                if (result.ActionTaken == "deleted")
+                {
+                    deleted++;
+                }
+                else
+                {
+                    retained++;
+                }
+            },
             _logger,
             directory => $"Failed to resolve orphan directory {directory.Id}");
 
-        return (succeeded, failed);
+        return (deleted, failed, retained);
     }
 
-    private static void DeleteOrphanDirectoryFromDisk(string directoryPath)
+    private static bool DeleteOrphanDirectoryFromDisk(string directoryPath)
     {
         if (!Directory.Exists(directoryPath))
         {
-            return;
+            return true;
         }
 
         // Safety net in case a file was added to the directory since it was detected as orphaned
@@ -475,10 +507,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
         if (hasAudioFile)
         {
-            return;
+            return false;
         }
 
         Directory.Delete(directoryPath, recursive: true);
+        return true;
     }
 
     public async Task<(int resolved, int failed)> ResolveIssuesByType(string issueType)

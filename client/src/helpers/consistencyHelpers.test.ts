@@ -4,6 +4,7 @@ import {
   getIssueTypeLabel,
   getBulkResolveDescription,
   notifyConsistencyResolveResult,
+  notifyOrphanResolveResult,
 } from "./consistencyHelpers";
 
 vi.mock("sonner", () => ({
@@ -75,6 +76,32 @@ describe("consistencyHelpers", () => {
       });
 
       expect(toast.success).toHaveBeenCalledWith("Tags updated");
+      expect(toast.info).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("notifyOrphanResolveResult", () => {
+    it("shows info toast when actionTaken is retained_has_audio", () => {
+      notifyOrphanResolveResult({
+        id: 1,
+        directoryPath: "/path/to/dir",
+        actionTaken: "retained_has_audio",
+        message: "Directory now contains audio files",
+      });
+
+      expect(toast.info).toHaveBeenCalledWith("Directory now contains audio files");
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it("shows success toast when actionTaken is deleted", () => {
+      notifyOrphanResolveResult({
+        id: 1,
+        directoryPath: "/path/to/dir",
+        actionTaken: "deleted",
+        message: "Orphan directory deleted from disk",
+      });
+
+      expect(toast.success).toHaveBeenCalledWith("Orphan directory deleted from disk");
       expect(toast.info).not.toHaveBeenCalled();
     });
   });

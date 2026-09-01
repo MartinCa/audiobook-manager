@@ -7,4 +7,9 @@ export type OrphanDirectory = Require<
   "id" | "directoryPath" | "detectedAt"
 >;
 
+export type OrphanDirectoryResolveResult = Require<
+  components["schemas"]["OrphanDirectoryResolveResultDto"],
+  "id" | "directoryPath" | "actionTaken" | "message"
+>;
+
 export type { OrphanDirectory as default };

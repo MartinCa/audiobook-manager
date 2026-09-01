@@ -15,7 +15,7 @@ import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInfo";
 import type { AudiobookMissingTags, MissingTagField } from "@/types/MissingTag";
 import type { OperationStatus } from "@/types/OperationStatus";
-import type { OrphanDirectory } from "@/types/OrphanDirectory";
+import type { OrphanDirectory, OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 import type { SeriesDetail, SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
@@ -171,10 +171,12 @@ export const consistencyApi = {
   getOrphanDirectories: () => api.get<OrphanDirectory[]>("/consistency/orphan-directories"),
 
   resolveOrphanDirectory: (id: number) =>
-    api.post<void>(`/consistency/orphan-directories/${id}/resolve`),
+    api.post<OrphanDirectoryResolveResult>(`/consistency/orphan-directories/${id}/resolve`),
 
   resolveAllOrphanDirectories: () =>
-    api.post<{ resolved: number; failed: number }>("/consistency/orphan-directories/resolve-all"),
+    api.post<{ resolved: number; failed: number; retained: number }>(
+      "/consistency/orphan-directories/resolve-all",
+    ),
 };
 
 // Similar Values

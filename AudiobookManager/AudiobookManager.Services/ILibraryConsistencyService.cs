@@ -9,6 +9,6 @@ public interface ILibraryConsistencyService
     Task<ConsistencyResolveResult> ResolveIssue(long issueId);
     Task<(int resolved, int failed)> ResolveIssuesByType(string issueType);
     Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds);
-    Task ResolveOrphanDirectory(long orphanDirectoryId);
-    Task<(int resolved, int failed)> ResolveAllOrphanDirectories();
+    Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId);
+    Task<(int resolved, int failed, int retained)> ResolveAllOrphanDirectories();
 }

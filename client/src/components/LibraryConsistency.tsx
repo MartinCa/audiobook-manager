@@ -32,6 +32,7 @@ import {
   getIssueTypeLabel,
   getBulkResolveDescription,
   notifyConsistencyResolveResult,
+  notifyOrphanResolveResult,
 } from "@/helpers/consistencyHelpers";
 import { toast } from "sonner";
 import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
@@ -232,8 +233,8 @@ export function LibraryConsistency() {
     if (!orphanToDelete) return;
     setDeletingOrphan(true);
     try {
-      await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
-      toast.success("Orphaned directory removed");
+      const res = await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
+      notifyOrphanResolveResult(res);
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       setOrphanToDelete(null);
     } catch (err: unknown) {
@@ -247,7 +248,13 @@ export function LibraryConsistency() {
     setDeletingOrphan(true);
     try {
       const res = await consistencyApi.resolveAllOrphanDirectories();
-      toast.success(`Deleted ${res.resolved} orphaned directories`);
+      if (res.retained > 0) {
+        toast.success(
+          `Deleted ${res.resolved} orphaned directories (${res.retained} retained with audio files, ${res.failed} failed)`,
+        );
+      } else {
+        toast.success(`Deleted ${res.resolved} orphaned directories (${res.failed} failed)`);
+      }
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       setDeleteAllOrphansOpen(false);
     } catch (err: unknown) {
@@ -646,6 +653,7 @@ export function LibraryConsistency() {
           <div className="space-y-4 py-2">
             <p className="text-muted-foreground text-xs">
               Are you sure you want to permanently delete this empty or orphaned folder?
+              (Directories containing audio files will be preserved).
             </p>
             <div className="bg-muted rounded p-2 font-mono text-xs break-all">
               {orphanToDelete?.directoryPath}
@@ -681,7 +689,8 @@ export function LibraryConsistency() {
           <div className="space-y-4 py-2">
             <p className="text-muted-foreground text-xs">
               This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
-              directories and any leftover files in them.
+              directories and any leftover files in them (directories containing audio files will be
+              preserved).
             </p>
             <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
               <Button

@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import type { ConsistencyResolveResult } from "@/types/ConsistencyIssue";
+import type { OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 
 export const ISSUE_TYPE_LABELS: Record<string, string> = {
   MissingMediaFile: "Missing Media Files",
@@ -51,5 +52,16 @@ export function notifyConsistencyResolveResult(result: ConsistencyResolveResult)
     toast.success(result.message || "Audiobook removed from library");
   } else {
     toast.success(result.message || "Issue resolved");
+  }
+}
+
+export function notifyOrphanResolveResult(result: OrphanDirectoryResolveResult): void {
+  if (result.actionTaken === "retained_has_audio") {
+    toast.info(
+      result.message ||
+        "Directory contains audio files; preserved on disk and removed from orphan list.",
+    );
+  } else {
+    toast.success(result.message || "Orphan directory deleted from disk");
   }
 }

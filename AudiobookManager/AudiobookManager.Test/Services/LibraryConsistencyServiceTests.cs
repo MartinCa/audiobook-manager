@@ -1031,8 +1031,9 @@ public class LibraryConsistencyServiceTests
         var orphanDirectory = new OrphanDirectory { Id = 5, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
         _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(orphanDirectory);
 
-        await _service.ResolveOrphanDirectory(5);
+        var result = await _service.ResolveOrphanDirectory(5);
 
+        Assert.AreEqual("deleted", result.ActionTaken);
         Assert.IsFalse(Directory.Exists(tempDir));
         _orphanDirectoryRepository.Verify(r => r.DeleteAsync(5), Times.Once);
     }
@@ -1060,8 +1061,9 @@ public class LibraryConsistencyServiceTests
             var orphanDirectory = new OrphanDirectory { Id = 6, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
             _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(6)).ReturnsAsync(orphanDirectory);
 
-            await _service.ResolveOrphanDirectory(6);
+            var result = await _service.ResolveOrphanDirectory(6);
 
+            Assert.AreEqual("retained_has_audio", result.ActionTaken);
             Assert.IsTrue(Directory.Exists(tempDir), "directory containing an audio file should not be deleted");
             _orphanDirectoryRepository.Verify(r => r.DeleteAsync(6), Times.Once);
         }
@@ -1080,22 +1082,35 @@ public class LibraryConsistencyServiceTests
         Directory.CreateDirectory(tempDir1);
         Directory.CreateDirectory(tempDir2);
 
-        var directories = new List<OrphanDirectory>
+        try
         {
-            new OrphanDirectory { Id = 7, DirectoryPath = tempDir1, DetectedAt = DateTime.UtcNow },
-            new OrphanDirectory { Id = 8, DirectoryPath = tempDir2, DetectedAt = DateTime.UtcNow }
-        };
+            await File.WriteAllTextAsync(Path.Combine(tempDir2, "audio.m4b"), "media");
 
-        _orphanDirectoryRepository.Setup(r => r.GetAllAsync()).ReturnsAsync(directories);
-        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(directories[0]);
-        _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(8)).ReturnsAsync(directories[1]);
+            var directories = new List<OrphanDirectory>
+            {
+                new OrphanDirectory { Id = 7, DirectoryPath = tempDir1, DetectedAt = DateTime.UtcNow },
+                new OrphanDirectory { Id = 8, DirectoryPath = tempDir2, DetectedAt = DateTime.UtcNow }
+            };
 
-        var (resolved, failed) = await _service.ResolveAllOrphanDirectories();
+            _orphanDirectoryRepository.Setup(r => r.GetAllAsync()).ReturnsAsync(directories);
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(directories[0]);
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(8)).ReturnsAsync(directories[1]);
 
-        Assert.AreEqual(2, resolved);
-        Assert.AreEqual(0, failed);
-        Assert.IsFalse(Directory.Exists(tempDir1));
-        Assert.IsFalse(Directory.Exists(tempDir2));
+            var (resolved, failed, retained) = await _service.ResolveAllOrphanDirectories();
+
+            Assert.AreEqual(1, resolved);
+            Assert.AreEqual(0, failed);
+            Assert.AreEqual(1, retained);
+            Assert.IsFalse(Directory.Exists(tempDir1));
+            Assert.IsTrue(Directory.Exists(tempDir2));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir1))
+                Directory.Delete(tempDir1, true);
+            if (Directory.Exists(tempDir2))
+                Directory.Delete(tempDir2, true);
+        }
     }
 
     [TestMethod]

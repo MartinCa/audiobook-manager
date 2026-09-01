@@ -945,7 +945,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["OrphanDirectoryResolveResultDto"];
+                        "application/json": components["schemas"]["OrphanDirectoryResolveResultDto"];
+                        "text/json": components["schemas"]["OrphanDirectoryResolveResultDto"];
+                    };
                 };
             };
         };
@@ -2803,6 +2807,13 @@ export interface components {
             directoryPath?: string | null;
             /** Format: date-time */
             detectedAt?: string;
+        };
+        OrphanDirectoryResolveResultDto: {
+            /** Format: int64 */
+            id?: number;
+            directoryPath?: string | null;
+            actionTaken?: string | null;
+            message?: string | null;
         };
         PathDto: {
             path: string | null;

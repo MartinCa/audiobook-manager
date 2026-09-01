@@ -259,6 +259,8 @@ public class ConsistencyControllerTests
         var mockServiceProvider = new Mock<IServiceProvider>();
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
 
+        mockConsistencyService.Setup(s => s.ResolveOrphanDirectory(1))
+            .ReturnsAsync(new OrphanDirectoryResolveResult(1, "/path", "deleted", "Orphan directory deleted from disk."));
         mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
             .Returns(mockConsistencyService.Object);
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
@@ -266,7 +268,10 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveOrphanDirectory(1);
 
-        Assert.IsInstanceOfType(result, typeof(OkResult));
+        Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
+        var okResult = (OkObjectResult)result.Result!;
+        var dto = (OrphanDirectoryResolveResultDto)okResult.Value!;
+        Assert.AreEqual("deleted", dto.ActionTaken);
         mockConsistencyService.Verify(s => s.ResolveOrphanDirectory(1), Times.Once);
     }
 
@@ -286,6 +291,6 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveOrphanDirectory(999);
 
-        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
     }
 }
