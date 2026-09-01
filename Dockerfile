@@ -35,7 +35,7 @@ RUN pnpm run build
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:c4b29bf368004ad9076c1ab9bc91fb373561e3905b4345637e14e8b8c57e3be8
 
 # User manipulation tools
-RUN apk add --no-cache --update --upgrade shadow
+RUN apk add --no-cache --update --upgrade shadow su-exec
 
 # Environment
 ENV PUID=""
@@ -50,8 +50,7 @@ COPY --from=build-node /app/dist ./wwwroot
 
 COPY ./dockerscripts/. ./
 
-RUN addgroup appgroup -g 911
-RUN adduser -D -u 911 -h /app -G appgroup appuser
+RUN addgroup appgroup -g 911 && adduser -D -u 911 -h /config -G appgroup appuser
 
 # Make the user the owner of the app dir
 RUN chown -R appuser:appgroup /app

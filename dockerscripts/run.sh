@@ -1,18 +1,33 @@
 #!/bin/sh
+set -e
 
 umask 0000
 
 PUID=${PUID:-911}
 PGID=${PGID:-911}
 
-groupmod -o -g "$PGID" appgroup
-usermod -o -u "$PUID" appuser
+CUR_GID=$(id -g appuser 2>/dev/null || echo "")
+CUR_UID=$(id -u appuser 2>/dev/null || echo "")
+
+if [ "$CUR_GID" != "$PGID" ]; then
+    groupmod -o -g "$PGID" appgroup 2>/dev/null || true
+fi
+
+if [ "$CUR_UID" != "$PUID" ]; then
+    usermod -o -u "$PUID" appuser 2>/dev/null || true
+fi
 
 echo "
-User uid: $(id -u appuser)
-User gid: $(id -g appuser)
+-------------------------------------
+Audiobook Manager Starting
+User UID: $(id -u appuser)
+User GID: $(id -g appuser)
+-------------------------------------
 "
 
-chmod 777 /config
+if [ -d "/config" ]; then
+    chown -R appuser:appgroup /config 2>/dev/null || true
+    chmod -R 777 /config 2>/dev/null || true
+fi
 
-su -c "dotnet AudiobookManager.Api.dll" -m appuser
+exec su-exec appuser:appgroup dotnet AudiobookManager.Api.dll

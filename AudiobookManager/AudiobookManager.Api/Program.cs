@@ -105,27 +105,36 @@ internal class Program
         // take precedence, so this only ever catches requests nothing else matched.
         app.MapFallbackToFile("index.html");
 
-        // Use the application's own provider, not a second one built from the service
-        // collection: BuildServiceProvider() here would create a duplicate, never-disposed set of
-        // singletons, so the HardcoverRateLimiter validated below would not be the instance the
-        // app actually rate-limits with, and its replenishment timer would leak.
-        using (var scope = app.Services.CreateScope())
+        try
         {
-            // Before anything touches the disk: the import path, the library path and the
-            // database's directory are what the application is built on, so a missing one is a
-            // startup failure with a message naming the setting - not a 500 from whichever
-            // screen happens to reach for it first.
-            SettingsValidation.EnsureRequiredPathsAreUsable(
-                scope.ServiceProvider.GetRequiredService<IOptions<AudiobookManagerSettings>>().Value);
+            // Use the application's own provider, not a second one built from the service
+            // collection: BuildServiceProvider() here would create a duplicate, never-disposed set of
+            // singletons, so the HardcoverRateLimiter validated below would not be the instance the
+            // app actually rate-limits with, and its replenishment timer would leak.
+            using (var scope = app.Services.CreateScope())
+            {
+                // Before anything touches the disk: the import path, the library path and the
+                // database's directory are what the application is built on, so a missing one is a
+                // startup failure with a message naming the setting - not a 500 from whichever
+                // screen happens to reach for it first.
+                SettingsValidation.EnsureRequiredPathsAreUsable(
+                    scope.ServiceProvider.GetRequiredService<IOptions<AudiobookManagerSettings>>().Value);
 
-            scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
+                scope.ServiceProvider.GetRequiredService<DatabaseContext>().Database.Migrate();
 
-            // Resolving the limiter validates the configured Hardcover burst/per-minute
-            // numbers against the API's documented ceiling - fail fast at startup rather
-            // than silently exceeding the limits at runtime.
-            scope.ServiceProvider.GetRequiredService<HardcoverRateLimiter>();
+                // Resolving the limiter validates the configured Hardcover burst/per-minute
+                // numbers against the API's documented ceiling - fail fast at startup rather
+                // than silently exceeding the limits at runtime.
+                scope.ServiceProvider.GetRequiredService<HardcoverRateLimiter>();
+            }
+
+            app.Run();
         }
-
-        app.Run();
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[FATAL] Audiobook Manager startup failed: {ex.Message}");
+            Console.Error.WriteLine(ex.ToString());
+            throw;
+        }
     }
 }
