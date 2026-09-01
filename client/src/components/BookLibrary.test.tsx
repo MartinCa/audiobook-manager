@@ -228,4 +228,15 @@ describe("BookLibrary", () => {
     });
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
   });
+
+  it("clears search input and removes query parameter when clear button is clicked", async () => {
+    const { router } = renderWithRouter("/library?q=Kings");
+
+    const clearBtn = await screen.findByRole("button", { name: /clear search/i });
+    fireEvent.click(clearBtn);
+
+    const input = await screen.findByPlaceholderText(/Search title, author/i);
+    expect(input).toHaveValue("");
+    expect(router.state.location.search).toEqual({});
+  });
 });

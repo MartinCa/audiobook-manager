@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Users, Search, ChevronRight, Loader2, BookOpen } from "lucide-react";
+import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./LibraryViewTabs";
@@ -38,6 +38,20 @@ export function AuthorsList() {
     }, 300);
     return () => clearTimeout(timer);
   }, [filter, q, navigate]);
+
+  const handleClearFilter = () => {
+    setFilter("");
+    if (q) {
+      void navigate({
+        to: "/library/authors",
+        search: (prev) => ({
+          ...prev,
+          q: undefined,
+        }),
+        replace: true,
+      });
+    }
+  };
 
   const { data: authors = [], isLoading: loading } = useQuery({
     queryKey: ["authors"],
@@ -85,8 +99,18 @@ export function AuthorsList() {
               }
             }
           }}
-          className="pl-9"
+          className="pr-9 pl-9"
         />
+        {filter ? (
+          <button
+            type="button"
+            onClick={handleClearFilter}
+            aria-label="Clear filter"
+            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       {loading ? (

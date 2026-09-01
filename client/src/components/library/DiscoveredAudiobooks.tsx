@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Search,
+  X,
   Scan,
   CheckSquare,
   Square,
@@ -368,8 +369,18 @@ export function DiscoveredAudiobooks() {
             placeholder="Filter by filename..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pr-9 pl-9"
           />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear filter"
+              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
 
         {wellTaggedEligible.length > 0 && (

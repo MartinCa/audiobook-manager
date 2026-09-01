@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Library,
   Search,
+  X,
   RefreshCw,
   Clock,
   AlertTriangle,
@@ -91,6 +92,21 @@ export function BookLibrary() {
     });
   };
 
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    if (q) {
+      void navigate({
+        to: "/library",
+        search: (prev) => ({
+          ...prev,
+          q: undefined,
+          page: undefined,
+        }),
+        replace: true,
+      });
+    }
+  };
+
   const books = data?.books ?? [];
   const totalCount = data?.totalCount ?? 0;
   const issueSummary = data?.issueSummary ?? {};
@@ -156,8 +172,18 @@ export function BookLibrary() {
                 }
               }
             }}
-            className="pl-9"
+            className="pr-9 pl-9"
           />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              aria-label="Clear search"
+              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
 
         <div className="text-muted-foreground text-xs">

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookMarked,
   Search,
+  X,
   RefreshCw,
   CheckCircle2,
   AlertCircle,
@@ -70,6 +71,20 @@ export function SeriesOverviewPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [filter, q, navigate]);
+
+  const handleClearFilter = () => {
+    setFilter("");
+    if (q) {
+      void navigate({
+        to: "/library/series",
+        search: (prev) => ({
+          ...prev,
+          q: undefined,
+        }),
+        replace: true,
+      });
+    }
+  };
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<SeriesRefreshProgressPayload | null>(null);
@@ -205,8 +220,18 @@ export function SeriesOverviewPage() {
               }
             }
           }}
-          className="pl-9"
+          className="pr-9 pl-9"
         />
+        {filter ? (
+          <button
+            type="button"
+            onClick={handleClearFilter}
+            aria-label="Clear filter"
+            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       {loading && seriesList.length === 0 ? (
