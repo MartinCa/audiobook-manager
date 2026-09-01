@@ -1,76 +1,55 @@
-import type { LanguageOption } from "@/types/Language";
-
-const DEFAULT_FALLBACK_ALIASES: Record<string, string> = {
-  en: "en",
-  eng: "en",
-  english: "en",
-  da: "da",
-  dan: "da",
-  danish: "da",
-  dansk: "da",
-};
-
-export function normalizeLanguage(
-  raw: string | undefined | null,
-  languages: LanguageOption[] = [],
-): string | undefined {
-  if (!raw || !raw.trim()) {
-    return undefined;
-  }
-
-  let value = raw.trim().toLowerCase();
-
-  const separatorIndex = value.search(/[-_]/);
-  if (separatorIndex > 0) {
-    value = value.slice(0, separatorIndex);
-  }
-
-  if (languages.length > 0) {
-    const match = languages.find(
-      (l) =>
-        l.code.toLowerCase() === value ||
-        l.displayName.toLowerCase() === value ||
-        (l.aliases ?? []).some((a) => a.toLowerCase() === value),
-    );
-    return match?.code;
-  }
-
-  return DEFAULT_FALLBACK_ALIASES[value];
+export interface Language {
+  code: string;
+  name: string;
 }
 
-const DEFAULT_FALLBACK_NAMES: Record<string, string> = {
-  en: "English",
-  da: "Danish",
-};
+export interface LanguageOption {
+  code: string;
+  name: string;
+}
+
+export function normalizeLanguage(
+  input: string | null | undefined,
+  languages: Language[],
+): string {
+  if (!input) return "";
+  const normInput = foldAccents(input).toLowerCase().trim();
+  const found = languages.find(
+    (l) =>
+      l.code.toLowerCase() === normInput ||
+      foldAccents(l.name).toLowerCase() === normInput,
+  );
+  return found ? found.code : input;
+}
 
 export function languageLabel(
-  code: string | undefined | null,
-  languages: LanguageOption[],
+  code: string | null | undefined,
+  languages: Language[],
 ): string {
-  if (!code) {
-    return "";
-  }
-  const normalized = normalizeLanguage(code, languages) ?? code;
-  return (
-    languages.find((l) => l.code === normalized)?.displayName ??
-    DEFAULT_FALLBACK_NAMES[normalized.toLowerCase()] ??
-    code
+  if (!code) return "";
+  const found = languages.find(
+    (l) => l.code.toLowerCase() === code.toLowerCase(),
   );
+  return found ? found.name : code;
 }
 
 export function languageSelectItems(
-  current: string | undefined | null,
-  languages: LanguageOption[],
+  currentValue: string | null | undefined,
+  languages: Language[],
 ): LanguageOption[] {
-  if (!current) {
-    return languages;
+  const options = [...languages];
+  if (
+    currentValue &&
+    !languages.some((l) => l.code.toLowerCase() === currentValue.toLowerCase())
+  ) {
+    options.push({
+      code: currentValue,
+      name: `${currentValue} (unrecognized)`,
+    });
   }
-  const normalized = normalizeLanguage(current, languages);
-  if (normalized && languages.some((l) => l.code === normalized)) {
-    return languages;
-  }
-  if (languages.some((l) => l.code === current)) {
-    return languages;
-  }
-  return [...languages, { code: current, displayName: `${current} (unrecognized)`, aliases: [] }];
+  return options;
+}
+
+function foldAccents(str: string): string {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }

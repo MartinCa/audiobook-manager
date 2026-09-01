@@ -1,25 +1,25 @@
-import { diffChars, type Change } from "diff";
+import React from "react";
+import { diffWords } from "diff";
 
 interface DiffDisplayProps {
-  expected?: string;
-  actual?: string;
   original?: string;
   modified?: string;
 }
 
-export function DiffDisplay({ expected, actual, original, modified }: DiffDisplayProps) {
-  const oldText = actual ?? original ?? "";
-  const newText = expected ?? modified ?? "";
-  const diffs: Change[] = diffChars(oldText, newText);
+export const DiffDisplay: React.FC<DiffDisplayProps> = ({
+  original = "",
+  modified = "",
+}) => {
+  const diffs = diffWords(original, modified);
 
   return (
-    <div className="border-border bg-muted/50 rounded-md border p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
+    <div className="p-3 border border-border rounded-md bg-muted/50 font-mono text-xs whitespace-pre-wrap leading-relaxed">
       {diffs.map((part, index) => {
         if (part.added) {
           return (
             <span
               key={index}
-              className="rounded bg-emerald-500/20 px-0.5 font-semibold text-emerald-600 dark:text-emerald-400"
+              className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold px-0.5 rounded"
             >
               {part.value}
             </span>
@@ -29,7 +29,7 @@ export function DiffDisplay({ expected, actual, original, modified }: DiffDispla
           return (
             <span
               key={index}
-              className="rounded bg-rose-500/20 px-0.5 text-rose-600 line-through dark:text-rose-400"
+              className="bg-rose-500/20 text-rose-600 dark:text-rose-400 line-through px-0.5 rounded"
             >
               {part.value}
             </span>
@@ -39,6 +39,5 @@ export function DiffDisplay({ expected, actual, original, modified }: DiffDispla
       })}
     </div>
   );
-}
-
+};
 export default DiffDisplay;

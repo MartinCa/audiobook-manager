@@ -1,245 +1,171 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Layers, RefreshCw, ArrowRight, Loader2, Users, BookMarked } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Layers, RefreshCw, CheckCircle2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { AlignTargetDialog } from "./AlignTargetDialog";
-import { OperationProgressBar } from "./OperationProgressBar";
-import { similarValuesApi } from "@/services/api";
-import { useSignalREvent } from "@/hooks/useSignalR";
-import { useOperationResync } from "@/hooks/useOperationResync";
-import { handleApiError } from "@/lib/api";
+import { api, handleApiError } from "@/lib/api";
+import { type SimilarValueGroup } from "@/types/domain";
+import DuplicateTargetDialog from "./DuplicateTargetDialog";
+import OperationProgressBar from "./OperationProgressBar";
 import { toast } from "sonner";
-import type { SimilarValueGroup } from "@/types/SimilarValue";
 
-const SIMILAR_VALUE_ALIGN_OPERATION_KEY = "similar-value-align";
-
-interface ProgressPayload {
-  processed: number;
-  total: number;
-  succeeded: number;
-  failed: number;
-}
-
-interface AlignCompletePayload {
-  totalProcessed: number;
-  totalSucceeded: number;
-  totalFailed: number;
-}
-
-export function SimilarValues() {
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"author" | "series">("author");
-  const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  // Operation progress
+export const SimilarValues: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<"authors" | "series">("authors");
+  const [groups, setGroups] = useState<SimilarValueGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(
+    null,
+  );
   const [aligning, setAligning] = useState(false);
-  const [alignProgress, setAlignProgress] = useState<ProgressPayload | null>(null);
-
-  const {
-    data: groups = [],
-    isLoading: loading,
-    refetch,
-  } = useQuery({
-    queryKey: ["similarValues", activeTab],
-    queryFn: () =>
-      activeTab === "author"
-        ? similarValuesApi.getSimilarAuthors()
-        : similarValuesApi.getSimilarSeries(),
+  const [progress] = useState<{ processed: number; total: number }>({
+    processed: 0,
+    total: 0,
   });
 
-  useSignalREvent<ProgressPayload>("SimilarValueAlignProgress", (data) => {
-    setAligning(true);
-    setAlignProgress(data);
-  });
-
-  useSignalREvent<AlignCompletePayload>("SimilarValueAlignComplete", (data) => {
-    setAligning(false);
-    setAlignProgress(null);
-    toast.success(
-      `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
-    );
-    void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
-  });
-
-  // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
-  // on mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(SIMILAR_VALUE_ALIGN_OPERATION_KEY, (status) => {
-    if (status.isRunning) {
-      setAligning(true);
-      setAlignProgress(
-        (prev) =>
-          prev ?? {
-            processed: status.processed,
-            total: status.total,
-            succeeded: 0,
-            failed: 0,
-          },
-      );
-    } else {
-      setAligning(false);
-      setAlignProgress(null);
+  const fetchSimilar = async (type: "authors" | "series") => {
+    setLoading(true);
+    try {
+      const endpoint =
+        type === "authors"
+          ? "/similar-values/similar-authors"
+          : "/similar-values/similar-series";
+      const res = await api.get<SimilarValueGroup[]>(endpoint);
+      setGroups(res.data || []);
+    } catch (err) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setLoading(false);
     }
-  });
-
-  const handleOpenDialog = (group: SimilarValueGroup) => {
-    setSelectedGroup(group);
-    setDialogOpen(true);
   };
 
-  const handleAlignConfirm = async (targetValue: string) => {
+  useEffect(() => {
+    fetchSimilar(activeTab);
+  }, [activeTab]);
+
+  const handleAlign = async (targetValue: string) => {
     if (!selectedGroup) return;
     setAligning(true);
-    const candidateStrings = selectedGroup.candidates.map((c) => c.value);
     try {
-      await similarValuesApi.align(activeTab, candidateStrings, targetValue);
+      const endpoint =
+        activeTab === "authors"
+          ? "/similar-values/align-authors"
+          : "/similar-values/align-series";
+      await api.post(endpoint, {
+        targetValue,
+        sourceValues: selectedGroup.candidates,
+      });
       toast.success(`Alignment started for "${targetValue}"`);
-      void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
-    } catch (err: unknown) {
+      setGroups((prev) => prev.filter((g) => g !== selectedGroup));
+    } catch (err) {
       toast.error(handleApiError(err).message);
-      setAligning(false);
     } finally {
+      setAligning(false);
       setSelectedGroup(null);
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Library
-        </Button>
-
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Layers className="h-6 w-6 text-primary" />
+            Similar Values Alignment
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Detect and merge near-duplicate author names and series titles
+            across your library.
+          </p>
+        </div>
         <Button
           variant="outline"
-          onClick={() => {
-            void refetch();
-          }}
+          onClick={() => fetchSimilar(activeTab)}
           disabled={loading}
         >
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+          />
           Refresh Detection
         </Button>
       </div>
 
-      <div>
-        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
-          <Layers className="text-primary h-6 w-6" />
-          Similar Values Alignment
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Detect and merge near-duplicate author names and series titles across your library.
-        </p>
-      </div>
-
-      {aligning && alignProgress && (
-        <OperationProgressBar
-          processed={alignProgress.processed}
-          total={alignProgress.total}
-          label={`Aligning values (${alignProgress.succeeded} succeeded, ${alignProgress.failed} failed)`}
-        />
-      )}
-
-      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "author" | "series")}>
-        <TabsList className="mb-4 grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
-          <TabsTrigger value="author" className="flex items-center gap-2 text-xs">
-            <Users className="h-4 w-4" />
-            Similar Authors
-          </TabsTrigger>
-          <TabsTrigger value="series" className="flex items-center gap-2 text-xs">
-            <BookMarked className="h-4 w-4" />
-            Similar Series
-          </TabsTrigger>
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as "authors" | "series")}
+      >
+        <TabsList className="mb-4">
+          <TabsTrigger value="authors">Similar Authors</TabsTrigger>
+          <TabsTrigger value="series">Similar Series</TabsTrigger>
         </TabsList>
-      </Tabs>
 
-      {loading ? (
-        <div className="text-muted-foreground flex flex-col items-center justify-center py-16">
-          <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
-          <p className="text-sm">Detecting near duplicates...</p>
-        </div>
-      ) : groups.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Layers className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
-          <h3 className="text-foreground text-lg font-medium">
-            No similar {activeTab === "author" ? "authors" : "series"} found
-          </h3>
-          <p className="text-muted-foreground mt-1 text-sm">
-            All names appear unique and consistent across your collection.
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {groups.map((group, index) => (
-            <Card key={index} className="p-4">
-              <CardContent className="p-0">
-                <div className="border-border flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-foreground text-sm font-semibold">
-                      Group #{index + 1}
-                    </span>
-                    <Badge variant="outline">{group.candidates.length} variants</Badge>
-                  </div>
-                  <Button
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    onClick={() => handleOpenDialog(group)}
-                  >
-                    Align Group
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
+        <TabsContent value={activeTab}>
+          {aligning && (
+            <OperationProgressBar
+              processed={progress.processed}
+              total={progress.total}
+              label="Aligning values..."
+            />
+          )}
 
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.candidates.map((cand) => (
-                    <div
-                      key={cand.value}
-                      className="border-border bg-muted/30 rounded-md border p-2.5 text-xs"
-                    >
-                      <div className="text-foreground font-semibold break-words">{cand.value}</div>
-                      <div className="text-muted-foreground mt-1">
-                        {cand.books.length} {cand.books.length === 1 ? "book" : "books"}:
-                      </div>
-                      <ul className="text-muted-foreground mt-1 max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 text-[11px]">
-                        {cand.books.map((b) => (
-                          <li key={b.id}>
-                            <Link
-                              to="/library/book/$bookId"
-                              params={{ bookId: String(b.id) }}
-                              className="break-words hover:underline"
-                            >
-                              {b.bookName}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
+          {loading ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Detecting similar {activeTab}...
+            </div>
+          ) : groups.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
+                <h3 className="font-semibold text-lg">
+                  No Duplicate {activeTab} Found
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  All {activeTab} names in your library appear unique and
+                  properly formatted!
+                </p>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          ) : (
+            <div className="space-y-4">
+              {groups.map((group, idx) => (
+                <Card key={idx}>
+                  <CardContent className="p-4 flex items-center justify-between flex-wrap gap-4">
+                    <div className="space-y-1">
+                      <span className="text-xs font-semibold uppercase text-muted-foreground">
+                        Matching Group ({group.candidates.length} variants)
+                      </span>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {group.candidates.map((cand) => (
+                          <Badge
+                            key={cand}
+                            variant="secondary"
+                          >
+                            {cand}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <Button onClick={() => setSelectedGroup(group)}>
+                      Align Values
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {selectedGroup && (
-        <AlignTargetDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
+        <DuplicateTargetDialog
+          open={!!selectedGroup}
+          onOpenChange={(open) => !open && setSelectedGroup(null)}
           candidates={selectedGroup.candidates}
-          valueType={activeTab}
-          onConfirm={(target) => {
-            void handleAlignConfirm(target);
-          }}
+          onConfirm={handleAlign}
         />
       )}
     </div>
   );
-}
-
+};
 export default SimilarValues;

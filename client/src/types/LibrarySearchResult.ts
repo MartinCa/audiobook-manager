@@ -1,25 +1,26 @@
-import type { components } from "@/lib/api-types";
-import type { Require } from "@/lib/dto";
+export interface LibraryBookHit {
+  id: number;
+  bookName?: string;
+  subtitle?: string;
+  authors: string[];
+  series?: string;
+  year?: number;
+  coverFilePath?: string;
+}
 
-// AudiobookManager.Api/Dtos/LibrarySearchResultDto.cs: id/authors are non-nullable on
-// LibraryBookHitDto; bookName and the rest are genuinely nullable.
-export type LibraryBookHit = Require<components["schemas"]["LibraryBookHitDto"], "id" | "authors">;
+export interface LibraryAuthorHit {
+  id: number;
+  name: string;
+  bookCount: number;
+}
 
-// name and bookCount are non-nullable on both LibraryAuthorHitDto and LibrarySeriesHitDto.
-export type LibraryAuthorHit = Require<
-  components["schemas"]["LibraryAuthorHitDto"],
-  "id" | "name" | "bookCount"
->;
+export interface LibrarySeriesHit {
+  name: string;
+  bookCount: number;
+}
 
-export type LibrarySeriesHit = Require<
-  components["schemas"]["LibrarySeriesHitDto"],
-  "name" | "bookCount"
->;
-
-export interface LibrarySearchResult {
+export default interface LibrarySearchResult {
   books: LibraryBookHit[];
   authors: LibraryAuthorHit[];
   series: LibrarySeriesHit[];
 }
-
-export type { LibrarySearchResult as default };

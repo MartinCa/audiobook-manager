@@ -17,23 +17,14 @@ public class AudiobookService : IAudiobookService
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPersonRepository _personRepository;
     private readonly IGenreRepository _genreRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
 
-    public AudiobookService(
-        IAudiobookTagHandler tagHandler,
-        IOptions<AudiobookManagerSettings> settings,
-        IAudiobookRepository audiobookRepository,
-        IPersonRepository personRepository,
-        IGenreRepository genreRepository,
-        IConsistencyIssueRepository issueRepository,
-        ILogger<AudiobookService> logger)
+    public AudiobookService(IAudiobookTagHandler tagHandler, IOptions<AudiobookManagerSettings> settings, IAudiobookRepository audiobookRepository, IPersonRepository personRepository, IGenreRepository genreRepository, ILogger<AudiobookService> logger)
     {
         _tagHandler = tagHandler;
         _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _personRepository = personRepository;
         _genreRepository = genreRepository;
-        _issueRepository = issueRepository;
         _logger = logger;
     }
 
@@ -250,20 +241,7 @@ public class AudiobookService : IAudiobookService
 
         if (File.Exists(newFullPath))
         {
-            if (audiobook.ReplaceExisting == true)
-            {
-                var existingAudiobook = await _audiobookRepository.GetByFullPathAsync(
-                    newFullPath, AudiobookFileHandler.PathsEqual);
-                if (existingAudiobook is not null)
-                {
-                    await _issueRepository.DeleteByAudiobookIdAsync(existingAudiobook.Id);
-                    await _audiobookRepository.DeleteAudiobookAsync(existingAudiobook.Id);
-                }
-            }
-            else
-            {
-                throw new Exception($"'{newFullPath}' already exists");
-            }
+            throw new Exception($"'{newFullPath}' already exists");
         }
 
         if (progressAction is not null)
@@ -273,7 +251,7 @@ public class AudiobookService : IAudiobookService
 
         sw?.Restart();
 
-        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath, overwrite: audiobook.ReplaceExisting == true);
+        AudiobookFileHandler.RelocateAudiobook(audiobook, newFullPath);
 
         if (sw is not null)
         {
@@ -408,40 +386,6 @@ public class AudiobookService : IAudiobookService
         await progressAction("Done", 100);
 
         return FromDb(existing);
-    }
-
-    public async Task DeleteAudiobook(long id)
-    {
-        var existing = await _audiobookRepository.GetByIdWithIncludesAsync(id);
-        if (existing == null)
-        {
-            return;
-        }
-
-        await _issueRepository.DeleteByAudiobookIdAsync(id);
-        await _audiobookRepository.DeleteAudiobookAsync(id);
-
-        if (File.Exists(existing.FileInfoFullPath))
-        {
-            var directoryPath = Path.GetDirectoryName(existing.FileInfoFullPath);
-            if (directoryPath != null)
-            {
-                if ((string.IsNullOrEmpty(_settings.AudiobookLibraryPath) || !AudiobookFileHandler.PathsEqual(directoryPath, _settings.AudiobookLibraryPath)) &&
-                    (string.IsNullOrEmpty(_settings.AudiobookImportPath) || !AudiobookFileHandler.PathsEqual(directoryPath, _settings.AudiobookImportPath)))
-                {
-                    Directory.Delete(directoryPath, true);
-                    var parentDir = Path.GetDirectoryName(directoryPath);
-                    if (parentDir != null)
-                    {
-                        AudiobookFileHandler.RemoveDirIfEmpty(parentDir);
-                    }
-                }
-                else
-                {
-                    File.Delete(existing.FileInfoFullPath);
-                }
-            }
-        }
     }
 
     public static Audiobook FromDb(AudiobookDb audiobookDb)

@@ -1,165 +1,152 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, FolderPlus, Trash2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { FolderInput, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BookEditForm } from "./BookEditForm";
-import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
-import { DeleteFileDialog } from "./DeleteFileDialog";
-import { AudiobookFileDetails } from "./AudiobookFileDetails";
-import { audiobookApi, filesApi } from "@/services/api";
-import { handleApiError } from "@/lib/api";
-import { useTargetCollision } from "@/hooks/useTargetCollision";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { api, handleApiError } from "@/lib/api";
+import { type DiscoveredAudiobook } from "@/types/domain";
+import BookEditForm from "./BookEditForm";
 import { toast } from "sonner";
-import type { Audiobook } from "@/types/Audiobook";
-import type { BookFileInfo } from "@/types/BookFileInfo";
 
-interface BookOrganizeProps {
-  file?: BookFileInfo;
-  bookPath?: string;
-  onSuccess?: () => void;
-  onBookQueued?: (queueId: string) => void;
-  onBookDeleted?: () => void;
-}
+export const BookOrganize: React.FC = () => {
+  const [books, setBooks] = useState<DiscoveredAudiobook[]>([]);
+  const [languages, setLanguages] = useState<{ code: string; name: string }[]>(
+    [],
+  );
+  const [loading, setLoading] = useState(true);
+  const [expandedPath, setExpandedPath] = useState<string | undefined>(
+    undefined,
+  );
 
-export function BookOrganize({
-  file,
-  bookPath,
-  onSuccess,
-  onBookQueued,
-  onBookDeleted,
-}: BookOrganizeProps) {
-  const targetPath = file?.fullPath ?? bookPath ?? "";
-  const [organizing, setOrganizing] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-
-  const {
-    data: bookDetails = null,
-    isLoading: loading,
-    error: parseError,
-  } = useQuery({
-    queryKey: ["bookDetails", targetPath],
-    queryFn: () => audiobookApi.parseBookDetails(targetPath),
-    enabled: Boolean(targetPath),
-  });
-
-  const error = parseError ? handleApiError(parseError).message : null;
-
-  const proceedOrganize = async (book: Audiobook) => {
-    setOrganizing(true);
+  const fetchUnorganized = async () => {
+    setLoading(true);
     try {
-      const queueId = await audiobookApi.organizeBook(book);
-      toast.success("Book added to organization queue");
-      onBookQueued?.(queueId || targetPath);
-      onSuccess?.();
-    } catch (err: unknown) {
+      const [queueRes, langRes] = await Promise.all([
+        api.get<DiscoveredAudiobook[]>("/queue/audiobooks"),
+        api.get<{ code: string; name: string }[]>("/settings/languages"),
+      ]);
+      setBooks(queueRes.data || []);
+      setLanguages(langRes.data || []);
+      if (queueRes.data && queueRes.data.length > 0) {
+        setExpandedPath(queueRes.data[0].fullPath);
+      }
+    } catch (err) {
       toast.error(handleApiError(err).message);
     } finally {
-      setOrganizing(false);
+      setLoading(false);
     }
   };
 
-  const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
-    onReplaceExisting: (book) => proceedOrganize(book),
-    onDeleteNew: () => {
-      void handleDeleteBook();
-    },
-  });
+  useEffect(() => {
+    fetchUnorganized();
+  }, []);
 
-  const handleOrganizeClick = async (book: Audiobook) => {
-    setOrganizing(true);
+  const handleSaveBook = async (payload: any) => {
     try {
-      await checkCollisionAndProceed(book, proceedOrganize);
-    } catch (err: unknown) {
+      await api.post("/organize/organize-audiobook", payload);
+      toast.success("Audiobook organized successfully!");
+      setBooks((prev) => prev.filter((b) => b.fullPath !== payload.fullPath));
+    } catch (err) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setOrganizing(false);
     }
   };
 
-  const handleDeleteBook = async () => {
+  const handleDeleteBook = async (fullPath: string) => {
     try {
-      await filesApi.deleteBook(targetPath);
+      await api.delete("/files/audiobook", { params: { fullPath } });
       toast.success("File deleted successfully");
-      onBookDeleted?.();
-      onSuccess?.();
-    } catch (err: unknown) {
+      setBooks((prev) => prev.filter((b) => b.fullPath !== fullPath));
+    } catch (err) {
       toast.error(handleApiError(err).message);
     }
   };
 
   if (loading) {
     return (
-      <div className="text-muted-foreground flex items-center justify-center py-8 text-sm">
-        <Loader2 className="text-primary mr-2 h-4 w-4 animate-spin" />
-        Reading metadata and audio tags...
+      <div className="text-center py-12 text-muted-foreground">
+        Loading import queue...
       </div>
     );
-  }
-
-  if (error && !bookDetails) {
-    return (
-      <div className="space-y-3 py-4 text-center">
-        <div className="text-destructive text-xs">Failed to parse file: {error}</div>
-        <Button variant="outline" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
-          <Trash2 className="text-destructive mr-1.5 h-3.5 w-3.5" />
-          Delete Corrupted File
-        </Button>
-
-        <DeleteFileDialog
-          open={deleteConfirmOpen}
-          onOpenChange={setDeleteConfirmOpen}
-          targetPath={targetPath}
-          onConfirmDelete={handleDeleteBook}
-          title="Delete Audiobook File"
-          description="Are you sure you want to permanently delete this file and its folder contents? This will permanently remove them from disk."
-        />
-      </div>
-    );
-  }
-
-  if (!bookDetails) {
-    return null;
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        <div className="space-y-6 lg:col-span-3">
-          <BookEditForm
-            initialBook={bookDetails}
-            currentPath={targetPath}
-            coverUrl={filesApi.getCoverUrl(targetPath)}
-            onSave={handleOrganizeClick}
-            defaultEmptyLanguage
-            onDelete={() => setDeleteConfirmOpen(true)}
-            deleteLabel="Delete File"
-            submitLabel="Organize into Library"
-            submitIcon={<FolderPlus className="mr-2 h-4 w-4" />}
-            isSaving={organizing}
-          />
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <FolderInput className="h-6 w-6 text-primary" />
+            Organize Audiobooks
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Review and organize imported m4b audiobook files into your library
+            structure.
+          </p>
         </div>
-
-        <div className="space-y-6 lg:col-span-1">
-          <AudiobookFileDetails
-            filePath={targetPath}
-            sizeInBytes={bookDetails.fileInfo?.sizeInBytes ?? file?.sizeInBytes}
-            durationInSeconds={bookDetails.durationInSeconds}
-          />
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={fetchUnorganized}
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh Queue
+        </Button>
       </div>
 
-      {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
-
-      <DeleteFileDialog
-        open={deleteConfirmOpen}
-        onOpenChange={setDeleteConfirmOpen}
-        targetPath={targetPath}
-        onConfirmDelete={handleDeleteBook}
-        title="Delete Audiobook File"
-        description="Are you sure you want to permanently delete this file and its folder contents? This will permanently remove them from disk."
-      />
+      {books.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
+            <h3 className="font-semibold text-lg">No Unorganized Books</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Your import folder is currently empty. Place m4b files in your
+              import folder to process them here.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Accordion
+          type="single"
+          collapsible
+          value={expandedPath}
+          onValueChange={setExpandedPath}
+          className="space-y-4"
+        >
+          {books.map((book) => (
+            <AccordionItem
+              key={book.fullPath}
+              value={book.fullPath}
+              className="border border-border rounded-lg bg-card px-4"
+            >
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-3 text-left">
+                  <span className="font-semibold text-sm">
+                    {book.bookName || book.filename}
+                  </span>
+                  {book.authors && book.authors.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      by {book.authors.join(", ")}
+                    </span>
+                  )}
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pt-4 border-t border-border">
+                <BookEditForm
+                  initialBook={book}
+                  languages={languages}
+                  onSave={handleSaveBook}
+                  onDelete={handleDeleteBook}
+                />
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      )}
     </div>
   );
-}
-
+};
 export default BookOrganize;

@@ -11,19 +11,6 @@ export function joinList(arr: string[] | null | undefined): string {
   return arr.filter((s) => s && s.trim().length > 0).join(" / ");
 }
 
-export function cleanDescription(desc?: string): string {
-  if (!desc) return "";
-  return desc.replace(/<[^>]*>?/gm, "").trim();
-}
-
-export function normalizeSeriesPart(part?: string): string {
-  if (!part) return "";
-  return part
-    .replace(/^book\s+/i, "")
-    .replace(/^#/i, "")
-    .trim();
-}
-
 export interface OrganizeAudiobookFormState {
   bookName?: string;
   subtitle?: string;
@@ -43,7 +30,10 @@ export interface OrganizeAudiobookFormState {
   cover_base64?: string;
 }
 
-export function convertInputToAudiobook(input: OrganizeAudiobookFormState, fullPath: string) {
+export function convertInputToAudiobook(
+  input: OrganizeAudiobookFormState,
+  fullPath: string,
+) {
   return {
     fullPath,
     bookName: input.bookName || "",

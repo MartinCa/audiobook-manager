@@ -44,18 +44,13 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.x"
-
-      - name: Enable Corepack
-        run: corepack enable
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
 
       - name: Install
         working-directory: ./client
-        run: pnpm install --frozen-lockfile
-
-      - name: Run lint
-        working-directory: ./client
-        run: pnpm run lint
+        run: npm ci
 
       - name: Run tests
         working-directory: ./client
-        run: pnpm test
+        run: npm test

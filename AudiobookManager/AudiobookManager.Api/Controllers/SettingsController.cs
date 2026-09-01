@@ -1,6 +1,4 @@
-using System.Reflection;
-using System.Runtime.InteropServices;
-using AudiobookManager.Api.Dtos;
+﻿using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -15,35 +13,6 @@ public class SettingsController : ControllerBase
     public SettingsController(ISettingsService settingsService)
     {
         _settingsService = settingsService;
-    }
-
-    [HttpGet("system_info")]
-    public SystemInfoDto GetSystemInfo()
-    {
-        var assembly = typeof(Program).Assembly;
-        var informationalVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-
-        string version = "dev";
-        string? commitHash = null;
-
-        if (!string.IsNullOrWhiteSpace(informationalVersion))
-        {
-            var parts = informationalVersion.Split('+');
-            version = parts[0];
-            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
-            {
-                commitHash = parts[1];
-            }
-        }
-        else
-        {
-            version = assembly.GetName().Version?.ToString() ?? "dev";
-        }
-
-        var dotNetVersion = RuntimeInformation.FrameworkDescription;
-        return new SystemInfoDto(version, commitHash, dotNetVersion);
     }
 
     /// <summary>

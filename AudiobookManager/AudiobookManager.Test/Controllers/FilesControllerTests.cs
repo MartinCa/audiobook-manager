@@ -19,12 +19,7 @@ public class FilesControllerTests
     public void Setup()
     {
         _fileService = new Mock<IFileService>();
-        _controller = new FilesController(_fileService.Object)
-        {
-            // GetCover sets a response header, which needs a real HttpContext behind it -
-            // ControllerBase.Response is null without one.
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
-        };
+        _controller = new FilesController(_fileService.Object);
     }
 
     [TestMethod]
@@ -70,65 +65,6 @@ public class FilesControllerTests
         Assert.IsNotNull(badRequest);
         Assert.AreEqual(StatusCodes.Status400BadRequest, badRequest.StatusCode);
         Assert.AreEqual("Cannot inspect root", badRequest.Value);
-    }
-
-    [TestMethod]
-    public void GetCover_ExistingFile_ReturnsPhysicalFileResult()
-    {
-        var tempDir = Directory.CreateTempSubdirectory().FullName;
-        try
-        {
-            var coverPath = Path.Combine(tempDir, "cover.jpg");
-            File.WriteAllBytes(coverPath, [0xFF, 0xD8, 0xFF]);
-            _fileService.Setup(s => s.GetCoverPath("/discovered/book.m4b")).Returns(coverPath);
-
-            var result = _controller.GetCover("/discovered/book.m4b");
-
-            var fileResult = result as PhysicalFileResult;
-            Assert.IsNotNull(fileResult);
-            Assert.AreEqual("image/jpeg", fileResult.ContentType);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [TestMethod]
-    public void GetCover_NoCoverFound_Returns404NotFound()
-    {
-        _fileService.Setup(s => s.GetCoverPath("/discovered/book.m4b")).Returns((string?)null);
-
-        var result = _controller.GetCover("/discovered/book.m4b");
-
-        Assert.IsInstanceOfType<NotFoundResult>(result);
-    }
-
-    [TestMethod]
-    public void GetCover_CoverFileNoLongerOnDisk_Returns404NotFound()
-    {
-        // GetCoverPath resolved a path (the file existed when it checked), but the file was
-        // deleted between that check and this request - must not throw serving a stale path.
-        _fileService.Setup(s => s.GetCoverPath("/discovered/book.m4b"))
-            .Returns("/discovered/cover.jpg");
-
-        var result = _controller.GetCover("/discovered/book.m4b");
-
-        Assert.IsInstanceOfType<NotFoundResult>(result);
-    }
-
-    [TestMethod]
-    public void GetCover_UnauthorizedPath_Returns403Forbidden()
-    {
-        _fileService.Setup(s => s.GetCoverPath("/unauthorized/book.m4b"))
-            .Throws(new UnauthorizedAccessException("Access not allowed"));
-
-        var result = _controller.GetCover("/unauthorized/book.m4b");
-
-        var objResult = result as ObjectResult;
-        Assert.IsNotNull(objResult);
-        Assert.AreEqual(StatusCodes.Status403Forbidden, objResult.StatusCode);
-        Assert.AreEqual("Access not allowed", objResult.Value);
     }
 
     [TestMethod]

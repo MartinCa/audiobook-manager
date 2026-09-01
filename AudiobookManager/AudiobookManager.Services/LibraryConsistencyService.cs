@@ -235,6 +235,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingMediaFile:
                 return await ResolveMissingMediaFile(issue);
 
+            case ConsistencyIssueType.WrongFilePath:
+                return await ResolveWrongFilePath(issue);
+
             case ConsistencyIssueType.MissingDescTxt:
             case ConsistencyIssueType.IncorrectDescTxt:
             case ConsistencyIssueType.MissingReaderTxt:
@@ -246,9 +249,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             case ConsistencyIssueType.MissingCoverFile:
                 return await ResolveMissingCover(issue);
 
-            case ConsistencyIssueType.WrongFilePath:
             case ConsistencyIssueType.TagMismatch:
-                return await ResolveTagOrPathMismatch(issue);
+                return await ResolveTagMismatch(issue);
 
             default:
                 return ResolveScope.IssueOnly;
@@ -335,6 +337,66 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return ResolveScope.AllForAudiobook;
     }
 
+    private async Task<ResolveScope> ResolveWrongFilePath(ConsistencyIssue issue)
+    {
+        var audiobook = issue.Audiobook;
+
+        if (!File.Exists(audiobook.FileInfoFullPath))
+        {
+            throw new FileNotFoundException(
+                $"Media file not found, cannot resolve wrong file path: {audiobook.FileInfoFullPath}",
+                audiobook.FileInfoFullPath);
+        }
+
+        var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
+        var parsed = _tagHandler.ParseAudiobook(fileInfo);
+
+        var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(parsed);
+        var expectedFullPath = AudiobookFileHandler.JoinPaths(_settings.AudiobookLibraryPath, expectedRelativePath);
+
+        if (AudiobookFileHandler.PathsEqual(audiobook.FileInfoFullPath, expectedFullPath))
+        {
+            // The path already matches; the issue is no longer valid.
+            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+            return ResolveScope.AllForAudiobook;
+        }
+
+        var oldDirectory = Path.GetDirectoryName(audiobook.FileInfoFullPath);
+        var newDirectory = Path.GetDirectoryName(expectedFullPath);
+
+        AudiobookFileHandler.RelocateAudiobook(parsed, expectedFullPath);
+
+        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
+        {
+            AudiobookFileHandler.MigrateSidecarFiles(oldDirectory, newDirectory);
+        }
+
+        // Re-parse from new location
+        var newFileInfo = new FileInfo(expectedFullPath);
+        var newParsed = _tagHandler.ParseAudiobook(newFileInfo);
+
+        AudiobookFileHandler.WriteMetadata(newParsed);
+        var coverPath = AudiobookFileHandler.WriteCover(newParsed);
+
+        var newFileName = Path.GetFileName(expectedFullPath);
+        await _audiobookRepository.UpdateFilePathAsync(audiobook.Id, expectedFullPath, newFileName);
+        await _audiobookRepository.UpdateCoverFilePathAsync(audiobook.Id, coverPath);
+
+        // OS-aware for consistency with the path check above; see the equivalent note in
+        // AudiobookService.RelocateIfPathChangedAsync for why this is defensive rather than a
+        // live bug fix.
+        if (oldDirectory != null && newDirectory != null && !AudiobookFileHandler.PathsEqual(oldDirectory, newDirectory))
+        {
+            AudiobookFileHandler.RemoveSidecarFiles(oldDirectory);
+            AudiobookFileHandler.RemoveDirIfEmpty(oldDirectory);
+        }
+
+        // Path change invalidates all other checks for this book
+        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+
+        return ResolveScope.AllForAudiobook;
+    }
+
     private async Task<ResolveScope> ResolveMetadataIssue(ConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
@@ -349,26 +411,15 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return ResolveScope.SidecarsForAudiobook;
     }
 
-    /// <summary>
-    /// Handles both TagMismatch and WrongFilePath. Both are symptoms of the same thing - the file
-    /// on disk doesn't match the library metadata already in the database - so both are fixed the
-    /// same way: rewrite the m4b tags from the database and let the normal save pipeline relocate
-    /// the file and resync its sidecars if the path changes too. See the "Binding invariant" in
-    /// CLAUDE.md - UpdateAudiobook is the only place allowed to touch these fields.
-    ///
-    /// This used to be two handlers. ResolveWrongFilePath re-parsed tags from the file itself
-    /// (assuming they were already correct) and only relocated it, then deleted every issue for
-    /// the book on success - including a TagMismatch it had never touched, so a coexisting tag
-    /// mismatch silently vanished from the list without ever being fixed. Going through the same
-    /// database-is-truth pipeline as TagMismatch always did closes that gap by construction:
-    /// there's no "assume tags are fine" path left to desync from what actually got resolved.
-    /// </summary>
-    private async Task<ResolveScope> ResolveTagOrPathMismatch(ConsistencyIssue issue)
+    private async Task<ResolveScope> ResolveTagMismatch(ConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
             throw new KeyNotFoundException($"Audiobook {issue.AudiobookId} not found");
 
+        // Rewrite the m4b tags (and relocate/resync sidecars if the path changes) from the
+        // library metadata that's already correct in the database - see the "Binding invariant"
+        // in CLAUDE.md, UpdateAudiobook is the only place that's allowed to touch these fields.
         // The per-audiobook gate is already held by ResolveLoadedIssue.
         var domain = AudiobookService.FromDb(dbAudiobook);
         await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);

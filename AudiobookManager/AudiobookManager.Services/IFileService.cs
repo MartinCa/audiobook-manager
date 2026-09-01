@@ -7,5 +7,4 @@ public interface IFileService
     IEnumerable<AudiobookFileInfo> ScanInputDirectoryForAudiobookFiles();
     public IList<AudiobookFileInfo> GetDirectoryContents(string directoryPath);
     public void DeleteDirectory(string directoryPath);
-    public string? GetCoverPath(string filePath);
 }

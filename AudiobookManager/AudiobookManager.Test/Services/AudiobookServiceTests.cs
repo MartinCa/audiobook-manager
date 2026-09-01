@@ -19,7 +19,6 @@ public class AudiobookServiceTests
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IGenreRepository> _genreRepository = null!;
-    private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<ILogger<AudiobookService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private AudiobookService _service = null!;
@@ -31,7 +30,6 @@ public class AudiobookServiceTests
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _personRepository = new Mock<IPersonRepository>();
         _genreRepository = new Mock<IGenreRepository>();
-        _issueRepository = new Mock<IConsistencyIssueRepository>();
         _logger = new Mock<ILogger<AudiobookService>>();
         _settings = Options.Create(new AudiobookManagerSettings
         {
@@ -44,7 +42,6 @@ public class AudiobookServiceTests
             _audiobookRepository.Object,
             _personRepository.Object,
             _genreRepository.Object,
-            _issueRepository.Object,
             _logger.Object);
     }
 
@@ -214,7 +211,6 @@ public class AudiobookServiceTests
             _audiobookRepository.Object,
             _personRepository.Object,
             _genreRepository.Object,
-            _issueRepository.Object,
             _logger.Object);
     }
 
@@ -812,108 +808,6 @@ public class AudiobookServiceTests
         Assert.IsNull(result.ExistingAudiobookId);
         Assert.AreEqual(content.Length, result.ExistingSizeInBytes);
         Assert.IsNull(result.ExistingDurationInSeconds);
-    }
-
-    #endregion
-
-    #region ReplaceExisting and DeleteAudiobook
-
-    [TestMethod]
-    public async Task OrganizeAudiobook_TargetExistsAndReplaceExistingFalse_ThrowsException()
-    {
-        SetupUpdateAudiobookTest();
-        try
-        {
-            var book = MakeAudiobookForCollisionCheck();
-            var targetPath = _service.GenerateLibraryPath(book);
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            await File.WriteAllTextAsync(targetPath, "existing target");
-
-            book.ReplaceExisting = false;
-
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), false)).Returns(book);
-
-            var ex = await Assert.ThrowsExactlyAsync<Exception>(() =>
-                _service.OrganizeAudiobook(book, (_, _) => Task.CompletedTask));
-
-            StringAssert.Contains(ex.Message, "already exists");
-        }
-        finally
-        {
-            CleanupTestRoot(_testRoot);
-        }
-    }
-
-    [TestMethod]
-    public async Task OrganizeAudiobook_TargetExistsAndReplaceExistingTrue_OverwritesAndDeletesOldEntity()
-    {
-        SetupUpdateAudiobookTest();
-        try
-        {
-            var sourceDir = Path.Combine(_testRoot, "import");
-            Directory.CreateDirectory(sourceDir);
-            var sourcePath = Path.Combine(sourceDir, "book.m4b");
-            await File.WriteAllTextAsync(sourcePath, "new source content");
-
-            var book = MakeAudiobookForCollisionCheck(sourcePath: sourcePath);
-            var targetPath = _service.GenerateLibraryPath(book);
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            await File.WriteAllTextAsync(targetPath, "existing target");
-
-            book.ReplaceExisting = true;
-
-            var existingDbBook = new DbAudiobook(42, "Old Book", null, null, null, 2020, null, null, null, null, null, null, null, null, null, targetPath, "book.m4b", 5000);
-            _audiobookRepository.Setup(r => r.GetByFullPathAsync(targetPath, It.IsAny<Func<string, string, bool>?>())).ReturnsAsync(existingDbBook);
-            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns((FileInfo fi, bool _) =>
-            {
-                var copy = MakeAudiobookForCollisionCheck(sourcePath: fi.FullName);
-                copy.FileInfo = new AudiobookFileInfo(fi.FullName, fi.Name, fi.Length);
-                return copy;
-            });
-            _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>())).ReturnsAsync(new Dictionary<string, DbPerson>
-            {
-                ["Adrian Tchaikovsky"] = new DbPerson(1, "Adrian Tchaikovsky")
-            });
-            _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>())).ReturnsAsync(new Dictionary<string, DbGenre>());
-            _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>())).ReturnsAsync(existingDbBook);
-
-            await _service.OrganizeAudiobook(book, (_, _) => Task.CompletedTask);
-
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Once);
-            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(42), Times.Once);
-            Assert.IsTrue(File.Exists(targetPath));
-        }
-        finally
-        {
-            CleanupTestRoot(_testRoot);
-        }
-    }
-
-    [TestMethod]
-    public async Task DeleteAudiobook_RemovesEntityIssuesAndFiles()
-    {
-        SetupUpdateAudiobookTest();
-        try
-        {
-            var bookDir = Path.Combine(_libraryPath, "Author", "2024 - Book");
-            Directory.CreateDirectory(bookDir);
-            var filePath = Path.Combine(bookDir, "book.m4b");
-            await File.WriteAllTextAsync(filePath, "audio content");
-
-            var dbBook = new DbAudiobook(10, "Book", null, null, null, 2024, null, null, null, null, null, null, null, null, null, filePath, "book.m4b", 100);
-            _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(10)).ReturnsAsync(dbBook);
-
-            await _service.DeleteAudiobook(10);
-
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(10), Times.Once);
-            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(10), Times.Once);
-            Assert.IsFalse(File.Exists(filePath));
-            Assert.IsFalse(Directory.Exists(bookDir));
-        }
-        finally
-        {
-            CleanupTestRoot(_testRoot);
-        }
     }
 
     #endregion
