@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibraryConsistency } from "./LibraryConsistency";
 import { SignalRContext } from "@/context/SignalRContext";
+import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import type * as SonnerModule from "sonner";
@@ -16,6 +17,17 @@ vi.mock("sonner", async (importOriginal) => {
       success: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
+    },
+  };
+});
+
+vi.mock("@/services/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof ApiModule>();
+  return {
+    ...actual,
+    filesApi: {
+      ...actual.filesApi,
+      getDirectoryContents: vi.fn().mockResolvedValue([]),
     },
   };
 });
@@ -91,6 +103,41 @@ describe("LibraryConsistency", () => {
       expect(toast.info).toHaveBeenCalledWith(
         "Directory now contains audio files; preserved directory on disk and removed from orphan list.",
       );
+    });
+  });
+
+  it("opens bulk delete dialog when Delete All orphans button is clicked and deletes all", async () => {
+    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([
+      {
+        id: 10,
+        directoryPath: "/media/audiobooks/Author/Orphan1",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+      {
+        id: 11,
+        directoryPath: "/media/audiobooks/Author/Orphan2",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "resolveAllOrphanDirectories").mockResolvedValue({
+      resolved: 2,
+      failed: 0,
+      retained: 0,
+    });
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const deleteAllBtn = await screen.findByRole("button", { name: "Delete All 2" });
+    fireEvent.click(deleteAllBtn);
+
+    expect(screen.getByText("Delete All Orphaned Directories")).toBeInTheDocument();
+
+    const confirmBtn = screen.getByRole("button", { name: "Delete All" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveAllOrphanDirectories).toHaveBeenCalledTimes(1);
     });
   });
 });

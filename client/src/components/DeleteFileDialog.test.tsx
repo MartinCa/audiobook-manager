@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeleteFileDialog } from "./DeleteFileDialog";
@@ -18,7 +18,11 @@ function renderWithClient(ui: React.ReactElement) {
 }
 
 describe("DeleteFileDialog", () => {
-  it("renders folder contents and invokes onConfirmDelete when confirmed", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders folder path, folder contents, and invokes onConfirmDelete when confirmed", async () => {
     const onConfirmDelete = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
 
@@ -31,14 +35,16 @@ describe("DeleteFileDialog", () => {
       <DeleteFileDialog
         open={true}
         onOpenChange={onOpenChange}
-        targetPath="/staging/book"
+        targetPath="/staging/book/track1.mp3"
         onConfirmDelete={onConfirmDelete}
       />,
     );
 
     expect(screen.getByText("Delete File")).toBeInTheDocument();
+    expect(screen.getByText("Folder to be deleted:")).toBeInTheDocument();
 
     await waitFor(() => {
+      expect(screen.getByTestId("folder-path-display")).toHaveTextContent("/staging/book");
       expect(screen.getByText("track1.mp3")).toBeInTheDocument();
       expect(screen.getByText("cover.jpg")).toBeInTheDocument();
     });
@@ -50,5 +56,25 @@ describe("DeleteFileDialog", () => {
       expect(onConfirmDelete).toHaveBeenCalledTimes(1);
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  it("supports custom title and description", () => {
+    vi.mocked(filesApi.getDirectoryContents).mockResolvedValue([]);
+
+    renderWithClient(
+      <DeleteFileDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        targetPath="/library/Author/Book"
+        onConfirmDelete={vi.fn()}
+        title="Custom Delete Title"
+        description="Custom Delete Description"
+        confirmButtonText="Delete Custom"
+      />,
+    );
+
+    expect(screen.getByText("Custom Delete Title")).toBeInTheDocument();
+    expect(screen.getByText("Custom Delete Description")).toBeInTheDocument();
+    expect(screen.getByText("Delete Custom")).toBeInTheDocument();
   });
 });

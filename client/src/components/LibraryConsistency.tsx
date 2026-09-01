@@ -24,6 +24,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { DiffDisplay } from "./DiffDisplay";
+import { DeleteFileDialog } from "./DeleteFileDialog";
+import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
 import { consistencyApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -74,7 +76,6 @@ export function LibraryConsistency() {
   // Orphan dialog state
   const [orphanToDelete, setOrphanToDelete] = useState<OrphanDirectory | null>(null);
   const [deleteAllOrphansOpen, setDeleteAllOrphansOpen] = useState(false);
-  const [deletingOrphan, setDeletingOrphan] = useState(false);
 
   // Resolve confirmation state
   const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
@@ -231,7 +232,6 @@ export function LibraryConsistency() {
 
   const handleDeleteOrphan = async () => {
     if (!orphanToDelete) return;
-    setDeletingOrphan(true);
     try {
       const res = await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
       notifyOrphanResolveResult(res);
@@ -239,13 +239,10 @@ export function LibraryConsistency() {
       setOrphanToDelete(null);
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setDeletingOrphan(false);
     }
   };
 
   const handleDeleteAllOrphans = async () => {
-    setDeletingOrphan(true);
     try {
       const res = await consistencyApi.resolveAllOrphanDirectories();
       if (res.retained > 0) {
@@ -259,8 +256,6 @@ export function LibraryConsistency() {
       setDeleteAllOrphansOpen(false);
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setDeletingOrphan(false);
     }
   };
 
@@ -640,80 +635,35 @@ export function LibraryConsistency() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={Boolean(orphanToDelete)}
-        onOpenChange={(open) => {
-          if (!open) setOrphanToDelete(null);
-        }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Delete Orphaned Directory</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              Are you sure you want to permanently delete this empty or orphaned folder?
-              (Directories containing audio files will be preserved).
-            </p>
-            <div className="bg-muted rounded p-2 font-mono text-xs break-all">
-              {orphanToDelete?.directoryPath}
-            </div>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setOrphanToDelete(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={deletingOrphan}
-                onClick={() => {
-                  void handleDeleteOrphan();
-                }}
-              >
-                {deletingOrphan ? "Deleting..." : "Delete Permanently"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {orphanToDelete && (
+        <DeleteFileDialog
+          open={Boolean(orphanToDelete)}
+          onOpenChange={(open) => {
+            if (!open) setOrphanToDelete(null);
+          }}
+          targetPath={orphanToDelete.directoryPath}
+          title="Delete Orphaned Directory"
+          description="Are you sure you want to permanently delete this empty or orphaned folder? (Directories containing audio files will be preserved)."
+          confirmButtonText="Delete Permanently"
+          onConfirmDelete={handleDeleteOrphan}
+        />
+      )}
 
-      <Dialog open={deleteAllOrphansOpen} onOpenChange={setDeleteAllOrphansOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Delete All Orphaned Directories</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-muted-foreground text-xs">
-              This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
-              directories and any leftover files in them (directories containing audio files will be
-              preserved).
-            </p>
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setDeleteAllOrphansOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="w-full sm:w-auto"
-                disabled={deletingOrphan}
-                onClick={() => {
-                  void handleDeleteAllOrphans();
-                }}
-              >
-                {deletingOrphan ? "Deleting..." : "Delete All"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <BulkDeleteDirectoriesDialog
+        open={deleteAllOrphansOpen}
+        onOpenChange={setDeleteAllOrphansOpen}
+        directories={orphanDirs.map((d) => ({ id: d.id, directoryPath: d.directoryPath }))}
+        title="Delete All Orphaned Directories"
+        description={
+          <>
+            This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
+            directories and any leftover files in them (directories containing audio files will be
+            preserved).
+          </>
+        }
+        confirmButtonText="Delete All"
+        onConfirmDelete={handleDeleteAllOrphans}
+      />
     </div>
   );
 }
