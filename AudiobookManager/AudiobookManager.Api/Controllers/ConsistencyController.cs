@@ -189,16 +189,16 @@ public class ConsistencyController : ControllerBase
     [HttpGet("issues/{id}/tag-mismatch")]
     public async Task<ActionResult<List<TagMismatchFieldDto>>> GetTagMismatchFields(long id)
     {
-        var issue = await _issueRepository.GetByIdAsync(id);
-        if (issue == null)
-            return NotFound();
-
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
             var fields = await consistencyService.GetTagMismatchFieldsAsync(id);
             return Ok(fields.Select(f => new TagMismatchFieldDto(f.Field, f.LibraryValue, f.FileValue)).ToList());
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
         }
         catch (ArgumentException ex)
         {
@@ -214,16 +214,16 @@ public class ConsistencyController : ControllerBase
     [HttpPost("issues/{id}/tag-mismatch/resolve")]
     public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveTagMismatch(long id, [FromBody] ResolveTagMismatchRequest request)
     {
-        var issue = await _issueRepository.GetByIdAsync(id);
-        if (issue == null)
-            return NotFound();
-
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
             var result = await consistencyService.ResolveTagMismatchAsync(id, request.FieldValues);
             return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
         }
         catch (AudiobookBusyException ex)
         {

@@ -93,7 +93,7 @@ describe("TagMismatchResolveDialog", () => {
 
   it("submits null when Keep Neither is selected", async () => {
     vi.spyOn(consistencyApi, "getTagMismatch").mockResolvedValue([
-      { field: "bookName", libraryValue: "The Test Book", fileValue: "The Test Book 2" },
+      { field: "description", libraryValue: "Library description", fileValue: "File description" },
     ]);
     const onResolve = vi.fn().mockResolvedValue(undefined);
 
@@ -101,13 +101,63 @@ describe("TagMismatchResolveDialog", () => {
       <TagMismatchResolveDialog open onOpenChange={() => {}} issue={issue} onResolve={onResolve} />,
     );
 
-    const emptyRadio = await screen.findByRole("radio", { name: "Clear bookName" });
+    const emptyRadio = await screen.findByRole("radio", { name: "Clear description" });
     fireEvent.click(emptyRadio);
 
     fireEvent.click(screen.getByRole("button", { name: "Apply Choices" }));
 
     await waitFor(() => {
-      expect(onResolve).toHaveBeenCalledWith(42, { bookName: null });
+      expect(onResolve).toHaveBeenCalledWith(42, { description: null });
     });
+  });
+
+  it("does not offer Keep Neither for structural fields", async () => {
+    vi.spyOn(consistencyApi, "getTagMismatch").mockResolvedValue([
+      { field: "Book Name", libraryValue: "Library Title", fileValue: "File Title" },
+      { field: "Year", libraryValue: "2010", fileValue: "2020" },
+      { field: "Description", libraryValue: "desc", fileValue: "other" },
+    ]);
+
+    renderWithQuery(
+      <TagMismatchResolveDialog
+        open
+        onOpenChange={() => {}}
+        issue={issue}
+        onResolve={() => Promise.resolve()}
+      />,
+    );
+
+    await screen.findByText("File Title");
+    // Structural fields (Book Name, Year) expose no "Clear" radio; Description does.
+    expect(screen.queryByRole("radio", { name: "Clear Book Name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Clear Year" })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Clear Description" })).toBeInTheDocument();
+  });
+
+  it("stays open and keeps selections when resolve fails", async () => {
+    vi.spyOn(consistencyApi, "getTagMismatch").mockResolvedValue([
+      { field: "bookName", libraryValue: "Library Title", fileValue: "File Title" },
+    ]);
+    const onOpenChange = vi.fn();
+    const onResolve = vi.fn().mockRejectedValue(new Error("boom"));
+
+    renderWithQuery(
+      <TagMismatchResolveDialog
+        open
+        onOpenChange={onOpenChange}
+        issue={issue}
+        onResolve={onResolve}
+      />,
+    );
+
+    await screen.findByText("File Title");
+    const fileRadio = screen.getByRole("radio", { name: "File Title" });
+    fireEvent.click(fileRadio);
+    fireEvent.click(screen.getByRole("button", { name: "Apply Choices" }));
+
+    await waitFor(() => expect(onResolve).toHaveBeenCalled());
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // The dialog content is still visible.
+    expect(screen.getByText("Resolve Tag Mismatch")).toBeInTheDocument();
   });
 });

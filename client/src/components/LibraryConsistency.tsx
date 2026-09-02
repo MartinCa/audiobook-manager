@@ -226,6 +226,8 @@ export function LibraryConsistency() {
       });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
+      // Re-throw so the dialog stays open and keeps the user's selections on failure (409/500).
+      throw err;
     } finally {
       setResolvingIds((prev) => {
         const next = new Set(prev);

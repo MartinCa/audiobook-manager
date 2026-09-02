@@ -1,4 +1,5 @@
 using AudiobookManager.Domain;
+using AudiobookManager.FileManager;
 
 namespace AudiobookManager.Services;
 
@@ -46,16 +47,37 @@ public static class TagConsistencyChecker
     // AudiobookTagHandler.GetStringFromListOfPersons de-duplicates names before writing them, and
     // an empty genre string round-trips as no genres at all - so a repeated author or a blank
     // genre entry must not be treated as a difference here.
-    private static string FormatGenres(IEnumerable<string> genres) =>
+    //
+    // They are `internal` (same assembly) so the selective tag-mismatch resolution can reuse the
+    // exact same normalization to parse a chosen serialized value back into a domain collection
+    // (see ParseGenres/ParsePersons) - otherwise two unconnected copies would be free to drift,
+    // and a resolve would write tags the checker then claims still mismatch.
+    internal static string FormatGenres(IEnumerable<string> genres) =>
         string.Join(", ", genres
             .Select(g => g?.Trim() ?? "")
             .Where(g => g.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(g => g, StringComparer.Ordinal));
 
-    private static string FormatPersons(IEnumerable<Person> persons) =>
+    internal static string FormatPersons(IEnumerable<Person> persons) =>
         string.Join(", ", persons
             .Select(p => p.Name)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal));
+
+    /// <summary>
+    /// Inverse of <see cref="FormatGenres"/>: splits a serialized genre list back into the genre
+    /// strings the same delimiter produced. Only used on values that came from
+    /// <see cref="FindMismatches"/> (library or file side); raw file tags are still parsed with
+    /// <see cref="AudiobookTagHandler.ParseGenresFromString"/>, whose '/' delimiter is the m4b
+    /// genre-separator, not this display form.
+    /// </summary>
+    internal static List<string> ParseGenres(string? serializedGenres) =>
+        (serializedGenres ?? string.Empty)
+            .Split(", ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+    /// <summary>The inverse of <see cref="FormatPersons"/>; comma-joined names split back out.</summary>
+    internal static List<Person> ParsePersons(string? serializedPersons) =>
+        AudiobookTagHandler.ParsePersonsFromString(serializedPersons);
 }

@@ -1,5 +1,4 @@
 using AudiobookManager.Domain;
-using AudiobookManager.FileManager;
 
 namespace AudiobookManager.Services;
 
@@ -13,55 +12,45 @@ public record TagMismatchField(string Field, string? LibraryValue, string? FileV
 
 /// <summary>
 /// Maps the tag fields <see cref="TagConsistencyChecker"/> compares between serialized values
-/// and the domain <see cref="Audiobook"/> properties. Used by both sides of selective resolution:
-/// reading a mismatch's candidates and applying the user's chosen values back onto the domain
-/// object that <see cref="AudiobookService.UpdateAudiobook"/> persists.
+/// and the domain <see cref="Audiobook"/> properties. Used by the resolve side of selective
+/// resolution: applying the user's chosen values back onto the domain object that
+/// <see cref="AudiobookService.UpdateAudiobook"/> persists. The read side reads straight from
+/// <see cref="TagConsistencyChecker.FindMismatches"/>; this class holds no formatter of its own,
+/// so the serialization shared with the checker cannot drift.
 /// </summary>
 public static class TagMismatchFields
 {
-    public static readonly string[] AllFields =
+    /// <summary>
+    /// Fields that drive the library path (<c>AudiobookFileHandler.GenerateRelativeAudiobookPath</c>):
+    /// clearing one relocates the file to a mangled path (e.g. <c>"/ - BookName/ - BookName.m4b"</c>)
+    /// and/or leaves the DB holding the old value. The resolve endpoint rejects a null/empty choice
+    /// for these, and the UI renders no "Keep Neither" option for them.
+    /// </summary>
+    public static readonly HashSet<string> StructuralFields = new(StringComparer.Ordinal)
     {
-        "Author", "Narrators", "Book Name", "Subtitle", "Series", "Series Part", "Year",
-        "Description", "Copyright", "Publisher", "Language", "Rating", "Asin", "Www", "Genres"
+        "Author", "Book Name", "Year"
     };
-
-    /// <summary>Reads the serialized value for a field from a domain audiobook.</summary>
-    public static string? GetValue(Audiobook audiobook, string field)
-    {
-        return field switch
-        {
-            "Author" => FormatPersons(audiobook.Authors),
-            "Narrators" => FormatPersons(audiobook.Narrators),
-            "Book Name" => audiobook.BookName,
-            "Subtitle" => audiobook.Subtitle,
-            "Series" => audiobook.Series,
-            "Series Part" => audiobook.SeriesPart,
-            "Year" => audiobook.Year?.ToString(),
-            "Description" => audiobook.Description,
-            "Copyright" => audiobook.Copyright,
-            "Publisher" => audiobook.Publisher,
-            "Language" => audiobook.Language,
-            "Rating" => audiobook.Rating,
-            "Asin" => audiobook.Asin,
-            "Www" => audiobook.Www,
-            "Genres" => FormatGenres(audiobook.Genres),
-            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "Unknown tag field")
-        };
-    }
 
     /// <summary>
     /// Applies a chosen serialized value for a field onto a domain audiobook. A null/empty value
-    /// clears the field. Only the fields whose serialized form the user changed need applying.
+    /// clears the field - except for <see cref="StructuralFields"/>, which must always keep a
+    /// value (an empty choice there is a caller error). Only the fields whose serialized form the
+    /// user changed need applying.
     /// </summary>
     public static void ApplyValue(Audiobook audiobook, string field, string? value)
     {
+        if (StructuralFields.Contains(field) && string.IsNullOrEmpty(value))
+        {
+            throw new ArgumentException($"Field '{field}' cannot be cleared: it determines the library path");
+        }
+
         switch (field)
         {
             case "Author":
-                audiobook.Authors = ParsePersons(value);
+                audiobook.Authors = TagConsistencyChecker.ParsePersons(value);
                 break;
             case "Narrators":
-                audiobook.Narrators = ParsePersons(value);
+                audiobook.Narrators = TagConsistencyChecker.ParsePersons(value);
                 break;
             case "Book Name":
                 audiobook.BookName = string.IsNullOrEmpty(value) ? null : value;
@@ -100,29 +89,10 @@ public static class TagMismatchFields
                 audiobook.Www = string.IsNullOrEmpty(value) ? null : value;
                 break;
             case "Genres":
-                audiobook.Genres = ParseGenres(value);
+                audiobook.Genres = TagConsistencyChecker.ParseGenres(value);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(field), field, "Unknown tag field");
         }
     }
-
-    private static string FormatGenres(IEnumerable<string> genres) =>
-        string.Join(", ", genres
-            .Select(g => g?.Trim() ?? "")
-            .Where(g => g.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(g => g, StringComparer.Ordinal));
-
-    private static string FormatPersons(IEnumerable<Person> persons) =>
-        string.Join(", ", persons
-            .Select(p => p.Name)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(n => n, StringComparer.Ordinal));
-
-    private static List<Person> ParsePersons(string? value) =>
-        AudiobookTagHandler.ParsePersonsFromString(value);
-
-    private static List<string> ParseGenres(string? value) =>
-        AudiobookTagHandler.ParseGenresFromString(value);
 }

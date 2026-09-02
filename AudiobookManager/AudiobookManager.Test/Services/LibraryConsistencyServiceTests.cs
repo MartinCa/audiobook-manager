@@ -1484,4 +1484,174 @@ public class LibraryConsistencyServiceTests
             () => _service.ResolveIssue(999));
         Assert.IsNotNull(exception);
     }
+
+    #region Selective tag-mismatch resolution
+
+    private static DbAudiobook MakeFullBook(long id, string filePath) =>
+        new(
+            id, "Book Name", "Subtitle", null, null, 2010,
+            "Description", "Copyright", "Publisher", "Language", "Rating", "Asin", "Www", null, null,
+            filePath, Path.GetFileName(filePath), 1000)
+        {
+            Authors = new List<Database.Models.Person> { new(1, "Library Author") },
+            Narrators = new List<Database.Models.Person> { new(2, "Library Narrator") }
+        };
+
+    private static ConsistencyIssue MakeTagMismatchIssue(DbAudiobook book, long id = 5) => new()
+    {
+        Id = id,
+        AudiobookId = book.Id,
+        Audiobook = book,
+        IssueType = ConsistencyIssueType.TagMismatch,
+        Description = "tags differ",
+        DetectedAt = DateTime.UtcNow
+    };
+
+    [TestMethod]
+    public async Task GetTagMismatchFieldsAsync_NotFound_ThrowsKeyNotFound()
+    {
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _service.GetTagMismatchFieldsAsync(999));
+    }
+
+    [TestMethod]
+    public async Task GetTagMismatchFieldsAsync_NonTagMismatch_ThrowsArgument()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new ConsistencyIssue
+        {
+            Id = 5,
+            AudiobookId = 1,
+            Audiobook = book,
+            IssueType = ConsistencyIssueType.WrongFilePath,
+            Description = "wrong path"
+        });
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.GetTagMismatchFieldsAsync(5));
+    }
+
+    [TestMethod]
+    public async Task GetTagMismatchFieldsAsync_ReturnsOnlyDifferingFields()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
+
+        // File differs from the library only on Book Name, Year, and Genres; every other field
+        // matches so the projection returns exactly those three rows.
+        var parsed = new Domain.Audiobook(
+            new List<Domain.Person> { new("Library Author") },
+            "File Book Name",
+            2020,
+            new Domain.AudiobookFileInfo("/library/book.m4b", "book.m4b", 1000))
+        {
+            Narrators = new List<Domain.Person> { new("Library Narrator") },
+            Subtitle = "Subtitle",
+            Description = "Description",
+            Copyright = "Copyright",
+            Publisher = "Publisher",
+            Language = "Language",
+            Rating = "Rating",
+            Asin = "Asin",
+            Www = "Www",
+            Genres = new List<string> { "File Genre One", "File Genre Two" }
+        };
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
+
+        var fields = await _service.GetTagMismatchFieldsAsync(5);
+
+        var byName = fields.ToDictionary(f => f.Field);
+        Assert.AreEqual(3, fields.Count);
+        Assert.AreEqual("Book Name", byName["Book Name"].LibraryValue);
+        Assert.AreEqual("File Book Name", byName["Book Name"].FileValue);
+        Assert.AreEqual("2010", byName["Year"].LibraryValue);
+        Assert.AreEqual("2020", byName["Year"].FileValue);
+        // Genres serialized with the shared formatter (", "-joined), not the '/' tag delimiter.
+        Assert.AreEqual("File Genre One, File Genre Two", byName["Genres"].FileValue);
+    }
+
+    [TestMethod]
+    public async Task ResolveTagMismatchAsync_NotFound_ThrowsKeyNotFound()
+    {
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _service.ResolveTagMismatchAsync(999, new Dictionary<string, string?>()));
+    }
+
+    [TestMethod]
+    public async Task ResolveTagMismatchAsync_NonTagMismatch_ThrowsArgument()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new ConsistencyIssue
+        {
+            Id = 5,
+            AudiobookId = 1,
+            Audiobook = book,
+            IssueType = ConsistencyIssueType.MissingDescTxt,
+            Description = "no desc"
+        });
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?>()));
+    }
+
+    [TestMethod]
+    public async Task ResolveTagMismatchAsync_AppliesOnlySuppliedFieldsAndDeletesIssues()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        book.Genres = new List<Database.Models.Genre> { new(1, "Library Genre") };
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
+
+        Domain.Audiobook? applied = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => applied = a)
+            .ReturnsAsync((long id, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var result = await _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?>
+        {
+            ["Year"] = "2021",
+        });
+
+        Assert.IsNotNull(applied);
+        Assert.AreEqual("Book Name", applied!.BookName);
+        Assert.AreEqual(2021, applied!.Year);
+        // Omitted fields keep the library metadata.
+        Assert.AreEqual("Library Author", applied!.Authors.Single().Name);
+        Assert.AreEqual("Library Genre", applied!.Genres.Single());
+
+        Assert.AreEqual("resolved", result.ActionTaken);
+        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveTagMismatchAsync_StructuralFieldEmpty_ThrowsArgument()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?> { ["Year"] = null }));
+    }
+
+    [TestMethod]
+    public async Task ResolveTagMismatchAsync_BookBusy_ThrowsBusyException()
+    {
+        var book = MakeFullBook(1, "/library/book.m4b");
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
+
+        // Hold the per-audiobook gate so the resolve's Acquire refuses.
+        using var held = _saveGate.Acquire(1);
+
+        await Assert.ThrowsExactlyAsync<AudiobookBusyException>(
+            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?> { ["Year"] = "2021" }));
+        _audiobookService.Verify(
+            s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()),
+            Times.Never);
+    }
+
+    #endregion
 }

@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import type { TagMismatchField } from "@/types/TagMismatchField";
+import { STRUCTURAL_FIELDS } from "@/types/TagMismatchField";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -46,24 +47,23 @@ export function TagMismatchResolveDialog({
     staleTime: 30_000,
   });
 
-  // Key the state by issue id so per-field choices reset when a new issue opens.
-  const [choicesByIssue, setChoicesByIssue] = useState<
-    Record<number, Record<string, TagFieldChoice>>
-  >({});
+  // State keyed on the current issue id, so per-field choices reset when a new issue opens and
+  // no per-issue map accumulates for the lifetime of the page.
+  const [state, setState] = useState<{
+    issueId: number;
+    choices: Record<string, TagFieldChoice>;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const choices = useMemo(
-    () => (issue ? (choicesByIssue[issue.id] ?? initialChoicesFor(fields)) : {}),
-    [choicesByIssue, issue, fields],
-  );
+  const choices = useMemo(() => {
+    if (!issue) return {};
+    return state?.issueId === issue.id ? state.choices : initialChoicesFor(fields);
+  }, [state, issue, fields]);
 
   const setChoice = (field: string, value: TagFieldChoice) => {
     if (!issue) return;
-    const base = choicesByIssue[issue.id] ?? initialChoicesFor(fields);
-    setChoicesByIssue((prev) => ({
-      ...prev,
-      [issue.id]: { ...base, [field]: value },
-    }));
+    const base = state?.issueId === issue.id ? state.choices : initialChoicesFor(fields);
+    setState({ issueId: issue.id, choices: { ...base, [field]: value } });
   };
 
   const hasNonLibraryChoice = useMemo(
@@ -87,6 +87,9 @@ export function TagMismatchResolveDialog({
       }
       await onResolve(issue.id, fieldValues);
       onOpenChange(false);
+    } catch {
+      // Keep the dialog open with the user's selections intact; the caller surfaces the error
+      // toast. Closing here would discard every per-field choice on a transient failure (409/500).
     } finally {
       setSubmitting(false);
     }
@@ -195,23 +198,32 @@ export function TagMismatchResolveDialog({
                           </RadioGroup>
                         </td>
                         <td className="p-2 text-center">
-                          <RadioGroup
-                            value={choice}
-                            onValueChange={(value: TagFieldChoice) => {
-                              setChoice(field.field, value);
-                            }}
-                          >
-                            <label
-                              htmlFor={`${field.field}-empty`}
-                              className="flex cursor-pointer items-center justify-center"
+                          {STRUCTURAL_FIELDS.has(field.field) ? (
+                            <span
+                              className="text-muted-foreground inline-flex items-center justify-center text-[10px]"
+                              title="This field determines the library path and cannot be cleared"
                             >
-                              <RadioGroupItem
-                                value="empty"
-                                id={`${field.field}-empty`}
-                                aria-label={`Clear ${field.field}`}
-                              />
-                            </label>
-                          </RadioGroup>
+                              —
+                            </span>
+                          ) : (
+                            <RadioGroup
+                              value={choice}
+                              onValueChange={(value: TagFieldChoice) => {
+                                setChoice(field.field, value);
+                              }}
+                            >
+                              <label
+                                htmlFor={`${field.field}-empty`}
+                                className="flex cursor-pointer items-center justify-center"
+                              >
+                                <RadioGroupItem
+                                  value="empty"
+                                  id={`${field.field}-empty`}
+                                  aria-label={`Clear ${field.field}`}
+                                />
+                              </label>
+                            </RadioGroup>
+                          )}
                         </td>
                       </tr>
                     );
