@@ -10,6 +10,12 @@ describe("CoverEditor", () => {
     expect(img.src).toContain("/api/files/cover?path=x");
   });
 
+  it("fits the whole cover inside the square box without cropping", () => {
+    render(<CoverEditor coverUrl="/api/files/cover?path=x" onCoverChange={vi.fn()} />);
+
+    expect(screen.getByAltText<HTMLImageElement>("Cover Preview")).toHaveClass("object-contain");
+  });
+
   // Regression: coverUrl is passed unconditionally by callers (there's no cheap way to know
   // ahead of time whether a book has a cover on disk), so it 404s whenever one doesn't. Without
   // falling back, that showed a broken-image icon instead of the "Click to set cover" placeholder
