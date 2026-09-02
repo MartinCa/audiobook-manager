@@ -133,12 +133,21 @@ export function BookDetail() {
     }
   };
 
+  // Invalidate every query whose result reflects this book's consistency status, so a
+  // single-book recheck or resolve shows up on the Library Consistency page and in the
+  // library list's issue badges. The book-detail query keeps its own id-scoped key.
+  const invalidateConsistencyViews = () => {
+    void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    void queryClient.invalidateQueries({ queryKey: ["books"] });
+  };
+
   const handleCheckConsistency = async () => {
     setCheckingConsistency(true);
     try {
       await consistencyApi.recheckAudiobook(id);
       toast.success("Consistency check complete");
-      void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+      invalidateConsistencyViews();
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
@@ -153,11 +162,11 @@ export function BookDetail() {
       notifyConsistencyResolveResult(result);
       if (result.actionTaken === "audiobook_deleted") {
         void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
-        void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+        invalidateConsistencyViews();
         void navigate({ to: "/library" });
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+      invalidateConsistencyViews();
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
