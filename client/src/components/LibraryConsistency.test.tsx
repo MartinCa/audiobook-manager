@@ -148,4 +148,52 @@ describe("LibraryConsistency", () => {
       expect(consistencyApi.resolveAllOrphanDirectories).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("opens selective tag-mismatch dialog and resolves with chosen field values", async () => {
+    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([
+      {
+        id: 42,
+        audiobookId: 7,
+        bookName: "The Test Book",
+        authors: ["Some Author"],
+        issueType: "TagMismatch",
+        description: 'Tag mismatch: "bookName" differs',
+        detectedAt: "2026-09-01T10:00:00Z",
+        expectedValue: "The Test Book",
+        actualValue: "The Test Book 2",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(consistencyApi, "getTagMismatch").mockResolvedValue([
+      { field: "bookName", libraryValue: "The Test Book", fileValue: "The Test Book 2" },
+    ]);
+    vi.spyOn(consistencyApi, "resolveTagMismatch").mockResolvedValue({
+      issueId: 42,
+      issueType: "TagMismatch",
+      actionTaken: "resolved",
+      message: "Tags updated",
+    });
+
+    renderWithProviders(<LibraryConsistency />);
+
+    // Expand the "Tag Mismatches" accordion group.
+    const trigger = await screen.findByRole("button", { name: /Tag Mismatches/ });
+    fireEvent.click(trigger);
+
+    const resolveBtn = await screen.findByRole("button", { name: "Resolve" });
+    fireEvent.click(resolveBtn);
+
+    // Dialog loads fields; choose the file value, then apply.
+    expect(await screen.findByText("Resolve Tag Mismatch")).toBeInTheDocument();
+    const fileRadio = await screen.findByRole("radio", { name: "The Test Book 2" });
+    fireEvent.click(fileRadio);
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply Choices" }));
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveTagMismatch).toHaveBeenCalledWith(42, {
+        bookName: "The Test Book 2",
+      });
+    });
+  });
 });

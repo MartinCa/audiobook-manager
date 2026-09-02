@@ -21,6 +21,7 @@ import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
+import type { TagMismatchField } from "@/types/TagMismatchField";
 
 export function toAudiobookDto(data: Audiobook) {
   return {
@@ -156,6 +157,14 @@ export const consistencyApi = {
 
   resolveIssue: (id: number) =>
     api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
+
+  getTagMismatch: (id: number) =>
+    api.get<TagMismatchField[]>(`/consistency/issues/${id}/tag-mismatch`),
+
+  resolveTagMismatch: (id: number, fieldValues: Record<string, string | null>) =>
+    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/tag-mismatch/resolve`, {
+      fieldValues,
+    }),
 
   resolveSelected: (issueIds: number[]) =>
     api.post<{ resolved: number; failed: number }>(

@@ -883,6 +883,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/consistency/issues/{id}/tag-mismatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["TagMismatchFieldDto"][];
+                        "application/json": components["schemas"]["TagMismatchFieldDto"][];
+                        "text/json": components["schemas"]["TagMismatchFieldDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/consistency/issues/{id}/tag-mismatch/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResolveTagMismatchRequest"];
+                    "text/json": components["schemas"]["ResolveTagMismatchRequest"];
+                    "application/*+json": components["schemas"]["ResolveTagMismatchRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/consistency/orphan-directories": {
         parameters: {
             query?: never;
@@ -2824,6 +2908,11 @@ export interface components {
             name?: string | null;
             role?: string | null;
         };
+        ResolveTagMismatchRequest: {
+            fieldValues?: {
+                [key: string]: string | null;
+            };
+        };
         SeriesDetailDto: {
             overview?: components["schemas"]["SeriesOverviewDto"];
             ownedBooks?: components["schemas"]["SeriesOwnedBookDto"][] | null;
@@ -2921,6 +3010,11 @@ export interface components {
             targetPath?: string | null;
             exists?: boolean;
             existing?: components["schemas"]["ExistingTargetFileDto"];
+        };
+        TagMismatchFieldDto: {
+            field?: string | null;
+            libraryValue?: string | null;
+            fileValue?: string | null;
         };
     };
     responses: never;

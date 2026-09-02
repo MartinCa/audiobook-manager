@@ -26,6 +26,7 @@ import { OperationProgressBar } from "./OperationProgressBar";
 import { DiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
+import { TagMismatchResolveDialog } from "./TagMismatchResolveDialog";
 import { consistencyApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -80,6 +81,9 @@ export function LibraryConsistency() {
   // Resolve confirmation state
   const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
   const [confirmingResolve, setConfirmingResolve] = useState(false);
+
+  // Tag mismatch selective-resolution state
+  const [tagMismatchIssue, setTagMismatchIssue] = useState<ConsistencyIssue | null>(null);
 
   const { data, isLoading: loading } = useQuery({
     queryKey: ["consistency"],
@@ -199,8 +203,35 @@ export function LibraryConsistency() {
   const onResolveClick = (issue: ConsistencyIssue) => {
     if (issue.issueType === "MissingMediaFile") {
       setPendingResolve({ kind: "single", issue });
+    } else if (issue.issueType === "TagMismatch") {
+      setTagMismatchIssue(issue);
     } else {
       void handleResolveSingle(issue);
+    }
+  };
+
+  const handleResolveTagMismatch = async (
+    issueId: number,
+    fieldValues: Record<string, string | null>,
+  ) => {
+    setResolvingIds((prev) => new Set(prev).add(issueId));
+    try {
+      const result = await consistencyApi.resolveTagMismatch(issueId, fieldValues);
+      notifyConsistencyResolveResult(result);
+      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      setSelectedIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issueId);
+        return next;
+      });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setResolvingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issueId);
+        return next;
+      });
     }
   };
 
@@ -697,6 +728,15 @@ export function LibraryConsistency() {
         }
         confirmButtonText="Delete All"
         onConfirmDelete={handleDeleteAllOrphans}
+      />
+
+      <TagMismatchResolveDialog
+        open={Boolean(tagMismatchIssue)}
+        onOpenChange={(open) => {
+          if (!open) setTagMismatchIssue(null);
+        }}
+        issue={tagMismatchIssue}
+        onResolve={handleResolveTagMismatch}
       />
     </div>
   );
