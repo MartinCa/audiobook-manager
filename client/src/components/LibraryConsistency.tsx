@@ -520,42 +520,71 @@ export function LibraryConsistency() {
         </div>
 
         {orphanDirs.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-                <FolderX className="h-5 w-5 text-amber-500" />
-                Orphaned Directories ({orphanDirs.length})
-              </h2>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => setDeleteAllOrphansOpen(true)}
+          <div>
+            <Accordion type="multiple" className="mt-3 space-y-3">
+              <AccordionItem
+                value="orphans"
+                className="border-border bg-card rounded-lg border px-4 shadow-sm"
               >
-                Delete All {orphanDirs.length}
-              </Button>
-            </div>
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-2 text-left">
+                    <div className="flex items-center gap-2">
+                      <FolderX className="h-4 w-4 text-amber-500" />
+                      <span className="text-foreground font-semibold">Orphaned Directories</span>
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    >
+                      {orphanDirs.length}
+                    </Badge>
+                  </div>
+                </AccordionTrigger>
 
-            <div className="space-y-2">
-              {orphanDirs.map((dir) => (
-                <div
-                  key={dir.id}
-                  className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 sm:flex-row sm:items-center"
-                >
-                  <span className="text-muted-foreground min-w-0 flex-1 font-mono text-xs break-all">
-                    {dir.directoryPath}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full shrink-0 sm:w-auto"
-                    onClick={() => setOrphanToDelete(dir)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              ))}
-            </div>
+                <AccordionContent className="border-border border-t pt-4 pb-4">
+                  <div className="space-y-4">
+                    <div className="border-border/60 bg-muted/40 text-muted-foreground flex items-start gap-2.5 rounded-md border p-3 text-xs leading-relaxed">
+                      <Info className="text-primary mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Empty or leftover folders in the library that no longer contain an
+                        audiobook. Deleting removes the folder and any leftover files in it.
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setDeleteAllOrphansOpen(true)}
+                      >
+                        Delete All {orphanDirs.length}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {orphanDirs.map((dir) => (
+                        <div
+                          key={dir.id}
+                          className="border-border bg-muted/30 flex flex-col justify-between gap-2 rounded-md border p-3 sm:flex-row sm:items-center"
+                        >
+                          <span className="text-muted-foreground min-w-0 flex-1 font-mono text-xs break-all">
+                            {dir.directoryPath}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full shrink-0 sm:w-auto"
+                            onClick={() => setOrphanToDelete(dir)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         )}
       </div>

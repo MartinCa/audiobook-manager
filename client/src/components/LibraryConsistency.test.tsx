@@ -89,6 +89,10 @@ describe("LibraryConsistency", () => {
 
     renderWithProviders(<LibraryConsistency />);
 
+    // Expand the Orphaned Directories accordion so its per-item controls are visible.
+    const orphanTrigger = await screen.findByRole("button", { name: /Orphaned Directories/ });
+    fireEvent.click(orphanTrigger);
+
     const deleteBtn = await screen.findByRole("button", { name: "Delete" });
     fireEvent.click(deleteBtn);
 
@@ -127,6 +131,10 @@ describe("LibraryConsistency", () => {
     });
 
     renderWithProviders(<LibraryConsistency />);
+
+    // Expand the Orphaned Directories accordion so its per-item controls are visible.
+    const orphanTrigger = await screen.findByRole("button", { name: /Orphaned Directories/ });
+    fireEvent.click(orphanTrigger);
 
     const deleteAllBtn = await screen.findByRole("button", { name: "Delete All 2" });
     fireEvent.click(deleteAllBtn);
