@@ -34,6 +34,7 @@ vi.mock("@/services/api", () => ({
   consistencyApi: {
     getIssuesByAudiobook: vi.fn().mockResolvedValue([]),
     resolveIssue: vi.fn(),
+    recheckAudiobook: vi.fn().mockResolvedValue([]),
   },
   filesApi: {
     getCoverUrl: vi.fn((path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`),
@@ -194,6 +195,66 @@ describe("BookDetail", () => {
       expect(toast.info).toHaveBeenCalledWith(
         "Media file was found on disk. Preserved audiobook and refreshed consistency status.",
       );
+    });
+  });
+
+  it("invalidates consistency and books queries after single-book recheck", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderWithProviders();
+
+    const recheckBtn = await screen.findByRole("button", { name: /recheck/i });
+    fireEvent.click(recheckBtn);
+
+    await waitFor(() => {
+      expect(consistencyApi.recheckAudiobook).toHaveBeenCalledWith(42);
+    });
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(keys).toContainEqual(["bookDetail", 42]);
+      expect(keys).toContainEqual(["consistency"]);
+      expect(keys).toContainEqual(["books"]);
+    });
+  });
+
+  it("invalidates consistency and books queries after resolving an issue", async () => {
+    vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
+      {
+        id: 101,
+        audiobookId: 42,
+        bookName: "The Way of Kings",
+        authors: ["Brandon Sanderson"],
+        issueType: "TagMismatch",
+        description: "m4b tags do not match library metadata",
+        expectedValue: "Year: 2010",
+        actualValue: "Year: 2011",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(consistencyApi.resolveIssue).mockResolvedValue({
+      issueId: 101,
+      issueType: "TagMismatch",
+      actionTaken: "resolved",
+      message: "Tags and file path updated.",
+    });
+
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderWithProviders();
+
+    const resolveBtn = await screen.findByRole("button", { name: /resolve/i });
+    fireEvent.click(resolveBtn);
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveIssue).toHaveBeenCalledWith(101);
+    });
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(keys).toContainEqual(["bookDetail", 42]);
+      expect(keys).toContainEqual(["consistency"]);
+      expect(keys).toContainEqual(["books"]);
     });
   });
 });
