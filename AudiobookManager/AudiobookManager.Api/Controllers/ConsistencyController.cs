@@ -186,6 +186,60 @@ public class ConsistencyController : ControllerBase
         }
     }
 
+    [HttpGet("issues/{id}/tag-mismatch")]
+    public async Task<ActionResult<List<TagMismatchFieldDto>>> GetTagMismatchFields(long id)
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            var fields = await consistencyService.GetTagMismatchFieldsAsync(id);
+            return Ok(fields.Select(f => new TagMismatchFieldDto(f.Field, f.LibraryValue, f.FileValue)).ToList());
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read tag mismatch fields for issue {IssueId}", id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
+    [HttpPost("issues/{id}/tag-mismatch/resolve")]
+    public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveTagMismatch(long id, [FromBody] ResolveTagMismatchRequest request)
+    {
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            var result = await consistencyService.ResolveTagMismatchAsync(id, request.FieldValues);
+            return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (AudiobookBusyException ex)
+        {
+            return Conflict(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resolve tag mismatch for issue {IssueId}", id);
+            return StatusCode(500, ex.Message);
+        }
+    }
+
     [HttpPost("issues/{id}/resolve")]
     public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveIssue(long id)
     {

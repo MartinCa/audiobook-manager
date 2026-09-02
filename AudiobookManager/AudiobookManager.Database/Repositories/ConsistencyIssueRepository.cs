@@ -29,9 +29,17 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
 
     public async Task<ConsistencyIssue?> GetByIdAsync(long id)
     {
+        // The full metadata graph (Authors, Narrators, Genres), not just Authors: the selective
+        // tag-mismatch resolve builds a domain audiobook from this to merge the user's chosen
+        // values. Reading a partially attached collection would wipe the omitted metadata on save.
         return await _db.ConsistencyIssues
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Narrators)
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Genres)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(ci => ci.Id == id);
     }
 

@@ -12,6 +12,66 @@ Frontend guidelines are further detailed in `client/src/AGENTS.md` (project-loca
 
 This project's directory structure, embedded m4b tags, and sidecar files are meant to track what Audiobookshelf expects — see README.md's "Audiobookshelf compatibility" section for the specific doc pages, or [audiobookshelf/audiobookshelf-docs](https://github.com/audiobookshelf/audiobookshelf-docs/tree/master/docs/documentation/libraries/book-library) on GitHub directly. **Any change to directory/file naming, embedded tag conventions, or sidecar file formats that could be incompatible with (or diverge from) what Audiobookshelf expects must be raised to the user for explicit confirmation before being implemented** — do not decide this unilaterally, even if the change looks like a clear improvement.
 
+## Sandbox tooling: .NET SDK location and bootstrapping
+
+**This repo's backend requires the .NET SDK (targets `net10.0`).** The OpenHands sandbox
+base image (agent-canvas all-in-one, `ghcr.io/openhands/agent-canvas`) does **not** ship
+`dotnet`, and anything under `$HOME` is on ephemeral overlay storage — it does **not**
+survive the sandbox container being recreated. A fresh session therefore starts **without
+dotnet**.
+
+### Persistent locations (survive container recreation)
+
+The `.NET` SDK and NuGet cache are kept on the **persistent `/projects` volume** (ZFS,
+mounted into the sandbox), so they last across sandboxes/sessions:
+
+| What | Persistent path | Purpose |
+| --- | --- | --- |
+| .NET SDK | `/projects/dotnet-sdk` | `dotnet` CLI (channel `10.0`) |
+| NuGet package cache | `/projects/dotnet-nuget` | `NUGET_PACKAGES` — avoids re-downloading packages |
+| Bootstrap script | `/projects/dotnet-bootstrap.sh` | Idempotent install + env export |
+
+### If `dotnet` is missing in your session
+
+The sandbox base image does not include it, so on a *new* sandbox you must make it
+available. The bootstrap script installs the SDK into the persistent paths **if it is not
+already there**, then exports the env for the current shell:
+
+```bash
+# From anywhere (idempotent; uses the existing copy on /projects if present)
+source /projects/dotnet-bootstrap.sh
+which dotnet   # verify
+```
+
+What it does:
+1. If `/projects/dotnet-sdk/dotnet` does not exist, downloads the SDK (channel `10.0`)
+   into `/projects/dotnet-sdk` via the official install script. It is **not** copied into
+   `$HOME` — the persistent volume is the source of truth.
+2. Exports `DOTNET_ROOT=/projects/dotnet-sdk`, `NUGET_PACKAGES=/projects/dotnet-nuget`,
+   and prepends `$DOTNET_ROOT` to `PATH` for the **current shell only**.
+3. Symlinks `~/.dotnet` → `/projects/dotnet-sdk` so tools expecting the default location work.
+
+> Note: the exports apply to the shell where you `source` it. New terminals / agent tool
+> invocations that don't inherit them should `source /projects/dotnet-bootstrap.sh` first
+> (or re-export the variables). If your shell's rc already sets
+> `DOTNET_ROOT=/projects/dotnet-sdk` and `NUGET_PACKAGES=/projects/dotnet-nuget`
+> (this repo's `~/.bashrc` does), interactive shells get it automatically.
+
+### Do NOT
+
+- **Do not install the SDK into `$HOME`** (e.g. `~/dotnet`). It is ephemeral; it looks like
+  it works now but is lost when the sandbox container is recreated, and it also breaks the
+  NuGet cache reuse (`NUGET_PACKAGES` should stay on `/projects`).
+- **Do not reinstall the SDK into `/projects/dotnet-sdk` if the bootstrap already placed it
+  there** — the bootstrap is idempotent; just `source` it to pick up env vars.
+
+### TL;DR for agents
+
+```bash
+source /projects/dotnet-bootstrap.sh  # ensure dotnet + env (idempotent, persistent)
+dotnet build                          # then work normally
+```
+
 ## Common Commands
 
 ### Backend (.NET)

@@ -222,6 +222,75 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     }
 
     /// <summary>
+    /// Returns the differing tag fields for a TagMismatch issue as a list of (field, library
+    /// value, file value) rows for the selective resolution screen. Only fields that actually
+    /// differ are returned. Throws if the issue is not a TagMismatch.
+    /// </summary>
+    public async Task<List<TagMismatchField>> GetTagMismatchFieldsAsync(long issueId)
+    {
+        var issue = await _issueRepository.GetByIdAsync(issueId);
+        if (issue == null)
+            throw new KeyNotFoundException($"Issue {issueId} not found");
+        if (issue.IssueType != ConsistencyIssueType.TagMismatch)
+            throw new ArgumentException($"Issue {issueId} is not a TagMismatch");
+
+        var dbAudiobook = issue.Audiobook;
+        var domain = AudiobookService.FromDb(dbAudiobook);
+
+        // Detection is blocking work (an ATL parse of the whole m4b), so keep it off the request
+        // thread, mirroring DetectIssuesForAudiobookAsync.
+        var parsed = await Task.Run(() =>
+            _tagHandler.ParseAudiobook(new FileInfo(dbAudiobook.FileInfoFullPath), includeCoverData: false));
+
+        return TagConsistencyChecker.FindMismatches(domain, parsed)
+            .Select(m => new TagMismatchField(m.Field, m.Expected, m.Actual))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Applies the user's per-field choices to resolve a TagMismatch. For each differing field the
+    /// caller supplies a chosen serialized value (library value, file value, or empty to clear);
+    /// omitted fields keep the library metadata. The merged audiobook is persisted through
+    /// <see cref="AudiobookService.UpdateAudiobook"/>, so the m4b tags, library path, and sidecars
+    /// all stay consistent — this is the same binding-invariant pipeline a normal save uses.
+    /// </summary>
+    public async Task<ConsistencyResolveResult> ResolveTagMismatchAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues)
+    {
+        var issue = await _issueRepository.GetByIdAsync(issueId);
+        if (issue == null)
+            throw new KeyNotFoundException($"Issue {issueId} not found");
+        if (issue.IssueType != ConsistencyIssueType.TagMismatch)
+            throw new ArgumentException($"Issue {issueId} is not a TagMismatch");
+
+        var dbAudiobook = issue.Audiobook;
+        var domain = AudiobookService.FromDb(dbAudiobook);
+
+        foreach (var (field, value) in fieldValues)
+        {
+            TagMismatchFields.ApplyValue(domain, field, value);
+        }
+
+        // The per-audiobook gate is held here, once, around the whole rewrite (the same scope a
+        // ResolveTagOrPathMismatch resolve takes). Nothing below re-acquires it.
+        using var lease = _saveGate.Acquire(dbAudiobook.Id);
+
+        await _audiobookService.UpdateAudiobook(dbAudiobook.Id, domain);
+
+        _logger.LogInformation(
+            "Resolved tag mismatch selectively for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
+            dbAudiobook.Id, dbAudiobook.BookName, dbAudiobook.FileInfoFullPath);
+
+        // Tags (and potentially the path) changed, invalidating every other check for this book.
+        await _issueRepository.DeleteByAudiobookIdAsync(dbAudiobook.Id);
+
+        return new ConsistencyResolveResult(
+            issue.Id,
+            ConsistencyIssueType.TagMismatch,
+            "resolved",
+            "Selected tag values applied and file path updated.");
+    }
+
+    /// <summary>
     /// Resolving an issue rewrites the book's tags, moves its file, or rewrites its sidecars, so
     /// it takes the same per-audiobook gate an interactive save does. Nothing below this point
     /// takes it again - the gate is non-reentrant, so it is held here, once, for whichever
