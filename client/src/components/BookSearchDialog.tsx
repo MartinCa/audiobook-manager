@@ -275,7 +275,7 @@ export function BookSearchDialog({
                         <img
                           src={metadataSearchApi.getProxyImageUrl(result.imageUrl)}
                           alt={result.bookName}
-                          className="h-16 w-16 shrink-0 rounded object-cover shadow-sm"
+                          className="h-16 w-16 shrink-0 rounded object-contain shadow-sm"
                           onError={(e) => {
                             (e.currentTarget as HTMLElement).style.display = "none";
                           }}

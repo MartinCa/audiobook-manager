@@ -102,7 +102,7 @@ export function CoverEditor({
             <img
               src={currentSrc}
               alt="Cover Preview"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain"
               onError={() => {
                 if (!base64Data && coverUrl) setFailedCoverUrl(coverUrl);
               }}

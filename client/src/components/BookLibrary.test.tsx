@@ -162,6 +162,13 @@ describe("BookLibrary", () => {
     expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0);
   });
 
+  it("fits the whole cover inside the thumbnail without cropping", async () => {
+    renderWithRouter();
+
+    const img = await screen.findByAltText<HTMLImageElement>("The Way of Kings");
+    expect(img).toHaveClass("object-contain");
+  });
+
   it("populates search query and loads search results when initial route has q param", async () => {
     renderWithRouter("/library?q=Kings");
 
