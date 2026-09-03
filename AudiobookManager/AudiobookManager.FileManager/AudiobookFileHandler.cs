@@ -361,11 +361,48 @@ public class AudiobookFileHandler : IAudiobookFileHandler
 
     public static string JoinPaths(string path1, string path2) => $"{path1.GetSafeCompletePath()}{AudiobookPathExtensions.GetDirectorySeparator()}{path2.GetSafeCompletePath()}";
 
+    /// <summary>
+    /// Joins <paramref name="libraryRoot"/> with a generated relative path and verifies the result
+    /// actually stays under the root.
+    ///
+    /// Every part of the relative path comes from tag values a user or a scrape controls, and
+    /// nothing between here and the <c>File.Move</c> that acts on it re-checks the destination -
+    /// so this is where "a book always lands inside the library" is established. Segment
+    /// sanitization already refuses the navigation segments that could escape (see
+    /// <see cref="AudiobookPathExtensions.GetSafeFileName"/>), which should make this unreachable;
+    /// it is kept as the structural guarantee, so the property does not rest on that one helper
+    /// staying correct as path building changes.
+    /// </summary>
+    public static string JoinLibraryPath(string libraryRoot, string relativePath)
+    {
+        var joined = JoinPaths(libraryRoot, relativePath);
+
+        if (!PathStartsWith(joined, libraryRoot))
+        {
+            throw new InvalidOperationException(
+                $"Generated library path '{joined}' resolves outside the library root '{libraryRoot}'. " +
+                "A book's metadata produced a path segment that escaped sanitization; the file was not moved.");
+        }
+
+        return joined;
+    }
+
     public static string CombinePathAndFilename(IEnumerable<string> pathParts, string fileName, string extension) =>
         GetSafeCombinedPath(pathParts.Concat(new[] { $"{fileName}{extension.GetExtensionWithDot()}" }));
 
+    /// <summary>
+    /// Sanitizes each part and joins them with the directory separator.
+    ///
+    /// Deliberately a plain join rather than an aggregate that treats an empty accumulator as "no
+    /// segment yet": that shape silently dropped a level whenever a part sanitized to an empty
+    /// string (an author list that cleaned to nothing, or - on Windows - a name made entirely of
+    /// characters invalid there but legal on Linux), so the book landed one directory too high and
+    /// the same input produced different paths on different platforms.
+    /// <see cref="AudiobookPathExtensions.GetSafeFileName"/> no longer returns an empty segment, and
+    /// this no longer depends on it not doing so.
+    /// </summary>
     public static string GetSafeCombinedPath(IEnumerable<string> pathParts) =>
-        pathParts.Aggregate(string.Empty, (acc, curr) => string.IsNullOrEmpty(acc) ? curr.GetSafeFileName() : acc + AudiobookPathExtensions.GetDirectorySeparator() + curr.GetSafeFileName());
+        string.Join(AudiobookPathExtensions.GetDirectorySeparator(), pathParts.Select(part => part.GetSafeFileName()));
 
     public static string GetSafeCompletePath(string path) => path.GetSafeCompletePath();
 
@@ -394,14 +431,42 @@ public static class AudiobookPathExtensions
 {
     private const string _replacementInvalidPathSeparator = "_";
     private const string _replaceInvalidPathOrFileNameCharacter = "";
+    private const string _unusableSegmentPlaceholder = "Unknown";
     private const char _preferredDirectorySeparatorChar = '/';
     private static char[] _systemDirectorySeparators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
 
     public static string GetSafeCompletePath(this string path)
         => path.ReplaceChars(Path.GetInvalidPathChars(), _replaceInvalidPathOrFileNameCharacter);
 
+    /// <summary>
+    /// Sanitizes one path segment (an author, a series, a book directory, a file name).
+    ///
+    /// Removing the characters the file system rejects is not on its own enough to make a segment
+    /// safe to append to a root: "." and ".." are perfectly legal file names as far as
+    /// <see cref="Path.GetInvalidFileNameChars"/> is concerned - on Linux that set is only NUL and
+    /// '/' - but they are navigation to the file system, so a book whose author or series tag was
+    /// ".." built a relative path that climbed back out of the library root and the organize step
+    /// then moved the m4b there. A segment that is nothing but dots (or is blank once sanitized)
+    /// carries no usable name anyway, so it becomes <see cref="_unusableSegmentPlaceholder"/>
+    /// rather than either a traversal or an empty level.
+    /// </summary>
     public static string GetSafeFileName(this string fileName)
-        => fileName.ReplaceCharsAndPathSeparators(Path.GetInvalidFileNameChars(), _replaceInvalidPathOrFileNameCharacter);
+    {
+        var sanitized = fileName.ReplaceCharsAndPathSeparators(Path.GetInvalidFileNameChars(), _replaceInvalidPathOrFileNameCharacter);
+
+        return IsUnusableSegment(sanitized) ? _unusableSegmentPlaceholder : sanitized;
+    }
+
+    /// <summary>
+    /// Whether a sanitized segment names nothing the file system can meaningfully hold: empty or
+    /// whitespace, or made up entirely of dots (".", "..", "..." and so on).
+    /// </summary>
+    private static bool IsUnusableSegment(string segment)
+    {
+        var trimmed = segment.Trim();
+
+        return trimmed.Length == 0 || trimmed.All(c => c == '.');
+    }
 
     public static char GetDirectorySeparator() => _systemDirectorySeparators.Contains(_preferredDirectorySeparatorChar) ? _preferredDirectorySeparatorChar : Path.DirectorySeparatorChar;
 

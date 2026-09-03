@@ -330,6 +330,105 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    [DataRow("..")]
+    [DataRow(".")]
+    [DataRow("...")]
+    [DataRow("  ..  ")]
+    [DataRow("")]
+    [DataRow("   ")]
+    public void GetSafeFileName_UnusableSegment_ReturnsPlaceholder(string segment)
+    {
+        var result = AudiobookFileHandler.GetSafeFileName(segment);
+
+        Assert.AreEqual("Unknown", result);
+    }
+
+    [TestMethod]
+    public void GetSafeFileName_NameContainingDots_IsKept()
+    {
+        // Only a segment that is *nothing but* dots is navigation; a real title that happens to
+        // contain them must survive untouched.
+        Assert.AreEqual("Star Wars Ep. II", AudiobookFileHandler.GetSafeFileName("Star Wars Ep. II"));
+        Assert.AreEqual("2020 - ..", AudiobookFileHandler.GetSafeFileName("2020 - .."));
+    }
+
+    [TestMethod]
+    public void GetSafeCombinedPath_EmptyPart_KeepsHierarchyLevel()
+    {
+        // An empty part used to leave the accumulator empty, which the old aggregate read as "no
+        // segment yet" - so the level was dropped and the book landed one directory too high.
+        var result = AudiobookFileHandler.GetSafeCombinedPath(new List<string> { "", "Series", "Book" });
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        Assert.AreEqual($"Unknown{sep}Series{sep}Book", result);
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_TraversalInTags_DoesNotEscape()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("..") },
+            "..",
+            2020,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = ".."
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        CollectionAssert.DoesNotContain(result.Split(sep), "..");
+        Assert.IsTrue(result.StartsWith($"Unknown{sep}Unknown{sep}"), $"Unexpected path: {result}");
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_SeparatorsInTags_DoNotCreateExtraLevels()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("../../etc") },
+            "Book",
+            2020,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000));
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        var segments = result.Split(sep);
+
+        // Author / "Year - Book" / file - the separators in the tag must not add levels of their own.
+        Assert.AreEqual(3, segments.Length, $"Expected author/folder/file, got: {result}");
+        Assert.AreEqual(".._.._etc", segments[0]);
+    }
+
+    [TestMethod]
+    public void JoinLibraryPath_PathInsideRoot_IsReturned()
+    {
+        var result = AudiobookFileHandler.JoinLibraryPath("/library", "Author/2020 - Book/book.m4b");
+
+        Assert.IsTrue(AudiobookFileHandler.PathStartsWith(result, "/library"));
+        Assert.IsTrue(result.Contains("2020 - Book"));
+    }
+
+    [TestMethod]
+    public void JoinLibraryPath_RelativePathEscapingRoot_Throws()
+    {
+        // The backstop for a relative path that got past segment sanitization by some other route.
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
+            AudiobookFileHandler.JoinLibraryPath("/library", "../../escaped.m4b"));
+
+        StringAssert.Contains(ex.Message, "outside the library root");
+    }
+
+    [TestMethod]
+    public void JoinLibraryPath_SiblingOfRoot_Throws()
+    {
+        // A boundary case a bare StartsWith would wrongly accept.
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            AudiobookFileHandler.JoinLibraryPath("/library", "../library-backup/book.m4b"));
+    }
+
+    [TestMethod]
     public void WriteMetadata_WritesDescAndReaderFiles()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

@@ -201,7 +201,30 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 
 ### File path generation
 
-`AudiobookFileHandler.GenerateRelativeAudiobookPath()` builds: `Author / [Series /] [BookNN - ] Year - BookName / filename.m4b`. All path parts are sanitized via `GetSafeFileName()` and `GetSafeCompletePath()`. The library root is prepended by the service layer using settings.
+`AudiobookFileHandler.GenerateRelativeAudiobookPath()` builds: `Author / [Series /] [BookNN - ] Year - BookName / filename.m4b`. All path parts are sanitized via `GetSafeFileName()` and `GetSafeCompletePath()`.
+
+**Invariant: a generated library path always resolves inside the library root.** Every segment of
+that relative path comes from a tag value a user or a scrape controls, and nothing between the
+generation and the `File.Move` that acts on it re-checks the destination — so the guarantee has to
+be established where the path is built. Two layers hold it up, and both must stay:
+
+- `GetSafeFileName()` removes what the file system rejects (on Linux only NUL and `/`) **and**
+  replaces a segment that is nothing but dots or blank with `Unknown`. `.` and `..` are legal file
+  names by `Path.GetInvalidFileNameChars()` but are navigation to the file system, so an author or
+  series tag of `..` used to climb out of the library root.
+- `JoinLibraryPath(root, relativePath)` — **always use this rather than `JoinPaths()` when
+  prepending the library root** — joins and then asserts containment with `PathStartsWith()`,
+  throwing if the result escapes. Segment sanitization should make this unreachable; it is the
+  structural backstop so the property does not depend on that one helper staying correct.
+
+Both call sites that prepend the root (`AudiobookService.GenerateLibraryPath()` and
+`PathMismatchDetector`) go through `JoinLibraryPath()`, and they have to keep agreeing: a path the
+consistency check accepts but the organize path refuses is a `WrongFilePath` issue the user cannot
+resolve.
+
+`GetSafeCombinedPath()` is a plain join, deliberately not an aggregate that treats an empty
+accumulator as "no segment yet" — that shape silently dropped a hierarchy level whenever a part
+sanitized to an empty string.
 
 ### Comparing file paths — always OS-aware, never raw strings
 
