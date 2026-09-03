@@ -155,8 +155,8 @@ export function TagPreviewDialog({
         key: "www",
         label: "URL",
         currentValue: cur.www ?? "",
-        newValue: res.url ?? "",
-        changed: (cur.www ?? "") !== (res.url ?? ""),
+        newValue: res.cleanUrl ?? "",
+        changed: (cur.www ?? "") !== (res.cleanUrl ?? ""),
       },
       {
         key: "cover",

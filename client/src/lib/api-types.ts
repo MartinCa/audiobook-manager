@@ -844,45 +844,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/consistency/issues/{id}/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
-                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
-                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/consistency/issues/{id}/tag-mismatch": {
         parameters: {
             query?: never;
@@ -940,13 +901,52 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody: {
+            requestBody?: {
                 content: {
                     "application/json": components["schemas"]["ResolveTagMismatchRequest"];
                     "text/json": components["schemas"]["ResolveTagMismatchRequest"];
                     "application/*+json": components["schemas"]["ResolveTagMismatchRequest"];
                 };
             };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/consistency/issues/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
             responses: {
                 /** @description OK */
                 200: {
@@ -2548,6 +2548,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/url-cleanup/audiobooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AudiobookUrlCleanupDto"][];
+                        "application/json": components["schemas"]["AudiobookUrlCleanupDto"][];
+                        "text/json": components["schemas"]["AudiobookUrlCleanupDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/url-cleanup/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApplyUrlCleanupDto"];
+                    "text/json": components["schemas"]["ApplyUrlCleanupDto"];
+                    "application/*+json": components["schemas"]["ApplyUrlCleanupDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ApplyUrlCleanupResultDto"];
+                        "application/json": components["schemas"]["ApplyUrlCleanupResultDto"];
+                        "text/json": components["schemas"]["ApplyUrlCleanupResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2556,6 +2636,13 @@ export interface components {
             valueType?: string | null;
             sourceValues?: string[] | null;
             targetValue?: string | null;
+        };
+        ApplyUrlCleanupDto: {
+            audiobookIds?: number[] | null;
+        };
+        ApplyUrlCleanupResultDto: {
+            /** Format: int32 */
+            updated?: number;
         };
         Audiobook: {
             /** Format: int64 */
@@ -2661,6 +2748,14 @@ export interface components {
             /** Format: int32 */
             total?: number;
             items?: components["schemas"]["AudiobookSummaryDto"][] | null;
+        };
+        AudiobookUrlCleanupDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            authors?: string[] | null;
+            currentUrl?: string | null;
+            cleanedUrl?: string | null;
         };
         AuthorDetailDto: {
             author?: components["schemas"]["AuthorSummaryDto"];
@@ -2826,6 +2921,7 @@ export interface components {
             publisher?: string | null;
             asin?: string | null;
             isbn?: string | null;
+            readonly cleanUrl?: string | null;
         };
         MetadataSearchServiceInfo: {
             name?: string | null;
@@ -2909,7 +3005,7 @@ export interface components {
             role?: string | null;
         };
         ResolveTagMismatchRequest: {
-            fieldValues?: {
+            fieldValues: {
                 [key: string]: string | null;
             };
         };
@@ -3006,15 +3102,15 @@ export interface components {
             commitHash?: string | null;
             dotNetVersion?: string | null;
         };
-        TargetPathCheckDto: {
-            targetPath?: string | null;
-            exists?: boolean;
-            existing?: components["schemas"]["ExistingTargetFileDto"];
-        };
         TagMismatchFieldDto: {
             field?: string | null;
             libraryValue?: string | null;
             fileValue?: string | null;
+        };
+        TargetPathCheckDto: {
+            targetPath?: string | null;
+            exists?: boolean;
+            existing?: components["schemas"]["ExistingTargetFileDto"];
         };
     };
     responses: never;

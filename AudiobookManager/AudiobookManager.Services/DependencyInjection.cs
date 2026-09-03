@@ -22,6 +22,7 @@ public static class DependencyInjection
         .AddScoped<ILibraryConsistencyService, LibraryConsistencyService>()
         .AddScoped<ISimilarValueService, SimilarValueService>()
         .AddScoped<IMissingTagService, MissingTagService>()
+        .AddScoped<IUrlCleanupService, UrlCleanupService>()
         .AddScoped<ILanguageBackfillService, LanguageBackfillService>()
         .AddScoped<ISeriesService, SeriesService>()
         .SetupFileManager()

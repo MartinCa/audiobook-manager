@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Domain;
+using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Models;
 public class MetadataSearchResult
@@ -22,6 +23,15 @@ public class MetadataSearchResult
     public string? Publisher { get; set; }
     public string? Asin { get; set; }
     public string? Isbn { get; set; }
+
+    /// <summary>
+    /// The canonical form of <see cref="Url"/> - scheme/host/path only, with tracking/session
+    /// query parameters (Audible's ref=/pf_rd_*, Goodreads' qid=/from_search=, etc.) stripped.
+    /// This is what a caller should persist (e.g. into Audiobook.Www); Url itself stays a
+    /// faithful record of what was actually fetched, so a caller matching a result back to the
+    /// request that produced it isn't defeated by the model canonicalizing its own identity.
+    /// </summary>
+    public string CleanUrl => BookUrlCleaner.Clean(Url);
 
     public MetadataSearchResult(string url, string bookName)
     {

@@ -327,8 +327,8 @@ export function BookEditForm({
     if (selectedFields.has("asin") && result.asin) {
       form.setValue("asin", result.asin, { shouldDirty: true });
     }
-    if (selectedFields.has("www") && result.url) {
-      form.setValue("www", result.url, { shouldDirty: true });
+    if (selectedFields.has("www") && result.cleanUrl) {
+      form.setValue("www", result.cleanUrl, { shouldDirty: true });
     }
 
     const coverUrlToFetch = result.imageUrl;

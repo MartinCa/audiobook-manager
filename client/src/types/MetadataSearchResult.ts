@@ -13,6 +13,7 @@ export type MetadataSeriesSearchResult = Require<
 // unconditionally sets it — never omits it — so it's narrowed to required here too.
 export interface MetadataSearchResult {
   url: string;
+  cleanUrl: string;
   source: string;
   authors: AudiobookPerson[];
   narrators: AudiobookPerson[];
