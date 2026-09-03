@@ -7,6 +7,7 @@ public interface IAudiobookRepository
     Task<HashSet<string>> GetAllFilePathsAsync(StringComparer? comparer = null);
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
     Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset);
+    Task<int> CountAsync();
     Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset);
     Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);

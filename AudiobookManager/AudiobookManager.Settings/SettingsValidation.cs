@@ -39,6 +39,18 @@ public static class SettingsValidation
             + "application runs as.");
     }
 
+    /// <summary>
+    /// Whether a configured directory is set and actually present right now.
+    ///
+    /// The startup check above runs once, but in the normal (container) deployment these paths are
+    /// volume mounts, and a mount can go away while the application keeps running - an array
+    /// pause, an NFS timeout, a container restarted before its share was ready. Anything whose
+    /// failure mode on a missing library is destructive rather than merely broken has to re-ask at
+    /// the point of use, which is what this is for.
+    /// </summary>
+    public static bool IsDirectoryUsable(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && Directory.Exists(path);
+
     private static void CheckDirectory(List<string> problems, string settingName, string? path)
     {
         if (string.IsNullOrWhiteSpace(path))

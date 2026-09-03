@@ -73,12 +73,23 @@ public class LibraryConsistencyServiceTests
             detectionService,
             resolvers,
             orphanDirectoryConsistencyService,
+            effectiveSettings,
             _logger.Object);
     }
+
+    /// <summary>
+    /// A real directory standing in for the mounted library. It has to exist: the service refuses
+    /// to run a consistency check (or a MissingMediaFile sweep) against a library path that is not
+    /// there, because an absent mount makes every book look deleted.
+    /// </summary>
+    private string _libraryPath = null!;
 
     [TestInitialize]
     public void Setup()
     {
+        _libraryPath = Path.Combine(Path.GetTempPath(), $"abm-consistency-{Guid.NewGuid()}");
+        Directory.CreateDirectory(_libraryPath);
+
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _issueRepository = new Mock<IConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
@@ -90,10 +101,19 @@ public class LibraryConsistencyServiceTests
         _saveGate = new AudiobookSaveGate();
         _settings = Options.Create(new AudiobookManagerSettings
         {
-            AudiobookLibraryPath = "/library"
+            AudiobookLibraryPath = _libraryPath
         });
 
         _service = CreateService();
+    }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        if (Directory.Exists(_libraryPath))
+        {
+            Directory.Delete(_libraryPath, recursive: true);
+        }
     }
 
     #region Bulk resolve cascades
@@ -291,8 +311,15 @@ public class LibraryConsistencyServiceTests
             i.AudiobookId == 1
         ))), Times.Once);
 
-        Assert.AreEqual(1, progressCalls.Count);
+        // One per-book report, then one from the orphan-directory sweep that follows it. The
+        // sweep used to be skipped here because the configured library path did not exist, so
+        // this asserted a single call and covered none of that half of the run.
+        Assert.AreEqual(2, progressCalls.Count);
         Assert.AreEqual(1, progressCalls[0].issues);
+        Assert.IsTrue(
+            progressCalls.Any(c => c.message.Contains("orphaned folders")),
+            "The orphan-directory sweep should have reported. Asserted position-agnostically so a "
+            + "reordering of the run's phases does not silently stop covering it.");
     }
 
     [TestMethod]
@@ -358,8 +385,11 @@ public class LibraryConsistencyServiceTests
                 i.IssueType == ConsistencyIssueType.MissingMediaFile
             ))), Times.Never);
 
-            Assert.AreEqual(1, progressCalls.Count);
-            Assert.IsTrue(progressCalls[0].message.StartsWith("Checked:"));
+            // Per-book report plus the orphan-directory sweep's own - see the note in
+            // RunConsistencyCheck_MissingFile_ReportsIssue.
+            Assert.AreEqual(2, progressCalls.Count);
+            Assert.IsTrue(progressCalls.Any(c => c.message.StartsWith("Checked:")));
+            Assert.IsTrue(progressCalls.Any(c => c.message.Contains("orphaned folders")));
         }
         finally
         {
@@ -1687,6 +1717,113 @@ public class LibraryConsistencyServiceTests
         _audiobookService.Verify(
             s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()),
             Times.Never);
+    }
+
+    #endregion
+
+    #region Library availability guards
+
+    /// <summary>
+    /// An issue whose audiobook points at a path that does not exist, so MissingMediaFile
+    /// resolves take the "file really is gone" branch and delete the record.
+    /// </summary>
+    private static ConsistencyIssue MakeIssue(long id, long audiobookId, ConsistencyIssueType type) => new()
+    {
+        Id = id,
+        AudiobookId = audiobookId,
+        Audiobook = MakeMissingFileBook(audiobookId, $"/library/gone-{audiobookId}.m4b"),
+        IssueType = type,
+        Description = type.ToString(),
+        DetectedAt = DateTime.UtcNow
+    };
+
+
+    [TestMethod]
+    public async Task RunConsistencyCheck_LibraryDirectoryMissing_ThrowsAndClearsNothing()
+    {
+        // The library path is a volume mount in the normal deployment. If it has gone away since
+        // startup validated it, every book's File.Exists is false and the run would record the
+        // whole library as MissingMediaFile - which the bulk resolve then turns into deleting
+        // every record.
+        var settings = Options.Create(new AudiobookManagerSettings
+        {
+            AudiobookLibraryPath = Path.Combine(Path.GetTempPath(), $"abm-not-mounted-{Guid.NewGuid()}")
+        });
+        var service = CreateService(settings);
+
+        var ex = await Assert.ThrowsExactlyAsync<LibraryUnavailableException>(
+            () => service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask));
+
+        StringAssert.Contains(ex.Message, "is not available");
+
+        // Critically: it refuses *before* wiping the previous run's findings.
+        _issueRepository.Verify(r => r.ClearAllAsync(), Times.Never);
+        _orphanDirectoryRepository.Verify(r => r.ClearAllAsync(), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_MissingMediaFileAcrossMostOfLibrary_IsRefused()
+    {
+        var issues = Enumerable.Range(1, 8)
+            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingMediaFile))
+            .ToList();
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(10);
+
+        var ex = await Assert.ThrowsExactlyAsync<LibraryUnavailableException>(
+            () => _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile)));
+
+        StringAssert.Contains(ex.Message, "8 of 10");
+
+        // Nothing was deleted.
+        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_MissingMediaFileForAFewBooks_IsAllowed()
+    {
+        var issues = new List<ConsistencyIssue> { MakeIssue(1, 1, ConsistencyIssueType.MissingMediaFile) };
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(50);
+
+        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+
+        Assert.AreEqual(1, resolved);
+        Assert.AreEqual(0, failed);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_SmallLibrary_IsNotGatedByFraction()
+    {
+        // Deleting 2 of 3 books is a legitimate 67%; a fraction says nothing useful at that size.
+        var issues = Enumerable.Range(1, 2)
+            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingMediaFile))
+            .ToList();
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(3);
+
+        var (resolved, _) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+
+        Assert.AreEqual(2, resolved);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_OtherIssueTypes_AreNotGated()
+    {
+        // Only MissingMediaFile deletes records; a sweep of sidecar rewrites is not destructive
+        // and must not be refused just because it covers the whole library.
+        var issues = Enumerable.Range(1, 10)
+            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingOpfFile))
+            .ToList();
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingOpfFile)).ReturnsAsync(issues);
+
+        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingOpfFile));
+
+        // Whether each one succeeds is this fixture's business (these books have no real files);
+        // what matters is that the sweep ran over all ten rather than being refused, and that the
+        // plausibility check was never consulted for a non-destructive issue type.
+        Assert.AreEqual(10, resolved + failed);
+        _audiobookRepository.Verify(r => r.CountAsync(), Times.Never);
     }
 
     #endregion
