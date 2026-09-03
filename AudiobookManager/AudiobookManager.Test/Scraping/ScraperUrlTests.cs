@@ -24,6 +24,9 @@ public class ScraperUrlTests
     [DataRow("https://notaudible.com/pd/book")]
     [DataRow("https://example.net/redirect?to=https://audible.com/pd/book")]
     [DataRow("https://example.net/audible.com/pd/book")]
+    // Userinfo before the '@' is not the host: Uri.Host here is 169.254.169.254.
+    [DataRow("https://audible.com@169.254.169.254/pd/book")]
+    [DataRow("https://audible.com:pass@169.254.169.254/pd/book")]
     public void HasHost_UrlMerelyMentioningTheDomain_IsRejected(string url)
     {
         Assert.IsFalse(ScraperUrl.HasHost(url, "audible.com"));
@@ -48,6 +51,15 @@ public class ScraperUrlTests
     public void HasHost_NotAnAbsoluteUrl_IsRejected(string? url)
     {
         Assert.IsFalse(ScraperUrl.HasHost(url, "audible.com"));
+    }
+
+    [TestMethod]
+    public void HasHost_FullyQualifiedTrailingDotHost_IsRejected()
+    {
+        // Uri does not strip the root label, so Host is "audible.com." - which is neither equal
+        // to the domain nor a subdomain of it. Rejecting is the safe answer; pinned here so a
+        // future "normalize the host first" change has to make that call deliberately.
+        Assert.IsFalse(ScraperUrl.HasHost("https://audible.com./pd/book", "audible.com"));
     }
 
     [TestMethod]
