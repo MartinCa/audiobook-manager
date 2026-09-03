@@ -4,6 +4,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Settings;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -168,5 +169,20 @@ public class BookSeriesMapperTests
         var mapped = await mapper.MapBookSeries(Results("Stormlight Archive"));
 
         Assert.AreEqual("The Stormlight Archive", mapped.Single().SeriesName);
+    }
+
+    [TestMethod]
+    public void BookSeriesMapper_IsRegisteredScoped()
+    {
+        // "Loaded once per scope" is only true because every scraper in a request shares one
+        // mapper instance. Registered transient instead, each of the three scrapers would get its
+        // own cache and the per-result query count would partly come back - silently, since
+        // nothing else would fail. Asserted on the descriptor rather than by resolving, which
+        // would need the whole database graph stood up to prove a registration detail.
+        var services = new ServiceCollection().SetupScraping();
+
+        var descriptor = services.Single(d => d.ServiceType == typeof(IBookSeriesMapper));
+
+        Assert.AreEqual(ServiceLifetime.Scoped, descriptor.Lifetime);
     }
 }
