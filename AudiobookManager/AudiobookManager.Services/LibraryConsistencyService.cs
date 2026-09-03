@@ -308,7 +308,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         if (parsedType == ConsistencyIssueType.MissingMediaFile)
         {
-            await EnsureMissingMediaFileSweepIsPlausibleAsync(issues.Count);
+            // Distinct audiobooks, not issue rows: the fraction is compared against a count of
+            // books, and it is one record deleted per book however many issues named it. One
+            // MissingMediaFile per book is all detection produces today, but nothing in the type
+            // system says so, and an inflated numerator here would refuse a legitimate sweep.
+            await EnsureMissingMediaFileSweepIsPlausibleAsync(
+                issues.Select(i => i.AudiobookId).Distinct().Count());
         }
 
         return await ResolveLoadedIssuesAsync(issues);
@@ -351,11 +356,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// reported to the user as a successful bulk resolve either way. Resolving a single issue, or
     /// a hand-picked selection, is a deliberate act on named books and is deliberately not gated.
     /// </summary>
-    private async Task EnsureMissingMediaFileSweepIsPlausibleAsync(int missingCount)
+    private async Task EnsureMissingMediaFileSweepIsPlausibleAsync(int missingBookCount)
     {
         EnsureLibraryAvailable();
 
-        if (missingCount == 0)
+        if (missingBookCount == 0)
         {
             return;
         }
@@ -366,14 +371,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             return;
         }
 
-        var fraction = (double)missingCount / totalBooks;
+        var fraction = (double)missingBookCount / totalBooks;
         if (fraction <= _settings.MissingMediaFileBulkResolveMaxFraction)
         {
             return;
         }
 
         throw new LibraryUnavailableException(
-            $"Refusing to bulk-resolve {missingCount} of {totalBooks} tracked books ({fraction:P0}) as missing "
+            $"Refusing to bulk-resolve {missingBookCount} of {totalBooks} tracked books ({fraction:P0}) as missing "
             + $"media files, which is above the {_settings.MissingMediaFileBulkResolveMaxFraction:P0} limit. Each "
             + "one deletes the book's library record, and a share this large is usually an unavailable or "
             + "partially-mounted library rather than genuine deletions. Verify the library is fully mounted and "

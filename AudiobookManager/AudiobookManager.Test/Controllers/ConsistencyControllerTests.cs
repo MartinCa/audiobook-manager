@@ -5,11 +5,14 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
+using AudiobookManager.Settings;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -23,6 +26,7 @@ public class ConsistencyControllerTests
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<ILogger<ConsistencyController>> _logger = null!;
+    private string _libraryPath = null!;
     private ConsistencyController _controller = null!;
 
     [TestInitialize]
@@ -35,6 +39,11 @@ public class ConsistencyControllerTests
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _logger = new Mock<ILogger<ConsistencyController>>();
 
+        // A real directory: StartConsistencyCheck refuses outright when the configured library
+        // path is not there, so the default fixture has to look like a mounted library.
+        _libraryPath = Path.Combine(Path.GetTempPath(), $"abm-consistency-ctl-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_libraryPath);
+
         _controller = new ConsistencyController(
             _hubContext.Object,
             _serviceScopeFactory.Object,
@@ -42,6 +51,7 @@ public class ConsistencyControllerTests
             _issueRepository.Object,
             _orphanDirectoryRepository.Object,
             Mock.Of<IHostApplicationLifetime>(),
+            Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = _libraryPath }),
             _logger.Object);
     }
 
@@ -421,4 +431,53 @@ public class ConsistencyControllerTests
         var badRequest = (BadRequestObjectResult)result.Result!;
         StringAssert.Contains(badRequest.Value!.ToString()!, "cannot be cleared");
     }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        if (Directory.Exists(_libraryPath))
+        {
+            Directory.Delete(_libraryPath, recursive: true);
+        }
+    }
+
+    #region Library availability
+
+    [TestMethod]
+    public void StartConsistencyCheck_LibraryDirectoryMissing_Returns409WithActionableDetail()
+    {
+        // BackgroundOperationRunner is fire-and-forget, so an exception thrown inside the work
+        // reaches the client as ConsistencyCheckComplete(0, 0) - which reads as "your library is
+        // fine". Refusing here is what makes it legible.
+        var controller = new ConsistencyController(
+            _hubContext.Object,
+            _serviceScopeFactory.Object,
+            _statusRegistry.Object,
+            _issueRepository.Object,
+            _orphanDirectoryRepository.Object,
+            Mock.Of<IHostApplicationLifetime>(),
+            Options.Create(new AudiobookManagerSettings
+            {
+                AudiobookLibraryPath = Path.Combine(Path.GetTempPath(), $"abm-not-mounted-{Guid.NewGuid():N}")
+            }),
+            _logger.Object);
+
+        var result = (ObjectResult)controller.StartConsistencyCheck();
+        var problem = (ProblemDetails)result.Value!;
+
+        Assert.AreEqual(StatusCodes.Status409Conflict, result.StatusCode);
+        // The message has to travel in `detail`: the client reads ApiError.message from there.
+        StringAssert.Contains(problem.Detail, "is not available");
+        StringAssert.Contains(problem.Detail, "volume mount");
+    }
+
+    [TestMethod]
+    public void StartConsistencyCheck_LibraryDirectoryPresent_StartsTheRun()
+    {
+        var result = _controller.StartConsistencyCheck();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+    }
+
+    #endregion
 }

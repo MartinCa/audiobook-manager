@@ -316,7 +316,10 @@ public class LibraryConsistencyServiceTests
         // this asserted a single call and covered none of that half of the run.
         Assert.AreEqual(2, progressCalls.Count);
         Assert.AreEqual(1, progressCalls[0].issues);
-        StringAssert.Contains(progressCalls[1].message, "orphaned folders");
+        Assert.IsTrue(
+            progressCalls.Any(c => c.message.Contains("orphaned folders")),
+            "The orphan-directory sweep should have reported. Asserted position-agnostically so a "
+            + "reordering of the run's phases does not silently stop covering it.");
     }
 
     [TestMethod]
@@ -385,8 +388,8 @@ public class LibraryConsistencyServiceTests
             // Per-book report plus the orphan-directory sweep's own - see the note in
             // RunConsistencyCheck_MissingFile_ReportsIssue.
             Assert.AreEqual(2, progressCalls.Count);
-            Assert.IsTrue(progressCalls[0].message.StartsWith("Checked:"));
-            StringAssert.Contains(progressCalls[1].message, "orphaned folders");
+            Assert.IsTrue(progressCalls.Any(c => c.message.StartsWith("Checked:")));
+            Assert.IsTrue(progressCalls.Any(c => c.message.Contains("orphaned folders")));
         }
         finally
         {

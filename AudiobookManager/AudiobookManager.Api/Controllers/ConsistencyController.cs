@@ -2,8 +2,10 @@ using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
+using AudiobookManager.Settings;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -21,6 +23,7 @@ public class ConsistencyController : ControllerBase
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IHostApplicationLifetime _appLifetime;
+    private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<ConsistencyController> _logger;
 
     public ConsistencyController(
@@ -30,8 +33,10 @@ public class ConsistencyController : ControllerBase
         IConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
         IHostApplicationLifetime appLifetime,
+        IOptions<AudiobookManagerSettings> settings,
         ILogger<ConsistencyController> logger)
     {
+        _settings = settings.Value;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
@@ -44,6 +49,26 @@ public class ConsistencyController : ControllerBase
     [HttpPost("check")]
     public IActionResult StartConsistencyCheck()
     {
+        // Asked here, before the operation is handed to BackgroundOperationRunner, because that
+        // path is fire-and-forget: an exception thrown inside the work is logged and reported to
+        // the client as ConsistencyCheckComplete(0, 0), which reads as "your library is fine" -
+        // the opposite of what a missing library means. LibraryConsistencyService re-checks this
+        // itself and is the actual guard; this is what makes the refusal legible.
+        if (!SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
+        {
+            _logger.LogWarning(
+                "Refused consistency check: library directory '{LibraryPath}' is not available",
+                _settings.AudiobookLibraryPath);
+
+            return Problem(
+                detail:
+                    $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
+                    + "would look missing. This is normally a volume mount - check it is mounted and readable "
+                    + "by the user this application runs as, then run the check again.",
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Library unavailable");
+        }
+
         return BackgroundOperationRunner.Start(
             _checkLock,
             _serviceScopeFactory,
@@ -161,7 +186,15 @@ public class ConsistencyController : ControllerBase
             // and the message says what to check. A 409 so the client shows it rather than a
             // generic failure.
             _logger.LogWarning("Refused bulk resolve of {IssueType}: {Reason}", issueType, ex.Message);
-            return Conflict(ex.Message);
+
+            // ProblemDetails rather than a bare string: the client reads ApiError.message from
+            // problem.detail, and a string body serializes as text/plain, which its error parser
+            // skips - so the "what to check" message this refusal exists to deliver never reached
+            // the toast. Also a drop-in once AddProblemDetails is registered.
+            return Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Library unavailable");
         }
         catch (ArgumentException ex)
         {
