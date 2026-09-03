@@ -313,7 +313,7 @@ export function LibraryConsistency() {
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-3">
         <div>
           <h2 className="text-foreground text-lg font-bold">Issues ({issues.length})</h2>
 
