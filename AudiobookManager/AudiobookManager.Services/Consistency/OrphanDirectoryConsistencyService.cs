@@ -26,10 +26,10 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         _logger = logger;
     }
 
+    public Task ClearAllAsync() => _orphanDirectoryRepository.ClearAllAsync();
+
     public async Task<int> ScanAsync(Func<string, int, int, int, Task> progressAction, int totalBooks, int issuesFound)
     {
-        await _orphanDirectoryRepository.ClearAllAsync();
-
         if (!Directory.Exists(_settings.AudiobookLibraryPath))
         {
             return issuesFound;

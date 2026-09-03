@@ -43,18 +43,33 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _orphanDirectoryConsistencyService = orphanDirectoryConsistencyService;
         _logger = logger;
 
-        // Every ConsistencyIssueType must resolve to exactly one registered resolver - a type with
-        // none throws at dispatch time (see ResolveLoadedIssueCore) rather than silently no-opping.
+        // Every ConsistencyIssueType must resolve to exactly one registered resolver. Checked here,
+        // eagerly, rather than only at dispatch time (see ResolveLoadedIssueCore): the type is a
+        // closed, statically known enum, so a forgotten resolver is a wiring bug that should fail
+        // the moment this service is constructed, not surface later as one counted failure buried
+        // in a user's bulk resolve.
         _resolversByType = resolvers
             .SelectMany(resolver => resolver.HandledTypes.Select(type => (Type: type, Resolver: resolver)))
             .ToDictionary(x => x.Type, x => x.Resolver);
+
+        var unhandledTypes = Enum.GetValues<ConsistencyIssueType>().Except(_resolversByType.Keys).ToList();
+        if (unhandledTypes.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"No consistency issue resolver registered for: {string.Join(", ", unhandledTypes)}");
+        }
     }
 
     public async Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction)
     {
         _logger.LogInformation("Starting library consistency check");
 
+        // Both tables are cleared up front, before any work starts: if detection or an insert
+        // fails partway through the loop below, the issue and orphan-directory lists must not be
+        // left describing two different points in time (the issue table wiped by a run that never
+        // reached the orphan sweep, with the orphan table still holding the previous run's rows).
         await _issueRepository.ClearAllAsync();
+        await _orphanDirectoryConsistencyService.ClearAllAsync();
 
         var audiobooks = await _audiobookRepository.GetAllWithIncludesAsync();
         var totalBooks = audiobooks.Count;
