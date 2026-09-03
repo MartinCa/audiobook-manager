@@ -197,6 +197,15 @@ export function LibraryConsistency() {
       const res = await consistencyApi.resolveByType(issueType);
       toast.success(`Resolved ${res.resolved} issues of type "${issueType}"`);
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      // The whole type is now resolved; drop any of its ids that were selected so
+      // hidden selections don't linger after the refetch resolves them away.
+      setSelectedIssueIds((prev) => {
+        const next = new Set(prev);
+        for (const issue of groupedIssues[issueType] ?? []) {
+          next.delete(issue.id);
+        }
+        return next;
+      });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
@@ -386,7 +395,12 @@ export function LibraryConsistency() {
               {Object.entries(groupedIssues).map(([type, typeIssues]) => {
                 const isResolvingType = resolvingTypes.has(type);
                 const visibleIssues = visibleIssuesFor(type, typeIssues);
-                const selectedInGroup = visibleIssues.filter((i) => selectedIssueIds.has(i.id));
+                const selectedIdsInGroup = new Set(
+                  typeIssues.filter((i) => selectedIssueIds.has(i.id)).map((i) => i.id),
+                );
+                const selectedVisibleCount = visibleIssues.filter((i) =>
+                  selectedIssueIds.has(i.id),
+                ).length;
                 const pageCount = Math.max(1, Math.ceil(typeIssues.length / PAGE_SIZE));
                 const currentPage = Math.min(pageByType[type] ?? 0, pageCount - 1);
                 const setPage = (page: number) =>
@@ -440,7 +454,7 @@ export function LibraryConsistency() {
                             <input
                               type="checkbox"
                               checked={
-                                selectedInGroup.length === visibleIssues.length &&
+                                selectedVisibleCount === visibleIssues.length &&
                                 visibleIssues.length > 0
                               }
                               onChange={(e) => {
@@ -457,24 +471,21 @@ export function LibraryConsistency() {
                               className="border-border h-4 w-4 rounded"
                             />
                             <span className="text-muted-foreground text-xs">
-                              Select all visible ({selectedInGroup.length} selected)
+                              Select all visible ({selectedIdsInGroup.size} selected total)
                             </span>
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {selectedInGroup.length > 0 && (
+                            {selectedIdsInGroup.size > 0 && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 disabled={resolvingSelected}
                                 onClick={() => {
-                                  onResolveSelectedClick(
-                                    type,
-                                    selectedInGroup.map((i) => i.id),
-                                  );
+                                  onResolveSelectedClick(type, [...selectedIdsInGroup]);
                                 }}
                               >
-                                Resolve Selected ({selectedInGroup.length})
+                                Resolve Selected ({selectedIdsInGroup.size})
                               </Button>
                             )}
 
