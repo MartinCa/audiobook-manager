@@ -181,6 +181,27 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public void GenerateLibraryPath_TraversalInTags_StaysInsideLibraryRoot()
+    {
+        // Tag values are user- and scrape-controlled, and nothing between here and the File.Move
+        // that acts on this path re-checks the destination.
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("..") },
+            "..",
+            2024,
+            new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000))
+        {
+            Series = ".."
+        };
+
+        var result = _service.GenerateLibraryPath(audiobook);
+
+        Assert.IsTrue(
+            AudiobookFileHandler.PathStartsWith(result, "/library"),
+            $"Generated path escaped the library root: {result}");
+    }
+
+    [TestMethod]
     public void ParseAudiobook_CallsTagHandler()
     {
         var expected = new Audiobook(
