@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { toast } from "sonner";
 import {
   getIssueTypeLabel,
+  getIssueTypeInfo,
   getBulkResolveDescription,
   notifyConsistencyResolveResult,
   notifyOrphanResolveResult,
@@ -32,9 +33,27 @@ describe("consistencyHelpers", () => {
     });
   });
 
+  describe("getIssueTypeInfo", () => {
+    it("describes the selective tag-mismatch dialog for TagMismatch", () => {
+      expect(getIssueTypeInfo("TagMismatch")).toContain("dialog to choose");
+      expect(getIssueTypeInfo("TagMismatch")).toContain("field by field");
+      expect(getIssueTypeInfo("TagMismatch")).toContain("library value");
+    });
+
+    it("falls back to the bulk resolve description for other issue types", () => {
+      expect(getIssueTypeInfo("WrongFilePath")).toBe(getBulkResolveDescription("WrongFilePath"));
+    });
+  });
+
   describe("getBulkResolveDescription", () => {
     it("returns description for known issue types", () => {
       expect(getBulkResolveDescription("MissingCoverFile")).toContain("cover image");
+    });
+
+    it("returns the bulk rewrite description for TagMismatch", () => {
+      expect(getBulkResolveDescription("TagMismatch")).toContain(
+        "rewritten to match the library metadata",
+      );
     });
 
     it("falls back to default string for unknown issue types", () => {

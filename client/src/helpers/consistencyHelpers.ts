@@ -38,6 +38,15 @@ export const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
     "Each audiobook file's m4b tags will be rewritten to match the library metadata (author, series, series part, year, etc.), and the file relocated if that changes its path.",
 };
 
+export const ISSUE_TYPE_INFO: Record<string, string> = {
+  TagMismatch:
+    "Each book's m4b tags differ from its library metadata. Resolve opens a dialog to choose, field by field, whether to keep the library value, the file's value, or clear the field. Bulk resolve rewrites every tag to match the library and moves the file if that changes its path.",
+};
+
+export function getIssueTypeInfo(issueType: string): string {
+  return ISSUE_TYPE_INFO[issueType] ?? getBulkResolveDescription(issueType);
+}
+
 export function getBulkResolveDescription(issueType: string): string {
   return BULK_RESOLVE_DESCRIPTIONS[issueType] ?? "Continue?";
 }

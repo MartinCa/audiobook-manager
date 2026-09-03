@@ -33,6 +33,7 @@ import { useOperationResync } from "@/hooks/useOperationResync";
 import { handleApiError } from "@/lib/api";
 import {
   getIssueTypeLabel,
+  getIssueTypeInfo,
   getBulkResolveDescription,
   notifyConsistencyResolveResult,
   notifyOrphanResolveResult,
@@ -84,6 +85,13 @@ export function LibraryConsistency() {
 
   // Tag mismatch selective-resolution state
   const [tagMismatchIssue, setTagMismatchIssue] = useState<ConsistencyIssue | null>(null);
+
+  // Per-group pagination. A single group can hold thousands of issues (the image in the
+  // bug report shows 3699 in one group); rendering them all bloats the DOM and makes every
+  // interaction (opening the resolve dialog, toggling a checkbox) re-render all of them.
+  // We render a page at a time and let the user page through.
+  const [pageByType, setPageByType] = useState<Record<string, number>>({});
+  const PAGE_SIZE = 50;
 
   const { data, isLoading: loading } = useQuery({
     queryKey: ["consistency"],
@@ -300,6 +308,14 @@ export function LibraryConsistency() {
     return acc;
   }, {});
 
+  const visibleIssuesFor = (type: string, typeIssues: ConsistencyIssue[]) => {
+    const page = Math.min(
+      pageByType[type] ?? 0,
+      Math.max(0, Math.ceil(typeIssues.length / PAGE_SIZE) - 1),
+    );
+    return typeIssues.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -369,7 +385,12 @@ export function LibraryConsistency() {
             <Accordion type="multiple" className="mt-3 space-y-3">
               {Object.entries(groupedIssues).map(([type, typeIssues]) => {
                 const isResolvingType = resolvingTypes.has(type);
-                const selectedInGroup = typeIssues.filter((i) => selectedIssueIds.has(i.id));
+                const visibleIssues = visibleIssuesFor(type, typeIssues);
+                const selectedInGroup = visibleIssues.filter((i) => selectedIssueIds.has(i.id));
+                const pageCount = Math.max(1, Math.ceil(typeIssues.length / PAGE_SIZE));
+                const currentPage = Math.min(pageByType[type] ?? 0, pageCount - 1);
+                const setPage = (page: number) =>
+                  setPageByType((prev) => ({ ...prev, [type]: page }));
 
                 return (
                   <AccordionItem
@@ -394,7 +415,7 @@ export function LibraryConsistency() {
                               }
                             />
                             <TooltipContent className="max-w-xs">
-                              {getBulkResolveDescription(type)}
+                              {getIssueTypeInfo(type)}
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -411,7 +432,7 @@ export function LibraryConsistency() {
                       <div className="space-y-4">
                         <div className="border-border/60 bg-muted/40 text-muted-foreground flex items-start gap-2.5 rounded-md border p-3 text-xs leading-relaxed">
                           <Info className="text-primary mt-0.5 h-4 w-4 shrink-0" />
-                          <span>{getBulkResolveDescription(type)}</span>
+                          <span>{getIssueTypeInfo(type)}</span>
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -419,14 +440,14 @@ export function LibraryConsistency() {
                             <input
                               type="checkbox"
                               checked={
-                                selectedInGroup.length === typeIssues.length &&
-                                typeIssues.length > 0
+                                selectedInGroup.length === visibleIssues.length &&
+                                visibleIssues.length > 0
                               }
                               onChange={(e) => {
                                 const check = e.target.checked;
                                 setSelectedIssueIds((prev) => {
                                   const next = new Set(prev);
-                                  for (const i of typeIssues) {
+                                  for (const i of visibleIssues) {
                                     if (check) next.add(i.id);
                                     else next.delete(i.id);
                                   }
@@ -474,7 +495,7 @@ export function LibraryConsistency() {
                         </div>
 
                         <div className="space-y-2">
-                          {typeIssues.map((issue) => {
+                          {visibleIssues.map((issue) => {
                             const isResolving = resolvingIds.has(issue.id);
                             const isChecked = selectedIssueIds.has(issue.id);
 
@@ -543,6 +564,34 @@ export function LibraryConsistency() {
                             );
                           })}
                         </div>
+
+                        {pageCount > 1 && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                            <span className="text-muted-foreground text-xs">
+                              Showing {currentPage * PAGE_SIZE + 1}–
+                              {Math.min((currentPage + 1) * PAGE_SIZE, typeIssues.length)} of{" "}
+                              {typeIssues.length}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={currentPage === 0}
+                                onClick={() => setPage(currentPage - 1)}
+                              >
+                                Previous
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={currentPage >= pageCount - 1}
+                                onClick={() => setPage(currentPage + 1)}
+                              >
+                                Next
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </AccordionContent>
                   </AccordionItem>
