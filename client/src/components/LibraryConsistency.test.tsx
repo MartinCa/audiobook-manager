@@ -196,4 +196,100 @@ describe("LibraryConsistency", () => {
       });
     });
   });
+
+  it("pages through a large issue group instead of rendering every entry", async () => {
+    const manyIssues = Array.from({ length: 120 }, (_, i) => ({
+      id: 1000 + i,
+      audiobookId: 10 + i,
+      bookName: `Book ${i}`,
+      authors: ["Some Author"],
+      issueType: "TagMismatch",
+      description: "m4b tags do not match library metadata: Subtitle",
+      detectedAt: "2026-09-01T10:00:00Z",
+      expectedValue: `Subtitle: value ${i}`,
+      actualValue: `Subtitle: other ${i}`,
+    }));
+    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue(manyIssues);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+
+    renderWithProviders(<LibraryConsistency />);
+
+    // Expand the Tag Mismatches group.
+    const trigger = await screen.findByRole("button", { name: /Tag Mismatches/ });
+    fireEvent.click(trigger);
+
+    // Only the first page (50 entries) renders; later entries are reached via Next.
+    expect(screen.getByText(/Some Author — Book 0$/)).toBeInTheDocument();
+    expect(screen.getByText(/Some Author — Book 49$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Some Author — Book 50$/)).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–50 of 120")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText(/Some Author — Book 50$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Some Author — Book 0$/)).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 51–100 of 120")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Showing 101–120 of 120")).toBeInTheDocument();
+
+    // "Select all visible" operates on the current page only: 20 issues on the last page.
+    const selectAllCheckbox = screen.getAllByRole("checkbox")[0];
+    expect(selectAllCheckbox).toBeDefined();
+    if (selectAllCheckbox) fireEvent.click(selectAllCheckbox);
+    expect(screen.getByRole("button", { name: "Resolve Selected (20)" })).toBeInTheDocument();
+
+    // Unchecking on this page clears only this page's selections while the group-wide
+    // selection count (which still includes later pages) remains accurate.
+    fireEvent.click(selectAllCheckbox as HTMLElement);
+    expect(screen.getByText("Select all visible (0 selected total)")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Resolve Selected/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps a group-wide selection count across pages and resolves the full set", async () => {
+    const manyIssues = Array.from({ length: 120 }, (_, i) => ({
+      id: 1000 + i,
+      audiobookId: 10 + i,
+      bookName: `Book ${i}`,
+      authors: ["Some Author"],
+      issueType: "TagMismatch",
+      description: "m4b tags do not match library metadata: Subtitle",
+      detectedAt: "2026-09-01T10:00:00Z",
+      expectedValue: `Subtitle: value ${i}`,
+      actualValue: `Subtitle: other ${i}`,
+    }));
+    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue(manyIssues);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(consistencyApi, "resolveSelected").mockResolvedValue({ resolved: 50, failed: 0 });
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const trigger = await screen.findByRole("button", { name: /Tag Mismatches/ });
+    fireEvent.click(trigger);
+
+    // Select all 50 on page 1, then move to page 2.
+    const selectAllCheckbox = screen.getAllByRole("checkbox")[0];
+    expect(selectAllCheckbox).toBeDefined();
+    if (selectAllCheckbox) fireEvent.click(selectAllCheckbox);
+    expect(screen.getByText("Select all visible (50 selected total)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // Page 2 is now visible; page 1's selection is hidden but still counted group-wide,
+    // and "Resolve Selected" reflects the whole group (not just the visible page).
+    expect(screen.getByText(/Some Author — Book 50$/)).toBeInTheDocument();
+    expect(screen.getByText("Select all visible (50 selected total)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resolve Selected (50)" })).toBeInTheDocument();
+
+    // Resolving the selected set clears them and hides the button.
+    fireEvent.click(screen.getByRole("button", { name: "Resolve Selected (50)" }));
+    const confirmBtn = await screen.findByRole("button", { name: "Resolve Selected" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveSelected).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Resolve Selected/ })).not.toBeInTheDocument();
+    });
+  });
 });
