@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using Microsoft.Extensions.Logging;
+using DomainAudiobook = AudiobookManager.Domain.Audiobook;
 
 namespace AudiobookManager.Services;
 
@@ -49,19 +50,48 @@ public class TagOrPathMismatchResolver : IConsistencyIssueResolver
             throw new KeyNotFoundException($"Audiobook {issue.AudiobookId} not found");
 
         var domain = AudiobookService.FromDb(dbAudiobook);
-        await _audiobookService.UpdateAudiobook(issue.AudiobookId, domain);
 
-        _logger.LogInformation(
-            "Rewrote tags and aligned file path for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
-            issue.AudiobookId, dbAudiobook.BookName, dbAudiobook.FileInfoFullPath);
+        var result = await RewriteTagsAndClearIssuesAsync(
+            _audiobookService, _issueRepository, _logger,
+            dbAudiobook, domain, issue.Id, issue.IssueType,
+            logVerb: "Rewrote tags and aligned file path",
+            resultMessage: "Tags and file path updated.");
+
+        return (ResolveScope.AllForAudiobook, result);
+    }
+
+    /// <summary>
+    /// Persists a rewritten domain audiobook through the same binding-invariant pipeline this
+    /// resolver uses (<see cref="AudiobookService.UpdateAudiobook"/>, so m4b tags, library path,
+    /// and sidecars all stay consistent), then clears every other stored issue for the book since
+    /// the rewrite invalidates them all.
+    ///
+    /// Also called by <see cref="LibraryConsistencyService.ResolveTagMismatchSelectivelyAsync"/>,
+    /// which computes a *different* domain object (the DB metadata merged with the user's chosen
+    /// per-field overrides, rather than this resolver's unconditional full rewrite from DB
+    /// metadata) but needs the identical persist/log/clear tail once it has one - shared here
+    /// instead of duplicated so the two can't drift apart on what "resolved" actually does.
+    /// </summary>
+    public static async Task<ConsistencyResolveResult> RewriteTagsAndClearIssuesAsync(
+        IAudiobookService audiobookService,
+        IConsistencyIssueRepository issueRepository,
+        ILogger logger,
+        Audiobook dbAudiobook,
+        DomainAudiobook domain,
+        long issueId,
+        ConsistencyIssueType issueType,
+        string logVerb,
+        string resultMessage)
+    {
+        await audiobookService.UpdateAudiobook(dbAudiobook.Id, domain);
+
+        logger.LogInformation(
+            "{Verb} for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
+            logVerb, dbAudiobook.Id, dbAudiobook.BookName, dbAudiobook.FileInfoFullPath);
 
         // Tags (and potentially the file path) changed, invalidating all other checks for this book
-        await _issueRepository.DeleteByAudiobookIdAsync(issue.AudiobookId);
+        await issueRepository.DeleteByAudiobookIdAsync(dbAudiobook.Id);
 
-        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
-            issue.Id,
-            issue.IssueType,
-            "resolved",
-            "Tags and file path updated."));
+        return new ConsistencyResolveResult(issueId, issueType, "resolved", resultMessage);
     }
 }

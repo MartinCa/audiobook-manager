@@ -119,16 +119,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return (totalBooks, issuesFound);
     }
 
-    private static readonly ConsistencyIssueType[] _sidecarIssueTypes =
-    {
-        ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
-        ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt,
-        ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
-    };
-
-    private static bool IsSidecarIssue(ConsistencyIssueType issueType) =>
-        Array.IndexOf(_sidecarIssueTypes, issueType) >= 0;
-
     public async Task<ConsistencyResolveResult> ResolveIssue(long issueId)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
@@ -166,13 +156,16 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     }
 
     /// <summary>
-    /// Applies the user's per-field choices to resolve a TagMismatch. For each differing field the
-    /// caller supplies a chosen serialized value (library value, file value, or empty to clear);
-    /// omitted fields keep the library metadata. The merged audiobook is persisted through
-    /// <see cref="AudiobookService.UpdateAudiobook"/>, so the m4b tags, library path, and sidecars
-    /// all stay consistent — this is the same binding-invariant pipeline a normal save uses.
+    /// Applies the user's per-field choices to resolve a TagMismatch selectively - as opposed to
+    /// <see cref="TagOrPathMismatchResolver"/>, which always does an unconditional full rewrite
+    /// from DB metadata. For each differing field the caller supplies a chosen serialized value
+    /// (library value, file value, or empty to clear); omitted fields keep the library metadata.
+    /// The merge is persisted through the same tail <see cref="TagOrPathMismatchResolver"/> uses
+    /// (<see cref="TagOrPathMismatchResolver.RewriteTagsAndClearIssuesAsync"/>), so both keep the
+    /// m4b tags, library path, and sidecars consistent - this is the same binding-invariant
+    /// pipeline a normal save uses - without the two duplicating that persist/log/clear sequence.
     /// </summary>
-    public async Task<ConsistencyResolveResult> ResolveTagMismatchAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues)
+    public async Task<ConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
@@ -192,20 +185,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // ResolveTagOrPathMismatch resolve takes). Nothing below re-acquires it.
         using var lease = _saveGate.Acquire(dbAudiobook.Id);
 
-        await _audiobookService.UpdateAudiobook(dbAudiobook.Id, domain);
-
-        _logger.LogInformation(
-            "Resolved tag mismatch selectively for audiobook {AudiobookId} ('{Title}') at '{FilePath}'",
-            dbAudiobook.Id, dbAudiobook.BookName, dbAudiobook.FileInfoFullPath);
-
-        // Tags (and potentially the path) changed, invalidating every other check for this book.
-        await _issueRepository.DeleteByAudiobookIdAsync(dbAudiobook.Id);
-
-        return new ConsistencyResolveResult(
-            issue.Id,
-            ConsistencyIssueType.TagMismatch,
-            "resolved",
-            "Selected tag values applied and file path updated.");
+        return await TagOrPathMismatchResolver.RewriteTagsAndClearIssuesAsync(
+            _audiobookService, _issueRepository, _logger,
+            dbAudiobook, domain, issue.Id, ConsistencyIssueType.TagMismatch,
+            logVerb: "Resolved tag mismatch selectively",
+            resultMessage: "Selected tag values applied and file path updated.");
     }
 
     /// <summary>
@@ -243,18 +227,25 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     ///
     /// The scope each resolver reports is what drives the skipping, so the cascade rules stay in
     /// the resolvers that perform them rather than being restated here (or, worse, in the client).
+    /// A SidecarsForAudiobook cascade is tracked by resolver *identity*, not by a separately
+    /// maintained list of "which issue types count as sidecars": every ConsistencyIssueType a
+    /// resolver handles maps to that same resolver instance in <see cref="_resolversByType"/>, so
+    /// "another issue in this batch that this same resolver would also clear" falls out of that
+    /// dictionary for free, with nothing left to drift out of sync with it.
     /// </summary>
     private async Task<(int resolved, int failed)> ResolveLoadedIssuesAsync(IReadOnlyList<ConsistencyIssue> issues)
     {
         var succeeded = 0;
         var failed = 0;
         var cascadedAll = new HashSet<long>();
-        var cascadedSidecars = new HashSet<long>();
+        var cascadedByResolver = new HashSet<(long AudiobookId, IConsistencyIssueResolver Resolver)>();
 
         foreach (var issue in issues)
         {
+            var resolver = _resolversByType[issue.IssueType];
+
             if (cascadedAll.Contains(issue.AudiobookId) ||
-                (cascadedSidecars.Contains(issue.AudiobookId) && IsSidecarIssue(issue.IssueType)))
+                cascadedByResolver.Contains((issue.AudiobookId, resolver)))
             {
                 _logger.LogDebug(
                     "Skipping issue {IssueId} ({IssueType}): an earlier resolve in this batch already covered audiobook {AudiobookId}",
@@ -273,7 +264,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 }
                 else if (scope == ResolveScope.SidecarsForAudiobook)
                 {
-                    cascadedSidecars.Add(issue.AudiobookId);
+                    cascadedByResolver.Add((issue.AudiobookId, resolver));
                 }
             }
             catch (Exception ex)

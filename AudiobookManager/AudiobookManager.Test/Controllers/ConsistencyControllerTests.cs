@@ -361,7 +361,7 @@ public class ConsistencyControllerTests
     public async Task ResolveTagMismatch_Success_ReturnsOkWithResultDto()
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.ResolveTagMismatchAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
+        mockConsistencyService.Setup(s => s.ResolveTagMismatchSelectivelyAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
             .ReturnsAsync(new ConsistencyResolveResult(5, ConsistencyIssueType.TagMismatch, "resolved", "Selected tag values applied and file path updated."));
         SetupScope(mockConsistencyService.Object);
 
@@ -376,7 +376,7 @@ public class ConsistencyControllerTests
         Assert.AreEqual(5, dto.IssueId);
         Assert.AreEqual("resolved", dto.ActionTaken);
         mockConsistencyService.Verify(
-            s => s.ResolveTagMismatchAsync(5, It.Is<IReadOnlyDictionary<string, string?>>(d =>
+            s => s.ResolveTagMismatchSelectivelyAsync(5, It.Is<IReadOnlyDictionary<string, string?>>(d =>
                 d["Book Name"] == "Chosen Title")),
             Times.Once);
     }
@@ -385,7 +385,7 @@ public class ConsistencyControllerTests
     public async Task ResolveTagMismatch_NotFound_Returns404()
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.ResolveTagMismatchAsync(999, It.IsAny<IReadOnlyDictionary<string, string?>>()))
+        mockConsistencyService.Setup(s => s.ResolveTagMismatchSelectivelyAsync(999, It.IsAny<IReadOnlyDictionary<string, string?>>()))
             .ThrowsAsync(new KeyNotFoundException());
         SetupScope(mockConsistencyService.Object);
 
@@ -398,7 +398,7 @@ public class ConsistencyControllerTests
     public async Task ResolveTagMismatch_BookBusy_ReturnsConflict()
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.ResolveTagMismatchAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
+        mockConsistencyService.Setup(s => s.ResolveTagMismatchSelectivelyAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
             .ThrowsAsync(new AudiobookBusyException(7));
         SetupScope(mockConsistencyService.Object);
 
@@ -411,7 +411,7 @@ public class ConsistencyControllerTests
     public async Task ResolveTagMismatch_StructuralFieldCleared_ReturnsBadRequest()
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.ResolveTagMismatchAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
+        mockConsistencyService.Setup(s => s.ResolveTagMismatchSelectivelyAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
             .ThrowsAsync(new ArgumentException("Field 'Year' cannot be cleared: it determines the library path"));
         SetupScope(mockConsistencyService.Object);
 
