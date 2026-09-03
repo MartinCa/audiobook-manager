@@ -15,6 +15,7 @@ import { Route as MissingTagsRouteImport } from './routes/missing-tags'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SimilarValuesRouteImport } from './routes/similar-values'
 import { Route as LibraryIndexRouteImport } from './routes/library/index'
+import { Route as LibraryCleanUrlsRouteImport } from './routes/library/clean-urls'
 import { Route as LibraryConsistencyRouteImport } from './routes/library/consistency'
 import { Route as LibraryDiscoveredRouteImport } from './routes/library/discovered'
 import { Route as LibraryMissingTagsRouteImport } from './routes/library/missing-tags'
@@ -53,6 +54,11 @@ const SimilarValuesRoute = SimilarValuesRouteImport.update({
 const LibraryIndexRoute = LibraryIndexRouteImport.update({
   id: '/library/',
   path: '/library/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LibraryCleanUrlsRoute = LibraryCleanUrlsRouteImport.update({
+  id: '/library/clean-urls',
+  path: '/library/clean-urls',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryConsistencyRoute = LibraryConsistencyRouteImport.update({
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/missing-tags': typeof MissingTagsRoute
   '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
+  '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/missing-tags': typeof MissingTagsRoute
   '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
+  '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
@@ -142,6 +150,7 @@ export interface FileRoutesById {
   '/missing-tags': typeof MissingTagsRoute
   '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
+  '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/missing-tags'
     | '/settings'
     | '/similar-values'
+    | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
@@ -178,6 +188,7 @@ export interface FileRouteTypes {
     | '/missing-tags'
     | '/settings'
     | '/similar-values'
+    | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
@@ -195,6 +206,7 @@ export interface FileRouteTypes {
     | '/missing-tags'
     | '/settings'
     | '/similar-values'
+    | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
@@ -213,6 +225,7 @@ export interface RootRouteChildren {
   MissingTagsRoute: typeof MissingTagsRoute
   SettingsRoute: typeof SettingsRoute
   SimilarValuesRoute: typeof SimilarValuesRoute
+  LibraryCleanUrlsRoute: typeof LibraryCleanUrlsRoute
   LibraryConsistencyRoute: typeof LibraryConsistencyRoute
   LibraryDiscoveredRoute: typeof LibraryDiscoveredRoute
   LibraryMissingTagsRoute: typeof LibraryMissingTagsRoute
@@ -267,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/library'
       fullPath: '/library/'
       preLoaderRoute: typeof LibraryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library/clean-urls': {
+      id: '/library/clean-urls'
+      path: '/library/clean-urls'
+      fullPath: '/library/clean-urls'
+      preLoaderRoute: typeof LibraryCleanUrlsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library/consistency': {
@@ -341,6 +361,7 @@ const rootRouteChildren: RootRouteChildren = {
   MissingTagsRoute: MissingTagsRoute,
   SettingsRoute: SettingsRoute,
   SimilarValuesRoute: SimilarValuesRoute,
+  LibraryCleanUrlsRoute: LibraryCleanUrlsRoute,
   LibraryConsistencyRoute: LibraryConsistencyRoute,
   LibraryDiscoveredRoute: LibraryDiscoveredRoute,
   LibraryMissingTagsRoute: LibraryMissingTagsRoute,

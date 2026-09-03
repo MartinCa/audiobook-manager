@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Domain;
+using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Models;
 public class MetadataSearchResult
@@ -25,7 +26,7 @@ public class MetadataSearchResult
 
     public MetadataSearchResult(string url, string bookName)
     {
-        Url = url;
+        Url = BookUrlCleaner.Clean(url);
         BookName = bookName;
 
         Authors = new List<Person>();

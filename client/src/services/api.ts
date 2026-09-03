@@ -22,6 +22,7 @@ import type { SimilarValueGroup } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 import type { TagMismatchField } from "@/types/TagMismatchField";
+import type { ApplyUrlCleanupResult, AudiobookUrlCleanup } from "@/types/UrlCleanup";
 
 export function toAudiobookDto(data: Audiobook) {
   return {
@@ -216,6 +217,14 @@ export const missingTagsApi = {
     }),
 
   startLanguageBackfill: () => api.post<void>("/missing-tags/backfill-language"),
+};
+
+// Url cleanup
+export const urlCleanupApi = {
+  getDirtyUrls: () => api.get<AudiobookUrlCleanup[]>("/url-cleanup/audiobooks"),
+
+  apply: (audiobookIds: number[]) =>
+    api.post<ApplyUrlCleanupResult>("/url-cleanup/apply", { audiobookIds }),
 };
 
 // Operations

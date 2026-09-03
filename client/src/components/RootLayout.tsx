@@ -8,6 +8,7 @@ import {
   ShieldAlert,
   Tag,
   Layers,
+  Link2,
   Wrench,
   ChevronDown,
   Menu,
@@ -46,7 +47,8 @@ export function RootLayout() {
   const isToolsActive =
     pathname.startsWith("/library/consistency") ||
     pathname.startsWith("/library/missing-tags") ||
-    pathname.startsWith("/library/similar-values");
+    pathname.startsWith("/library/similar-values") ||
+    pathname.startsWith("/library/clean-urls");
 
   const isSettingsActive = pathname === "/settings";
 
@@ -155,6 +157,15 @@ export function RootLayout() {
                   >
                     <Layers className="text-primary mr-2 h-4 w-4" />
                     <span>Similar Values</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/clean-urls" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <Link2 className="text-primary mr-2 h-4 w-4" />
+                    <span>Clean Book URLs</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -280,6 +291,15 @@ export function RootLayout() {
                   >
                     <Layers className="text-primary mr-2 h-4 w-4" />
                     <span>Similar Values</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/clean-urls" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <Link2 className="text-primary mr-2 h-4 w-4" />
+                    <span>Clean Book URLs</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 

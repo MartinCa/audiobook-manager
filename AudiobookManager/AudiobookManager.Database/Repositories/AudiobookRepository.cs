@@ -368,6 +368,16 @@ public class AudiobookRepository : IAudiobookRepository
         }
     }
 
+    public async Task UpdateWwwAsync(long id, string? www)
+    {
+        var audiobook = await _db.Audiobooks.FindAsync(id);
+        if (audiobook != null)
+        {
+            audiobook.Www = www;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task UpdateCoverFilePathAsync(long id, string? coverFilePath)
     {
         var audiobook = await _db.Audiobooks.FindAsync(id);
