@@ -1,6 +1,7 @@
 ﻿using AudiobookManager.Database;
 using AudiobookManager.FileManager;
 using AudiobookManager.Scraping;
+using AudiobookManager.Services.Consistency;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AudiobookManager.Services;
@@ -17,6 +18,7 @@ public static class DependencyInjection
         .AddScoped<ISettingsService, SettingsService>()
         .AddScoped<IQueuedOrganizeTaskService, QueuedOrganizeTaskService>()
         .AddScoped<ILibraryScanService, LibraryScanService>()
+        .SetupConsistencyServices()
         .AddScoped<ILibraryConsistencyService, LibraryConsistencyService>()
         .AddScoped<ISimilarValueService, SimilarValueService>()
         .AddScoped<IMissingTagService, MissingTagService>()

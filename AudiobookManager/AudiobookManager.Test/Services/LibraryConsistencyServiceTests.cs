@@ -4,6 +4,7 @@ using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
@@ -25,18 +26,53 @@ public class LibraryConsistencyServiceTests
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private LibraryConsistencyService _service = null!;
 
+    // Builds the same object graph DependencyInjection.SetupServiceLayer wires up, but by hand
+    // with this fixture's mocks - one detection service, one resolver per issue-type group, and
+    // one orphan-directory service, all sharing the repository/handler mocks so assertions against
+    // those mocks still see every call regardless of which piece made it.
     private LibraryConsistencyService CreateService(IOptions<AudiobookManagerSettings>? settings = null)
     {
+        var effectiveSettings = settings ?? _settings;
+
+        var detectors = new IConsistencyIssueDetector[]
+        {
+            new PathMismatchDetector(),
+            new TagMismatchDetector(),
+            new SidecarFilesDetector(),
+            new CoverFileDetector(),
+        };
+        var detectionService = new AudiobookIssueDetectionService(
+            effectiveSettings, _tagHandler.Object, detectors, NullLogger<AudiobookIssueDetectionService>.Instance);
+
+        var resolvers = new IConsistencyIssueResolver[]
+        {
+            new MissingMediaFileResolver(
+                _audiobookRepository.Object, _issueRepository.Object, _fileHandler, detectionService,
+                NullLogger<MissingMediaFileResolver>.Instance),
+            new MetadataSidecarResolver(
+                _tagHandler.Object, _fileHandler, _issueRepository.Object,
+                NullLogger<MetadataSidecarResolver>.Instance),
+            new TagOrPathMismatchResolver(
+                _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object,
+                NullLogger<TagOrPathMismatchResolver>.Instance),
+            new MissingCoverResolver(
+                _tagHandler.Object, _fileHandler, _audiobookRepository.Object, _issueRepository.Object,
+                NullLogger<MissingCoverResolver>.Instance),
+        };
+
+        var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
+            effectiveSettings, _orphanDirectoryRepository.Object, _fileOperations,
+            NullLogger<OrphanDirectoryConsistencyService>.Instance);
+
         return new LibraryConsistencyService(
-            settings ?? _settings,
             _audiobookRepository.Object,
             _issueRepository.Object,
-            _orphanDirectoryRepository.Object,
             _tagHandler.Object,
-            _fileHandler,
-            _fileOperations,
             _audiobookService.Object,
             _saveGate,
+            detectionService,
+            resolvers,
+            orphanDirectoryConsistencyService,
             _logger.Object);
     }
 
@@ -1573,16 +1609,16 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
-    public async Task ResolveTagMismatchAsync_NotFound_ThrowsKeyNotFound()
+    public async Task ResolveTagMismatchSelectivelyAsync_NotFound_ThrowsKeyNotFound()
     {
         _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
-            () => _service.ResolveTagMismatchAsync(999, new Dictionary<string, string?>()));
+            () => _service.ResolveTagMismatchSelectivelyAsync(999, new Dictionary<string, string?>()));
     }
 
     [TestMethod]
-    public async Task ResolveTagMismatchAsync_NonTagMismatch_ThrowsArgument()
+    public async Task ResolveTagMismatchSelectivelyAsync_NonTagMismatch_ThrowsArgument()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
         _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new ConsistencyIssue
@@ -1595,11 +1631,11 @@ public class LibraryConsistencyServiceTests
         });
 
         await Assert.ThrowsExactlyAsync<ArgumentException>(
-            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?>()));
+            () => _service.ResolveTagMismatchSelectivelyAsync(5, new Dictionary<string, string?>()));
     }
 
     [TestMethod]
-    public async Task ResolveTagMismatchAsync_AppliesOnlySuppliedFieldsAndDeletesIssues()
+    public async Task ResolveTagMismatchSelectivelyAsync_AppliesOnlySuppliedFieldsAndDeletesIssues()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
         book.Genres = new List<Database.Models.Genre> { new(1, "Library Genre") };
@@ -1611,7 +1647,7 @@ public class LibraryConsistencyServiceTests
             .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => applied = a)
             .ReturnsAsync((long id, Domain.Audiobook a, Func<string, int, Task>? _) => a);
 
-        var result = await _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?>
+        var result = await _service.ResolveTagMismatchSelectivelyAsync(5, new Dictionary<string, string?>
         {
             ["Year"] = "2021",
         });
@@ -1628,17 +1664,17 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
-    public async Task ResolveTagMismatchAsync_StructuralFieldEmpty_ThrowsArgument()
+    public async Task ResolveTagMismatchSelectivelyAsync_StructuralFieldEmpty_ThrowsArgument()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
         _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
 
         await Assert.ThrowsExactlyAsync<ArgumentException>(
-            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?> { ["Year"] = null }));
+            () => _service.ResolveTagMismatchSelectivelyAsync(5, new Dictionary<string, string?> { ["Year"] = null }));
     }
 
     [TestMethod]
-    public async Task ResolveTagMismatchAsync_BookBusy_ThrowsBusyException()
+    public async Task ResolveTagMismatchSelectivelyAsync_BookBusy_ThrowsBusyException()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
         _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(MakeTagMismatchIssue(book));
@@ -1647,7 +1683,7 @@ public class LibraryConsistencyServiceTests
         using var held = _saveGate.Acquire(1);
 
         await Assert.ThrowsExactlyAsync<AudiobookBusyException>(
-            () => _service.ResolveTagMismatchAsync(5, new Dictionary<string, string?> { ["Year"] = "2021" }));
+            () => _service.ResolveTagMismatchSelectivelyAsync(5, new Dictionary<string, string?> { ["Year"] = "2021" }));
         _audiobookService.Verify(
             s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()),
             Times.Never);

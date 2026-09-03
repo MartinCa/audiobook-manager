@@ -218,7 +218,7 @@ public class ConsistencyController : ControllerBase
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            var result = await consistencyService.ResolveTagMismatchAsync(id, request.FieldValues);
+            var result = await consistencyService.ResolveTagMismatchSelectivelyAsync(id, request.FieldValues);
             return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
         }
         catch (KeyNotFoundException)
