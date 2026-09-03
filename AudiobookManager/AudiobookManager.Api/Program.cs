@@ -77,7 +77,17 @@ internal class Program
         if (app.Environment.IsDevelopment())
         {
             app.UseSwagger();
-            app.UseSwaggerUI();
+            app.UseSwaggerUI(options =>
+            {
+                // Swagger UI issues its "Try it out" requests with its own fetch, which does not
+                // set X-Requested-With - so every write from it would be refused by
+                // CrossSiteRequestGuardMiddleware. Adding the header here keeps the guard applied
+                // uniformly in development rather than carving out an exception for it (which
+                // would leave the guard untested in the environment it is developed in).
+                options.UseRequestInterceptor(
+                    $"(request) => {{ request.headers['{CrossSiteRequestGuardMiddleware.RequiredHeader}'] = "
+                    + $"'{CrossSiteRequestGuardMiddleware.RequiredHeaderValue}'; return request; }}");
+            });
         }
 
         // app.UseHttpsRedirection();
