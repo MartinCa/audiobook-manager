@@ -22,6 +22,7 @@ describe("TagPreviewDialog", () => {
 
   const searchResult: MetadataSearchResult = {
     url: "https://audible.com/pd/123",
+    cleanUrl: "https://audible.com/pd/123",
     source: "Audible",
     bookName: "New Title",
     authors: [{ name: "New Author" }],

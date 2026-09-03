@@ -142,10 +142,10 @@ export function CleanBookUrls() {
                     {b.authors.join(", ")} &mdash; {b.bookName}
                   </Link>
                   <div className="mt-1 space-y-0.5 text-xs">
-                    <div className="text-muted-foreground truncate">
+                    <div className="text-muted-foreground break-all">
                       <span className="line-through decoration-red-500/60">{b.currentUrl}</span>
                     </div>
-                    <div className="truncate text-emerald-600 dark:text-emerald-400">
+                    <div className="break-all text-emerald-600 dark:text-emerald-400">
                       {b.cleanedUrl}
                     </div>
                   </div>

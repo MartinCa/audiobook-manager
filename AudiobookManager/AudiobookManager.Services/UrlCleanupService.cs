@@ -1,15 +1,26 @@
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
 public class UrlCleanupService : IUrlCleanupService
 {
     private readonly IAudiobookRepository _audiobookRepository;
+    private readonly IAudiobookService _audiobookService;
+    private readonly IAudiobookSaveGate _saveGate;
+    private readonly ILogger<UrlCleanupService> _logger;
 
-    public UrlCleanupService(IAudiobookRepository audiobookRepository)
+    public UrlCleanupService(
+        IAudiobookRepository audiobookRepository,
+        IAudiobookService audiobookService,
+        IAudiobookSaveGate saveGate,
+        ILogger<UrlCleanupService> logger)
     {
         _audiobookRepository = audiobookRepository;
+        _audiobookService = audiobookService;
+        _saveGate = saveGate;
+        _logger = logger;
     }
 
     public async Task<List<AudiobookUrlCleanup>> FindDirtyUrlsAsync()
@@ -43,21 +54,45 @@ public class UrlCleanupService : IUrlCleanupService
 
     public async Task<int> ApplyAsync(IEnumerable<long> audiobookIds)
     {
-        var idSet = audiobookIds.ToHashSet();
-        if (idSet.Count == 0)
+        var ids = audiobookIds.Distinct().ToList();
+        if (ids.Count == 0)
         {
             return 0;
         }
 
-        var dirtyUrls = await FindDirtyUrlsAsync();
+        var updated = 0;
 
-        var applied = 0;
-        foreach (var dirtyUrl in dirtyUrls.Where(d => idSet.Contains(d.AudiobookId)))
-        {
-            await _audiobookRepository.UpdateWwwAsync(dirtyUrl.AudiobookId, dirtyUrl.CleanedUrl);
-            applied++;
-        }
+        await BulkOperationRunner.RunAsync(
+            ids,
+            async id =>
+            {
+                // Cleanup rewrites the m4b's Www tag as well as the DB record (via
+                // AudiobookService.UpdateAudiobook, which keeps both in sync - see
+                // TagConsistencyChecker), so it takes the same per-audiobook gate an interactive
+                // save does. A book someone is editing right now fails just its own item;
+                // BulkOperationRunner counts it and the rest of the batch carries on.
+                using var lease = _saveGate.Acquire(id);
 
-        return applied;
+                var audiobook = await _audiobookService.GetAudiobookById(id);
+                if (audiobook is null || string.IsNullOrWhiteSpace(audiobook.Www))
+                {
+                    return;
+                }
+
+                var cleaned = BookUrlCleaner.Clean(audiobook.Www);
+                if (string.Equals(cleaned, audiobook.Www, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                audiobook.Www = cleaned;
+                await _audiobookService.UpdateAudiobook(id, audiobook);
+                updated++;
+            },
+            _logger,
+            id => $"Failed to clean URL for audiobook {id}",
+            progressAction: null);
+
+        return updated;
     }
 }

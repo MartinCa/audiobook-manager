@@ -23,7 +23,6 @@ public interface IAudiobookRepository
     Task<List<AudiobookLanguageRef>> GetBooksMissingLanguageAsync();
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateLanguageAsync(long id, string? language);
-    Task UpdateWwwAsync(long id, string? www);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);
     Task DeleteAudiobookAsync(long id);
     Task UpdateAudiobookAsync(Audiobook audiobook);

@@ -2921,6 +2921,7 @@ export interface components {
             publisher?: string | null;
             asin?: string | null;
             isbn?: string | null;
+            readonly cleanUrl?: string | null;
         };
         MetadataSearchServiceInfo: {
             name?: string | null;

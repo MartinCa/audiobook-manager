@@ -158,6 +158,7 @@ describe("BookEditForm", () => {
       results: [
         {
           url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
           source: "Audible",
           bookName: "Scraped Book",
           authors: [{ name: "Scraped Author" }],
