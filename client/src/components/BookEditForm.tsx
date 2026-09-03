@@ -333,6 +333,9 @@ export function BookEditForm({
 
     const coverUrlToFetch = result.imageUrl;
     if (selectedFields.has("cover") && coverUrlToFetch) {
+      // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
+      // the backend's write guard does not apply to it.
+      // eslint-disable-next-line no-restricted-globals -- binary response, see above
       void fetch(`/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`)
         .then((res) => res.blob())
         .then((blob) => {
