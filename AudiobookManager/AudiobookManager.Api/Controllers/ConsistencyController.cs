@@ -155,6 +155,14 @@ public class ConsistencyController : ControllerBase
             var (resolved, failed) = await consistencyService.ResolveIssuesByType(issueType);
             return Ok(new { resolved, failed });
         }
+        catch (LibraryUnavailableException ex)
+        {
+            // Not a server error: the library is not in a state where this sweep can be trusted,
+            // and the message says what to check. A 409 so the client shows it rather than a
+            // generic failure.
+            _logger.LogWarning("Refused bulk resolve of {IssueType}: {Reason}", issueType, ex.Message);
+            return Conflict(ex.Message);
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(ex.Message);

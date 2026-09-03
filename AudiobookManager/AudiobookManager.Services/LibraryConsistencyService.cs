@@ -1,7 +1,9 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.FileManager;
+using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AudiobookManager.Services;
 
@@ -21,6 +23,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IAudiobookIssueDetectionService _detectionService;
     private readonly IOrphanDirectoryConsistencyService _orphanDirectoryConsistencyService;
     private readonly Dictionary<ConsistencyIssueType, IConsistencyIssueResolver> _resolversByType;
+    private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<LibraryConsistencyService> _logger;
 
     public LibraryConsistencyService(
@@ -32,8 +35,10 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IAudiobookIssueDetectionService detectionService,
         IEnumerable<IConsistencyIssueResolver> resolvers,
         IOrphanDirectoryConsistencyService orphanDirectoryConsistencyService,
+        IOptions<AudiobookManagerSettings> settings,
         ILogger<LibraryConsistencyService> logger)
     {
+        _settings = settings.Value;
         _audiobookRepository = audiobookRepository;
         _issueRepository = issueRepository;
         _tagHandler = tagHandler;
@@ -63,6 +68,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     public async Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction)
     {
         _logger.LogInformation("Starting library consistency check");
+
+        // Before anything is cleared. The library path is a volume mount in the normal
+        // deployment, and startup validation only ran once - if the mount has since gone away,
+        // every book's File.Exists is false and the run would record the entire library as
+        // MissingMediaFile, which the bulk resolve then turns into deleting every record. Refusing
+        // here also protects the previous run's findings, which the clears below would otherwise
+        // have destroyed on the way to producing that.
+        EnsureLibraryAvailable();
 
         // Both tables are cleared up front, before any work starts: if detection or an insert
         // fails partway through the loop below, the issue and orphan-directory lists must not be
@@ -293,6 +306,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // one by id (which cost N+1 queries with the same includes).
         var issues = await _issueRepository.GetByTypeAsync(parsedType);
 
+        if (parsedType == ConsistencyIssueType.MissingMediaFile)
+        {
+            await EnsureMissingMediaFileSweepIsPlausibleAsync(issues.Count);
+        }
+
         return await ResolveLoadedIssuesAsync(issues);
     }
 
@@ -301,6 +319,65 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var issues = await _issueRepository.GetByIdsAsync(issueIds.ToList());
 
         return await ResolveLoadedIssuesAsync(issues);
+    }
+
+    /// <summary>
+    /// Refuses to proceed when the configured library directory is not there. Startup validation
+    /// (<see cref="SettingsValidation.EnsureRequiredPathsAreUsable"/>) answers this once; a mount
+    /// can disappear afterwards, and every caller whose behaviour on a missing library is
+    /// destructive has to ask again at the point of use.
+    /// </summary>
+    private void EnsureLibraryAvailable()
+    {
+        if (SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
+        {
+            return;
+        }
+
+        throw new LibraryUnavailableException(
+            $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book would "
+            + "look missing. This is normally a volume mount - check it is mounted and readable by the user "
+            + "this application runs as, then run the check again.");
+    }
+
+    /// <summary>
+    /// Refuses a library-wide "resolve every MissingMediaFile" when the missing files account for
+    /// an implausible share of the library.
+    ///
+    /// Each of those resolves deletes the audiobook's database record, and that record is the only
+    /// place the curated metadata lives - the files, where they exist, carry only what was last
+    /// written to them. A sweep covering most of the library is far more likely to be an
+    /// unavailable mount (or one that came back empty) than a real mass deletion, and it is
+    /// reported to the user as a successful bulk resolve either way. Resolving a single issue, or
+    /// a hand-picked selection, is a deliberate act on named books and is deliberately not gated.
+    /// </summary>
+    private async Task EnsureMissingMediaFileSweepIsPlausibleAsync(int missingCount)
+    {
+        EnsureLibraryAvailable();
+
+        if (missingCount == 0)
+        {
+            return;
+        }
+
+        var totalBooks = await _audiobookRepository.CountAsync();
+        if (totalBooks < _settings.MissingMediaFileBulkResolveMinLibrarySize)
+        {
+            return;
+        }
+
+        var fraction = (double)missingCount / totalBooks;
+        if (fraction <= _settings.MissingMediaFileBulkResolveMaxFraction)
+        {
+            return;
+        }
+
+        throw new LibraryUnavailableException(
+            $"Refusing to bulk-resolve {missingCount} of {totalBooks} tracked books ({fraction:P0}) as missing "
+            + $"media files, which is above the {_settings.MissingMediaFileBulkResolveMaxFraction:P0} limit. Each "
+            + "one deletes the book's library record, and a share this large is usually an unavailable or "
+            + "partially-mounted library rather than genuine deletions. Verify the library is fully mounted and "
+            + "re-run the consistency check; resolve individual books if they really are gone.");
     }
 
     public async Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId)

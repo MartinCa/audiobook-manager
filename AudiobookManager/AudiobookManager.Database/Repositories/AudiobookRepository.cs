@@ -77,6 +77,9 @@ public class AudiobookRepository : IAudiobookRepository
         .Replace("%", "\\%")
         .Replace("_", "\\_");
 
+    /// <summary>How many books the library tracks. Just the count - no rows materialized.</summary>
+    public Task<int> CountAsync() => _db.Audiobooks.AsNoTracking().CountAsync();
+
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {
         var query = _db.Audiobooks
