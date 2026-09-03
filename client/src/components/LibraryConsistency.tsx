@@ -56,6 +56,8 @@ interface CompletePayload {
 
 const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
 
+const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
+
 type PendingResolve =
   | { kind: "single"; issue: ConsistencyIssue }
   | { kind: "selected"; issueType: string; issueIds: number[] }
@@ -407,11 +409,7 @@ export function LibraryConsistency() {
                   setPageByType((prev) => ({ ...prev, [type]: page }));
 
                 return (
-                  <AccordionItem
-                    key={type}
-                    value={type}
-                    className="border-border bg-card rounded-lg border px-4 shadow-sm"
-                  >
+                  <AccordionItem key={type} value={type} className={ACCORDION_ITEM_CLASS}>
                     <AccordionTrigger className="py-3 hover:no-underline">
                       <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-2 text-left">
                         <div className="flex items-center gap-2">
@@ -615,10 +613,7 @@ export function LibraryConsistency() {
         {orphanDirs.length > 0 && (
           <div>
             <Accordion type="multiple" className="mt-3 space-y-3">
-              <AccordionItem
-                value="orphans"
-                className="border-border bg-card rounded-lg border px-4 shadow-sm"
-              >
+              <AccordionItem value="orphans" className={ACCORDION_ITEM_CLASS}>
                 <AccordionTrigger className="py-3 hover:no-underline">
                   <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-2 text-left">
                     <div className="flex items-center gap-2">

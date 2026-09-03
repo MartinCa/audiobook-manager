@@ -161,7 +161,6 @@ export function BookDetail() {
       const result = await consistencyApi.resolveIssue(issueId);
       notifyConsistencyResolveResult(result);
       if (result.actionTaken === "audiobook_deleted") {
-        void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
         invalidateConsistencyViews();
         void navigate({ to: "/library" });
         return;
@@ -180,7 +179,7 @@ export function BookDetail() {
     try {
       await audiobookApi.deleteAudiobook(id);
       toast.success("Audiobook deleted from library");
-      void queryClient.invalidateQueries({ queryKey: ["audiobooks"] });
+      void queryClient.invalidateQueries({ queryKey: ["books"] });
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
       void navigate({ to: "/library" });
     } catch (err: unknown) {
