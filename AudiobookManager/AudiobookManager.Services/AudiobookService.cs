@@ -125,6 +125,14 @@ public class AudiobookService : IAudiobookService
         sw.Start();
 
         await progressAction("Started", 0);
+
+        // Computed here rather than after the tag write, even though nothing between the two
+        // changes the answer: JoinLibraryPath asserts the result stays inside the library root,
+        // and an assertion is only a backstop if it fires before anything irreversible. Tripping
+        // it after SaveAudiobookTagsToFile would leave the m4b carrying new tags at its old
+        // location with a stale database path - a half-migrated state worse than the refusal.
+        var newFullPath = GenerateLibraryPath(audiobook);
+
         const int afterTagsProgress = 70;
         int lastProgressNotified = 0;
 
@@ -190,8 +198,6 @@ public class AudiobookService : IAudiobookService
                 "this time for an ATL warning about \"ignoring Quicktime chapters\"); remuxing the file " +
                 "(e.g. `ffmpeg -i in.m4b -c copy -map_metadata 0 out.m4b`) resolves it in that case.");
         }
-
-        var newFullPath = GenerateLibraryPath(audiobook);
 
         try
         {
