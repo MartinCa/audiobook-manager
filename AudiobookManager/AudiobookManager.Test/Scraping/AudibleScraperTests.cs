@@ -351,4 +351,19 @@ public class AudibleScraperTests
 
         Assert.AreEqual("German", result.Language);
     }
+
+    [TestMethod]
+    public void SupportsUrl_MatchesAudibleHostOnly()
+    {
+        var target = CreateScraper();
+
+        Assert.IsTrue(target.SupportsUrl("https://www.audible.com/pd/B0DFZ23456"));
+        Assert.IsTrue(target.SupportsUrl("https://audible.com/pd/B0DFZ23456"));
+
+        // All of these passed the old url.Contains("audible.com") substring check.
+        Assert.IsFalse(target.SupportsUrl("http://169.254.169.254/latest/meta-data?ref=audible.com"));
+        Assert.IsFalse(target.SupportsUrl("https://www.audible.com.example.net/pd/B0DFZ23456"));
+        Assert.IsFalse(target.SupportsUrl("https://example.net/?to=https://audible.com/pd/x"));
+        Assert.IsFalse(target.SupportsUrl("file:///etc/passwd"));
+    }
 }

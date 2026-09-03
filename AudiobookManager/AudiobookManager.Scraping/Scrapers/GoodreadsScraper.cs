@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
+using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Scrapers;
 public partial class GoodreadsScraper : IScraper
@@ -262,7 +263,7 @@ public partial class GoodreadsScraper : IScraper
 
     public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
 
-    public bool SupportsUrl(string url) => url.Contains(_goodreadsDomain);
+    public bool SupportsUrl(string url) => ScraperUrl.HasHost(url, _goodreadsDomain);
 
     public string SourceName => _sourceName;
 

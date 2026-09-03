@@ -8,6 +8,7 @@ using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
+using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Scrapers;
 
@@ -59,7 +60,7 @@ public partial class AudibleScraper : IScraper
         _logger = logger;
     }
 
-    public bool SupportsUrl(string url) => url.Contains(_audibleDomain);
+    public bool SupportsUrl(string url) => ScraperUrl.HasHost(url, _audibleDomain);
 
     public bool IsSource(string sourceName) => _sourceName.Equals(sourceName, StringComparison.InvariantCultureIgnoreCase);
 
