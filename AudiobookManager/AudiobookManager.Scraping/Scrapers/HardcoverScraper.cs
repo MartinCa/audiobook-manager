@@ -7,6 +7,7 @@ using AudiobookManager.Scraping.Models;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Scrapers;
 
@@ -42,7 +43,7 @@ public class HardcoverScraper : IScraper
 
     public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
 
-    public bool SupportsUrl(string url) => url.Contains(_hardcoverDomain);
+    public bool SupportsUrl(string url) => ScraperUrl.HasHost(url, _hardcoverDomain);
 
     public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {

@@ -411,6 +411,20 @@ public class HardcoverScraperTests
         Assert.IsFalse(target.SupportsUrl("https://goodreads.com/book/show/1"));
     }
 
+    [TestMethod]
+    public void SupportsUrl_UrlMerelyMentioningTheDomain_IsRejected()
+    {
+        // The URL handed to GetBookDetails comes straight from the caller and the parsed page is
+        // returned in the response, so a substring match here was a request-forgery primitive:
+        // every one of these passed the old url.Contains("hardcover.app") check.
+        var target = CreateScraper("{}", out _);
+
+        Assert.IsFalse(target.SupportsUrl("http://169.254.169.254/latest/meta-data?ref=hardcover.app"));
+        Assert.IsFalse(target.SupportsUrl("https://hardcover.app.example.net/books/x"));
+        Assert.IsFalse(target.SupportsUrl("https://example.net/?to=https://hardcover.app/books/x"));
+        Assert.IsFalse(target.SupportsUrl("file:///etc/passwd"));
+    }
+
     // ---------- Disabled Hasura filter operators (CLAUDE.md limitation) ----------
 
     /// <summary>

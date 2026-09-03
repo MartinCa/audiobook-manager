@@ -52,6 +52,12 @@ public class MetadataSearchController : ControllerBase
     /// authentication of its own and is meant to run on a trusted network, which is why it is
     /// tolerable today; if that ever changes, restrict this to the domains the registered
     /// scrapers use and reject resolved addresses outside public ranges.
+    ///
+    /// What is *not* tolerable, and is no longer done, is reflecting the upstream's Content-Type
+    /// back to the browser. That let the supplied URL choose what this application's own origin
+    /// serves - an attacker's text/html document rendered as though it came from here - which
+    /// escalates the forwarding above into stored XSS. The response is now pinned to an image
+    /// type and sent with nosniff; the forwarding itself is the part still accepted.
     /// </summary>
     [HttpGet("proxy-image")]
     public async Task<IActionResult> ProxyImage([FromQuery] string url)
@@ -75,9 +81,48 @@ public class MetadataSearchController : ControllerBase
             return StatusCode(statusCode);
         }
 
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+        // Never reflect the upstream's Content-Type. Doing so let an arbitrary URL decide what
+        // this application's own origin serves: point it at a text/html document and the browser
+        // renders attacker markup as though it came from here, which turns the forwarding above
+        // from a request-forgery issue into stored XSS against this app. Only image types are
+        // forwarded, and anything else is refused rather than guessed at.
+        var upstreamContentType = response.Content.Headers.ContentType?.MediaType;
+        if (!IsImageContentType(upstreamContentType))
+        {
+            response.Dispose();
+            return StatusCode(
+                StatusCodes.Status502BadGateway,
+                $"The URL returned '{upstreamContentType ?? "no content type"}' rather than an image.");
+        }
+
         var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         HttpContext.Response.RegisterForDispose(response);
-        return File(stream, contentType);
+
+        // Belt and braces: even with the check above, stop the browser sniffing a different type
+        // out of the bytes than the one declared.
+        HttpContext.Response.Headers.XContentTypeOptions = "nosniff";
+
+        return File(stream, upstreamContentType!);
+    }
+
+    /// <summary>
+    /// Whether a media type is an image this endpoint is willing to pass through. Deliberately the
+    /// whole <c>image/</c> family rather than a fixed list - the cover sources legitimately serve
+    /// jpeg, png, webp and avif - but <c>image/svg+xml</c> is excluded, because SVG is a document
+    /// that can carry script and would execute on this origin.
+    /// </summary>
+    private static bool IsImageContentType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return false;
+        }
+
+        if (mediaType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return mediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -236,4 +236,19 @@ public class GoodreadsScraperTests
         // ASIN
         Assert.AreEqual("0450040186", result.Asin);
     }
+
+    [TestMethod]
+    public void SupportsUrl_MatchesGoodreadsHostOnly()
+    {
+        var target = CreateScraper();
+
+        Assert.IsTrue(target.SupportsUrl("https://www.goodreads.com/book/show/1"));
+        Assert.IsTrue(target.SupportsUrl("https://goodreads.com/book/show/1"));
+
+        // All of these passed the old url.Contains("goodreads.com") substring check.
+        Assert.IsFalse(target.SupportsUrl("http://169.254.169.254/latest/meta-data?ref=goodreads.com"));
+        Assert.IsFalse(target.SupportsUrl("https://goodreads.com.example.net/book/show/1"));
+        Assert.IsFalse(target.SupportsUrl("https://example.net/?to=https://goodreads.com/book/show/1"));
+        Assert.IsFalse(target.SupportsUrl("file:///etc/passwd"));
+    }
 }
