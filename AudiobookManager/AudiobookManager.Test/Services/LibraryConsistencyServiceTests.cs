@@ -4,6 +4,7 @@ using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
@@ -25,18 +26,53 @@ public class LibraryConsistencyServiceTests
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private LibraryConsistencyService _service = null!;
 
+    // Builds the same object graph DependencyInjection.SetupServiceLayer wires up, but by hand
+    // with this fixture's mocks - one detection service, one resolver per issue-type group, and
+    // one orphan-directory service, all sharing the repository/handler mocks so assertions against
+    // those mocks still see every call regardless of which piece made it.
     private LibraryConsistencyService CreateService(IOptions<AudiobookManagerSettings>? settings = null)
     {
+        var effectiveSettings = settings ?? _settings;
+
+        var detectors = new IConsistencyIssueDetector[]
+        {
+            new PathMismatchDetector(),
+            new TagMismatchDetector(),
+            new SidecarFilesDetector(),
+            new CoverFileDetector(),
+        };
+        var detectionService = new AudiobookIssueDetectionService(
+            effectiveSettings, _tagHandler.Object, detectors, NullLogger<AudiobookIssueDetectionService>.Instance);
+
+        var resolvers = new IConsistencyIssueResolver[]
+        {
+            new MissingMediaFileResolver(
+                _audiobookRepository.Object, _issueRepository.Object, _fileHandler, detectionService,
+                NullLogger<MissingMediaFileResolver>.Instance),
+            new MetadataSidecarResolver(
+                _tagHandler.Object, _fileHandler, _issueRepository.Object,
+                NullLogger<MetadataSidecarResolver>.Instance),
+            new TagOrPathMismatchResolver(
+                _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object,
+                NullLogger<TagOrPathMismatchResolver>.Instance),
+            new MissingCoverResolver(
+                _tagHandler.Object, _fileHandler, _audiobookRepository.Object, _issueRepository.Object,
+                NullLogger<MissingCoverResolver>.Instance),
+        };
+
+        var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
+            effectiveSettings, _orphanDirectoryRepository.Object, _fileOperations,
+            NullLogger<OrphanDirectoryConsistencyService>.Instance);
+
         return new LibraryConsistencyService(
-            settings ?? _settings,
             _audiobookRepository.Object,
             _issueRepository.Object,
-            _orphanDirectoryRepository.Object,
             _tagHandler.Object,
-            _fileHandler,
-            _fileOperations,
             _audiobookService.Object,
             _saveGate,
+            detectionService,
+            resolvers,
+            orphanDirectoryConsistencyService,
             _logger.Object);
     }
 
