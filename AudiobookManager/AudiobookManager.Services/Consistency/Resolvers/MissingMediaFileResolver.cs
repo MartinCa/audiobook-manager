@@ -53,10 +53,6 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
                 "Media file was found on disk. Preserved audiobook and refreshed consistency status."));
         }
 
-        _logger.LogInformation(
-            "Media file for audiobook {AudiobookId} ('{Title}') not found at '{FilePath}'. Deleted audiobook from database and cleaned up empty directory.",
-            audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
-
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath);
 
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
@@ -66,6 +62,10 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
         {
             _fileHandler.RemoveDirIfEmpty(directoryPath);
         }
+
+        _logger.LogInformation(
+            "Media file for audiobook {AudiobookId} ('{Title}') not found at '{FilePath}'. Deleted audiobook from database and cleaned up empty directory.",
+            audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
         return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
             issue.Id,
