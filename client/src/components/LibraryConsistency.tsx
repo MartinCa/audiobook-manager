@@ -119,13 +119,23 @@ export function LibraryConsistency() {
   const issueTypes = Object.keys(countsByType).sort();
   const totalIssueCount = Object.values(countsByType).reduce((sum, count) => sum + count, 0);
 
+  const pageCountFor = (type: string) =>
+    Math.max(1, Math.ceil((countsByType[type] ?? 0) / PAGE_SIZE));
+
+  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
+  // page that is *displayed* can never disagree. They used to: a check that shrank a group while
+  // the user sat on a later page left the query asking for a page that no longer exists - which
+  // came back empty - while the pager, clamped separately, showed the group as one page of
+  // results. The group rendered as permanently empty with no way to page back into it.
+  const pageFor = (type: string) => Math.min(pageByType[type] ?? 0, pageCountFor(type) - 1);
+
   const pageQueries = useQueries({
     queries: issueTypes.map((type) => ({
-      queryKey: ["consistency", "page", type, pageByType[type] ?? 0],
+      queryKey: ["consistency", "page", type, pageFor(type)],
       queryFn: () =>
         consistencyApi.getIssues({
           issueType: type,
-          page: pageByType[type] ?? 0,
+          page: pageFor(type),
           pageSize: PAGE_SIZE,
         }),
     })),
@@ -415,8 +425,8 @@ export function LibraryConsistency() {
                 const selectedVisibleCount = visibleIssues.filter((i) =>
                   selectedIssues.has(i.id),
                 ).length;
-                const pageCount = Math.max(1, Math.ceil(typeCount / PAGE_SIZE));
-                const currentPage = Math.min(pageByType[type] ?? 0, pageCount - 1);
+                const pageCount = pageCountFor(type);
+                const currentPage = pageFor(type);
                 const setPage = (page: number) =>
                   setPageByType((prev) => ({ ...prev, [type]: page }));
 

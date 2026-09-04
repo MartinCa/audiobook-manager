@@ -101,6 +101,18 @@ public class ConsistencyController : ControllerBase
 
     private const int DefaultPageSize = 50;
 
+    /// <summary>
+    /// The furthest into the list a caller may ask to start.
+    ///
+    /// Bounded for two reasons. The offset is <c>page * pageSize</c>, which overflows a 32-bit int
+    /// somewhere past page 10.7 million at the maximum page size - and the negative result does not
+    /// fail, it is passed to SKIP, where SQLite reads a negative OFFSET as zero and silently serves
+    /// the *first* page as though it were the requested one. Separately, even a valid enormous
+    /// offset makes the database count its way there row by row. Twenty thousand default-sized
+    /// pages is past any real library and well short of both problems.
+    /// </summary>
+    private const long MaxPageOffset = 1_000_000;
+
     [HttpGet("issues")]
     public async Task<ActionResult<ConsistencyIssuePageDto>> GetIssues(
         [FromQuery] string? issueType = null,
@@ -123,6 +135,16 @@ public class ConsistencyController : ControllerBase
                 title: "Invalid request");
         }
 
+        // Widened before multiplying, so the check sees the real product rather than a wrapped one.
+        var skip = (long)page * pageSize;
+        if (skip > MaxPageOffset)
+        {
+            return Problem(
+                detail: $"page and pageSize together may not skip more than {MaxPageOffset} issues.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request");
+        }
+
         ConsistencyIssueType? parsedType = null;
         if (!string.IsNullOrWhiteSpace(issueType))
         {
@@ -138,7 +160,7 @@ public class ConsistencyController : ControllerBase
         }
 
         var (issues, totalCount) = await _issueRepository.GetPageWithAudiobookAsync(
-            parsedType, page * pageSize, pageSize);
+            parsedType, (int)skip, pageSize);
 
         return Ok(new ConsistencyIssuePageDto(issues.Select(ToDto).ToList(), totalCount));
     }

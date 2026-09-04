@@ -141,6 +141,43 @@ public class ConsistencyControllerTests
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
     }
 
+    // Regression: the offset was computed as `page * pageSize` in a 32-bit int, so a large enough
+    // page wrapped negative. That did not fail - SQLite reads a negative OFFSET as zero, so the
+    // request silently returned the *first* page while claiming to be page eleven million.
+    // Measured against the repository before the fix: skip -2094967296 returned every row.
+    [TestMethod]
+    public async Task GetIssues_APageLargeEnoughToOverflowTheOffset_IsRefusedRatherThanServingTheFirstPage()
+    {
+        var result = await _controller.GetIssues(page: 11_000_000, pageSize: 200);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _issueRepository.Verify(
+            r => r.GetPageWithAudiobookAsync(It.IsAny<ConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetIssues_APageBeyondTheOffsetCapButWithinIntRange_IsAlsoRefused()
+    {
+        // Not an overflow, just further than anyone can meaningfully page - and far enough that
+        // the database would count its way there row by row.
+        var result = await _controller.GetIssues(page: 50_000, pageSize: 50);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetIssues_APageAtTheOffsetCap_IsStillAccepted()
+    {
+        _issueRepository
+            .Setup(r => r.GetPageWithAudiobookAsync(null, 1_000_000, 50))
+            .ReturnsAsync((new List<ConsistencyIssue>(), 0));
+
+        var result = await _controller.GetIssues(page: 20_000, pageSize: 50);
+
+        Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+    }
+
     [TestMethod]
     public async Task GetIssueCountsByType_ReturnsTheCountsKeyedByTypeName()
     {

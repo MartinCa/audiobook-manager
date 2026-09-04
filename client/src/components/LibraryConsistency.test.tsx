@@ -283,6 +283,42 @@ describe("LibraryConsistency", () => {
     expect(screen.queryByRole("button", { name: /Resolve Selected/ })).not.toBeInTheDocument();
   });
 
+  // Regression: the page being fetched came straight from pageByType while the pager clamped
+  // separately, so a check that shrank a group under the user left the query asking for a page
+  // that no longer existed. It came back empty, the pager showed one page, and the group rendered
+  // permanently empty with no way to page back into it.
+  it("recovers when a refetch shrinks a group below the page the user is on", async () => {
+    const manyIssues = Array.from({ length: 120 }, (_, i) => ({
+      id: 1000 + i,
+      audiobookId: 10 + i,
+      bookName: `Book ${i}`,
+      authors: ["Some Author"],
+      issueType: "TagMismatch",
+      description: "m4b tags do not match library metadata: Subtitle",
+      detectedAt: "2026-09-01T10:00:00Z",
+    }));
+    mockPagedIssues(manyIssues);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const trigger = await screen.findByRole("button", { name: /Tag Mismatches/ });
+    fireEvent.click(trigger);
+    await screen.findByText(/Some Author — Book 0$/);
+
+    // Move to page 2, then have the next fetch return a group of two.
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText(/Some Author — Book 50$/);
+
+    mockPagedIssues(manyIssues.slice(0, 2));
+    await queryClient.invalidateQueries({ queryKey: ["consistency"] });
+
+    // The surviving issues are shown rather than an empty group: the fetch is clamped to the
+    // group's last real page, not left pointing past the end.
+    expect(await screen.findByText(/Some Author — Book 0$/)).toBeInTheDocument();
+    expect(screen.getByText(/Some Author — Book 1$/)).toBeInTheDocument();
+  });
+
   it("keeps a group-wide selection count across pages and resolves the full set", async () => {
     const manyIssues = Array.from({ length: 120 }, (_, i) => ({
       id: 1000 + i,
