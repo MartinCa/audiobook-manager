@@ -247,7 +247,7 @@ public class HardcoverQuotaRepositoryTests
         // created and no count is lost.
         var date = new DateOnly(2026, 3, 4);
         var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
-        var context = new AlwaysBusyDatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+        using var context = new AlwaysBusyDatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
         var repository = new HardcoverQuotaRepository(context);
 
         await Assert.ThrowsExactlyAsync<DbUpdateException>(
