@@ -61,13 +61,11 @@ public class ConsistencyController : ControllerBase
                 "Refused consistency check: library directory '{LibraryPath}' is not available",
                 _settings.AudiobookLibraryPath);
 
-            return Problem(
-                detail:
-                    $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
-                    + "would look missing. This is normally a volume mount - check it is mounted and readable "
-                    + "by the user this application runs as, then run the check again.",
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Library unavailable");
+            return this.ConflictingState(
+                $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
+                + "would look missing. This is normally a volume mount - check it is mounted and readable "
+                + "by the user this application runs as, then run the check again.",
+                "Library unavailable");
         }
 
         return BackgroundOperationRunner.Start(
@@ -121,28 +119,19 @@ public class ConsistencyController : ControllerBase
     {
         if (page < 0)
         {
-            return Problem(
-                detail: "page must be zero or greater.",
-                statusCode: StatusCodes.Status400BadRequest,
-                title: "Invalid request");
+            return this.InvalidRequest("page must be zero or greater.");
         }
 
         if (pageSize < 1 || pageSize > MaxPageSize)
         {
-            return Problem(
-                detail: $"pageSize must be between 1 and {MaxPageSize}.",
-                statusCode: StatusCodes.Status400BadRequest,
-                title: "Invalid request");
+            return this.InvalidRequest($"pageSize must be between 1 and {MaxPageSize}.");
         }
 
         // Widened before multiplying, so the check sees the real product rather than a wrapped one.
         var skip = (long)page * pageSize;
         if (skip > MaxPageOffset)
         {
-            return Problem(
-                detail: $"page and pageSize together may not skip more than {MaxPageOffset} issues.",
-                statusCode: StatusCodes.Status400BadRequest,
-                title: "Invalid request");
+            return this.InvalidRequest($"page and pageSize together may not skip more than {MaxPageOffset} issues.");
         }
 
         ConsistencyIssueType? parsedType = null;
@@ -150,10 +139,7 @@ public class ConsistencyController : ControllerBase
         {
             if (!Enum.TryParse<ConsistencyIssueType>(issueType, ignoreCase: true, out var value))
             {
-                return Problem(
-                    detail: $"'{issueType}' is not a known consistency issue type.",
-                    statusCode: StatusCodes.Status400BadRequest,
-                    title: "Invalid request");
+                return this.InvalidRequest($"'{issueType}' is not a known consistency issue type.");
             }
 
             parsedType = value;
@@ -257,10 +243,7 @@ public class ConsistencyController : ControllerBase
             // problem.detail, and a string body serializes as text/plain, which its error parser
             // skips - so the "what to check" message this refusal exists to deliver never reached
             // the toast. Also a drop-in once AddProblemDetails is registered.
-            return Problem(
-                detail: ex.Message,
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Library unavailable");
+            return this.ConflictingState(ex.Message, "Library unavailable");
         }
         catch (ArgumentException ex)
         {
