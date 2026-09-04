@@ -107,6 +107,61 @@ public class CoverImageProcessorTests
         Assert.AreEqual(png, result.Base64Data, "A PNG within the cap must not be re-encoded at all.");
     }
 
+    // Regression: a CMYK/UcrK JPEG (Adobe APP14, 4 components) - which is what Audible's
+    // metadata search returns for some covers - round-trips through ImageSharp as an Adobe-marked
+    // JPEG whose invalid transform flag browsers render as neon-green stripes. The original bytes
+    // are valid and render everywhere, so they must be kept rather than re-encoded, exactly like a
+    // small PNG on the fast path.
+    [TestMethod]
+    public void Normalize_ACmykJpeg_IsKeptByteForByte()
+    {
+        // 40x40 Adobe APP14 CMYK JPEG captured from Audible's CDN (779 bytes). ImageSharp's
+        // encoder cannot produce CMYK, so the fixture is a real captured file embedded here.
+        var cmykJpeg =
+            "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCx" +
+            "AWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAKAAoBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgME" +
+            "BQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJCh" +
+            "YXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqi" +
+            "o6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAA4EQwBNAFkASw" +
+            "AAPwD9G/G//LSv0b/4Tf8A6afrX3RXpFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf/lpR/wAJ" +
+            "v/00/Wiivn/xv/y0o/4Tf/pp+tFFf0AeN/8AlpXz/wD8Jv8A9NP1oor5/wDG/wDy0o/4Tf8A6afrRRXz/wCN/wDlpR" +
+            "/wm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor+gDxv8A8tK+f/8AhN/+mn60UV8/+N/+" +
+            "WlH/AAm//TT9aKK+f/G//LSj/hN/+mn60UV8/wDjf/lpR/wm/wD00/Wiivn/AMb/APLSj/hN/wDpp+tFFf0AeN/+Wl" +
+            "fP/wDwm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf" +
+            "/lpR/wAJv/00/Wiiv6APG/8Ay0r5/wD+E3/6afrRRXz/AON/+WlH/Cb/APTT9aKK+f8Axv8A8tKP+E3/AOmn60UV8/" +
+            "8Ajf8A5aUf8Jv/ANNP1oor5/8AG/8Ay0o/4Tf/AKafrRRX/9k=";
+
+        var result = _processor.Normalize(cmykJpeg, "image/jpeg");
+
+        Assert.AreEqual("image/jpeg", result.MimeType);
+        Assert.AreEqual(cmykJpeg, result.Base64Data, "A CMYK JPEG must not be re-encoded.");
+    }
+
+    [TestMethod]
+    public void Normalize_ACmykJpegDeclaredAsSomethingElse_IsCorrectedFromTheBytes()
+    {
+        var cmykJpeg = CmykFixture;
+        var result = _processor.Normalize(cmykJpeg, "image/png");
+
+        Assert.AreEqual("image/jpeg", result.MimeType, "The bytes decide the type, not the claim.");
+        Assert.AreEqual(cmykJpeg, result.Base64Data);
+    }
+
+    [TestMethod]
+    public void Normalize_AnRgbJpeg_IsStillReencodedNotPassedThrough()
+    {
+        // Ensures the CMYK guard does not accidentally match ordinary 3-component JPEGs: those
+        // must keep the normal re-encode (and with it the dimension and size caps).
+        var jpeg = FlatJpeg(4000, 4000);
+
+        var result = _processor.Normalize(jpeg, "image/jpeg");
+
+        Assert.AreEqual("image/jpeg", result.MimeType);
+        Assert.AreNotEqual(jpeg, result.Base64Data, "An RGB JPEG must still be re-encoded.");
+        using var decoded = Decode(result.Base64Data);
+        Assert.AreEqual(1500, decoded.Width, "It must still be resized to the dimension cap.");
+    }
+
     [TestMethod]
     public void Normalize_AJpeg_IsReencodedAsJpeg()
     {
@@ -244,4 +299,19 @@ public class CoverImageProcessorTests
 
         StringAssert.Contains(ex.Message, "larger than");
     }
+
+    // Real Adobe APP14 CMYK JPEG (40x40, 779 bytes) as served by Audible's CDN. Kept in one place:
+    // ImageSharp cannot generate CMYK, so every CMYK test shares the same captured fixture.
+    private static string CmykFixture => "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCx" +
+            "AWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAKAAoBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgME" +
+            "BQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJCh" +
+            "YXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqi" +
+            "o6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAA4EQwBNAFkASw" +
+            "AAPwD9G/G//LSv0b/4Tf8A6afrX3RXpFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf/lpR/wAJ" +
+            "v/00/Wiivn/xv/y0o/4Tf/pp+tFFf0AeN/8AlpXz/wD8Jv8A9NP1oor5/wDG/wDy0o/4Tf8A6afrRRXz/wCN/wDlpR" +
+            "/wm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor+gDxv8A8tK+f/8AhN/+mn60UV8/+N/+" +
+            "WlH/AAm//TT9aKK+f/G//LSj/hN/+mn60UV8/wDjf/lpR/wm/wD00/Wiivn/AMb/APLSj/hN/wDpp+tFFf0AeN/+Wl" +
+            "fP/wDwm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf" +
+            "/lpR/wAJv/00/Wiiv6APG/8Ay0r5/wD+E3/6afrRRXz/AON/+WlH/Cb/APTT9aKK+f8Axv8A8tKP+E3/AOmn60UV8/" +
+            "8Ajf8A5aUf8Jv/ANNP1oor5/8AG/8Ay0o/4Tf/AKafrRRX/9k=";
 }

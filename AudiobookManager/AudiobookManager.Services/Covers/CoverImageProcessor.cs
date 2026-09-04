@@ -69,6 +69,16 @@ public class CoverImageProcessor : ICoverImageProcessor
             return new AudiobookImage(base64Data, PngFormat.Instance.DefaultMimeType);
         }
 
+        // CMYK JPEGs round-trip through ImageSharp as Adobe-marked (APP14 ct=100) JPEGs: the
+        // decoded pixels are correct, but the re-encode carries the source marker with a transform
+        // flag browsers do not honour, so they paint the cover neon-green. Keeping the original
+        // bytes is the only way to avoid that, and those bytes already render correctly.
+        if (format is JpegFormat && IsCmykJpeg(bytes))
+        {
+            LogIfMimeWasWrong(declaredMimeType, JpegFormat.Instance.DefaultMimeType);
+            return new AudiobookImage(base64Data, JpegFormat.Instance.DefaultMimeType);
+        }
+
         var (reencoded, width, height) = ToJpeg(bytes);
 
         _logger.LogInformation(
@@ -135,6 +145,24 @@ public class CoverImageProcessor : ICoverImageProcessor
             // DetectFormat reads the container signature only, so a PNG whose signature is intact
             // but whose IHDR is missing or corrupt gets this far. Unguarded it left Normalize as an
             // unhandled exception - a 500 - for a cover the class promises to refuse with a 400.
+            throw new InvalidCoverImageException("The cover image could not be read.");
+        }
+    }
+
+    private static bool IsCmykJpeg(byte[] bytes)
+    {
+        try
+        {
+            // Identify reads the header only. CMYK and UcrK (Adobe APP14) JPEGs advertise 4
+            // components and ImageSharp reports 32 bits per pixel for them; RGB and YCbCr
+            // JPEGs are 24. Decoding a CMYK JPEG yields RGB pixels that look correct to PIL
+            // but the re-encode carries the source APP14 marker with a transform browsers do not
+            // honour, so they paint it neon-green - identify before spending the decode.
+            return Image.Identify(bytes).PixelType.BitsPerPixel == 32;
+        }
+        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
+        {
+            // Same guard as ExceedsMaxDimension: DetectFormat only read the container signature.
             throw new InvalidCoverImageException("The cover image could not be read.");
         }
     }
