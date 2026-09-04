@@ -387,6 +387,56 @@ describe("DiscoveredAudiobooks", () => {
       });
     });
 
+    // Regression for review feedback on #1344: retry only gets the row one more attempt: if the
+    // worker re-fails it, nothing previously refreshed this list, so the row silently vanished
+    // ("Queued for another attempt") and never came back even though it had, in fact, failed
+    // again. The QueueError SignalR event - already listened to for the per-item progress
+    // banner - now also invalidates the failed-tasks list, so a real re-failure brings the row
+    // back into view instead of requiring a page reload.
+    it("brings a retried task back into the list once QueueError reports it failed again", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 3,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:00:00Z",
+        },
+      ]);
+      vi.mocked(queueApi.retryFailedTask).mockResolvedValue(undefined);
+
+      renderWithProviders();
+
+      const retryBtn = await screen.findByRole("button", { name: /retry/i });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([]);
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Failed Organize Tasks/)).not.toBeInTheDocument();
+      });
+
+      // The worker re-picked the row, tried it again, and it still failed - the backend reports
+      // this the same way any other organize failure is reported: a QueueError event.
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 4,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:05:00Z",
+        },
+      ]);
+      act(() => {
+        capturedSignalRHandlers["QueueError"]?.({
+          originalFileLocation: "/import/corrupt.m4b",
+          error: "not valid json",
+        });
+      });
+
+      expect(await screen.findByText("Failed Organize Tasks (1)")).toBeInTheDocument();
+    });
+
     it("removes a failed task after confirming in the dialog", async () => {
       vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
       vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([

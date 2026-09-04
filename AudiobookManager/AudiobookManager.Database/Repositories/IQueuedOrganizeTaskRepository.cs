@@ -25,9 +25,12 @@ public interface IQueuedOrganizeTaskRepository
     public Task<IList<FailedOrganizeTaskRow>> GetFailedQueuedOrganizeTasksAsync();
 
     /// <summary>
-    /// Clears the failure count/reason/timestamp on the row at <paramref name="originalFileLocation"/>,
-    /// making it eligible for <see cref="GetNextQueuedOrganizeTask"/> again regardless of how many
-    /// times it had previously failed. Returns false if no row exists at that path.
+    /// Clears the failure reason/timestamp on the row at <paramref name="originalFileLocation"/>
+    /// and reduces its failure count to one below the dead-letter threshold, making it eligible
+    /// for <see cref="GetNextQueuedOrganizeTask"/> again for exactly one more attempt - not all the
+    /// way to zero, which would let the worker silently burn through every retry within its next
+    /// few idle-poll ticks before the row was visible as failed again. Returns false if no row
+    /// exists at that path.
     /// </summary>
     public Task<bool> RetryQueuedOrganizeTaskAsync(string originalFileLocation);
 }

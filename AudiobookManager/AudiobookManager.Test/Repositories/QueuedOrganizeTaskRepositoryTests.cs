@@ -260,8 +260,12 @@ public class QueuedOrganizeTaskRepositoryTests
         Assert.AreEqual(0, failed.Count);
     }
 
+    // Regression for review feedback on #1344: resetting all the way to 0 let the worker silently
+    // burn through all 5 retries in about half a minute (it re-picks the row on its next ~5s
+    // IdleDelay tick) before the row was visible as failed again - "Retry" gives exactly one more
+    // attempt, not five.
     [TestMethod]
-    public async Task RetryQueuedOrganizeTaskAsync_ClearsFailureStateAndReturnsTrue()
+    public async Task RetryQueuedOrganizeTaskAsync_ClearsFailureReasonAndTimestampButLeavesOneAttemptRemaining()
     {
         await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b"));
         await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "not valid json");
@@ -271,9 +275,24 @@ public class QueuedOrganizeTaskRepositoryTests
         Assert.IsTrue(retried);
         var task = await _repository.GetQueuedOrganizeTask("/import/bad.m4b");
         Assert.IsNotNull(task);
-        Assert.AreEqual(0, task!.FailureCount);
+        Assert.AreEqual(4, task!.FailureCount, "one below the 5-failure dead-letter threshold - exactly one attempt left");
         Assert.IsNull(task.LastFailureReason);
         Assert.IsNull(task.LastFailureAt);
+    }
+
+    // A retried row must still dead-letter after exactly one more failure, not require another
+    // four - otherwise "one more attempt" would just be marketing, not the real behavior.
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTaskAsync_RowFailsOnceMore_DeadLettersImmediately()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b"));
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "not valid json");
+        await _repository.RetryQueuedOrganizeTaskAsync("/import/bad.m4b");
+
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "still not valid json");
+
+        Assert.IsNull(await _repository.GetNextQueuedOrganizeTask(),
+            "one retry attempt was granted and it failed - the row must be dead-lettered again, not retried automatically");
     }
 
     [TestMethod]

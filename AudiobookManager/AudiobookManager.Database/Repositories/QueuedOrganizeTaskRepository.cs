@@ -82,10 +82,16 @@ public class QueuedOrganizeTaskRepository : IQueuedOrganizeTaskRepository
 
     public async Task<bool> RetryQueuedOrganizeTaskAsync(string originalFileLocation)
     {
+        // MaxDeserializationFailures - 1, not 0: resetting all the way to 0 would let the worker
+        // silently burn through every retry (it re-picks the row on its next ~5s IdleDelay tick,
+        // so all 5 happen inside about half a minute) before this row is visible as failed again -
+        // "Retry" would actually mean "hammer it five times", not "try once more". This gives it
+        // exactly one more attempt: if the JSON is still broken it dead-letters again immediately,
+        // which is the expected outcome for a retry attempted before a code fix has shipped.
         var affected = await _db.QueuedOrganizeTasks
             .Where(x => x.OriginalFileLocation == originalFileLocation)
             .ExecuteUpdateAsync(setters => setters
-                .SetProperty(x => x.FailureCount, 0)
+                .SetProperty(x => x.FailureCount, MaxDeserializationFailures - 1)
                 .SetProperty(x => x.LastFailureReason, x => null)
                 .SetProperty(x => x.LastFailureAt, x => null));
 

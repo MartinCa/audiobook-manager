@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Search,
@@ -218,6 +218,15 @@ export function DiscoveredAudiobooks() {
       return next;
     });
     toast.error(`Organize failed: ${payload.error}`);
+
+    // A row retried from the Failed Organize Tasks section below gets exactly one more attempt
+    // (see QueuedOrganizeTaskRepository.RetryQueuedOrganizeTaskAsync); if the JSON is still
+    // broken, the worker re-fails and dead-letters it again within its next idle-poll tick. The
+    // retry handler already invalidates this query once (on the request succeeding, which just
+    // means "queued for another try"), but that leaves no signal for the *outcome* - this is the
+    // one that brings the row back into view once it actually fails again, instead of the user
+    // being told "queued" and then hearing nothing further.
+    void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
   });
 
   // A dropped/re-established connection may have missed progress or completion events for
@@ -302,26 +311,19 @@ export function DiscoveredAudiobooks() {
     }
   };
 
-  const [retryingPaths, setRetryingPaths] = useState<Set<string>>(new Set());
   const [removeFailedTargetPath, setRemoveFailedTargetPath] = useState<string | null>(null);
   const [removingFailedTask, setRemovingFailedTask] = useState(false);
 
-  const handleRetryFailedTask = async (path: string) => {
-    setRetryingPaths((prev) => new Set(prev).add(path));
-    try {
-      await queueApi.retryFailedTask(path);
+  const retryFailedTaskMutation = useMutation({
+    mutationFn: (path: string) => queueApi.retryFailedTask(path),
+    onSuccess: () => {
       toast.success("Queued for another attempt");
       void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
-    } catch (err: unknown) {
+    },
+    onError: (err: unknown) => {
       toast.error(handleApiError(err).message);
-    } finally {
-      setRetryingPaths((prev) => {
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
-    }
-  };
+    },
+  });
 
   const handleRemoveFailedTask = async (path: string) => {
     setRemovingFailedTask(true);
@@ -420,13 +422,19 @@ export function DiscoveredAudiobooks() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={retryingPaths.has(task.originalFileLocation)}
-                    onClick={() => {
-                      void handleRetryFailedTask(task.originalFileLocation);
-                    }}
+                    disabled={
+                      retryFailedTaskMutation.isPending &&
+                      retryFailedTaskMutation.variables === task.originalFileLocation
+                    }
+                    onClick={() => retryFailedTaskMutation.mutate(task.originalFileLocation)}
                   >
                     <RotateCcw
-                      className={`mr-1.5 h-3.5 w-3.5 ${retryingPaths.has(task.originalFileLocation) ? "animate-spin" : ""}`}
+                      className={`mr-1.5 h-3.5 w-3.5 ${
+                        retryFailedTaskMutation.isPending &&
+                        retryFailedTaskMutation.variables === task.originalFileLocation
+                          ? "animate-spin"
+                          : ""
+                      }`}
                     />
                     Retry
                   </Button>
