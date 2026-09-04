@@ -336,7 +336,7 @@ export function LibraryConsistency() {
       const res = await consistencyApi.resolveAllOrphanDirectories();
       if (res.retained > 0) {
         toast.success(
-          `Deleted ${res.resolved} orphaned directories (${res.retained} retained with audio files, ${res.failed} failed)`,
+          `Deleted ${res.resolved} orphaned directories (${res.retained} retained as not empty, ${res.failed} failed)`,
         );
       } else {
         toast.success(`Deleted ${res.resolved} orphaned directories (${res.failed} failed)`);
@@ -786,7 +786,7 @@ export function LibraryConsistency() {
           }}
           targetPath={orphanToDelete.directoryPath}
           title="Delete Orphaned Directory"
-          description="Are you sure you want to permanently delete this empty or orphaned folder? (Directories containing audio files will be preserved)."
+          description="Are you sure you want to permanently delete this empty or orphaned folder? (Directories that still contain any files will be preserved)."
           confirmButtonText="Delete Permanently"
           onConfirmDelete={handleDeleteOrphan}
         />
@@ -800,8 +800,7 @@ export function LibraryConsistency() {
         description={
           <>
             This will permanently delete <strong>all {orphanDirs.length}</strong> orphaned
-            directories and any leftover files in them (directories containing audio files will be
-            preserved).
+            directories (directories that still contain any files will be preserved).
           </>
         }
         confirmButtonText="Delete All"

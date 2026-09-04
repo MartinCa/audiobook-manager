@@ -134,10 +134,10 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         else
         {
             _logger.LogWarning(
-                "Orphan directory '{DirectoryPath}' now contains audio files; skipped disk deletion and removed from orphan list.",
+                "Orphan directory '{DirectoryPath}' is not empty; skipped disk deletion and removed from orphan list.",
                 directory.DirectoryPath);
-            actionTaken = "retained_has_audio";
-            message = "Directory now contains audio files; preserved directory on disk and removed from orphan list.";
+            actionTaken = "retained_not_empty";
+            message = "Directory still contains files; preserved directory on disk and removed from orphan list.";
         }
 
         await _orphanDirectoryRepository.DeleteAsync(orphanDirectoryId);
@@ -196,13 +196,18 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         // Safety net in case a file was added since the directory was detected as orphaned, walked
         // link-free for the same reason the detection is: an enumeration that followed a link
         // would answer for the wrong subtree.
+        //
+        // This checks for *any* file, not just supported audio formats. A directory holding an
+        // mp3/flac/opus audiobook, a PDF, an epub or bonus content is just as much "content the
+        // user would not expect this to delete" as an m4b would be - IsSupported only tells the
+        // rest of the app "can be organized/tagged", it was never a definition of "safe to
+        // discard", and using it as a delete gate silently removed anything outside that one
+        // format.
         var directoriesToCheck = new[] { directoryPath }
             .Concat(DirectoryWalk.EnumerateDirectoriesRecursively(directoryPath));
 
-        var hasAudioFile = directoriesToCheck
-            .SelectMany(Directory.EnumerateFiles)
-            .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
-        if (hasAudioFile)
+        var hasAnyFile = directoriesToCheck.SelectMany(Directory.EnumerateFiles).Any();
+        if (hasAnyFile)
         {
             return false;
         }

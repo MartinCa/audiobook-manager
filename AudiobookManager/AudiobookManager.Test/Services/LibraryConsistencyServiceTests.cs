@@ -1195,7 +1195,6 @@ public class LibraryConsistencyServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDir);
-        await File.WriteAllTextAsync(Path.Combine(tempDir, "leftover.txt"), "leftover");
 
         var orphanDirectory = new OrphanDirectory { Id = 5, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
         _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(orphanDirectory);
@@ -1205,6 +1204,35 @@ public class LibraryConsistencyServiceTests
         Assert.AreEqual("deleted", result.ActionTaken);
         Assert.IsFalse(Directory.Exists(tempDir));
         _orphanDirectoryRepository.Verify(r => r.DeleteAsync(5), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_NonAudioFilePresent_DoesNotDeleteDirectoryButRemovesEntry()
+    {
+        // The delete gate must refuse any non-empty directory, not only ones holding a
+        // recognised audio format - this is the bug fixed in #1302: a leftover PDF, epub or
+        // non-m4b audio file must be just as protective as an m4b would be.
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "leftover.pdf"), "leftover");
+
+            var orphanDirectory = new OrphanDirectory { Id = 9, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(9)).ReturnsAsync(orphanDirectory);
+
+            var result = await _service.ResolveOrphanDirectory(9);
+
+            Assert.AreEqual("retained_not_empty", result.ActionTaken);
+            Assert.IsTrue(Directory.Exists(tempDir), "directory containing any leftover file should not be deleted");
+            _orphanDirectoryRepository.Verify(r => r.DeleteAsync(9), Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
     }
 
     [TestMethod]
@@ -1232,7 +1260,7 @@ public class LibraryConsistencyServiceTests
 
             var result = await _service.ResolveOrphanDirectory(6);
 
-            Assert.AreEqual("retained_has_audio", result.ActionTaken);
+            Assert.AreEqual("retained_not_empty", result.ActionTaken);
             Assert.IsTrue(Directory.Exists(tempDir), "directory containing an audio file should not be deleted");
             _orphanDirectoryRepository.Verify(r => r.DeleteAsync(6), Times.Once);
         }

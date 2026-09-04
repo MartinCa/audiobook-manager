@@ -81,10 +81,10 @@ export function notifyConsistencyResolveResult(result: ConsistencyResolveResult)
 }
 
 export function notifyOrphanResolveResult(result: OrphanDirectoryResolveResult): void {
-  if (result.actionTaken === "retained_has_audio") {
+  if (result.actionTaken === "retained_not_empty") {
     toast.info(
       result.message ||
-        "Directory contains audio files; preserved on disk and removed from orphan list.",
+        "Directory still contains files; preserved on disk and removed from orphan list.",
     );
   } else {
     toast.success(result.message || "Orphan directory deleted from disk");
