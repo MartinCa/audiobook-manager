@@ -25,5 +25,6 @@ public static class DependencyInjection
         .AddScoped<IConsistencyIssueResolver, MetadataSidecarResolver>()
         .AddScoped<IConsistencyIssueResolver, TagOrPathMismatchResolver>()
         .AddScoped<IConsistencyIssueResolver, MissingCoverResolver>()
+        .AddScoped<IConsistencyIssueResolver, UnreadableFileResolver>()
         .AddScoped<IOrphanDirectoryConsistencyService, OrphanDirectoryConsistencyService>();
 }

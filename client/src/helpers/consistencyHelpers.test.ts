@@ -12,6 +12,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
     info: vi.fn(),
+    warning: vi.fn(),
     error: vi.fn(),
   },
 }));
@@ -96,6 +97,43 @@ describe("consistencyHelpers", () => {
 
       expect(toast.success).toHaveBeenCalledWith("Tags updated");
       expect(toast.info).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("UnreadableFile", () => {
+    it("has a label, a bulk description and its own explanatory info", () => {
+      expect(getIssueTypeLabel("UnreadableFile")).toBe("Unreadable Files");
+      expect(getBulkResolveDescription("UnreadableFile")).not.toBe("Continue?");
+
+      // Its own entry rather than falling through to the bulk description: this is the one issue
+      // type resolving cannot fix, and the screen has to say so before the user clicks.
+      expect(getIssueTypeInfo("UnreadableFile")).not.toBe(
+        getBulkResolveDescription("UnreadableFile"),
+      );
+    });
+
+    it("warns rather than reporting success when the file is still unreadable", () => {
+      notifyConsistencyResolveResult({
+        issueId: 1,
+        issueType: "UnreadableFile",
+        actionTaken: "still_unreadable",
+        message: "The media file still cannot be read.",
+      });
+
+      expect(toast.warning).toHaveBeenCalledWith("The media file still cannot be read.");
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it("reports success when the file can be read again", () => {
+      notifyConsistencyResolveResult({
+        issueId: 1,
+        issueType: "UnreadableFile",
+        actionTaken: "file_readable",
+        message: "The media file can be read again.",
+      });
+
+      expect(toast.success).toHaveBeenCalledWith("The media file can be read again.");
+      expect(toast.warning).not.toHaveBeenCalled();
     });
   });
 

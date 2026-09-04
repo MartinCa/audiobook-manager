@@ -58,6 +58,8 @@ public class LibraryConsistencyServiceTests
             new MissingCoverResolver(
                 _tagHandler.Object, _fileHandler, _audiobookRepository.Object, _issueRepository.Object,
                 NullLogger<MissingCoverResolver>.Instance),
+            new UnreadableFileResolver(
+                _issueRepository.Object, detectionService, NullLogger<UnreadableFileResolver>.Instance),
         };
 
         var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
@@ -470,6 +472,113 @@ public class LibraryConsistencyServiceTests
         Assert.AreEqual("audiobook_deleted", result.ActionTaken);
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
         _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_UnreadableFile_StillUnreadable_KeepsTheBookAndTheIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "still not a valid m4b");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 21,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.UnreadableFile,
+                Description = "File could not be read",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(21)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Throws(new InvalidDataException("Not an MP4 container"));
+
+            var result = await _service.ResolveIssue(21);
+
+            Assert.AreEqual("still_unreadable", result.ActionTaken);
+
+            // The distinction from MissingMediaFile that matters: the record is the only place the
+            // curated metadata lives, and an unreadable file is not an absent one.
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+            Assert.IsTrue(File.Exists(tempFile), "the unreadable file should not be touched");
+
+            // Re-inserted, so the book stays on the consistency screen instead of quietly leaving it.
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.UnreadableFile && i.AudiobookId == 1))), Times.Once);
+
+            // The book's other stored issues are left alone. Detection short-circuits on an
+            // unreadable file, so it said nothing about the sidecars or tags - and clearing them
+            // would discard findings that were never re-evaluated. Only the handled type is
+            // replaced.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(
+                    1,
+                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                        types.Single() == ConsistencyIssueType.UnreadableFile)),
+                Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_UnreadableFile_NowReadable_ClearsItAndRefreshesTheBook()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "readable now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 22,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.UnreadableFile,
+                Description = "File could not be read",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(22)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+
+            var result = await _service.ResolveIssue(22);
+
+            // Readable again, so detection did re-evaluate the whole book: replacing every issue
+            // is correct here, and is the difference from the still-unreadable case above.
+            Assert.AreEqual("file_readable", result.ActionTaken);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 
     [TestMethod]
