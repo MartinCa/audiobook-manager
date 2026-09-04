@@ -33,9 +33,14 @@ vi.mock("@/services/api", () => ({
     getCoverUrl: vi.fn((path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`),
     getDirectoryContents: vi.fn().mockResolvedValue([]),
   },
+  queueApi: {
+    getFailedTasks: vi.fn().mockResolvedValue([]),
+    deleteFailedTask: vi.fn(),
+    retryFailedTask: vi.fn(),
+  },
 }));
 
-import { libraryApi, audiobookApi } from "@/services/api";
+import { libraryApi, audiobookApi, queueApi } from "@/services/api";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -92,6 +97,7 @@ describe("DiscoveredAudiobooks", () => {
       exists: false,
       targetPath: "/library/Target/book.m4b",
     });
+    vi.mocked(queueApi.getFailedTasks).mockResolvedValue([]);
   });
 
   it("renders a well-tagged discovered book without crashing on the authors/genres strings", async () => {
@@ -322,5 +328,145 @@ describe("DiscoveredAudiobooks", () => {
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
     expect(screen.getByText("38%")).toBeInTheDocument();
+  });
+
+  describe("Failed Organize Tasks", () => {
+    it("does not render the failed-tasks section when there are none", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+
+      renderWithProviders();
+
+      await screen.findByText("Discovered Audiobooks (0)");
+      expect(screen.queryByText(/Failed Organize Tasks/)).not.toBeInTheDocument();
+    });
+
+    it("lists a failed task with its failure count and reason", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 3,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:00:00Z",
+        },
+      ]);
+
+      renderWithProviders();
+
+      expect(await screen.findByText("Failed Organize Tasks (1)")).toBeInTheDocument();
+      expect(screen.getByText("/import/corrupt.m4b")).toBeInTheDocument();
+      expect(screen.getByText(/Failed 3 times/)).toBeInTheDocument();
+      expect(screen.getByText(/not valid json/)).toBeInTheDocument();
+    });
+
+    it("retries a failed task and refreshes the list", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 3,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:00:00Z",
+        },
+      ]);
+      vi.mocked(queueApi.retryFailedTask).mockResolvedValue(undefined);
+
+      renderWithProviders();
+
+      const retryBtn = await screen.findByRole("button", { name: /retry/i });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([]);
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(queueApi.retryFailedTask).toHaveBeenCalledWith("/import/corrupt.m4b");
+      });
+      await waitFor(() => {
+        expect(screen.queryByText(/Failed Organize Tasks/)).not.toBeInTheDocument();
+      });
+    });
+
+    // Regression for review feedback on #1344: retry only gets the row one more attempt: if the
+    // worker re-fails it, nothing previously refreshed this list, so the row silently vanished
+    // ("Queued for another attempt") and never came back even though it had, in fact, failed
+    // again. The QueueError SignalR event - already listened to for the per-item progress
+    // banner - now also invalidates the failed-tasks list, so a real re-failure brings the row
+    // back into view instead of requiring a page reload.
+    it("brings a retried task back into the list once QueueError reports it failed again", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 3,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:00:00Z",
+        },
+      ]);
+      vi.mocked(queueApi.retryFailedTask).mockResolvedValue(undefined);
+
+      renderWithProviders();
+
+      const retryBtn = await screen.findByRole("button", { name: /retry/i });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([]);
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Failed Organize Tasks/)).not.toBeInTheDocument();
+      });
+
+      // The worker re-picked the row, tried it again, and it still failed - the backend reports
+      // this the same way any other organize failure is reported: a QueueError event.
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 4,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:05:00Z",
+        },
+      ]);
+      act(() => {
+        capturedSignalRHandlers["QueueError"]?.({
+          originalFileLocation: "/import/corrupt.m4b",
+          error: "not valid json",
+        });
+      });
+
+      expect(await screen.findByText("Failed Organize Tasks (1)")).toBeInTheDocument();
+    });
+
+    it("removes a failed task after confirming in the dialog", async () => {
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
+        {
+          originalFileLocation: "/import/corrupt.m4b",
+          queuedTime: "2026-01-01T00:00:00Z",
+          failureCount: 5,
+          lastFailureReason: "not valid json",
+          lastFailureAt: "2026-01-02T00:00:00Z",
+        },
+      ]);
+      vi.mocked(queueApi.deleteFailedTask).mockResolvedValue(undefined);
+
+      renderWithProviders();
+
+      const removeBtn = await screen.findByRole("button", { name: /remove/i });
+      fireEvent.click(removeBtn);
+
+      expect(await screen.findByText("Remove Failed Organize Task")).toBeInTheDocument();
+
+      vi.mocked(queueApi.getFailedTasks).mockResolvedValue([]);
+      const confirmBtn = await screen.findByRole("button", { name: "Remove Task" });
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(queueApi.deleteFailedTask).toHaveBeenCalledWith("/import/corrupt.m4b");
+      });
+      await waitFor(() => {
+        expect(screen.queryByText("Remove Failed Organize Task")).not.toBeInTheDocument();
+      });
+    });
   });
 });

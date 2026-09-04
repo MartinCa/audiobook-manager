@@ -217,4 +217,106 @@ public class QueuedOrganizeTaskRepositoryTests
         Assert.IsNotNull(next);
         Assert.AreEqual("/import/flaky.m4b", next!.OriginalFileLocation);
     }
+
+    [TestMethod]
+    public async Task GetFailedQueuedOrganizeTasksAsync_OnlyReturnsRowsWithAtLeastOneFailure()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/healthy.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b", new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "not valid json");
+
+        var failed = await _repository.GetFailedQueuedOrganizeTasksAsync();
+
+        Assert.AreEqual(1, failed.Count);
+        Assert.AreEqual("/import/bad.m4b", failed[0].OriginalFileLocation);
+        Assert.AreEqual(1, failed[0].FailureCount);
+        Assert.AreEqual("not valid json", failed[0].LastFailureReason);
+        Assert.IsNotNull(failed[0].LastFailureAt);
+    }
+
+    [TestMethod]
+    public async Task GetFailedQueuedOrganizeTasksAsync_OrdersMostRecentlyFailedFirst()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/a.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/b.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        await _repository.RecordDeserializationFailureAsync("/import/a.m4b", "failed first");
+        await _repository.RecordDeserializationFailureAsync("/import/b.m4b", "failed second");
+
+        var failed = await _repository.GetFailedQueuedOrganizeTasksAsync();
+
+        Assert.AreEqual(2, failed.Count);
+        Assert.AreEqual("/import/b.m4b", failed[0].OriginalFileLocation);
+        Assert.AreEqual("/import/a.m4b", failed[1].OriginalFileLocation);
+    }
+
+    [TestMethod]
+    public async Task GetFailedQueuedOrganizeTasksAsync_NoFailures_ReturnsEmpty()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/healthy.m4b"));
+
+        var failed = await _repository.GetFailedQueuedOrganizeTasksAsync();
+
+        Assert.AreEqual(0, failed.Count);
+    }
+
+    // Regression for review feedback on #1344: resetting all the way to 0 let the worker silently
+    // burn through all 5 retries in about half a minute (it re-picks the row on its next ~5s
+    // IdleDelay tick) before the row was visible as failed again - "Retry" gives exactly one more
+    // attempt, not five.
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTaskAsync_ClearsFailureReasonAndTimestampButLeavesOneAttemptRemaining()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b"));
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "not valid json");
+
+        var retried = await _repository.RetryQueuedOrganizeTaskAsync("/import/bad.m4b");
+
+        Assert.IsTrue(retried);
+        var task = await _repository.GetQueuedOrganizeTask("/import/bad.m4b");
+        Assert.IsNotNull(task);
+        Assert.AreEqual(4, task!.FailureCount, "one below the 5-failure dead-letter threshold - exactly one attempt left");
+        Assert.IsNull(task.LastFailureReason);
+        Assert.IsNull(task.LastFailureAt);
+    }
+
+    // A retried row must still dead-letter after exactly one more failure, not require another
+    // four - otherwise "one more attempt" would just be marketing, not the real behavior.
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTaskAsync_RowFailsOnceMore_DeadLettersImmediately()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b"));
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "not valid json");
+        await _repository.RetryQueuedOrganizeTaskAsync("/import/bad.m4b");
+
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "still not valid json");
+
+        Assert.IsNull(await _repository.GetNextQueuedOrganizeTask(),
+            "one retry attempt was granted and it failed - the row must be dead-lettered again, not retried automatically");
+    }
+
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTaskAsync_RowAtDeadLetterThreshold_MakesItEligibleAgain()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        for (var i = 0; i < 5; i++)
+        {
+            await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", $"failure {i}");
+        }
+        Assert.IsNull(await _repository.GetNextQueuedOrganizeTask(), "sanity check: dead-lettered row must not be returned yet");
+
+        await _repository.RetryQueuedOrganizeTaskAsync("/import/bad.m4b");
+
+        var next = await _repository.GetNextQueuedOrganizeTask();
+        Assert.IsNotNull(next);
+        Assert.AreEqual("/import/bad.m4b", next!.OriginalFileLocation);
+    }
+
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTaskAsync_NonexistentPath_ReturnsFalse()
+    {
+        var retried = await _repository.RetryQueuedOrganizeTaskAsync("/nonexistent.m4b");
+
+        Assert.IsFalse(retried);
+    }
 }

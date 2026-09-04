@@ -87,6 +87,16 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
         return tasks;
     }
 
+    public async Task<IList<FailedOrganizeTaskRow>> GetFailedQueuedOrganizeTasks()
+    {
+        return await _repository.GetFailedQueuedOrganizeTasksAsync();
+    }
+
+    public async Task<bool> RetryQueuedOrganizeTask(string originalFileLocation)
+    {
+        return await _repository.RetryQueuedOrganizeTaskAsync(originalFileLocation);
+    }
+
     public async Task<QueuedOrganizeTask> QueueOrganizeTask(Audiobook audiobook)
     {
         var originalFileLocation = audiobook.FileInfo.FullPath;

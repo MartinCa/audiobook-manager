@@ -11,6 +11,7 @@ import type {
   ConsistencyResolveResult,
 } from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
+import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
@@ -77,6 +78,14 @@ export const untaggedApi = {
 
 export const queueApi = {
   getQueuedBooks: () => api.get<string[]>("/queue/books"),
+
+  getFailedTasks: () => api.get<FailedOrganizeTask[]>("/queue/failed"),
+
+  deleteFailedTask: (originalFileLocation: string) =>
+    api.delete<void>("/queue/failed", { query: { originalFileLocation } }),
+
+  retryFailedTask: (originalFileLocation: string) =>
+    api.post<void>("/queue/failed/retry", undefined, { query: { originalFileLocation } }),
 };
 
 // Audiobook Operations

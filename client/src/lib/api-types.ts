@@ -1756,6 +1756,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FailedOrganizeTaskDto"][];
+                        "application/json": components["schemas"]["FailedOrganizeTaskDto"][];
+                        "text/json": components["schemas"]["FailedOrganizeTaskDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    originalFileLocation?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/failed/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    originalFileLocation?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series": {
         parameters: {
             query?: never;
@@ -2897,6 +2988,16 @@ export interface components {
         ExpectedBookRefDto: {
             position?: string | null;
             title?: string | null;
+        };
+        FailedOrganizeTaskDto: {
+            originalFileLocation?: string | null;
+            /** Format: date-time */
+            queuedTime?: string;
+            /** Format: int32 */
+            failureCount?: number;
+            lastFailureReason?: string | null;
+            /** Format: date-time */
+            lastFailureAt?: string | null;
         };
         IncludeOmnibusEditionsDto: {
             includeOmnibusEditions?: boolean;
