@@ -24,7 +24,7 @@
 
       Upgrading to 4.x needs that key in place first, not just a version bump.
     -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.1" />
   </ItemGroup>
 
   <ItemGroup>
