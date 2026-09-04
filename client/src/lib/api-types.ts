@@ -2604,6 +2604,46 @@ export interface paths {
         };
         get: {
             parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["UrlCleanupPageDto"];
+                        "application/json": components["schemas"]["UrlCleanupPageDto"];
+                        "text/json": components["schemas"]["UrlCleanupPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/url-cleanup/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
                 query?: never;
                 header?: never;
                 path?: never;
@@ -2617,9 +2657,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["AudiobookUrlCleanupDto"][];
-                        "application/json": components["schemas"]["AudiobookUrlCleanupDto"][];
-                        "text/json": components["schemas"]["AudiobookUrlCleanupDto"][];
+                        "text/plain": number;
+                        "application/json": number;
+                        "text/json": number;
                     };
                 };
             };
@@ -3163,6 +3203,11 @@ export interface components {
             targetPath?: string | null;
             exists?: boolean;
             existing?: components["schemas"]["ExistingTargetFileDto"];
+        };
+        UrlCleanupPageDto: {
+            items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
     };
     responses: never;

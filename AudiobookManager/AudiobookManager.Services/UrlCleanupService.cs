@@ -23,34 +23,30 @@ public class UrlCleanupService : IUrlCleanupService
         _logger = logger;
     }
 
-    public async Task<List<AudiobookUrlCleanup>> FindDirtyUrlsAsync()
+    public async Task<(List<AudiobookUrlCleanup> Items, int Total)> FindDirtyUrlsPageAsync(int page, int pageSize)
     {
-        var audiobooks = await _audiobookRepository.GetAllWithIncludesAsync();
+        // Projected in SQL rather than loaded whole: GetAllWithIncludesAsync pulls Authors,
+        // Narrators, Genres and every column for the whole library just to read Www, Id,
+        // BookName and Authors. The page and its total are already the *dirty* subset (see the
+        // repository's predicate), so the pager and the rendered rows can never disagree.
+        var (rows, total) = await _audiobookRepository.GetDirtyUrlPageAsync(pageSize, page * pageSize);
 
-        var results = new List<AudiobookUrlCleanup>();
-        foreach (var audiobook in audiobooks)
-        {
-            if (string.IsNullOrWhiteSpace(audiobook.Www))
-            {
-                continue;
-            }
+        // BookUrlCleaner stays the source of truth for the transformation: the SQL predicate is
+        // only its cheap mirror, kept in step by the repository-paging test that pages through
+        // dirty rows end to end.
+        var items = rows
+            .Select(row => new AudiobookUrlCleanup(
+                row.AudiobookId,
+                row.BookName,
+                row.Authors,
+                row.Www,
+                BookUrlCleaner.Clean(row.Www)))
+            .ToList();
 
-            var cleaned = BookUrlCleaner.Clean(audiobook.Www);
-            if (string.Equals(cleaned, audiobook.Www, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            results.Add(new AudiobookUrlCleanup(
-                audiobook.Id,
-                audiobook.BookName,
-                audiobook.Authors.Select(p => p.Name).ToList(),
-                audiobook.Www,
-                cleaned));
-        }
-
-        return results;
+        return (items, total);
     }
+
+    public Task<int> CountDirtyUrlsAsync() => _audiobookRepository.CountDirtyUrlsAsync();
 
     public async Task<int> ApplyAsync(IEnumerable<long> audiobookIds)
     {

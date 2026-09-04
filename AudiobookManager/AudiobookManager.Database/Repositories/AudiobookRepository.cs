@@ -80,6 +80,41 @@ public class AudiobookRepository : IAudiobookRepository
     /// <summary>How many books the library tracks. Just the count - no rows materialized.</summary>
     public Task<int> CountAsync() => _db.Audiobooks.AsNoTracking().CountAsync();
 
+    public async Task<(List<DirtyUrlRow> Items, int Total)> GetDirtyUrlPageAsync(int limit, int offset)
+    {
+        var dirty = _db.Audiobooks
+            .AsNoTracking()
+            // Dirty is what BookUrlCleaner would change: a query string or fragment after the
+            // path. Expressing that in SQL keeps the page and its total exact, so the pager sizes
+            // itself from the number of *rows actually rendered*, not from a superset that leaves
+            // trailing pages empty. Blank, not just null: an empty string is "no URL" too.
+            .Where(a => a.Www != null && a.Www != "" && (a.Www.Contains('?') || a.Www.Contains('#')));
+
+        var total = await dirty.CountAsync();
+
+        // The same total order as GetAllWithIncludesAsync. It has to be total, not just by
+        // BookName: SQLite is free to return ties in any order, and two pages ordered only
+        // partially can repeat a row and drop another.
+        var items = await dirty
+            .OrderBy(a => a.BookName).ThenBy(a => a.Id)
+            .Skip(offset)
+            .Take(limit)
+            .Select(a => new DirtyUrlRow(a.Id, a.BookName, a.Authors.Select(p => p.Name).ToList(), a.Www!))
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    public async Task<int> CountDirtyUrlsAsync()
+    {
+        return await _db.Audiobooks
+            .AsNoTracking()
+            // Same dirty predicate as the page query - the header count and the pager total are
+            // the same number by construction.
+            .Where(a => a.Www != null && a.Www != "" && (a.Www.Contains('?') || a.Www.Contains('#')))
+            .CountAsync();
+    }
+
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {
         var query = _db.Audiobooks
