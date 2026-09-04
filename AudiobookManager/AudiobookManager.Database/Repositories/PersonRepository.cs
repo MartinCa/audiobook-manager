@@ -133,11 +133,11 @@ public class PersonRepository : IPersonRepository
 
         var rows = await _db.Persons
             .AsNoTracking()
-            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(AccentFolding.Fold(p.Name), pattern))
+            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.NameFolded, pattern))
             // Rank before the limit. This query is capped at `limit` rows, so ordering
             // alphabetically and re-ranking the survivors in the controller discarded the
             // prefix matches the user was most likely reaching for - see SearchAsync.
-            .OrderByDescending(p => EF.Functions.Like(AccentFolding.Fold(p.Name), prefixPattern))
+            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, prefixPattern))
             .ThenBy(p => p.Name)
             .Take(limit)
             .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))

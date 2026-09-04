@@ -36,7 +36,8 @@ public class BrowseController : ControllerBase
             return new LibrarySearchResultDto([], [], []);
         }
 
-        var (books, _) = await _audiobookRepo.SearchAsync(q, limit, 0);
+        var (books, _) = await _audiobookRepo.SearchAsync(
+            q, limit, 0, includeTotal: false, includeNarratorsAndGenres: false);
         var authors = await _personRepo.SearchAuthorSummariesAsync(q, limit);
         var series = await _audiobookRepo.SearchSeriesAsync(q, limit);
 

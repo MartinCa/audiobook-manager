@@ -15,6 +15,11 @@ public class Person
     [Column("name")]
     public string Name { get; set; }
 
+    // Accent-folded shadow column, see Audiobook.BookNameFolded for why it is app-maintained
+    // rather than SQLite-computed. Kept in sync by AccentFoldedColumnsInterceptor.
+    [Column("name_folded")]
+    public string? NameFolded { get; set; }
+
     public List<Audiobook> BooksAuthored { get; set; }
 
     public List<Audiobook> BooksNarrated { get; set; }

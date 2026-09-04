@@ -3,6 +3,7 @@ using System;
 using AudiobookManager.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260904190028_AddAccentFoldedSearchColumns")]
+    partial class AddAccentFoldedSearchColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -379,22 +382,10 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("original_file_location");
 
-                    b.Property<int>("FailureCount")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("failure_count");
-
                     b.Property<string>("JsonAudiobook")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("json_audiobook");
-
-                    b.Property<DateTime?>("LastFailureAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("last_failure_at");
-
-                    b.Property<string>("LastFailureReason")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("last_failure_reason");
 
                     b.Property<DateTime>("QueuedTime")
                         .HasColumnType("TEXT")

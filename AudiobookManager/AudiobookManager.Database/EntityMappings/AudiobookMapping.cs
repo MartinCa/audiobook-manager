@@ -39,5 +39,9 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
         // GetSeriesGroupingDataAsync, GetSeriesNamesAsync, SearchSeriesAsync.
         builder
             .HasIndex(a => a.Series, "ix_audiobooks_series");
+
+        // BookNameFolded/SubtitleFolded/SeriesFolded/DescriptionFolded map by convention from
+        // their [Column] attributes - see the comment on BookNameFolded (Audiobook model) for why
+        // they exist and are deliberately not indexed.
     }
 }
