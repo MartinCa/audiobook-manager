@@ -173,15 +173,24 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
             return true;
         }
 
-        // Safety net in case a file was added to the directory since it was detected as orphaned.
-        // Re-checked through the same link-free walk the detection used, so this cannot be talked
-        // into recursing where that would not - and a link that appeared since detection stops the
-        // deletion rather than being followed into.
+        // This directory being a link is the one case the walk below cannot answer: enumerating
+        // through it would describe the target's contents, and "the target holds no audio" is not
+        // a reason to delete a link. Refuse instead.
+        //
+        // Links *inside* the subtree need no equivalent check. The delete at the end is
+        // Directory.Delete(recursive: true), which is documented not to recurse through a reparse
+        // point - a symlinked subdirectory is unlinked, and its target is left alone - so a link
+        // appearing between this check and the delete cannot take its target with it. Verified on
+        // this stack as well as read: a recursive delete of a directory containing a symlink to a
+        // populated directory left the target and its files intact.
         if (DirectoryWalk.IsLink(directoryPath))
         {
             return false;
         }
 
+        // Safety net in case a file was added since the directory was detected as orphaned, walked
+        // link-free for the same reason the detection is: an enumeration that followed a link
+        // would answer for the wrong subtree.
         var directoriesToCheck = new[] { directoryPath }
             .Concat(DirectoryWalk.EnumerateDirectoriesRecursively(directoryPath));
 

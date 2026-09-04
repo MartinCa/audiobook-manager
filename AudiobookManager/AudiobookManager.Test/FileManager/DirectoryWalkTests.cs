@@ -98,6 +98,28 @@ public class DirectoryWalkTests
         Assert.AreEqual(0, found.Count, "The link itself is not a directory to walk, and its target belongs to the other branch.");
     }
 
+    // Not testing our own code: pinning the framework behaviour the orphan delete relies on.
+    // Directory.Delete(recursive: true) is documented not to recurse through a reparse point, and
+    // the safety of deleting an orphan directory that gained a symlink between detection and
+    // deletion rests entirely on that. If a future runtime changed it, the orphan sweep would
+    // start deleting through links and nothing else in the suite would notice.
+    [TestMethod]
+    public void RecursiveDelete_OfADirectoryContainingALink_DoesNotDeleteTheLinksTarget()
+    {
+        var target = Dir("elsewhere");
+        var precious = Path.Combine(target, "book.m4b");
+        File.WriteAllText(precious, "irreplaceable");
+
+        var orphan = Dir("orphan");
+        Directory.CreateSymbolicLink(Path.Combine(orphan, "shortcut"), target);
+
+        Directory.Delete(orphan, recursive: true);
+
+        Assert.IsFalse(Directory.Exists(orphan));
+        Assert.IsTrue(Directory.Exists(target), "The link's target must survive the delete.");
+        Assert.IsTrue(File.Exists(precious), "The files under the link's target must survive too.");
+    }
+
     [TestMethod]
     public void IsLink_DistinguishesALinkFromARealDirectory()
     {
