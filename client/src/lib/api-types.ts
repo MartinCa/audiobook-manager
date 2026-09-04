@@ -2604,7 +2604,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2617,9 +2620,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["AudiobookUrlCleanupDto"][];
-                        "application/json": components["schemas"]["AudiobookUrlCleanupDto"][];
-                        "text/json": components["schemas"]["AudiobookUrlCleanupDto"][];
+                        "text/plain": components["schemas"]["UrlCleanupPageDto"];
+                        "application/json": components["schemas"]["UrlCleanupPageDto"];
+                        "text/json": components["schemas"]["UrlCleanupPageDto"];
                     };
                 };
             };
@@ -3163,6 +3166,11 @@ export interface components {
             targetPath?: string | null;
             exists?: boolean;
             existing?: components["schemas"]["ExistingTargetFileDto"];
+        };
+        UrlCleanupPageDto: {
+            items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
     };
     responses: never;
