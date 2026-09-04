@@ -21,4 +21,26 @@ internal static class SqliteErrors
     public static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is SqliteException sqlite &&
         (sqlite.SqliteExtendedErrorCode == 2067 || sqlite.SqliteExtendedErrorCode == 1555);
+
+    /// <summary>
+    /// Whether the failure was SQLITE_BUSY (5) or SQLITE_LOCKED (6) - the "another connection has
+    /// the database (or a row) locked" codes. The extended code is deliberately not consulted: a
+    /// busy failure can carry any of several extended variants (SQLITE_BUSY_SNAPSHOT, ...), and
+    /// they all mean the same thing here - "try again".
+    ///
+    /// Walks the <see cref="Exception.InnerException"/> chain because EF wraps store failures
+    /// raised inside <c>SaveChanges</c>/<c>SaveChangesAsync</c> in a <see cref="DbUpdateException"/>.
+    /// </summary>
+    public static bool IsBusyLocked(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is SqliteException sqlite && sqlite.SqliteErrorCode is 5 or 6)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
