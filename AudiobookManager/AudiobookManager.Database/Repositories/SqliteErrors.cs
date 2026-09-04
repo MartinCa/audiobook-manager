@@ -5,8 +5,14 @@ namespace AudiobookManager.Database.Repositories;
 
 /// <summary>
 /// Recognises the SQLite failures a repository is expected to recover from rather than surface.
+///
+/// Public so the test module can construct failure cases: this classifier is subtle (it walks the
+/// exception chain and matches specific result codes), and the codebase's other error-classification
+/// helpers are only exercised through integration paths that are hard to arrange deterministically
+/// for every code. It is a pure, side-effect-free function; exposing it carries no behavioral
+/// surface beyond classification.
 /// </summary>
-internal static class SqliteErrors
+public static class SqliteErrors
 {
     /// <summary>
     /// Whether the save failed on a uniqueness constraint - SQLITE_CONSTRAINT_UNIQUE (2067) or
@@ -21,4 +27,26 @@ internal static class SqliteErrors
     public static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is SqliteException sqlite &&
         (sqlite.SqliteExtendedErrorCode == 2067 || sqlite.SqliteExtendedErrorCode == 1555);
+
+    /// <summary>
+    /// Whether the failure was SQLITE_BUSY (5) or SQLITE_LOCKED (6) - the "another connection has
+    /// the database (or a row) locked" codes. The extended code is deliberately not consulted: a
+    /// busy failure can carry any of several extended variants (SQLITE_BUSY_SNAPSHOT, ...), and
+    /// they all mean the same thing here - "try again".
+    ///
+    /// Walks the <see cref="Exception.InnerException"/> chain because EF wraps store failures
+    /// raised inside <c>SaveChanges</c>/<c>SaveChangesAsync</c> in a <see cref="DbUpdateException"/>.
+    /// </summary>
+    public static bool IsBusyLocked(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is SqliteException sqlite && sqlite.SqliteErrorCode is 5 or 6)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

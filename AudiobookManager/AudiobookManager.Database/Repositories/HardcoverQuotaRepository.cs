@@ -21,6 +21,13 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
     /// both read the same count and write count+1 - a lost update that quietly overruns the
     /// daily limit. The insert path races the same way and is resolved by letting the unique
     /// index on utc_date reject the loser, which then retries against the winner's row.
+    ///
+    /// The same concurrency is why the whole operation is retried on a busy lock. SQLite allows a
+    /// single writer, and the lock can surface even with a busy timeout configured: the timeout
+    /// does not cover the write lock being checked when a connection returns to the pool, so under
+    /// heavy concurrent write load a caller can see SQLITE_BUSY despite it. A busy failure means
+    /// the statement committed nothing, so each retry simply re-runs the compare-and-increment
+    /// from the top - it cannot over-count.
     /// </summary>
     public async Task<bool> TryConsumeAsync(DateOnly utcDate, int dailyLimit)
     {
@@ -29,6 +36,23 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
             return false;
         }
 
+        const int maxAttempts = 10;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await TryConsumeOnceAsync(utcDate, dailyLimit);
+            }
+            catch (Exception ex) when (attempt < maxAttempts - 1 && SqliteErrors.IsBusyLocked(ex))
+            {
+                // Small jittered backoff so a burst of losers does not re-collide in lockstep.
+                await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(5, 30)));
+            }
+        }
+    }
+
+    private async Task<bool> TryConsumeOnceAsync(DateOnly utcDate, int dailyLimit)
+    {
         var updated = await _db.HardcoverRequestQuotas
             .Where(q => q.UtcDate == utcDate && q.RequestCount < dailyLimit)
             .ExecuteUpdateAsync(setters => setters.SetProperty(q => q.RequestCount, q => q.RequestCount + 1));
@@ -59,7 +83,9 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
         }
         catch (DbUpdateException)
         {
-            // Another request inserted today's row first; retry against it.
+            // Another request inserted today's row first; retry against it. A busy lock on the
+            // insert is not caught here - it propagates (as a DbUpdateException wrapping a
+            // SqliteException) for the retry loop above to treat like any other busy failure.
             _db.ChangeTracker.Clear();
 
             var retried = await _db.HardcoverRequestQuotas
