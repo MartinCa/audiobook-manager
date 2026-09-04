@@ -826,4 +826,37 @@ public class AudiobookFileHandlerTests
 
         _fileHandler.RemoveSidecarFiles(missingDir);
     }
+
+    [TestMethod]
+    [DataRow("desc.txt")]
+    [DataRow("reader.txt")]
+    [DataRow("cover.jpg")]
+    [DataRow("cover.png")]
+    [DataRow("metadata.opf")]
+    public void IsSidecarFileName_KnownSidecar_ReturnsTrue(string fileName)
+    {
+        Assert.IsTrue(AudiobookFileHandler.IsSidecarFileName(fileName));
+    }
+
+    [TestMethod]
+    [DataRow("book.m4b")]
+    [DataRow("readme.txt")]
+    [DataRow(".DS_Store")]
+    [DataRow("Thumbs.db")]
+    public void IsSidecarFileName_NotASidecar_ReturnsFalse(string fileName)
+    {
+        Assert.IsFalse(AudiobookFileHandler.IsSidecarFileName(fileName));
+    }
+
+    // Same case rule RemoveSidecarFiles's own lookup effectively relies on (this app always
+    // writes these in a fixed case, but a case-insensitive filesystem/client could hand back
+    // different casing) - PathComparison is case-insensitive on Windows/macOS, case-sensitive on
+    // Linux, so this only actually varies there.
+    [TestMethod]
+    public void IsSidecarFileName_DifferentCase_MatchesOnWindowsAndMacOnly()
+    {
+        var expected = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+
+        Assert.AreEqual(expected, AudiobookFileHandler.IsSidecarFileName("COVER.JPG"));
+    }
 }

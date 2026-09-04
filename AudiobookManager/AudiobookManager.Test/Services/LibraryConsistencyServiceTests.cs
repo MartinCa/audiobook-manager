@@ -1209,9 +1209,10 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveOrphanDirectory_NonAudioFilePresent_DoesNotDeleteDirectoryButRemovesEntry()
     {
-        // The delete gate must refuse any non-empty directory, not only ones holding a
-        // recognised audio format - this is the bug fixed in #1302: a leftover PDF, epub or
-        // non-m4b audio file must be just as protective as an m4b would be.
+        // The delete gate must refuse a directory holding a file this app doesn't recognise as
+        // disposable, not only ones holding a recognised audio format - this is the bug fixed in
+        // #1302: a leftover PDF, epub or non-m4b audio file must be just as protective as an m4b
+        // would be.
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDir);
 
@@ -1227,6 +1228,67 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("retained_not_empty", result.ActionTaken);
             Assert.IsTrue(Directory.Exists(tempDir), "directory containing any leftover file should not be deleted");
             _orphanDirectoryRepository.Verify(r => r.DeleteAsync(9), Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Regression: the fix for #1302 (refuse to delete on *any* file) over-corrected - the ordinary
+    // way a directory becomes orphaned is a book's m4b being reorganized or deleted out of it,
+    // which routinely leaves this app's own sidecars (and, on a real filesystem, OS junk) behind.
+    // Refusing to delete on those defeated the feature's actual purpose for the common case.
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_OnlySidecarAndSystemFilesPresent_DeletesDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "cover.jpg"), "not a real image");
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "metadata.opf"), "<package/>");
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "desc.txt"), "desc");
+            await File.WriteAllTextAsync(Path.Combine(tempDir, ".DS_Store"), "");
+
+            var orphanDirectory = new OrphanDirectory { Id = 10, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(orphanDirectory);
+
+            var result = await _service.ResolveOrphanDirectory(10);
+
+            Assert.AreEqual("deleted", result.ActionTaken);
+            Assert.IsFalse(Directory.Exists(tempDir),
+                "a directory holding only this app's sidecars and OS junk is exactly what the feature is for");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    // The allowlist must not become a loophole: one real leftover file alongside otherwise
+    // harmless sidecars still has to block the delete.
+    [TestMethod]
+    public async Task ResolveOrphanDirectory_SidecarFilesPlusOneRealFile_DoesNotDeleteDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "cover.jpg"), "not a real image");
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "bonus-material.pdf"), "leftover");
+
+            var orphanDirectory = new OrphanDirectory { Id = 11, DirectoryPath = tempDir, DetectedAt = DateTime.UtcNow };
+            _orphanDirectoryRepository.Setup(r => r.GetByIdAsync(11)).ReturnsAsync(orphanDirectory);
+
+            var result = await _service.ResolveOrphanDirectory(11);
+
+            Assert.AreEqual("retained_not_empty", result.ActionTaken);
+            Assert.IsTrue(Directory.Exists(tempDir), "one real file must still block deletion even alongside sidecars");
         }
         finally
         {

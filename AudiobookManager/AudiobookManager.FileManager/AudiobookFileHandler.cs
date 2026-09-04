@@ -64,6 +64,17 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         return fullPath.StartsWith(fullPrefix, PathComparison);
     }
 
+    /// <summary>
+    /// Whether <paramref name="fileName"/> (just the name, not a full path) is one of the
+    /// sidecars this application writes alongside a book's audio file - the same list
+    /// <see cref="RemoveSidecarFiles"/> cleans up. Exposed so a caller deciding whether a
+    /// directory is safe to reclaim (see OrphanDirectoryConsistencyService) can tell "nothing
+    /// left but our own generated sidecars" apart from "something real is still in here",
+    /// without duplicating the list of names this app owns.
+    /// </summary>
+    public static bool IsSidecarFileName(string fileName) =>
+        _sidecarFileNames.Contains(fileName, StringComparer.FromComparison(PathComparison));
+
     public void RelocateAudiobook(Audiobook audiobook, string newFullPath, bool overwrite = false)
     {
         var targetDir = Path.GetDirectoryName(newFullPath);
