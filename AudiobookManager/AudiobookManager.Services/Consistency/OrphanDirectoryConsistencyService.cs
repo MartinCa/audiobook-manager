@@ -47,8 +47,12 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         // answers rather than by re-walking the subtree, so every file in the library is stat'ed
         // once for the whole sweep. Asking Directory.EnumerateFiles(dir, "*", AllDirectories) per
         // directory would re-walk each file once per ancestor level.
-        var allDirectories = Directory
-            .EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
+        // DirectoryWalk rather than SearchOption.AllDirectories: that option deliberately includes
+        // reparse points, and a symlink pointing back at an ancestor makes the enumeration itself
+        // never terminate. Symlinked media directories are ordinary on a NAS library assembled
+        // from several shares.
+        var allDirectories = DirectoryWalk
+            .EnumerateDirectoriesRecursively(_settings.AudiobookLibraryPath)
             .OrderByDescending(directory => directory.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
             .ToList();
 
@@ -60,9 +64,15 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         {
             var subdirectories = Directory.EnumerateDirectories(directory).ToList();
 
+            // A symlinked subdirectory is treated as though it held audio, so this directory is
+            // never reported as reclaimable. Its target was not walked (see above), so there is no
+            // answer for it in subtreeHasAudio - and the missing answer would otherwise read as
+            // "no audio under there", which is the one reading that ends in a recursive delete of
+            // a folder whose contents were never examined.
             var hasAudioFile =
                 Directory.EnumerateFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)))
-                || subdirectories.Any(subtreeHasAudio.Contains);
+                || subdirectories.Any(subtreeHasAudio.Contains)
+                || subdirectories.Any(DirectoryWalk.IsLink);
 
             if (hasAudioFile)
             {
@@ -163,8 +173,20 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
             return true;
         }
 
-        // Safety net in case a file was added to the directory since it was detected as orphaned
-        var hasAudioFile = Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories)
+        // Safety net in case a file was added to the directory since it was detected as orphaned.
+        // Re-checked through the same link-free walk the detection used, so this cannot be talked
+        // into recursing where that would not - and a link that appeared since detection stops the
+        // deletion rather than being followed into.
+        if (DirectoryWalk.IsLink(directoryPath))
+        {
+            return false;
+        }
+
+        var directoriesToCheck = new[] { directoryPath }
+            .Concat(DirectoryWalk.EnumerateDirectoriesRecursively(directoryPath));
+
+        var hasAudioFile = directoriesToCheck
+            .SelectMany(Directory.EnumerateFiles)
             .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
         if (hasAudioFile)
         {
