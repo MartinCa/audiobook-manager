@@ -32,6 +32,12 @@
       "matchPackageNames": [
         "@types{/,}**"
       ]
+    },
+    {
+      "matchDatasources": ["nuget"],
+      "matchPackageNames": ["SixLabors.ImageSharp"],
+      "allowedVersions": "<4.0.0",
+      "description": "ImageSharp 4.0 added a build-time licence check that fails `dotnet publish -c Release` without a sixlabors.lic key file. Only the Docker build catches it — `dotnet build` and `dotnet test` pass. Taking 4.x means registering for a complimentary OSS key and getting it into both CI and the image build, renewed yearly. See the note in AudiobookManager.Services.csproj."
     }
   ]
 }
