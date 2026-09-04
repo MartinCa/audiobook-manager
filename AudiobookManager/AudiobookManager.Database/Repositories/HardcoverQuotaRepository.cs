@@ -23,11 +23,13 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
     /// index on utc_date reject the loser, which then retries against the winner's row.
     ///
     /// The same concurrency is why the whole operation is retried on a busy lock. SQLite allows a
-    /// single writer, and the lock can surface even with a busy timeout configured: the timeout
-    /// does not cover the write lock being checked when a connection returns to the pool, so under
-    /// heavy concurrent write load a caller can see SQLITE_BUSY despite it. A busy failure means
-    /// the statement committed nothing, so each retry simply re-runs the compare-and-increment
-    /// from the top - it cannot over-count.
+    /// single writer, so when two callers' writes collide one of them gets SQLITE_BUSY raised at
+    /// the statement that failed to take the write lock - which is before that statement could
+    /// commit anything. A busy failure therefore means "commit nothing, try again", so each retry
+    /// simply re-runs the compare-and-increment from the top and cannot over-count. (The busy
+    /// timeout configured via the connection string does not always rescue this code path, because
+    /// one call site in Microsoft.Data.Sqlite - a busy surfaced while a connection is returned to
+    /// the pool - is retried against the command timeout rather than the busy timeout.)
     /// </summary>
     public async Task<bool> TryConsumeAsync(DateOnly utcDate, int dailyLimit)
     {
@@ -45,8 +47,14 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
             }
             catch (Exception ex) when (attempt < maxAttempts - 1 && SqliteErrors.IsBusyLocked(ex))
             {
-                // Small jittered backoff so a burst of losers does not re-collide in lockstep.
-                await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(5, 30)));
+                // The failed attempt may have left added entities on the context; drop them before
+                // re-entering the operation or the next attempt trips over its own leftovers.
+                _db.ChangeTracker.Clear();
+
+                // Exponential backoff with jitter so a burst of losers does not re-collide in
+                // lockstep, and so the wait grows with the queue instead of staying flat.
+                var backoffMs = Math.Min(5 << attempt, 250) + Random.Shared.Next(0, 25);
+                await Task.Delay(TimeSpan.FromMilliseconds(backoffMs));
             }
         }
     }
@@ -81,11 +89,13 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
             _db.Entry(inserted).State = EntityState.Detached;
             return true;
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
         {
             // Another request inserted today's row first; retry against it. A busy lock on the
-            // insert is not caught here - it propagates (as a DbUpdateException wrapping a
-            // SqliteException) for the retry loop above to treat like any other busy failure.
+            // insert is deliberately not caught here - it escapes as a DbUpdateException wrapping
+            // a SqliteException for the retry loop above to treat like any other busy failure.
+            // Swallowing it here would misread "the insert did not commit" as "another request
+            // won", re-run the update, find zero rows, and report the day's budget as spent.
             _db.ChangeTracker.Clear();
 
             var retried = await _db.HardcoverRequestQuotas

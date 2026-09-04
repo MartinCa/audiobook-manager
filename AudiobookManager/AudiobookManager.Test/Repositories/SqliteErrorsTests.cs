@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Repositories;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Test.Repositories;
 
@@ -44,5 +45,24 @@ public class SqliteErrorsTests
     public void IsBusyLocked_UnrelatedError_ReturnsFalse()
     {
         Assert.IsFalse(SqliteErrors.IsBusyLocked(new Exception("boom")));
+    }
+
+    [TestMethod]
+    public void IsBusyLocked_WrappedInDbUpdateException_ReturnsTrue()
+    {
+        // SaveChanges succeeds as a DbUpdateException wrapping the store failure; the
+        // repository's insert path must let this escape to its retry loop rather than swallow it.
+        var wrapped = new DbUpdateException("save failed", Busy(5));
+        Assert.IsTrue(SqliteErrors.IsBusyLocked(wrapped));
+    }
+
+    [TestMethod]
+    public void IsUniqueViolation_WrappedBusyLocked_ReturnsFalse()
+    {
+        // A busy lock is not "another request inserted the row first". Classifying it as a unique
+        // violation would make a transient lock read as a spent budget (the insert never committed,
+        // so the follow-up update touches nothing and TryConsumeAsync reports false).
+        var wrapped = new DbUpdateException("save failed", Busy(5));
+        Assert.IsFalse(SqliteErrors.IsUniqueViolation(wrapped));
     }
 }

@@ -6,11 +6,7 @@ namespace AudiobookManager.Database.Repositories;
 /// <summary>
 /// Recognises the SQLite failures a repository is expected to recover from rather than surface.
 ///
-/// Public so the test module can construct failure cases: this classifier is subtle (it walks the
-/// exception chain and matches specific result codes), and the codebase's other error-classification
-/// helpers are only exercised through integration paths that are hard to arrange deterministically
-/// for every code. It is a pure, side-effect-free function; exposing it carries no behavioral
-/// surface beyond classification.
+/// Public so the test module can construct failure cases deterministically.
 /// </summary>
 public static class SqliteErrors
 {
