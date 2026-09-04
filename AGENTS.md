@@ -180,6 +180,21 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
   parses every response as JSON, so a binary GET cannot go through it. They are reads, which the
   guard does not cover, so they are unaffected — but a *write* must never be added this way.
 
+  **Invariant: every error response is RFC 9457 `application/problem+json`.** The client reads an
+  error body only when the content type says json (`toApiError` in `src/lib/api.ts`), so a bare
+  `BadRequest("...")` or `StatusCode(500, ex.Message)` — which serialize as `text/plain` — is
+  discarded and the user is shown "Request failed with status 400" instead of the message. Use the
+  `ProblemResults` helpers (`InvalidRequest`, `ConflictingState`, `AccessDenied`,
+  `UnexpectedError`) or `ControllerBase.Problem(...)`; never return a string as the body of an
+  error. `AddProblemDetails()` and `UseExceptionHandler()` in `Program.cs` cover the framework's
+  own responses and anything unhandled.
+
+  A 500 never carries the exception message. `ProblemResults.UnexpectedError` returns a fixed
+  sentence plus the `traceId`; the exception itself is logged with its context at the call site,
+  and the traceId is what ties the two together. Exception text here routinely contains absolute
+  container paths and filesystem layout. 4xx detail *is* relayed — that is the message telling the
+  caller what to fix — so only raise 4xx exceptions with messages that are safe to show.
+
   Swagger UI's "Try it out" sets the header via a request interceptor configured in
   `Program.cs`, so the guard applies uniformly in development rather than being carved out for
   the environment it is developed in.

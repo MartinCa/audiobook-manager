@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -152,7 +153,7 @@ public class SimilarValuesControllerTests
             TargetValue = "B"
         });
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -165,7 +166,7 @@ public class SimilarValuesControllerTests
             TargetValue = "B"
         });
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -178,7 +179,7 @@ public class SimilarValuesControllerTests
             TargetValue = "  "
         });
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]

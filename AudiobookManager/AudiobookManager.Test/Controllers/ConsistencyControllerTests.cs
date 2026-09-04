@@ -134,7 +134,7 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveIssue(1);
 
-        Assert.IsInstanceOfType(result.Result, typeof(ConflictObjectResult));
+        ProblemAssert.HasStatus(result.Result, StatusCodes.Status409Conflict);
     }
 
     [TestMethod]
@@ -362,9 +362,8 @@ public class ConsistencyControllerTests
 
         var result = await _controller.GetTagMismatchFields(5);
 
-        Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
-        var badRequest = (BadRequestObjectResult)result.Result!;
-        StringAssert.Contains(badRequest.Value!.ToString()!, "not a TagMismatch");
+        var problem = ProblemAssert.HasStatus(result.Result, StatusCodes.Status400BadRequest);
+        StringAssert.Contains(problem.Detail!, "not a TagMismatch");
     }
 
     [TestMethod]
@@ -414,7 +413,7 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveTagMismatch(5, new ResolveTagMismatchRequest());
 
-        Assert.IsInstanceOfType(result.Result, typeof(ConflictObjectResult));
+        ProblemAssert.HasStatus(result.Result, StatusCodes.Status409Conflict);
     }
 
     [TestMethod]
@@ -427,9 +426,8 @@ public class ConsistencyControllerTests
 
         var result = await _controller.ResolveTagMismatch(5, new ResolveTagMismatchRequest());
 
-        Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
-        var badRequest = (BadRequestObjectResult)result.Result!;
-        StringAssert.Contains(badRequest.Value!.ToString()!, "cannot be cleared");
+        var problem = ProblemAssert.HasStatus(result.Result, StatusCodes.Status400BadRequest);
+        StringAssert.Contains(problem.Detail!, "cannot be cleared");
     }
 
     [TestCleanup]

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Services;
@@ -122,7 +123,7 @@ public class MissingTagsControllerTests
         var second = _controller.StartLanguageBackfill();
 
         Assert.IsInstanceOfType(first, typeof(OkResult));
-        Assert.IsInstanceOfType(second, typeof(ConflictObjectResult));
+        ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
         // Reading every untagged book's file header is a long pass; a second concurrent run would
         // do the same work twice.
         _backfillService.Verify(

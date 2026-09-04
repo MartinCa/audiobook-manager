@@ -47,6 +47,28 @@ public class QueuedOrganizeTaskRepositoryTests
     private static QueuedOrganizeTask MakeTask(string path, DateTime queuedTime = default) =>
         new QueuedOrganizeTask(path, "{\"bookName\":\"A Book\"}", queuedTime);
 
+    // Regression: DeleteQueuedOrganizeTask uses ExecuteDeleteAsync, which does not go through the
+    // change tracker. Both of these passed against the database and failed against the tracker.
+    [TestMethod]
+    public async Task GetQueuedOrganizeTask_AfterDelete_DoesNotReturnTheDeletedTask()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/gone.m4b"));
+        await _repository.DeleteQueuedOrganizeTask("/import/gone.m4b");
+
+        Assert.IsNull(await _repository.GetQueuedOrganizeTask("/import/gone.m4b"));
+    }
+
+    [TestMethod]
+    public async Task InsertQueuedOrganizeTask_ForAPathThatWasDeletedInThisContext_Succeeds()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/again.m4b"));
+        await _repository.DeleteQueuedOrganizeTask("/import/again.m4b");
+
+        var reinserted = await _repository.InsertQueuedOrganizeTask(MakeTask("/import/again.m4b"));
+
+        Assert.AreEqual("/import/again.m4b", reinserted.OriginalFileLocation);
+    }
+
     [TestMethod]
     public async Task InsertQueuedOrganizeTask_PersistsAndIsRetrievable()
     {

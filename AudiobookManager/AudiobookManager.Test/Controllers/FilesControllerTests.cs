@@ -56,10 +56,7 @@ public class FilesControllerTests
 
         var result = _controller.GetDirectoryContents(new PathDto { Path = "/unauthorized" });
 
-        var objResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objResult);
-        Assert.AreEqual(StatusCodes.Status403Forbidden, objResult.StatusCode);
-        Assert.AreEqual("Access not allowed", objResult.Value);
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status403Forbidden, "Access not allowed");
     }
 
     [TestMethod]
@@ -70,10 +67,7 @@ public class FilesControllerTests
 
         var result = _controller.GetDirectoryContents(new PathDto { Path = "/root" });
 
-        var badRequest = result.Result as BadRequestObjectResult;
-        Assert.IsNotNull(badRequest);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, badRequest.StatusCode);
-        Assert.AreEqual("Cannot inspect root", badRequest.Value);
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "Cannot inspect root");
     }
 
     [TestMethod]
@@ -129,10 +123,7 @@ public class FilesControllerTests
 
         var result = _controller.GetCover("/unauthorized/book.m4b");
 
-        var objResult = result as ObjectResult;
-        Assert.IsNotNull(objResult);
-        Assert.AreEqual(StatusCodes.Status403Forbidden, objResult.StatusCode);
-        Assert.AreEqual("Access not allowed", objResult.Value);
+        ProblemAssert.HasDetail(result, StatusCodes.Status403Forbidden, "Access not allowed");
     }
 
     [TestMethod]
@@ -163,10 +154,7 @@ public class FilesControllerTests
 
         var result = _controller.DeleteDirectory(new PathDto { Path = "/unauthorized" });
 
-        var objResult = result as ObjectResult;
-        Assert.IsNotNull(objResult);
-        Assert.AreEqual(StatusCodes.Status403Forbidden, objResult.StatusCode);
-        Assert.AreEqual("Access not allowed", objResult.Value);
+        ProblemAssert.HasDetail(result, StatusCodes.Status403Forbidden, "Access not allowed");
     }
 
     [TestMethod]
@@ -177,9 +165,6 @@ public class FilesControllerTests
 
         var result = _controller.DeleteDirectory(new PathDto { Path = "/root" });
 
-        var badRequest = result as BadRequestObjectResult;
-        Assert.IsNotNull(badRequest);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, badRequest.StatusCode);
-        Assert.AreEqual("Cannot delete root", badRequest.Value);
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Cannot delete root");
     }
 }

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+using AudiobookManager.Api;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -191,8 +193,22 @@ public class SeriesControllerTests
 
         var result = await _controller.GetMatchCandidates("Mistborn");
 
-        var statusResult = (ObjectResult)result.Result!;
-        Assert.AreEqual(500, statusResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    // The exception messages these replaced carried absolute container paths and .NET type detail
+    // straight to the caller. The message is still logged; it is only the response that is stable.
+    [TestMethod]
+    public async Task GetMatchCandidates_ServiceThrows_DoesNotReturnTheExceptionMessage()
+    {
+        _seriesService.Setup(s => s.SuggestSeriesMatchesAsync("Mistborn"))
+            .ThrowsAsync(new Exception("/config/secrets/appsettings.json could not be read"));
+
+        var result = await _controller.GetMatchCandidates("Mistborn");
+
+        var problem = ProblemAssert.HasStatus(result.Result, StatusCodes.Status500InternalServerError);
+        StringAssert.DoesNotMatch(problem.Detail!, new System.Text.RegularExpressions.Regex("/config/secrets"));
     }
 
     [TestMethod]
@@ -200,7 +216,7 @@ public class SeriesControllerTests
     {
         var result = await _controller.SearchMatchCandidates("Mistborn", "  ");
 
-        Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result.Result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -220,7 +236,7 @@ public class SeriesControllerTests
     {
         var result = await _controller.MatchSeries("Mistborn", new MatchSeriesDto { SourceName = "", SourceId = "" });
 
-        Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result.Result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -243,7 +259,7 @@ public class SeriesControllerTests
 
         var result = await _controller.MatchSeries("Mistborn", new MatchSeriesDto { SourceName = "Hardcover", SourceId = "42" });
 
-        Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result.Result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -275,7 +291,7 @@ public class SeriesControllerTests
     {
         var result = await _controller.IgnoreExpectedBook("Mistborn", new ExpectedBookRefDto());
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -324,7 +340,7 @@ public class SeriesControllerTests
     {
         var result = _controller.StartBulkMatch(new BulkMatchSeriesDto { ConfidenceThreshold = 1.5 });
 
-        Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 
     [TestMethod]
@@ -398,7 +414,7 @@ public class SeriesControllerTests
         Assert.IsInstanceOfType(first, typeof(OkResult));
 
         var second = _controller.StartRefreshSeries("Other");
-        Assert.IsInstanceOfType(second, typeof(ConflictObjectResult));
+        ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
 
         var finished = RegisterFinishedWaiter(SeriesController.RefreshOperationKey);
         release.SetResult();

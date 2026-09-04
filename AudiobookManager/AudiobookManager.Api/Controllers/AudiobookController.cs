@@ -43,12 +43,21 @@ public class AudiobookController : ControllerBase
     }
 
     [HttpPost("organize")]
-    public async Task<string> OrganizeAudiobook([FromBody] OrganizeAudiobookDto dto)
+    public async Task<ActionResult<string>> OrganizeAudiobook([FromBody] OrganizeAudiobookDto dto)
     {
         var book = MapToDomain(dto);
-        var task = await _organizeTaskService.QueueOrganizeTask(book);
 
-        return task.OriginalFileLocation;
+        try
+        {
+            var task = await _organizeTaskService.QueueOrganizeTask(book);
+            return Ok(task.OriginalFileLocation);
+        }
+        catch (OrganizeTaskAlreadyQueuedException ex)
+        {
+            // Already in the queue is not a failure worth a 500 - the first request did what was
+            // asked. 409 with the path so the client can say which file.
+            return this.ConflictingState(ex.Message, "Already queued");
+        }
     }
 
     [HttpPost("generate_path")]
@@ -76,7 +85,7 @@ public class AudiobookController : ControllerBase
         // the task, which owns releasing it.
         if (!_saveGate.TryAcquire(id, out var saveLease))
         {
-            return Conflict($"A save for audiobook {id} is already in progress");
+            return this.ConflictingState($"A save for audiobook {id} is already in progress.", "Save in progress");
         }
 
         _ = Task.Run(async () =>
@@ -148,7 +157,10 @@ public class AudiobookController : ControllerBase
 
         if (!_saveGate.TryAcquire(id, out var saveLease))
         {
-            return Conflict();
+            // Same gate and the same wording as the PUT above: an empty 409 gave the client
+            // nothing to render but the status code.
+            return this.ConflictingState(
+                $"A save for audiobook {id} is already in progress.", "Save in progress");
         }
 
         try

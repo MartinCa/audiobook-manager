@@ -116,6 +116,6 @@ public class MetadataSearchControllerProxyImageTests
 
         var result = await controller.ProxyImage(url);
 
-        Assert.IsInstanceOfType<BadRequestObjectResult>(result);
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
     }
 }
