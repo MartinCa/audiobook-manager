@@ -1,10 +1,6 @@
 using AudiobookManager.Domain;
 using Microsoft.Extensions.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 
 namespace AudiobookManager.Services;
 
@@ -23,6 +19,9 @@ namespace AudiobookManager.Services;
 /// </summary>
 public class CoverImageProcessor : ICoverImageProcessor
 {
+    private const string PngMimeType = "image/png";
+    private const string JpegMimeType = "image/jpeg";
+
     /// <summary>
     /// The largest encoded image this will decode at all. Well above any real cover; the point is
     /// that something has to bound the work before an unknown blob is handed to a decoder.
@@ -58,24 +57,26 @@ public class CoverImageProcessor : ICoverImageProcessor
     public AudiobookImage Normalize(string base64Data, string? declaredMimeType)
     {
         var bytes = Decode(base64Data);
-        var format = DetectFormat(bytes);
+        using var codec = CreateCodec(bytes);
 
         // PNG is kept rather than converted when it is already small enough: cover art is often
         // flat-coloured artwork with text, which is exactly what PNG encodes better than JPEG, and
         // re-encoding it would trade size for visible artefacts on the title lettering.
-        if (format is PngFormat && bytes.Length <= MaxStoredBytes && !ExceedsMaxDimension(bytes))
+        if (codec.EncodedFormat == SKEncodedImageFormat.Png
+            && bytes.Length <= MaxStoredBytes
+            && codec.Info.Width <= MaxDimension && codec.Info.Height <= MaxDimension)
         {
-            LogIfMimeWasWrong(declaredMimeType, PngFormat.Instance.DefaultMimeType);
-            return new AudiobookImage(base64Data, PngFormat.Instance.DefaultMimeType);
+            LogIfMimeWasWrong(declaredMimeType, PngMimeType);
+            return new AudiobookImage(base64Data, PngMimeType);
         }
 
-        var (reencoded, width, height) = ToJpeg(bytes);
+        var (reencoded, width, height) = ToJpeg(codec);
 
         _logger.LogInformation(
             "Normalized cover: {OriginalFormat} {OriginalKb} KB -> JPEG {NewKb} KB at {Width}x{Height}",
-            format.Name, bytes.Length / 1024, reencoded.Length / 1024, width, height);
+            codec.EncodedFormat, bytes.Length / 1024, reencoded.Length / 1024, width, height);
 
-        return new AudiobookImage(Convert.ToBase64String(reencoded), JpegFormat.Instance.DefaultMimeType);
+        return new AudiobookImage(Convert.ToBase64String(reencoded), JpegMimeType);
     }
 
     private static byte[] Decode(string base64Data)
@@ -105,100 +106,125 @@ public class CoverImageProcessor : ICoverImageProcessor
         }
     }
 
-    private static IImageFormat DetectFormat(byte[] bytes)
+    private static SKCodec CreateCodec(byte[] bytes)
     {
-        try
+        // Reads the container header only - no pixels are decoded to answer this. This is what
+        // makes the declared MIME type advisory: a client that says image/jpeg and sends something
+        // else is corrected, and one that sends something that is not an image at all is refused
+        // here rather than discovered when ATL writes it into a book's tags.
+        var codec = SKCodec.Create(new SKMemoryStream(bytes), out var result);
+        if (codec != null && result == SKCodecResult.Success)
         {
-            // Reads the container header only. This is what makes the declared MIME type
-            // advisory: a client that says image/jpeg and sends something else is corrected, and
-            // one that sends something that is not an image at all is refused here rather than
-            // discovered when ATL writes it into a book's tags.
-            return Image.DetectFormat(bytes);
+            return codec;
         }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
+
+        codec?.Dispose();
+
+        // Unimplemented/InvalidInput: the bytes do not match any container signature Skia
+        // recognises at all. Anything else - IncompleteInput, ErrorInInput, ... - means a real
+        // signature was recognised (e.g. a PNG's magic bytes) but the header or body past it could
+        // not be parsed, which is a corrupt file rather than an unrecognised one.
+        if (result is SKCodecResult.Unimplemented or SKCodecResult.InvalidInput)
         {
             throw new InvalidCoverImageException("The cover image is not in a recognised image format.");
         }
+
+        throw new InvalidCoverImageException("The cover image could not be read.");
     }
 
-    private static bool ExceedsMaxDimension(byte[] bytes)
+    private (byte[] Bytes, int Width, int Height) ToJpeg(SKCodec codec)
     {
+        var bitmap = DecodeBitmap(codec);
         try
         {
-            // Identify reads the header only - no pixels are decoded to answer this.
-            var info = Image.Identify(bytes);
-            return info.Width > MaxDimension || info.Height > MaxDimension;
-        }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
-        {
-            // Guarded for the same reason LoadImage is, and reachable for the same reason:
-            // DetectFormat reads the container signature only, so a PNG whose signature is intact
-            // but whose IHDR is missing or corrupt gets this far. Unguarded it left Normalize as an
-            // unhandled exception - a 500 - for a cover the class promises to refuse with a 400.
-            throw new InvalidCoverImageException("The cover image could not be read.");
-        }
-    }
-
-    private (byte[] Bytes, int Width, int Height) ToJpeg(byte[] bytes)
-    {
-        using var image = LoadImage(bytes);
-
-        if (image.Width > MaxDimension || image.Height > MaxDimension)
-        {
-            // Max, not Stretch: covers are not always square, and a stretched one looks wrong in
-            // every player that shows it.
-            image.Mutate(context => context.Resize(new ResizeOptions
+            if (bitmap.Width > MaxDimension || bitmap.Height > MaxDimension)
             {
-                Size = new Size(MaxDimension, MaxDimension),
-                Mode = ResizeMode.Max,
-            }));
-        }
-
-        var encoded = Encode(image, JpegQuality);
-        foreach (var quality in FallbackJpegQualities)
-        {
-            if (encoded.Length <= MaxStoredBytes)
-            {
-                break;
+                var resized = Resize(bitmap);
+                bitmap.Dispose();
+                bitmap = resized;
             }
 
-            encoded = Encode(image, quality);
-        }
+            // JPEG has no alpha channel, so any transparency must be resolved before encoding.
+            using var flattened = Flatten(bitmap);
+            using var image = SKImage.FromBitmap(flattened);
 
-        // Deliberately not an error if it is still over the cap after the last fallback. The cap
-        // is what this tries to reach, not a rule about what a book may have: refusing to save a
-        // book because its cover compressed badly would be a worse outcome than a large cover.
-        return (encoded, image.Width, image.Height);
+            var encoded = Encode(image, JpegQuality);
+            foreach (var quality in FallbackJpegQualities)
+            {
+                if (encoded.Length <= MaxStoredBytes)
+                {
+                    break;
+                }
+
+                encoded = Encode(image, quality);
+            }
+
+            // Deliberately not an error if it is still over the cap after the last fallback. The
+            // cap is what this tries to reach, not a rule about what a book may have: refusing to
+            // save a book because its cover compressed badly would be a worse outcome than a large
+            // cover.
+            return (encoded, flattened.Width, flattened.Height);
+        }
+        finally
+        {
+            bitmap.Dispose();
+        }
     }
 
-    private static Image LoadImage(byte[] bytes)
+    private static SKBitmap DecodeBitmap(SKCodec codec)
     {
-        try
+        // Decoded as Unpremul explicitly: SKBitmap.Decode(codec) alone defaults to premultiplied
+        // output, which collapses a transparent or semi-transparent pixel's RGB toward black
+        // before Flatten ever runs - discarding the source color under any pixel that has alpha,
+        // even though the whole point of Flatten is to composite that color onto white.
+        var info = codec.Info.WithAlphaType(SKAlphaType.Unpremul);
+        var bitmap = SKBitmap.Decode(codec, info);
+        if (bitmap == null)
         {
-            return Image.Load(bytes);
-        }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
-        {
-            // Reachable even though DetectFormat succeeded: the header can name a format the
-            // rest of the file does not deliver.
+            // Reachable even though the codec was created successfully: the header can parse fine
+            // while the pixel data past it does not decode.
             throw new InvalidCoverImageException("The cover image could not be read.");
         }
+
+        return bitmap;
     }
 
-    private static byte[] Encode(Image image, int quality)
+    private static SKBitmap Resize(SKBitmap bitmap)
     {
-        using var output = new MemoryStream();
+        // Max, not Stretch: covers are not always square, and a stretched one looks wrong in every
+        // player that shows it.
+        var scale = Math.Min((double)MaxDimension / bitmap.Width, (double)MaxDimension / bitmap.Height);
+        var width = Math.Max(1, (int)Math.Round(bitmap.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(bitmap.Height * scale));
 
-        // ColorType must be set explicitly. Left null, the encoder derives it from the decoded
-        // image's JpegMetadata.ColorType - metadata carried over from the source file - rather
-        // than from the pixel data it is actually about to write. A source CMYK/YCCK (Adobe
-        // APP14) JPEG decodes to correct RGB pixels but keeps that metadata, so an unset
-        // ColorType makes the encoder emit those RGB pixels behind a re-created Adobe APP14
-        // marker claiming CMYK/YCCK again - which is exactly the marker browsers use to apply a
-        // color transform that turns the cover neon-green. Forcing YCbCr writes a plain encode
-        // that matches the pixels regardless of what format they came from.
-        image.Save(output, new JpegEncoder { Quality = quality, ColorType = JpegEncodingColor.YCbCrRatio420 });
-        return output.ToArray();
+        var info = new SKImageInfo(width, height, bitmap.ColorType, bitmap.AlphaType);
+        var resized = bitmap.Resize(info, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        if (resized == null)
+        {
+            throw new InvalidCoverImageException("The cover image could not be read.");
+        }
+
+        return resized;
+    }
+
+    private static SKBitmap Flatten(SKBitmap bitmap)
+    {
+        // Composited onto white rather than left to the encoder's own default, which is to
+        // premultiply the source away and turn a transparent pixel black regardless of its
+        // underlying color. Compositing onto white instead matches how tools like Photoshop
+        // flatten to JPEG, and gives a semi-transparent edge the color it shows in a normal
+        // renderer rather than a black fringe. Opaque source images pass through unchanged.
+        var flattened = new SKBitmap(bitmap.Width, bitmap.Height, SKColorType.Bgra8888, SKAlphaType.Opaque);
+        using var canvas = new SKCanvas(flattened);
+        canvas.Clear(SKColors.White);
+        canvas.DrawBitmap(bitmap, 0, 0);
+        return flattened;
+    }
+
+    private static byte[] Encode(SKImage image, int quality)
+    {
+        using var data = image.Encode(SKEncodedImageFormat.Jpeg, quality);
+        return data.ToArray();
     }
 
     private void LogIfMimeWasWrong(string? declaredMimeType, string actualMimeType)
