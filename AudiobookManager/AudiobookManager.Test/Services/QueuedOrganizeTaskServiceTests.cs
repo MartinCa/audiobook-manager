@@ -95,4 +95,103 @@ public class QueuedOrganizeTaskServiceTests
 
         Assert.AreEqual("/import/a.m4b", task.OriginalFileLocation);
     }
+
+    // Regression for #1322: a row whose json_audiobook cannot be deserialised (a corrupt value, or
+    // a breaking change to the Audiobook shape landing after the row was queued) must not be
+    // returned as a task, and must not silently vanish - the caller needs to know which row failed
+    // so it can be reported, and the row itself has to survive so a later fix can still read it.
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_UndeserialisableRow_ThrowsWithTheRowsPathAndLeavesItInPlace()
+    {
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", DateTime.UtcNow);
+
+        var ex = await Assert.ThrowsExactlyAsync<QueuedOrganizeTaskDeserializationException>(
+            () => _service.GetNextQueuedOrganizeTask());
+
+        Assert.AreEqual("/import/corrupt.m4b", ex.OriginalFileLocation);
+
+        // Read the raw row rather than through the service: GetQueuedOrganizeTask deserializes
+        // too, and would throw the same way. What matters here is that the row still exists.
+        var raw = await new QueuedOrganizeTaskRepository(_db).GetQueuedOrganizeTask("/import/corrupt.m4b");
+        Assert.IsNotNull(raw,
+            "the row must not be deleted - its JSON may be the only surviving copy of the user's edits");
+        Assert.AreEqual(1, raw!.FailureCount);
+    }
+
+    // The actual bug in #1322: nothing stopped the same unreadable row from being picked again on
+    // every call, forever, which meant a good row queued behind it could never run. After enough
+    // consecutive failures the bad row must be skipped so the queue can move on.
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_RowFailsRepeatedly_EventuallyStopsBlockingLaterGoodRows()
+    {
+        var queuedAt = DateTime.UtcNow;
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", queuedAt);
+        await _service.QueueOrganizeTask(MakeBook("/import/good.m4b"));
+        // Give the good row a later QueuedTime so it would never be picked ahead of the bad one on
+        // its own - only the bad row dropping out of contention can surface it.
+        await SetQueuedTimeAsync("/import/good.m4b", queuedAt.AddMinutes(1));
+
+        const int maxAttempts = 10;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                var task = await _service.GetNextQueuedOrganizeTask();
+                Assert.AreEqual("/import/good.m4b", task?.OriginalFileLocation,
+                    $"expected the good row once the bad one dead-letters (attempt {attempt})");
+                return;
+            }
+            catch (QueuedOrganizeTaskDeserializationException)
+            {
+                // Expected for the first several attempts, mirroring the worker retrying the same
+                // read on its next loop iteration.
+            }
+        }
+
+        Assert.Fail($"The bad row was still being returned after {maxAttempts} attempts; it never dead-lettered.");
+    }
+
+    // Follow-up to #1322, raised in review of the dead-letter fix: GetQueuedOrganizeTasks backs
+    // GET /api/queue/books, which BookList.tsx polls purely to show "queued" badges across the
+    // whole library. Before this, one row failing to deserialize took the entire response down -
+    // and since BookList swallows that into an empty list, every book in the library silently
+    // lost its queued badge instead of just the one that's actually stuck.
+    [TestMethod]
+    public async Task GetQueuedOrganizeTasks_OneRowFailsToDeserialize_SkipsItAndReturnsTheRest()
+    {
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", DateTime.UtcNow);
+        await _service.QueueOrganizeTask(MakeBook("/import/good-a.m4b"));
+        await _service.QueueOrganizeTask(MakeBook("/import/good-b.m4b"));
+
+        var tasks = await _service.GetQueuedOrganizeTasks();
+
+        CollectionAssert.AreEquivalent(
+            new[] { "/import/good-a.m4b", "/import/good-b.m4b" },
+            tasks.Select(t => t.OriginalFileLocation).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetQueuedOrganizeTasks_EveryRowFailsToDeserialize_ReturnsEmptyRatherThanThrowing()
+    {
+        await InsertRawAsync("/import/corrupt-a.m4b", "not valid json", DateTime.UtcNow);
+        await InsertRawAsync("/import/corrupt-b.m4b", "also not valid json", DateTime.UtcNow);
+
+        var tasks = await _service.GetQueuedOrganizeTasks();
+
+        Assert.AreEqual(0, tasks.Count);
+    }
+
+    private async Task InsertRawAsync(string originalFileLocation, string jsonAudiobook, DateTime queuedTime)
+    {
+        _db.QueuedOrganizeTasks.Add(new Database.Models.QueuedOrganizeTask(originalFileLocation, jsonAudiobook, queuedTime));
+        await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear();
+    }
+
+    private async Task SetQueuedTimeAsync(string originalFileLocation, DateTime queuedTime)
+    {
+        await _db.QueuedOrganizeTasks
+            .Where(x => x.OriginalFileLocation == originalFileLocation)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.QueuedTime, queuedTime));
+    }
 }

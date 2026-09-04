@@ -24,7 +24,23 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
     public async Task<QueuedOrganizeTask?> GetNextQueuedOrganizeTask()
     {
         var dbEntity = await _repository.GetNextQueuedOrganizeTask();
-        return dbEntity?.ToDomain();
+        if (dbEntity is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return dbEntity.ToDomain();
+        }
+        catch (Exception ex)
+        {
+            // The row is left in place (see QueuedOrganizeTaskDeserializationException) - only its
+            // failure count is bumped, so the repository can stop serving it once that count
+            // crosses the dead-letter threshold instead of leaving it permanently first-in-line.
+            await _repository.RecordDeserializationFailureAsync(dbEntity.OriginalFileLocation, ex.Message);
+            throw new QueuedOrganizeTaskDeserializationException(dbEntity.OriginalFileLocation, ex);
+        }
     }
 
     public async Task<QueuedOrganizeTask?> GetQueuedOrganizeTask(string originalFileLocation)
@@ -36,7 +52,39 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
     public async Task<IList<QueuedOrganizeTask>> GetQueuedOrganizeTasks()
     {
         var dbEntities = await _repository.GetAllQueuedOrganizeTasks();
-        return dbEntities.Select(x => x.ToDomain()).ToList();
+        var tasks = new List<QueuedOrganizeTask>(dbEntities.Count);
+
+        foreach (var dbEntity in dbEntities)
+        {
+            try
+            {
+                tasks.Add(dbEntity.ToDomain());
+            }
+            catch (Exception ex)
+            {
+                // A row that fails to deserialize (see GetNextQueuedOrganizeTask/
+                // QueuedOrganizeTaskDeserializationException) must not break this listing for
+                // every other queued book. GET /api/queue/books is polled by BookList.tsx purely
+                // to show "queued" badges, and one bad row here previously took the whole
+                // response down - silently, since BookList swallows the failure into an empty
+                // list, which made every book in the library lose its badge instead of just the
+                // one that's actually stuck.
+                //
+                // Skipped rather than surfaced: this method has no way to represent an unreadable
+                // row as a QueuedOrganizeTask (constructing one requires a deserialized
+                // Audiobook), and giving users visibility into - and a way to clear - failed/
+                // dead-lettered rows is a separate piece of work (#1322 follow-up). Not counted
+                // as a failure via RecordDeserializationFailureAsync either: that would tie the
+                // dead-letter threshold to how often this list is polled rather than to actual
+                // worker attempts.
+                _logger.LogWarning(
+                    ex,
+                    "Skipping queued organize task at '{OriginalFileLocation}' from the queue list: json_audiobook could not be deserialized",
+                    dbEntity.OriginalFileLocation);
+            }
+        }
+
+        return tasks;
     }
 
     public async Task<QueuedOrganizeTask> QueueOrganizeTask(Audiobook audiobook)

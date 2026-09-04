@@ -170,4 +170,51 @@ public class QueuedOrganizeTaskRepositoryTests
     {
         await _repository.DeleteQueuedOrganizeTask("/nonexistent.m4b");
     }
+
+    [TestMethod]
+    public async Task RecordDeserializationFailureAsync_IncrementsCountAndRecordsReasonAndTimestamp()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "first failure");
+        await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", "second failure");
+
+        var task = await _repository.GetQueuedOrganizeTask("/import/bad.m4b");
+        Assert.IsNotNull(task);
+        Assert.AreEqual(2, task!.FailureCount);
+        Assert.AreEqual("second failure", task.LastFailureReason);
+        Assert.IsNotNull(task.LastFailureAt);
+    }
+
+    // The whole point of tracking failures: a row that keeps failing must stop coming back so a
+    // good row queued behind it can be reached (see #1322).
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_RowAtFailureThreshold_IsExcludedInFavorOfTheNextOldest()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/bad.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/good.m4b", new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)));
+
+        for (var i = 0; i < 5; i++)
+        {
+            await _repository.RecordDeserializationFailureAsync("/import/bad.m4b", $"failure {i}");
+        }
+
+        var next = await _repository.GetNextQueuedOrganizeTask();
+
+        Assert.IsNotNull(next);
+        Assert.AreEqual("/import/good.m4b", next!.OriginalFileLocation);
+    }
+
+    [TestMethod]
+    public async Task GetNextQueuedOrganizeTask_RowBelowFailureThreshold_IsStillReturned()
+    {
+        await _repository.InsertQueuedOrganizeTask(MakeTask("/import/flaky.m4b", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        await _repository.RecordDeserializationFailureAsync("/import/flaky.m4b", "transient");
+
+        var next = await _repository.GetNextQueuedOrganizeTask();
+
+        Assert.IsNotNull(next);
+        Assert.AreEqual("/import/flaky.m4b", next!.OriginalFileLocation);
+    }
 }
