@@ -90,6 +90,71 @@ public class AudiobookIssueDetectionServiceTests
         Assert.AreEqual(ConsistencyIssueType.MissingMediaFile, issues.Single().IssueType);
     }
 
+    // The gap a reviewer found: File.Exists is documented to return false "if the caller does not
+    // have sufficient permissions to read the specified file... regardless of the existence of
+    // path". So a library whose share permissions changed reported every book as
+    // MissingMediaFile - and resolving that DELETES the library record, which is the only place
+    // the curated metadata lives.
+    //
+    // Runs for real only as an unprivileged user, because root ignores the mode bits. CI runs as
+    // a normal user, so it is exercised there; inconclusive rather than silently green locally.
+    [TestMethod]
+    public void DetectIssues_APermissionDeniedFile_IsUnreadableRatherThanMissing()
+    {
+        if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess)
+        {
+            Assert.Inconclusive(
+                "Needs Unix mode bits and an unprivileged process; root bypasses them and Windows does not have them.");
+            return;
+        }
+
+        // The *containing directory* is what has to deny access, not the file. stat(2) needs
+        // execute permission on the parents and no permission at all on the file itself, so a
+        // mode-000 file is still perfectly stat-able and File.Exists answers "yes" for it - only
+        // opening it fails, which the catch around ParseAudiobook already covers. A directory
+        // whose traverse bit is gone is the case where File.Exists collapses to "missing", and it
+        // is the realistic one: a share that comes back with the wrong ownership.
+        var deniedDirectory = Path.Combine(_libraryPath, "denied");
+        Directory.CreateDirectory(deniedDirectory);
+        var bookInDeniedDirectory = Path.Combine(deniedDirectory, "book.m4b");
+        File.WriteAllText(bookInDeniedDirectory, "present, but out of reach");
+
+        File.SetUnixFileMode(deniedDirectory, UnixFileMode.None);
+
+        try
+        {
+            Assert.IsFalse(
+                File.Exists(bookInDeniedDirectory),
+                "Precondition: File.Exists must be reporting this present file as absent - that is the bug under test.");
+
+            var issues = _service.DetectIssues(MakeAudiobook(bookInDeniedDirectory));
+
+            Assert.AreEqual(
+                ConsistencyIssueType.UnreadableFile,
+                issues.Single().IssueType,
+                "A file that is present but unreachable must never be answered with the resolution that deletes the record.");
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                deniedDirectory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    // Not a missing file either, and the same reasoning applies: this must not reach the
+    // resolution that deletes the library record. Runs everywhere - no privileges involved.
+    [TestMethod]
+    public void DetectIssues_ADirectoryWhereTheMediaFileShouldBe_IsUnreadableRatherThanMissing()
+    {
+        var directoryPath = Path.Combine(_libraryPath, "not-a-file.m4b");
+        Directory.CreateDirectory(directoryPath);
+
+        var issues = _service.DetectIssues(MakeAudiobook(directoryPath));
+
+        Assert.AreEqual(ConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
+    }
+
     [TestMethod]
     public void DetectIssues_TheFileParses_ReportsWhatTheDetectorsFind()
     {

@@ -25,15 +25,78 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
         _logger = logger;
     }
 
+    private enum MediaFileState
+    {
+        /// <summary>The path names a file this process can stat. Whether it *parses* is a later question.</summary>
+        Readable,
+
+        /// <summary>Nothing is there.</summary>
+        Missing,
+
+        /// <summary>Something is there, but this process cannot get at it.</summary>
+        Unreadable,
+    }
+
+    /// <summary>
+    /// Distinguishes "the file is gone" from "the file is there and unreachable", which
+    /// <c>File.Exists</c> cannot: it is documented to return false "if the caller does not have
+    /// sufficient permissions to read the specified file... regardless of the existence of path",
+    /// and to swallow every error it hits. That collapse matters here more than almost anywhere
+    /// else in the application, because the two answers have opposite resolutions - MissingMediaFile
+    /// is resolved by *deleting the library record*, which is the only place a book's curated
+    /// metadata lives. A library on a share whose permissions changed would otherwise offer to
+    /// delete itself, one book at a time, for files that are all still present.
+    ///
+    /// GetAttributes is the cheapest call that reports the difference: it stats the path and
+    /// throws rather than swallowing, including when a *parent* directory denies traversal.
+    /// </summary>
+    private static (MediaFileState State, string? Detail) ProbeMediaFile(string fullPath)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(fullPath);
+
+            // A directory where the media file should be is not a missing file, and must not be
+            // answered with the resolution that deletes the record.
+            return attributes.HasFlag(FileAttributes.Directory)
+                ? (MediaFileState.Unreadable, "A directory exists at the media file's path.")
+                : (MediaFileState.Readable, null);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return (MediaFileState.Missing, null);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return (MediaFileState.Unreadable, ex.Message);
+        }
+    }
+
     public List<ConsistencyIssue> DetectIssues(Audiobook audiobook)
     {
-        if (!File.Exists(audiobook.FileInfoFullPath))
+        var (state, detail) = ProbeMediaFile(audiobook.FileInfoFullPath);
+
+        if (state == MediaFileState.Missing)
         {
             return new List<ConsistencyIssue>
             {
                 ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
                     $"Media file not found: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, null)
+            };
+        }
+
+        if (state == MediaFileState.Unreadable)
+        {
+            _logger.LogWarning(
+                "Media file for audiobook {AudiobookId} at '{FilePath}' exists but cannot be read: {Detail}",
+                audiobook.Id, audiobook.FileInfoFullPath, detail);
+
+            return new List<ConsistencyIssue>
+            {
+                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.UnreadableFile,
+                    $"Media file could not be read: {audiobook.FileInfoFileName}",
+                    audiobook.FileInfoFullPath, detail)
             };
         }
 

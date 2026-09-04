@@ -516,6 +516,18 @@ public class LibraryConsistencyServiceTests
             // Re-inserted, so the book stays on the consistency screen instead of quietly leaving it.
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
                 issues.Any(i => i.IssueType == ConsistencyIssueType.UnreadableFile && i.AudiobookId == 1))), Times.Once);
+
+            // The book's other stored issues are left alone. Detection short-circuits on an
+            // unreadable file, so it said nothing about the sidecars or tags - and clearing them
+            // would discard findings that were never re-evaluated. Only the handled type is
+            // replaced.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(
+                    1,
+                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                        types.Single() == ConsistencyIssueType.UnreadableFile)),
+                Times.Once);
         }
         finally
         {
@@ -557,6 +569,8 @@ public class LibraryConsistencyServiceTests
 
             var result = await _service.ResolveIssue(22);
 
+            // Readable again, so detection did re-evaluate the whole book: replacing every issue
+            // is correct here, and is the difference from the still-unreadable case above.
             Assert.AreEqual("file_readable", result.ActionTaken);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);

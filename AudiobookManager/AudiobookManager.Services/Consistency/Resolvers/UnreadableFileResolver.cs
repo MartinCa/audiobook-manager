@@ -39,26 +39,44 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
         // resolve, and it returns the book's real issues if it does.
         var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
 
-        // The full set is replaced either way, so the re-inserted UnreadableFile below keeps the
-        // book on the consistency screen rather than quietly vanishing from it.
-        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-        if (newIssues.Count > 0)
-        {
-            await _issueRepository.InsertRangeAsync(newIssues);
-        }
+        var stillUnreadable = newIssues
+            .Where(newIssue => newIssue.IssueType == ConsistencyIssueType.UnreadableFile)
+            .ToList();
 
-        if (newIssues.Any(newIssue => newIssue.IssueType == ConsistencyIssueType.UnreadableFile))
+        if (stillUnreadable.Count > 0)
         {
+            // Only this type is replaced. Detection short-circuits on an unreadable file, so it
+            // returned nothing about the book's sidecars, tags or path - and deleting the stored
+            // issues for those would discard findings that were never re-evaluated. Those are
+            // about files *beside* the m4b and are still true whether or not the m4b parses.
+            //
+            // This is the shape TagOrPathMismatchResolver's comment records as a past bug: a
+            // resolver that cleared every issue for a book on success, silently taking a
+            // coexisting mismatch it had never touched with it.
+            await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
+                audiobook.Id, new[] { ConsistencyIssueType.UnreadableFile });
+            await _issueRepository.InsertRangeAsync(stillUnreadable);
+
             _logger.LogInformation(
                 "Media file for audiobook {AudiobookId} ('{Title}') at '{FilePath}' still cannot be read.",
                 audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
-            return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+            // IssueOnly, not AllForAudiobook: nothing else about this book was touched, so a bulk
+            // resolve must not treat the book's other issues as settled by this one.
+            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "still_unreadable",
                 "The media file still cannot be read. It is most likely corrupt, incompletely "
                 + "copied, or not readable by the user this application runs as."));
+        }
+
+        // Readable again, so detection did re-evaluate the whole book and its answer is complete.
+        // Replacing every issue is correct here, and is what refreshes the book's status.
+        await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+        if (newIssues.Count > 0)
+        {
+            await _issueRepository.InsertRangeAsync(newIssues);
         }
 
         _logger.LogInformation(
