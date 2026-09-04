@@ -24,7 +24,23 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
     public async Task<QueuedOrganizeTask?> GetNextQueuedOrganizeTask()
     {
         var dbEntity = await _repository.GetNextQueuedOrganizeTask();
-        return dbEntity?.ToDomain();
+        if (dbEntity is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return dbEntity.ToDomain();
+        }
+        catch (Exception ex)
+        {
+            // The row is left in place (see QueuedOrganizeTaskDeserializationException) - only its
+            // failure count is bumped, so the repository can stop serving it once that count
+            // crosses the dead-letter threshold instead of leaving it permanently first-in-line.
+            await _repository.RecordDeserializationFailureAsync(dbEntity.OriginalFileLocation, ex.Message);
+            throw new QueuedOrganizeTaskDeserializationException(dbEntity.OriginalFileLocation, ex);
+        }
     }
 
     public async Task<QueuedOrganizeTask?> GetQueuedOrganizeTask(string originalFileLocation)

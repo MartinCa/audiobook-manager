@@ -176,6 +176,33 @@ public class OrganizeWorkerTests
             "Only the one genuine failure should have been logged as an error.");
     }
 
+    // Regression for #1322: a row whose json_audiobook fails to deserialize must be reported (so
+    // the client can see it), but - unlike an organize failure - must not be deleted, since its
+    // JSON may be the only surviving copy of what the user queued. Deleting it here would be
+    // option 3 from the issue ("delete and report"), which was deliberately not the approach
+    // taken; the service is responsible for tracking the failure count that eventually excludes
+    // the row from being served again.
+    [TestMethod]
+    public async Task ExecuteAsync_QueueReadThrowsDeserializationException_ReportsErrorButDoesNotDeleteTheRow()
+    {
+        const string originalPath = "/import/corrupt.m4b";
+        var attempts = 0;
+        _organizeTaskService.Setup(s => s.GetNextQueuedOrganizeTask())
+            .ReturnsAsync(() =>
+            {
+                Interlocked.Increment(ref attempts);
+                throw new QueuedOrganizeTaskDeserializationException(originalPath, new InvalidOperationException("bad json"));
+            });
+
+        await _worker.StartAsync(CancellationToken.None);
+        await WaitUntilAsync(() => Volatile.Read(ref attempts) >= 1, TimeSpan.FromSeconds(5));
+        await _worker.StopAsync(CancellationToken.None);
+
+        _organizeTaskService.Verify(s => s.DeleteQueuedOrganizeTask(It.IsAny<string>()), Times.Never);
+        _organizeClient.Verify(c => c.QueueError(It.Is<QueueError>(e =>
+            e.OriginalFileLocation == originalPath)), Times.AtLeastOnce);
+    }
+
     [TestMethod]
     public async Task ExecuteAsync_CooperativeShutdownWhileIdle_DoesNotLogAnError()
     {

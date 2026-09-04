@@ -77,6 +77,24 @@ public class OrganizeWorker : BackgroundService
                     // Cooperative shutdown: the idle Task.Delay above (or another await) was
                     // cancelled because the host is stopping. This is expected and not an error.
                     break;
+                } catch (QueuedOrganizeTaskDeserializationException ex)
+                {
+                    // Unlike the generic catch below, this row is deliberately not deleted: its
+                    // json_audiobook may be the only surviving copy of edits the user made before
+                    // queuing. The service has already recorded the failure against the row, and
+                    // once that crosses the repository's dead-letter threshold, GetNextQueuedOrganizeTask
+                    // stops returning it - so the queue moves on without this row's only record
+                    // being destroyed. See #1322.
+                    _logger.LogError(ex, "Failed to deserialize queued organize task {OriginalFileLocation}", ex.OriginalFileLocation);
+                    await QueueError(ex.OriginalFileLocation, ex.Message);
+
+                    consecutiveErrors++;
+                    errorDelay = BackoffFor(consecutiveErrors);
+
+                    _logger.LogWarning(
+                        "Organize worker backing off for {Delay} after {ConsecutiveErrors} consecutive failure(s)",
+                        errorDelay,
+                        consecutiveErrors);
                 } catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error while processing organize task {OriginalFileLoation}", task?.OriginalFileLocation ?? "");

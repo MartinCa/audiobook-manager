@@ -4,6 +4,12 @@ using Microsoft.EntityFrameworkCore;
 namespace AudiobookManager.Database.Repositories;
 public class QueuedOrganizeTaskRepository : IQueuedOrganizeTaskRepository
 {
+    // A row this many deserialization failures deep is treated as dead: GetNextQueuedOrganizeTask
+    // stops returning it, so the queue can move on to rows behind it. A few retries first (rather
+    // than dead-lettering on the very first failure) give a transient cause - e.g. a concurrent
+    // write catching the row mid-save - a chance to clear on its own.
+    private const int MaxDeserializationFailures = 5;
+
     private readonly DatabaseContext _db;
 
     public QueuedOrganizeTaskRepository(DatabaseContext db)
@@ -37,7 +43,26 @@ public class QueuedOrganizeTaskRepository : IQueuedOrganizeTaskRepository
 
     public async Task<QueuedOrganizeTask?> GetNextQueuedOrganizeTask()
     {
-        return await _db.QueuedOrganizeTasks.OrderBy(x => x.QueuedTime).FirstOrDefaultAsync();
+        return await _db.QueuedOrganizeTasks
+            .Where(x => x.FailureCount < MaxDeserializationFailures)
+            .OrderBy(x => x.QueuedTime)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task RecordDeserializationFailureAsync(string originalFileLocation, string reason)
+    {
+        var failedAt = DateTime.UtcNow;
+
+        // ExecuteUpdateAsync, for the same reason DeleteQueuedOrganizeTask uses ExecuteDeleteAsync
+        // above: it writes straight to the database without needing the row tracked first, and the
+        // increment is expressed against the column's current value rather than a value read
+        // earlier and possibly stale.
+        await _db.QueuedOrganizeTasks
+            .Where(x => x.OriginalFileLocation == originalFileLocation)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.FailureCount, x => x.FailureCount + 1)
+                .SetProperty(x => x.LastFailureReason, reason)
+                .SetProperty(x => x.LastFailureAt, failedAt));
     }
 
     public async Task<QueuedOrganizeTask?> GetQueuedOrganizeTask(string originalFileLocation)
