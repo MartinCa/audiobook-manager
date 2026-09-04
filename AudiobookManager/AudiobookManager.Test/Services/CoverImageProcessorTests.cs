@@ -1,11 +1,6 @@
 using AudiobookManager.Services;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using SkiaSharp;
 
 namespace AudiobookManager.Test.Services;
 
@@ -25,14 +20,14 @@ public class CoverImageProcessorTests
 
     /// <summary>Flat colour: compresses to almost nothing, so size never confounds a format test.</summary>
     private static string FlatPng(int width = 200, int height = 200) =>
-        Encode(width, height, new PngEncoder(), flat: true);
+        Encode(width, height, SKEncodedImageFormat.Png, flat: true);
 
     private static string FlatJpeg(int width = 200, int height = 200) =>
-        Encode(width, height, new JpegEncoder(), flat: true);
+        Encode(width, height, SKEncodedImageFormat.Jpeg, flat: true);
 
     /// <summary>Per-pixel noise: incompressible, which is how a large payload is produced.</summary>
     private static string NoisyPng(int width, int height) =>
-        Encode(width, height, new PngEncoder(), flat: false);
+        Encode(width, height, SKEncodedImageFormat.Png, flat: false);
 
     /// <summary>
     /// A smooth gradient: large as a PNG, but compresses the way a photographic cover does, so it
@@ -41,57 +36,56 @@ public class CoverImageProcessorTests
     /// </summary>
     private static string GradientPng(int width, int height)
     {
-        using var image = new Image<Rgba32>(width, height);
-        image.ProcessPixelRows(accessor =>
+        using var bitmap = new SKBitmap(width, height);
+        for (var y = 0; y < height; y++)
         {
-            for (var y = 0; y < accessor.Height; y++)
+            for (var x = 0; x < width; x++)
             {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    row[x] = new Rgba32(
-                        (byte)(x * 255 / accessor.Width),
-                        (byte)(y * 255 / accessor.Height),
-                        (byte)((x + y) * 255 / (accessor.Width + accessor.Height)));
-                }
+                bitmap.SetPixel(x, y, new SKColor(
+                    (byte)(x * 255 / width),
+                    (byte)(y * 255 / height),
+                    (byte)((x + y) * 255 / (width + height))));
             }
-        });
+        }
 
-        using var output = new MemoryStream();
-        image.Save(output, new PngEncoder());
-        return Convert.ToBase64String(output.ToArray());
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return Convert.ToBase64String(data.ToArray());
     }
 
-    private static string Encode(int width, int height, IImageEncoder encoder, bool flat)
+    private static string Encode(int width, int height, SKEncodedImageFormat format, bool flat)
     {
-        using var image = new Image<Rgba32>(width, height);
-        if (!flat)
+        using var bitmap = new SKBitmap(width, height);
+        if (flat)
         {
-            var random = new Random(42);
-            image.ProcessPixelRows(accessor =>
-            {
-                for (var y = 0; y < accessor.Height; y++)
-                {
-                    var row = accessor.GetRowSpan(y);
-                    for (var x = 0; x < row.Length; x++)
-                    {
-                        row[x] = new Rgba32(
-                            (byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256));
-                    }
-                }
-            });
+            using var canvas = new SKCanvas(bitmap);
+            canvas.Clear(new SKColor(100, 149, 237)); // cornflower blue
         }
         else
         {
-            image.Mutate(context => context.BackgroundColor(Color.CornflowerBlue));
+            var random = new Random(42);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    bitmap.SetPixel(x, y, new SKColor(
+                        (byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256)));
+                }
+            }
         }
 
-        using var output = new MemoryStream();
-        image.Save(output, encoder);
-        return Convert.ToBase64String(output.ToArray());
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, 90);
+        return Convert.ToBase64String(data.ToArray());
     }
 
-    private static Image Decode(string base64) => Image.Load(Convert.FromBase64String(base64));
+    private static SKBitmap Decode(string base64) => SKBitmap.Decode(Convert.FromBase64String(base64));
+
+    private static SKEncodedImageFormat DetectFormat(string base64)
+    {
+        using var codec = SKCodec.Create(new SKMemoryStream(Convert.FromBase64String(base64)));
+        return codec.EncodedFormat;
+    }
 
     // The decision from the review: cover art is often flat artwork with lettering, which PNG
     // encodes better than JPEG - re-encoding a small one would trade bytes for visible artefacts
@@ -109,11 +103,11 @@ public class CoverImageProcessorTests
 
     // Regression: a CMYK/UcrK JPEG (Adobe APP14, 4 components) - which is what Audible's
     // metadata search returns for some covers - decodes to correct RGB pixels, but ImageSharp's
-    // encoder previously derived its output color type from that source metadata rather than the
+    // encoder used to derive its output color type from that source metadata rather than the
     // pixels it was writing, so it recreated the Adobe APP14 marker on the re-encode. Browsers
-    // honour that marker and apply a color transform that paints the cover neon-green. The fix
-    // forces the encoder's own color type, so the re-encode must no longer carry that marker - and
-    // must still go through the normal path (resizing, size cap) like every other JPEG.
+    // honour that marker and apply a color transform that paints the cover neon-green. SkiaSharp's
+    // JPEG encoder never round-trips source color-space metadata like that, so a CMYK source just
+    // takes the normal re-encode path (resizing, size cap) like every other JPEG.
     [TestMethod]
     public void Normalize_ACmykJpeg_IsReencodedWithoutTheAdobeMarkerThatCausesTheColorCorruption()
     {
@@ -125,8 +119,10 @@ public class CoverImageProcessorTests
         Assert.AreNotEqual(cmykJpeg, result.Base64Data, "A CMYK JPEG must go through the normal re-encode, not be passed through.");
 
         var outputBytes = Convert.FromBase64String(result.Base64Data);
-        Assert.AreEqual(24, Image.Identify(outputBytes).PixelType.BitsPerPixel,
-            "The re-encode must be plain RGB/YCbCr - carrying the source's CMYK/YCCK color type forward is what caused the corruption.");
+        using (var codec = SKCodec.Create(new SKMemoryStream(outputBytes)))
+        {
+            Assert.AreEqual(SKEncodedImageFormat.Jpeg, codec.EncodedFormat);
+        }
 
         var adobeMarker = System.Text.Encoding.ASCII.GetBytes("Adobe");
         Assert.IsTrue(outputBytes.AsSpan().IndexOf(adobeMarker) < 0,
@@ -161,8 +157,38 @@ public class CoverImageProcessorTests
         var result = _processor.Normalize(FlatJpeg(), "image/jpeg");
 
         Assert.AreEqual("image/jpeg", result.MimeType);
+        Assert.AreEqual(SKEncodedImageFormat.Jpeg, DetectFormat(result.Base64Data));
+    }
+
+    // A cover with transparency has nowhere to put it in a JPEG. Regression: the encoder's own
+    // default is to premultiply alpha away, which turns a transparent pixel black regardless of
+    // its underlying color - compositing onto white instead keeps a semi-transparent edge close to
+    // the color it shows in a normal renderer.
+    [TestMethod]
+    public void Normalize_APngWithTransparency_IsFlattenedOntoWhiteRatherThanTurningBlack()
+    {
+        // Past the dimension cap despite being a flat colour: dimensions alone must force the
+        // re-encode path, or this would take the small-PNG passthrough and never reach Flatten.
+        const int size = 1600;
+        using var bitmap = new SKBitmap(size, size, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                bitmap.SetPixel(x, y, new SKColor(255, 0, 0, 0)); // fully transparent red
+            }
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        var png = Convert.ToBase64String(data.ToArray());
+
+        var result = _processor.Normalize(png, "image/png");
+
+        Assert.AreEqual("image/jpeg", result.MimeType, "Past the dimension cap, this must take the re-encode path.");
         using var decoded = Decode(result.Base64Data);
-        Assert.IsInstanceOfType<JpegFormat>(decoded.Metadata.DecodedImageFormat);
+        var pixel = decoded.GetPixel(decoded.Width / 2, decoded.Height / 2);
+        Assert.AreEqual(new SKColor(255, 255, 255), pixel, "A fully transparent source pixel must flatten to white, not black.");
     }
 
     // An oversized PNG is exactly the 4 MB cover the review found being carried as a ~5.5 MB
@@ -248,10 +274,8 @@ public class CoverImageProcessorTests
         StringAssert.Contains(ex.Message, "recognised image format");
     }
 
-    // A PNG signature is eight bytes, and DetectFormat reads no further - so a truncated or
-    // corrupt PNG passes format detection and only fails when something actually reads the header.
-    // On the PNG fast path that was Image.Identify, which was the one byte-touching call in this
-    // class without a guard: it threw out of Normalize as a 500 for a cover that should be a 400.
+    // A PNG signature is eight bytes, and format detection reads no further - so a truncated or
+    // corrupt PNG is recognised as PNG and only fails when something actually reads the header.
     [TestMethod]
     public void Normalize_APngWhoseHeaderIsCorrupt_IsRefusedRatherThanThrowing()
     {
@@ -294,7 +318,8 @@ public class CoverImageProcessorTests
     }
 
     // Real Adobe APP14 CMYK JPEG (40x40, 779 bytes) as served by Audible's CDN. Kept in one place:
-    // ImageSharp's encoder cannot produce CMYK, so every CMYK test shares the same captured fixture.
+    // neither ImageSharp nor SkiaSharp can encode CMYK, so every CMYK test shares the same captured
+    // fixture.
     private static string CmykFixture => "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCx" +
             "AWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAKAAoBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgME" +
             "BQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJCh" +
