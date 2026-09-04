@@ -217,7 +217,7 @@ public class CoverImageProcessor : ICoverImageProcessor
         var flattened = new SKBitmap(bitmap.Width, bitmap.Height, SKColorType.Bgra8888, SKAlphaType.Opaque);
         using var canvas = new SKCanvas(flattened);
         canvas.Clear(SKColors.White);
-        canvas.DrawBitmap(bitmap, 0, 0);
+        canvas.DrawBitmap(bitmap, 0, 0, SKSamplingOptions.Default);
         return flattened;
     }
 
