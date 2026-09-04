@@ -40,6 +40,9 @@ RUN apk add --no-cache --update --upgrade shadow su-exec
 # Environment
 ENV PUID=""
 ENV PGID=""
+# Left empty so run.sh's own defaults (022 / 0750) are the single place they are stated.
+ENV UMASK=""
+ENV CONFIG_CHMOD=""
 ENV AudiobookImportPath="/input"
 ENV AudiobookLibraryPath="/library"
 ENV DbLocation="/config/audiobookmanager.db"

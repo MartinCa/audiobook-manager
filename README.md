@@ -21,11 +21,43 @@ The docker image reads a few environment variables that can be used to configure
 | -------------------- | --------------------------- | --------------------------------------------------------- |
 | PUID                 | 911                         | User id of the user used to run the application           |
 | PGID                 | 911                         | Group id of the user used to run the application          |
+| UMASK                | 022                         | Permissions mask for everything the application writes    |
+| CONFIG_CHMOD         | 0750                        | Permissions applied to `/config` and the database in it   |
 | AudiobookImportPath  | /input                      | Directory which is scanned for audiobooks to be organized |
 | AudiobookLibraryPath | /library                    | Directory which is used as the root of the library        |
 | DbLocation           | /config/audiobookmanager.db | Location of the SQLLite database file                     |
 
 The paths specified as environment variables should be mounted to the host system.
+
+### File permissions
+
+Everything the application writes — relocated `.m4b` files, `desc.txt`, `reader.txt`,
+`metadata.opf`, cover images — lands on volumes shared with the host, so `UMASK` decides who else
+on the host can write to your library.
+
+The default `022` gives the owner write access and everyone else read access. `PUID`/`PGID` and the
+`chown` at startup are what make the application able to write there regardless of the ids the host
+uses, so the mask does not need to be permissive for that to work.
+
+If another container genuinely needs to **write** into the library — a tagger, a downloader — give
+it the same `PGID` and set `UMASK=002`, which makes new files group-writable. Setting `UMASK=000`
+restores the fully world-writable behaviour that earlier versions used unconditionally.
+
+`CONFIG_CHMOD` covers `/config`, which holds the SQLite database and its journal; nothing but this
+application is expected to open those. It is applied recursively to the directory as well as the
+files in it, so it must keep the owner's execute bit — `0640` would make `/config` untraversable
+and the application would not start. Both values are validated at startup and a bad one is a
+startup failure naming the setting, rather than a container that comes up with the wrong
+permissions.
+
+**The two settings take effect at different times, which matters when upgrading.** `UMASK` applies
+only to files created after it changes, so an existing library keeps whatever permissions it
+already had until each file is next written. `CONFIG_CHMOD` is applied with `chmod -R` on **every**
+start, so the database, its journal and anything else already in `/config` are re-moded the first
+time the container restarts after the upgrade — before the application opens anything. Earlier
+versions did the same thing with a hardcoded `chmod -R 777`, so this is a change of mode, not of
+behaviour; but if another process on the host reads that database directly, it loses access at that
+restart rather than gradually. Set `CONFIG_CHMOD=0777` to keep the previous permissions.
 
 ## Development
 
