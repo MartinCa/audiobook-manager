@@ -2,6 +2,15 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CoverEditor } from "./CoverEditor";
 
+// The real helper asks the browser to decode the image so it can shrink it, and jsdom's <img>
+// never settles for a blob URL - so it would sit out its decode timeout in every test here.
+// coverImage.test.ts covers the helper itself; these tests are about the component.
+vi.mock("@/lib/coverImage", () => ({
+  prepareCover: vi.fn((blob: Blob) =>
+    Promise.resolve({ base64Data: "cHJlcGFyZWQ=", mimeType: blob.type || "image/jpeg" }),
+  ),
+}));
+
 describe("CoverEditor", () => {
   it("shows the cover image when coverUrl is given", () => {
     render(<CoverEditor coverUrl="/api/files/cover?path=x" onCoverChange={vi.fn()} />);

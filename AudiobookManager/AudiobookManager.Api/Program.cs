@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using AudiobookManager.Api.Async;
+using AudiobookManager.Api.Filters;
 using AudiobookManager.Api.Security;
 using AudiobookManager.Api.Workers;
 using AudiobookManager.Database;
@@ -60,6 +61,7 @@ internal class Program
         builder.Services.AddControllers(options =>
         {
             options.Conventions.Add(new RouteTokenTransformerConvention(new SlugifyParameterTransformer()));
+            options.Filters.Add<InvalidCoverImageExceptionFilter>();
         });
         // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
         builder.Services.AddEndpointsApiExplorer();

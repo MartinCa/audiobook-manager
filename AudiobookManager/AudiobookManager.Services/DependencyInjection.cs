@@ -12,6 +12,9 @@ public static class DependencyInjection
         // Singleton, and backed by process-static state: the per-audiobook save gate has to
         // exclude across request scopes, which is the whole point of it.
         .AddSingleton<IAudiobookSaveGate, AudiobookSaveGate>()
+        // Stateless and cheap: a singleton avoids re-resolving it per request for what is
+        // effectively a pure function over the bytes.
+        .AddSingleton<ICoverImageProcessor, CoverImageProcessor>()
         .AddScoped<IFileService, FileService>()
         .AddScoped<IAudiobookService, AudiobookService>()
         .AddScoped<IScrapingService, ScrapingService>()
