@@ -200,6 +200,25 @@ public class CoverImageProcessorTests
         StringAssert.Contains(ex.Message, "recognised image format");
     }
 
+    // A PNG signature is eight bytes, and DetectFormat reads no further - so a truncated or
+    // corrupt PNG passes format detection and only fails when something actually reads the header.
+    // On the PNG fast path that was Image.Identify, which was the one byte-touching call in this
+    // class without a guard: it threw out of Normalize as a 500 for a cover that should be a 400.
+    [TestMethod]
+    public void Normalize_APngWhoseHeaderIsCorrupt_IsRefusedRatherThanThrowing()
+    {
+        var signatureThenGarbage = new byte[]
+        {
+            0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+        };
+
+        var ex = Assert.ThrowsExactly<InvalidCoverImageException>(
+            () => _processor.Normalize(Convert.ToBase64String(signatureThenGarbage), "image/png"));
+
+        StringAssert.Contains(ex.Message, "could not be read");
+    }
+
     [TestMethod]
     public void Normalize_DataThatIsNotBase64_IsRefused()
     {

@@ -123,9 +123,20 @@ public class CoverImageProcessor : ICoverImageProcessor
 
     private static bool ExceedsMaxDimension(byte[] bytes)
     {
-        // Identify reads the header only - no pixels are decoded to answer this.
-        var info = Image.Identify(bytes);
-        return info.Width > MaxDimension || info.Height > MaxDimension;
+        try
+        {
+            // Identify reads the header only - no pixels are decoded to answer this.
+            var info = Image.Identify(bytes);
+            return info.Width > MaxDimension || info.Height > MaxDimension;
+        }
+        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
+        {
+            // Guarded for the same reason LoadImage is, and reachable for the same reason:
+            // DetectFormat reads the container signature only, so a PNG whose signature is intact
+            // but whose IHDR is missing or corrupt gets this far. Unguarded it left Normalize as an
+            // unhandled exception - a 500 - for a cover the class promises to refuse with a 400.
+            throw new InvalidCoverImageException("The cover image could not be read.");
+        }
     }
 
     private (byte[] Bytes, int Width, int Height) ToJpeg(byte[] bytes)
