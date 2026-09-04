@@ -9,7 +9,22 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.11" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.1" />
+    <!--
+      Pinned to 3.x deliberately. ImageSharp 4.0 added a build-time license check that fails the
+      build outright without a key file:
+
+        error : No Six Labors license found. Set $(SixLaborsLicenseKey), set
+                $(SixLaborsLicenseFile), or add a 'sixlabors.lic' file to the project/workspace.
+
+      It only fires on a Release build, so `dotnet build` and `dotnet test` pass and the Docker
+      image build is where it surfaces. The Six Labors Split License still grants this project
+      Apache-2.0 terms as open source, and Six Labors do issue complimentary keys for open source
+      projects - but that means registering, committing or secret-managing a key file, and renewing
+      it yearly, in CI and in the Docker build. 3.x carries no such check.
+
+      Upgrading to 4.x needs that key in place first, not just a version bump.
+    -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>
