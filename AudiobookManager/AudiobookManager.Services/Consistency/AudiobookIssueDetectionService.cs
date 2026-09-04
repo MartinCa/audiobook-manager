@@ -50,8 +50,18 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
         }
         catch (Exception ex)
         {
+            // An empty list is indistinguishable from a clean book, which is how a corrupt m4b, a
+            // file ATL cannot parse, or a permission-denied directory used to render on the
+            // consistency screen: perfectly consistent. The only signal was a warning in the
+            // container log, where nobody is looking while reading that screen.
             _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
-            return new List<ConsistencyIssue>();
+
+            return new List<ConsistencyIssue>
+            {
+                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.UnreadableFile,
+                    $"Media file could not be read: {audiobook.FileInfoFileName}",
+                    audiobook.FileInfoFullPath, ex.Message)
+            };
         }
     }
 }
