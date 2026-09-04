@@ -22,6 +22,11 @@ UMASK=${UMASK:-022}
 # Applied with chmod -R, so it lands on the directory as well as the files in it and must keep the
 # owner's execute bit: 0640 would look like a sensible file mode and would make /config itself
 # untraversable, so the application could not open the database at all.
+#
+# And applied on every start, not only to new files - so an existing database is re-moded the first
+# time the container restarts after an upgrade, not gradually as UMASK's effect would be. The
+# hardcoded chmod -R 777 this replaces ran on every start too; what changes is the mode, not when
+# it is applied. README says so under "File permissions".
 CONFIG_CHMOD=${CONFIG_CHMOD:-0750}
 
 # Both are fed to umask/chmod, so reject anything that is not a mode before doing that. An

@@ -50,6 +50,15 @@ and the application would not start. Both values are validated at startup and a 
 startup failure naming the setting, rather than a container that comes up with the wrong
 permissions.
 
+**The two settings take effect at different times, which matters when upgrading.** `UMASK` applies
+only to files created after it changes, so an existing library keeps whatever permissions it
+already had until each file is next written. `CONFIG_CHMOD` is applied with `chmod -R` on **every**
+start, so the database, its journal and anything else already in `/config` are re-moded the first
+time the container restarts after the upgrade — before the application opens anything. Earlier
+versions did the same thing with a hardcoded `chmod -R 777`, so this is a change of mode, not of
+behaviour; but if another process on the host reads that database directly, it loses access at that
+restart rather than gradually. Set `CONFIG_CHMOD=0777` to keep the previous permissions.
+
 ## Development
 
 ### DB Migration
