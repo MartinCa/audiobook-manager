@@ -8,6 +8,18 @@ public interface IAudiobookRepository
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
     Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset);
     Task<int> CountAsync();
+
+    /// <summary>
+    /// One page of audiobooks with a *dirty* website URL - one whose query string or fragment
+    /// <see cref="AudiobookManager.Scraping.Utils.BookUrlCleaner"/> would strip - projected to the
+    /// columns the URL cleanup page renders rather than the full entity graph.
+    /// <see cref="GetAllWithIncludesAsync"/> loads Authors, Narrators, Genres and every column just
+    /// to read Id, BookName, Authors and Www. The dirty predicate is the cheap SQL mirror of
+    /// "the URL has a query or fragment"; the service still runs <c>Clean()</c> per row to build
+    /// the cleaned value. Returns the total matching count alongside the page so the caller can
+    /// size its pager without a second round trip.
+    /// </summary>
+    Task<(List<DirtyUrlRow> Items, int Total)> GetDirtyUrlPageAsync(int limit, int offset);
     Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset);
     Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);

@@ -37,6 +37,11 @@ public class UrlCleanupServiceTests
         };
     }
 
+    private static DirtyUrlRow MakeDirtyUrlRow(long id, string bookName, string www, List<string>? authors = null)
+    {
+        return new DirtyUrlRow(id, bookName, authors ?? new List<string>(), www);
+    }
+
     private static DomainAudiobook MakeDomainAudiobook(long id, string bookName, string? www)
     {
         return new DomainAudiobook(
@@ -48,36 +53,36 @@ public class UrlCleanupServiceTests
     }
 
     [TestMethod]
-    public async Task FindDirtyUrlsAsync_FlagsBooksWhoseUrlHasTrackingParameters()
+    public async Task FindDirtyUrlsPageAsync_FlagsBooksWhoseUrlHasTrackingParameters()
     {
-        var books = new List<DbAudiobook>
+        var rows = new List<DirtyUrlRow>
         {
-            MakeDbAudiobook(1, "Book One", "https://www.audible.com/pd/Winter-Dark-Audiobook/B07NZY2WT8?qid=123&ref=a_search"),
-            MakeDbAudiobook(2, "Book Two", "https://hardcover.app/books/connections"),
+            MakeDirtyUrlRow(1, "Book One", "https://www.audible.com/pd/Winter-Dark-Audiobook/B07NZY2WT8?qid=123&ref=a_search", ["Author A"]),
+            MakeDirtyUrlRow(2, "Book Two", "https://www.audible.com/pd/Book-Two?pf_rd_r=ABC#pageLoadId"),
         };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+        _audiobookRepository.Setup(r => r.GetDirtyUrlPageAsync(50, 0)).ReturnsAsync((rows, 2));
 
-        var results = await _service.FindDirtyUrlsAsync();
+        var (results, total) = await _service.FindDirtyUrlsPageAsync(0, 50);
 
-        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(2, total, "The total is the whole matching set, not the page.");
+        Assert.AreEqual(2, results.Count);
         Assert.AreEqual(1, results[0].AudiobookId);
+        Assert.AreSequenceEqual(["Author A"], results[0].Authors);
         Assert.AreEqual("https://www.audible.com/pd/Winter-Dark-Audiobook/B07NZY2WT8?qid=123&ref=a_search", results[0].CurrentUrl);
         Assert.AreEqual("https://www.audible.com/pd/Winter-Dark-Audiobook/B07NZY2WT8", results[0].CleanedUrl);
+        Assert.AreEqual("https://www.audible.com/pd/Book-Two", results[1].CleanedUrl);
     }
 
     [TestMethod]
-    public async Task FindDirtyUrlsAsync_IgnoresBooksWithNoUrl()
+    public async Task FindDirtyUrlsPageAsync_PassesThePageThroughToTheRepository()
     {
-        var books = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "Book One", null),
-            MakeDbAudiobook(2, "Book Two", "   "),
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+        _audiobookRepository.Setup(r => r.GetDirtyUrlPageAsync(25, 100)).ReturnsAsync((new List<DirtyUrlRow>(), 0));
 
-        var results = await _service.FindDirtyUrlsAsync();
+        var (results, total) = await _service.FindDirtyUrlsPageAsync(4, 25);
 
         Assert.AreEqual(0, results.Count);
+        Assert.AreEqual(0, total);
+        _audiobookRepository.Verify(r => r.GetDirtyUrlPageAsync(25, 100), Times.Once);
     }
 
     [TestMethod]
@@ -95,8 +100,8 @@ public class UrlCleanupServiceTests
             s => s.UpdateAudiobook(1, It.Is<DomainAudiobook>(a => a.Www == "https://www.audible.com/pd/B07NZY2WT8"), null),
             Times.Once);
         _audiobookService.Verify(s => s.UpdateAudiobook(2, It.IsAny<DomainAudiobook>(), null), Times.Never);
-        // FindDirtyUrlsAsync's full-library scan must not be re-run just to apply a caller-given id set.
-        _audiobookRepository.Verify(r => r.GetAllWithIncludesAsync(), Times.Never);
+        // The list scan must not be re-run just to apply a caller-given id set.
+        _audiobookRepository.Verify(r => r.GetDirtyUrlPageAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 
     [TestMethod]

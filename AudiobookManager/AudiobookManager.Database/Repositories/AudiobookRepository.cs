@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Database.Models;
+﻿using System.Linq.Expressions;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
@@ -79,6 +80,46 @@ public class AudiobookRepository : IAudiobookRepository
 
     /// <summary>How many books the library tracks. Just the count - no rows materialized.</summary>
     public Task<int> CountAsync() => _db.Audiobooks.AsNoTracking().CountAsync();
+
+    /// <summary>
+    /// What the URL cleanup page calls "dirty": a URL BookUrlCleaner.Clean would change. The SQL
+    /// mirror has to agree with Clean() in the direction that matters - it must not flag a value
+    /// Clean() would leave alone - so a query string or fragment is only "dirty" when it follows a
+    /// parseable absolute URL (a scheme separator). A hand-edited scheme-less value like
+    /// <c>www.audible.com/pd/X?ref=y</c> fails Uri.TryCreate, Clean() returns it unchanged, and
+    /// flagging it anyway would render a card whose struck-through and green URLs are the same
+    /// string and keep the list permanently non-empty.
+    ///
+    /// Clean() also normalizes default ports and scheme/host casing, which this predicate does not
+    /// express (rare, and the tool is about tracking parameters) - accepted as a small false-negative
+    /// trade-off, asserted by GetDirtyUrlPageAsync tests.
+    /// </summary>
+    private static readonly Expression<Func<Audiobook, bool>> IsDirtyUrl = a =>
+        a.Www != null &&
+        a.Www != "" &&
+        a.Www.Contains("://") &&
+        (a.Www.IndexOf('?') > a.Www.IndexOf("://") || a.Www.IndexOf('#') > a.Www.IndexOf("://"));
+
+    public async Task<(List<DirtyUrlRow> Items, int Total)> GetDirtyUrlPageAsync(int limit, int offset)
+    {
+        var dirty = _db.Audiobooks
+            .AsNoTracking()
+            .Where(IsDirtyUrl);
+
+        var total = await dirty.CountAsync();
+
+        // The same total order as GetAllWithIncludesAsync. It has to be total, not just by
+        // BookName: SQLite is free to return ties in any order, and two pages ordered only
+        // partially can repeat a row and drop another.
+        var items = await dirty
+            .OrderBy(a => a.BookName).ThenBy(a => a.Id)
+            .Skip(offset)
+            .Take(limit)
+            .Select(a => new DirtyUrlRow(a.Id, a.BookName, a.Authors.Select(p => p.Name).ToList(), a.Www!))
+            .ToListAsync();
+
+        return (items, total);
+    }
 
     public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
     {

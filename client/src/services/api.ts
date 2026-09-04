@@ -26,7 +26,7 @@ import type { SimilarValueGroup } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 import type { TagMismatchField } from "@/types/TagMismatchField";
-import type { ApplyUrlCleanupResult, AudiobookUrlCleanup } from "@/types/UrlCleanup";
+import type { ApplyUrlCleanupResult, UrlCleanupPage } from "@/types/UrlCleanup";
 
 export function toAudiobookDto(data: Audiobook) {
   return {
@@ -240,7 +240,8 @@ export const missingTagsApi = {
 
 // Url cleanup
 export const urlCleanupApi = {
-  getDirtyUrls: () => api.get<AudiobookUrlCleanup[]>("/url-cleanup/audiobooks"),
+  getDirtyUrlPage: (page: number, pageSize: number) =>
+    api.get<UrlCleanupPage>("/url-cleanup/audiobooks", { query: { page, pageSize } }),
 
   apply: (audiobookIds: number[]) =>
     api.post<ApplyUrlCleanupResult>("/url-cleanup/apply", { audiobookIds }),
