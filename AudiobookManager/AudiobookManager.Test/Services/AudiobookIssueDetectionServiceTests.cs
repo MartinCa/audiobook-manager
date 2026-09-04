@@ -90,6 +90,19 @@ public class AudiobookIssueDetectionServiceTests
         Assert.AreEqual(ConsistencyIssueType.MissingMediaFile, issues.Single().IssueType);
     }
 
+    // #1311: an unmounted subtree - a dead per-author or per-share mount - makes the whole
+    // directory disappear, which File.Exists cannot tell from a deleted book. The parent
+    // directory is what distinguishes them (deleting a book leaves its directory behind), and
+    // the finding must never be the one whose resolution deletes the library record.
+    [TestMethod]
+    public void DetectIssues_TheFileAndItsParentDirectoryAreAbsent_ReportsLibraryPathUnavailable()
+    {
+        var bookSubtree = Path.Combine(_libraryPath, "Dead Author");
+        var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(bookSubtree, "gone.m4b")));
+
+        Assert.AreEqual(ConsistencyIssueType.LibraryPathUnavailable, issues.Single().IssueType);
+    }
+
     // The gap a reviewer found: File.Exists is documented to return false "if the caller does not
     // have sufficient permissions to read the specified file... regardless of the existence of
     // path". So a library whose share permissions changed reported every book as

@@ -55,6 +55,34 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
 
         var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath);
 
+        // This issue was detected (or stored) while the file was missing *with its parent
+        // directory still there* - which is a genuine deletion. But the mount can have died
+        // since: a book whose whole directory has vanished must never be answered with the
+        // resolution that deletes the library record, exactly as #1311's detection change
+        // classifies it. Re-check, which now reports the real state, instead of deleting on
+        // evidence that may mean the opposite.
+        if (directoryPath is null || !Directory.Exists(directoryPath))
+        {
+            _logger.LogInformation(
+                "Media file for audiobook {AudiobookId} ('{Title}') at '{FilePath}' is missing and so is its directory; re-checking instead of deleting the record.",
+                audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
+
+            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+            var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+            if (newIssues.Count > 0)
+            {
+                await _issueRepository.InsertRangeAsync(newIssues);
+            }
+
+            return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+                issue.Id,
+                issue.IssueType,
+                "directory_unavailable",
+                "Media file not found and its directory is not available - most likely an unmounted "
+                + "drive or share rather than a deleted book. Preserved the audiobook; if it really is "
+                + "gone, delete it once the directory is back."));
+        }
+
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
         await _audiobookRepository.DeleteAudiobookAsync(audiobook.Id);
 

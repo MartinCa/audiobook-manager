@@ -60,6 +60,8 @@ public class LibraryConsistencyServiceTests
                 NullLogger<MissingCoverResolver>.Instance),
             new UnreadableFileResolver(
                 _issueRepository.Object, detectionService, NullLogger<UnreadableFileResolver>.Instance),
+            new LibraryPathUnavailableResolver(
+                _issueRepository.Object, detectionService, NullLogger<LibraryPathUnavailableResolver>.Instance),
         };
 
         var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
@@ -229,26 +231,49 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssues_OtherBooksInTheBatch_AreStillResolved()
     {
-        var bookA = MakeMissingFileBook(1, "/library/gone/a.m4b");
-        var bookB = MakeMissingFileBook(2, "/library/gone/b.m4b");
+        // Both books' parent directories exist, so both are genuinely-deleted books and both
+        // resolves take the deletion branch. (With the directories gone they would be
+        // LibraryPathUnavailable and the resolver would re-check instead - see
+        // ResolveIssue_MissingMediaFile_ButDirectoryAlsoGoneNow_DoesNotDeleteAudiobook.)
+        var goneA = Path.Combine(Path.GetTempPath(), $"abm-gone-A-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(goneA);
+        var goneB = Path.Combine(Path.GetTempPath(), $"abm-gone-B-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(goneB);
 
-        var issues = new List<ConsistencyIssue>
+        try
         {
-            new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
-            new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
-            new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
-        };
+            var bookA = MakeMissingFileBook(1, Path.Combine(goneA, "a.m4b"));
+            var bookB = MakeMissingFileBook(2, Path.Combine(goneB, "b.m4b"));
 
-        _issueRepository
-            .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-            .ReturnsAsync(issues);
+            var issues = new List<ConsistencyIssue>
+            {
+                new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
+                new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
+                new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+            };
 
-        var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L, 3L });
+            _issueRepository
+                .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+                .ReturnsAsync(issues);
 
-        Assert.AreEqual(2, resolved);
-        Assert.AreEqual(0, failed);
-        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
-        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(2), Times.Once);
+            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L, 3L });
+
+            Assert.AreEqual(2, resolved);
+            Assert.AreEqual(0, failed);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(2), Times.Once);
+        }
+        finally
+        {
+            foreach (var dir in new[] { goneA, goneB })
+            {
+                // The resolver removes each now-empty directory itself, so it may already be gone.
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir, true);
+                }
+            }
+        }
     }
 
     // Regression test for the N+1: ResolveIssuesByType loaded every issue *with* its audiobook
@@ -288,10 +313,16 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task RunConsistencyCheck_MissingFile_ReportsIssue()
     {
+        // A missing file *whose parent directory still exists* is a genuinely deleted book - the
+        // shape #1311 deliberately keeps as MissingMediaFile. A missing file under a missing
+        // directory is an unmounted subtree and is reported separately.
+        var goneAuthor = Path.Combine(_libraryPath, "Gone Author");
+        Directory.CreateDirectory(goneAuthor);
+
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, null, null, 2024,
             null, null, null, null, null, null, null, null, null,
-            "/nonexistent/path/test.m4b", "test.m4b", 1000)
+            Path.Combine(goneAuthor, "test.m4b"), "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
         };
@@ -450,28 +481,44 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssue_MissingMediaFile_DeletesAudiobook()
     {
-        var dbAudiobook = new DbAudiobook(
-            1, "Test Book", null, null, null, 2024,
-            null, null, null, null, null, null, null, null, null,
-            "/some/path/test.m4b", "test.m4b", 1000);
+        // The parent directory exists: a genuinely deleted book, which resolves by deleting the
+        // record. (A file whose directory is also gone is LibraryPathUnavailable and must not.)
+        var goneDir = Path.Combine(Path.GetTempPath(), $"abm-gone-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(goneDir);
 
-        var issue = new ConsistencyIssue
+        try
         {
-            Id = 10,
-            AudiobookId = 1,
-            Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.MissingMediaFile,
-            Description = "File missing",
-            DetectedAt = DateTime.UtcNow
-        };
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                Path.Combine(goneDir, "test.m4b"), "test.m4b", 1000);
 
-        _issueRepository.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(issue);
+            var issue = new ConsistencyIssue
+            {
+                Id = 10,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "File missing",
+                DetectedAt = DateTime.UtcNow
+            };
 
-        var result = await _service.ResolveIssue(10);
+            _issueRepository.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(issue);
 
-        Assert.AreEqual("audiobook_deleted", result.ActionTaken);
-        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
-        _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
+            var result = await _service.ResolveIssue(10);
+
+            Assert.AreEqual("audiobook_deleted", result.ActionTaken);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(1), Times.Once);
+        }
+        finally
+        {
+            // The resolver removes the now-empty directory itself, so it may already be gone.
+            if (Directory.Exists(goneDir))
+            {
+                Directory.Delete(goneDir, true);
+            }
+        }
     }
 
     [TestMethod]
@@ -574,6 +621,158 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("file_readable", result.ActionTaken);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // #1311: the whole point of the new state. A file missing because its directory is gone is a
+    // share that died, not a deletion - the record must survive, and the resolve is a re-read,
+    // exactly like UnreadableFile.
+    [TestMethod]
+    public async Task ResolveIssue_LibraryPathUnavailable_StillUnavailable_KeepsTheBookAndTheIssue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var lostSubtree = Path.Combine(tempDir, "lost-subtree");
+        // Deliberately never created: the directory is "unmounted".
+
+        try
+        {
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 31,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                Description = "Media file's directory is not available",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(31)).ReturnsAsync(issue);
+
+            var result = await _service.ResolveIssue(31);
+
+            Assert.AreEqual("directory_still_unavailable", result.ActionTaken);
+
+            // The record is the only place the curated metadata lives. Never delete it on the
+            // evidence that a directory is missing.
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+
+            // Re-inserted, so the book stays on the consistency screen instead of quietly leaving it.
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
+
+            // Only the handled type is replaced: detection short-circuited, so it said nothing
+            // about the sidecars, tags or path, and clearing those would discard findings that
+            // were never re-evaluated.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(
+                    1,
+                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                        types.Single() == ConsistencyIssueType.LibraryPathUnavailable)),
+                Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_LibraryPathUnavailable_DirectoryBack_ClearsItAndRefreshesTheBook()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var restoredSubtree = Path.Combine(tempDir, "restored-subtree");
+
+        try
+        {
+            // The "mount" is back and the file is where the record says it is.
+            Directory.CreateDirectory(restoredSubtree);
+            var tempFile = Path.Combine(restoredSubtree, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "readable now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 32,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                Description = "Media file's directory is not available",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(32)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+
+            var result = await _service.ResolveIssue(32);
+
+            Assert.AreEqual("directory_readable_again", result.ActionTaken);
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // #1311: detection classifies a missing file under a missing directory as
+    // LibraryPathUnavailable, but a stored MissingMediaFile can be older than that - detected
+    // while the directory was still there, then the mount died. Resolving it must re-check
+    // rather than delete, so it cannot delete on evidence that now means "share is gone".
+    [TestMethod]
+    public async Task ResolveIssue_MissingMediaFile_ButDirectoryAlsoGoneNow_DoesNotDeleteAudiobook()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var lostSubtree = Path.Combine(tempDir, "lost-subtree");
+
+        try
+        {
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 33,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "Media file not found",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(33)).ReturnsAsync(issue);
+
+            var result = await _service.ResolveIssue(33);
+
+            Assert.AreEqual("directory_unavailable", result.ActionTaken);
+            _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+
+            // The re-check re-inserts the real finding (LibraryPathUnavailable), so the book
+            // stays on the consistency screen under the correct heading.
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
         }
         finally
         {
@@ -1375,10 +1574,15 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task RecheckAudiobookAsync_MissingFile_ReportsIssueAndClearsPriorIssues()
     {
+        // Parent directory present: a genuinely deleted book, i.e. still MissingMediaFile under
+        // #1311's classification. A file whose directory is also gone is LibraryPathUnavailable.
+        var goneAuthor = Path.Combine(_libraryPath, "Gone Author");
+        Directory.CreateDirectory(goneAuthor);
+
         var dbAudiobook = new DbAudiobook(
             1, "Test Book", null, null, null, 2024,
             null, null, null, null, null, null, null, null, null,
-            "/nonexistent/path/test.m4b", "test.m4b", 1000)
+            Path.Combine(goneAuthor, "test.m4b"), "test.m4b", 1000)
         {
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
         };
