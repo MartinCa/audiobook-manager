@@ -180,14 +180,20 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
   parses every response as JSON, so a binary GET cannot go through it. They are reads, which the
   guard does not cover, so they are unaffected — but a *write* must never be added this way.
 
-  **Invariant: every error response is RFC 9457 `application/problem+json`.** The client reads an
-  error body only when the content type says json (`toApiError` in `src/lib/api.ts`), so a bare
-  `BadRequest("...")` or `StatusCode(500, ex.Message)` — which serialize as `text/plain` — is
-  discarded and the user is shown "Request failed with status 400" instead of the message. Use the
-  `ProblemResults` helpers (`InvalidRequest`, `ConflictingState`, `AccessDenied`,
-  `UnexpectedError`) or `ControllerBase.Problem(...)`; never return a string as the body of an
-  error. `AddProblemDetails()` and `UseExceptionHandler()` in `Program.cs` cover the framework's
-  own responses and anything unhandled.
+  **Invariant: an error response that carries a body carries RFC 9457
+  `application/problem+json` — never a bare string.** The client reads an error body only when the
+  content type says json (`toApiError` in `src/lib/api.ts`), so a bare `BadRequest("...")` or
+  `StatusCode(500, ex.Message)` — which serialize as `text/plain` — is discarded and the user is
+  shown "Request failed with status 400" instead of the message. Use the `ProblemResults` helpers
+  (`InvalidRequest`, `ConflictingState`, `AccessDenied`, `UnexpectedError`) or
+  `ControllerBase.Problem(...)`. `AddProblemDetails()` and `UseExceptionHandler()` in `Program.cs`
+  cover the framework's own responses and anything unhandled.
+
+  Bodyless results are the deliberate exception, not an oversight: a bare `NotFound()` is fine
+  where the status is the whole message — an id that does not resolve to a row, which the caller
+  supplied and can see. The client handles it (an empty body falls back to `statusText`, so the
+  user sees "Not Found"). Reach for `Problem(...)` over `NotFound()` when there is something to
+  say that the status code does not already say.
 
   A 500 never carries the exception message. `ProblemResults.UnexpectedError` returns a fixed
   sentence plus the `traceId`; the exception itself is logged with its context at the call site,
