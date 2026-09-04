@@ -138,15 +138,15 @@ describe("consistencyHelpers", () => {
   });
 
   describe("notifyOrphanResolveResult", () => {
-    it("shows info toast when actionTaken is retained_has_audio", () => {
+    it("shows info toast when actionTaken is retained_not_empty", () => {
       notifyOrphanResolveResult({
         id: 1,
         directoryPath: "/path/to/dir",
-        actionTaken: "retained_has_audio",
-        message: "Directory now contains audio files",
+        actionTaken: "retained_not_empty",
+        message: "Directory still contains files",
       });
 
-      expect(toast.info).toHaveBeenCalledWith("Directory now contains audio files");
+      expect(toast.info).toHaveBeenCalledWith("Directory still contains files");
       expect(toast.success).not.toHaveBeenCalled();
     });
 

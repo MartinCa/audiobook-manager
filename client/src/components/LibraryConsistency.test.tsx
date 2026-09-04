@@ -105,7 +105,7 @@ describe("LibraryConsistency", () => {
     expect(screen.getByText("Library Consistency")).toBeInTheDocument();
   });
 
-  it("shows info toast when orphan directory resolution retains directory because audio files exist", async () => {
+  it("shows info toast when orphan directory resolution retains directory because it is not empty", async () => {
     mockPagedIssues([]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([
       {
@@ -117,9 +117,9 @@ describe("LibraryConsistency", () => {
     vi.spyOn(consistencyApi, "resolveOrphanDirectory").mockResolvedValue({
       id: 10,
       directoryPath: "/media/audiobooks/Author/Orphan",
-      actionTaken: "retained_has_audio",
+      actionTaken: "retained_not_empty",
       message:
-        "Directory now contains audio files; preserved directory on disk and removed from orphan list.",
+        "Directory still contains files; preserved directory on disk and removed from orphan list.",
     });
 
     renderWithProviders(<LibraryConsistency />);
@@ -140,7 +140,7 @@ describe("LibraryConsistency", () => {
 
     await waitFor(() => {
       expect(toast.info).toHaveBeenCalledWith(
-        "Directory now contains audio files; preserved directory on disk and removed from orphan list.",
+        "Directory still contains files; preserved directory on disk and removed from orphan list.",
       );
     });
   });

@@ -134,10 +134,10 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         else
         {
             _logger.LogWarning(
-                "Orphan directory '{DirectoryPath}' now contains audio files; skipped disk deletion and removed from orphan list.",
+                "Orphan directory '{DirectoryPath}' is not empty; skipped disk deletion and removed from orphan list.",
                 directory.DirectoryPath);
-            actionTaken = "retained_has_audio";
-            message = "Directory now contains audio files; preserved directory on disk and removed from orphan list.";
+            actionTaken = "retained_not_empty";
+            message = "Directory still contains files; preserved directory on disk and removed from orphan list.";
         }
 
         await _orphanDirectoryRepository.DeleteAsync(orphanDirectoryId);
@@ -196,18 +196,54 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         // Safety net in case a file was added since the directory was detected as orphaned, walked
         // link-free for the same reason the detection is: an enumeration that followed a link
         // would answer for the wrong subtree.
+        //
+        // Refuses on anything that is not a file this application itself knows is disposable -
+        // not just supported audio formats. A directory holding an mp3/flac/opus audiobook, a
+        // PDF, an epub or bonus content is just as much "content the user would not expect this
+        // to delete" as an m4b would be - IsSupported only tells the rest of the app "can be
+        // organized/tagged", it was never a definition of "safe to discard".
+        //
+        // But "any file at all" over-corrected: the ordinary way a directory actually becomes
+        // orphaned is a book's m4b being reorganized or deleted out of it, which routinely leaves
+        // exactly the sidecars this app generates beside that book (cover.jpg, metadata.opf,
+        // desc.txt, reader.txt - see AudiobookFileHandler.IsSidecarFileName) - and, just as
+        // routinely on a real filesystem, OS-generated junk (.DS_Store, Thumbs.db, desktop.ini).
+        // Refusing to delete on those meant almost no real orphan ever actually got cleaned up:
+        // the one case this feature exists for was silently defeated by the same fix that closed
+        // the data-loss gap. Both lists are explicit and narrow on purpose - anything not on them
+        // still blocks deletion exactly as before.
         var directoriesToCheck = new[] { directoryPath }
             .Concat(DirectoryWalk.EnumerateDirectoriesRecursively(directoryPath));
 
-        var hasAudioFile = directoriesToCheck
+        var hasNonDiscardableFile = directoriesToCheck
             .SelectMany(Directory.EnumerateFiles)
-            .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
-        if (hasAudioFile)
+            .Any(file => !IsSafeToDiscard(file));
+        if (hasNonDiscardableFile)
         {
             return false;
         }
 
         _fileOperations.DeleteDirectory(directoryPath, recursive: true, "resolving orphan directory");
         return true;
+    }
+
+    // Fixed names written by the OS or the file-sharing client, never by this app or by a user -
+    // finding one of these and nothing else is exactly as harmless as finding an empty directory.
+    // Matched case-insensitively regardless of platform: a share can carry a Thumbs.db left by a
+    // Windows client even when this app runs on Linux, so the platform-dependent PathComparison
+    // AudiobookFileHandler uses for its own sidecars (which this app writes itself, in a fixed
+    // case) is not the right rule for names other tools chose.
+    private static readonly HashSet<string> _harmlessSystemFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        ".directory", // KDE's Thumbs.db/desktop.ini equivalent.
+    };
+
+    private static bool IsSafeToDiscard(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        return AudiobookFileHandler.IsSidecarFileName(fileName) || _harmlessSystemFileNames.Contains(fileName);
     }
 }
