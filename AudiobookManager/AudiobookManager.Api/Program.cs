@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using AudiobookManager.Api.Async;
+using AudiobookManager.Api.Security;
 using AudiobookManager.Api.Workers;
 using AudiobookManager.Database;
 using AudiobookManager.Scraping.RateLimiting;
@@ -43,17 +44,14 @@ internal class Program
 
         builder.Services.AddRouting(options => options.LowercaseUrls = true);
 
-        builder.Services.AddCors(options =>
-        {
-            options.AddDefaultPolicy(
-                policy =>
-                {
-                    policy.WithOrigins("http://localhost:3000")
-                    .AllowAnyMethod()
-                    .AllowAnyHeader()
-                    .AllowCredentials();
-                });
-        });
+        // Deliberately no CORS policy. The frontend is served from this application's own origin in
+        // production, and the Vite dev server proxies /api and /hubs to it (see
+        // client/vite.config.ts), so the browser only ever makes same-origin requests and nothing
+        // here needs cross-origin access. The policy that used to sit here allowed
+        // http://localhost:3000 with AllowCredentials - a dev-server leftover that the proxy had
+        // already made unnecessary. Having no policy at all is also what makes
+        // CrossSiteRequestGuardMiddleware effective: a cross-site request that is forced to
+        // preflight now fails the preflight outright.
 
         // Add services to the container.
 
@@ -79,12 +77,24 @@ internal class Program
         if (app.Environment.IsDevelopment())
         {
             app.UseSwagger();
-            app.UseSwaggerUI();
+            app.UseSwaggerUI(options =>
+            {
+                // Swagger UI issues its "Try it out" requests with its own fetch, which does not
+                // set X-Requested-With - so every write from it would be refused by
+                // CrossSiteRequestGuardMiddleware. Adding the header here keeps the guard applied
+                // uniformly in development rather than carving out an exception for it (which
+                // would leave the guard untested in the environment it is developed in).
+                options.UseRequestInterceptor(
+                    $"(request) => {{ request.headers['{CrossSiteRequestGuardMiddleware.RequiredHeader}'] = "
+                    + $"'{CrossSiteRequestGuardMiddleware.RequiredHeaderValue}'; return request; }}");
+            });
         }
 
         // app.UseHttpsRedirection();
 
-        app.UseCors();
+        // Before the static files and the SPA fallback, so a refused API write never falls through
+        // to index.html.
+        app.UseCrossSiteRequestGuard();
 
         // Serve the frontend app
         var defaultFileOptions = new DefaultFilesOptions();

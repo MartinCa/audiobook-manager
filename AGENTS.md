@@ -164,6 +164,25 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 
 - **Framework**: React 19 (function components + hooks) + Vite + TanStack Router + TanStack Query + TypeScript. Styling is Tailwind CSS; components are shadcn/ui vendored onto **Base UI** primitives (not Radix — see `client/src/DESIGN.md` section 1). Full conventions live in `client/src/DESIGN.md`; do not duplicate them here.
 - **API layer** (`src/services/api.ts` + `src/lib/api.ts`): `src/lib/api.ts` is the single file that knows the base URL (`/api`, proxied by Vite in dev, same-origin behind the reverse proxy in production), parses RFC 9457 `problem+json` errors into `ApiError`, and is the only thing components/query hooks call through. `src/services/api.ts` groups typed endpoint functions by resource (`audiobookApi`, `libraryApi`, `consistencyApi`, `seriesApi`, `settingsApi`, ...) and holds `toAudiobookDto`/mapping helpers between the frontend's `Audiobook` domain shape and the backend's DTO shape.
+
+  **Invariant: every request goes out with `X-Requested-With: XMLHttpRequest`.** The backend
+  (`CrossSiteRequestGuardMiddleware`) refuses any state-changing `/api` request that arrives
+  without it. That header is not CORS-safelisted, so a page on another origin cannot set it
+  without a preflight, which the backend — which registers no CORS policy — refuses. This is
+  what stops a form on an unrelated site the operator visits from reaching the parameterless
+  destructive POSTs (`consistency/orphan-directories/resolve-all` and friends), which a
+  same-site cookie or a CORS policy cannot do on their own. `src/lib/api.ts` sets it centrally,
+  so **any state-changing call must go through that module** rather than calling `fetch`
+  directly, or the backend will refuse it.
+
+  Two direct `fetch` calls exist outside the module by necessity (`CoverEditor` and
+  `BookEditForm`, both fetching a cover blob from `metadata-search/proxy-image`): `lib/api.ts`
+  parses every response as JSON, so a binary GET cannot go through it. They are reads, which the
+  guard does not cover, so they are unaffected — but a *write* must never be added this way.
+
+  Swagger UI's "Try it out" sets the header via a request interceptor configured in
+  `Program.cs`, so the guard applies uniformly in development rather than being carved out for
+  the environment it is developed in.
 - **Types**: `src/lib/api-types.ts` is generated from the backend's OpenAPI spec (`pnpm run generate-api-types`) and is vendored — never hand-edited. Most `src/types/*.ts` files are thin aliases over it (`type X = components["schemas"]["XDto"]`, or the narrowed `Require<Dto, "field1" | "field2">` form from `src/lib/dto.ts`) rather than independently hand-written interfaces. Every generated DTO property is optional *and* nullable regardless of what the C# type actually guarantees — Swashbuckle only populates the OpenAPI `required` array for types carrying explicit `[Required]` attributes, which in this codebase is only the request DTOs; this API's response DTOs are plain C# records, so their non-nullable positional properties get no such annotation and render as optional in `api-types.ts`. `Require<Dto, K>` restores that guarantee for the fields a type file's cited C# source confirms are non-nullable — re-check that source before widening a `Require<>` key list, the same way you'd re-check a hand-written type against the schema. A handful of `src/types/*.ts` files stay genuinely hand-written because they have no 1:1 wire counterpart (`Audiobook`/`AudiobookPerson` is the richer array-based editing-form model the flat DTO gets transformed to/from; `OrganizeAudiobookInput` is a client-only tag-preview shape; `PaginatedResult<T>` is a reusable generic where the backend emits one concrete schema per `T`) — each such file says so in a comment. `client/src/DESIGN.md` section 9 records this as the one remaining deviation from section 7's "never hand-write response interfaces," and why.
 - **Real-time**: SignalR via `@microsoft/signalr` directly, wired through `SignalRProvider`/`SignalRContext` (`src/context/SignalRContext.tsx`, `src/components/SignalRProvider.tsx`) and the `useSignalREvent`/`useSignalRReconnected` hooks (`src/hooks/useSignalR.ts`) — event names are plain strings matched against the backend's `IOrganize` interface, not typed tokens.
 - **Components** (`src/components/`): `BookOrganize.tsx` (organization workflow), `BookLibrary.tsx` (library management + scan), `LibraryConsistency.tsx` (consistency checking). Library sub-views in `components/library/`. Vendored shadcn/ui primitives live in `components/ui/` — do not hand-edit them (see `client/src/DESIGN.md` section 3).

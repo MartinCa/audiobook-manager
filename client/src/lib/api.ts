@@ -81,8 +81,24 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
   return qs ? `${url}?${qs}` : url;
 }
 
+/**
+ * Sent on every request so the backend can tell an API call made by this app from a
+ * cross-site one. `X-Requested-With` is not a CORS-safelisted request header, so a page on
+ * another origin cannot set it without triggering a preflight — which the backend, having no
+ * CORS policy, refuses. See CrossSiteRequestGuardMiddleware.
+ *
+ * It has to go on every request rather than only the ones with a body: most of the
+ * state-changing endpoints here take no body at all (the "start this operation" POSTs, and
+ * every DELETE), so Content-Type is not available as the signal.
+ */
+const REQUESTED_WITH_HEADER = "X-Requested-With";
+const REQUESTED_WITH_VALUE = "XMLHttpRequest";
+
 function buildHeaders(headers: HeadersInit | undefined, hasBody: boolean): Headers {
-  const merged = new Headers({ Accept: "application/json" });
+  const merged = new Headers({
+    Accept: "application/json",
+    [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+  });
   if (hasBody) merged.set("Content-Type", "application/json");
   if (headers) {
     new Headers(headers).forEach((value, key) => merged.set(key, value));
