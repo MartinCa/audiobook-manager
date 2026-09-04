@@ -118,7 +118,8 @@ describe("LibraryConsistency", () => {
       id: 10,
       directoryPath: "/media/audiobooks/Author/Orphan",
       actionTaken: "retained_not_empty",
-      message: "Directory still contains files; preserved directory on disk and removed from orphan list.",
+      message:
+        "Directory still contains files; preserved directory on disk and removed from orphan list.",
     });
 
     renderWithProviders(<LibraryConsistency />);
