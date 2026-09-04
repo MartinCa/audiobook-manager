@@ -5,7 +5,11 @@ import type { AuthorDetail } from "@/types/AuthorDetail";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 import type { PaginatedResult } from "@/types/Common";
-import type { ConsistencyIssue, ConsistencyResolveResult } from "@/types/ConsistencyIssue";
+import type {
+  ConsistencyIssue,
+  ConsistencyIssuePage,
+  ConsistencyResolveResult,
+} from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
@@ -148,7 +152,22 @@ export const libraryApi = {
 export const consistencyApi = {
   startCheck: () => api.post<void>("/consistency/check"),
 
-  getIssues: () => api.get<ConsistencyIssue[]>("/consistency/issues"),
+  // Paged server-side. The unpaged version of this returned every issue with every field
+  // inline, and ExpectedValue/ActualValue hold whole metadata.opf documents and whole
+  // description bodies - megabytes of JSON to render fifty rows.
+  getIssues: (params: { issueType?: string; page?: number; pageSize?: number } = {}) =>
+    api.get<ConsistencyIssuePage>("/consistency/issues", {
+      query: {
+        issueType: params.issueType,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    }),
+
+  getIssueCountsByType: () => api.get<Record<string, number>>("/consistency/issues/counts-by-type"),
+
+  /** Issue count per audiobook id, for the badges in the library list. */
+  getIssueSummary: () => api.get<Record<number, number>>("/consistency/issues/summary"),
 
   getIssuesByAudiobook: (audiobookId: number) =>
     api.get<ConsistencyIssue[]>(`/consistency/issues/by-audiobook/${audiobookId}`),

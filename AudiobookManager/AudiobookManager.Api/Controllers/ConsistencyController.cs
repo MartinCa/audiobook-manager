@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
@@ -95,22 +96,75 @@ public class ConsistencyController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
+    private const int MaxPageSize = 200;
+
+    private const int DefaultPageSize = 50;
+
     [HttpGet("issues")]
-    public async Task<List<ConsistencyIssueDto>> GetIssues()
+    public async Task<ActionResult<ConsistencyIssuePageDto>> GetIssues(
+        [FromQuery] string? issueType = null,
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = DefaultPageSize)
     {
-        var issues = await _issueRepository.GetAllWithAudiobookAsync();
-        return issues.Select(i => new ConsistencyIssueDto(
-            i.Id,
-            i.AudiobookId,
-            i.Audiobook.BookName,
-            i.Audiobook.Authors.Select(a => a.Name).ToList(),
-            i.IssueType.ToString(),
-            i.Description,
-            i.ExpectedValue,
-            i.ActualValue,
-            i.DetectedAt
-        )).ToList();
+        if (page < 0)
+        {
+            return Problem(
+                detail: "page must be zero or greater.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request");
+        }
+
+        if (pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return Problem(
+                detail: $"pageSize must be between 1 and {MaxPageSize}.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request");
+        }
+
+        ConsistencyIssueType? parsedType = null;
+        if (!string.IsNullOrWhiteSpace(issueType))
+        {
+            if (!Enum.TryParse<ConsistencyIssueType>(issueType, ignoreCase: true, out var value))
+            {
+                return Problem(
+                    detail: $"'{issueType}' is not a known consistency issue type.",
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Invalid request");
+            }
+
+            parsedType = value;
+        }
+
+        var (issues, totalCount) = await _issueRepository.GetPageWithAudiobookAsync(
+            parsedType, page * pageSize, pageSize);
+
+        return Ok(new ConsistencyIssuePageDto(issues.Select(ToDto).ToList(), totalCount));
     }
+
+    /// <summary>
+    /// How many issues of each type there are, so the client can render the group headers and size
+    /// each group's pager without loading the issues themselves.
+    /// </summary>
+    [HttpGet("issues/counts-by-type")]
+    public async Task<Dictionary<string, int>> GetIssueCountsByType()
+    {
+        var counts = await _issueRepository.GetCountsByTypeAsync();
+        return counts.ToDictionary(entry => entry.Key.ToString(), entry => entry.Value);
+    }
+
+    private static ConsistencyIssueDto ToDto(ConsistencyIssue issue) => new(
+        issue.Id,
+        issue.AudiobookId,
+        issue.Audiobook.BookName,
+        issue.Audiobook.Authors.Select(a => a.Name).ToList(),
+        issue.IssueType.ToString(),
+        issue.Description,
+        issue.ExpectedValue,
+        issue.ActualValue,
+        issue.DetectedAt
+    );
 
     [HttpGet("issues/summary")]
     public async Task<Dictionary<long, int>> GetIssueSummary()
@@ -122,17 +176,7 @@ public class ConsistencyController : ControllerBase
     public async Task<List<ConsistencyIssueDto>> GetIssuesByAudiobook(long audiobookId)
     {
         var issues = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
-        return issues.Select(i => new ConsistencyIssueDto(
-            i.Id,
-            i.AudiobookId,
-            i.Audiobook.BookName,
-            i.Audiobook.Authors.Select(a => a.Name).ToList(),
-            i.IssueType.ToString(),
-            i.Description,
-            i.ExpectedValue,
-            i.ActualValue,
-            i.DetectedAt
-        )).ToList();
+        return issues.Select(ToDto).ToList();
     }
 
     [HttpPost("issues/recheck/{audiobookId}")]

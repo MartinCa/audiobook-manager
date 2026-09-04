@@ -27,6 +27,43 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .ToListAsync();
     }
 
+    public async Task<(List<ConsistencyIssue> Items, int TotalCount)> GetPageWithAudiobookAsync(
+        ConsistencyIssueType? issueType, int skip, int take)
+    {
+        var matching = _db.ConsistencyIssues.AsNoTracking();
+        if (issueType.HasValue)
+        {
+            matching = matching.Where(ci => ci.IssueType == issueType.Value);
+        }
+
+        // Counted before the includes: the count does not need the audiobook or its authors, and
+        // asking for them would make the query join the graph only to discard it.
+        var totalCount = await matching.CountAsync();
+
+        // The same total order as GetAllWithAudiobookAsync. It has to be total, not just by
+        // AudiobookId: SQLite is free to return ties in any order, and two pages ordered only
+        // partially can repeat a row and drop another.
+        var items = await matching
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.Authors)
+            .AsSplitQuery()
+            .OrderBy(ci => ci.AudiobookId)
+            .ThenBy(ci => ci.IssueType)
+            .ThenBy(ci => ci.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<Dictionary<ConsistencyIssueType, int>> GetCountsByTypeAsync()
+    {
+        return await _db.ConsistencyIssues
+            .GroupBy(ci => ci.IssueType)
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
+    }
+
     public async Task<ConsistencyIssue?> GetByIdAsync(long id)
     {
         // The full metadata graph (Authors, Narrators, Genres), not just Authors: the selective

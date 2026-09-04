@@ -16,7 +16,9 @@ vi.mock("@/services/api", () => ({
     getAudiobookDetail: vi.fn(),
   },
   consistencyApi: {
-    getIssues: vi.fn().mockResolvedValue([]),
+    getIssues: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
+    // The library list reads the per-audiobook summary now rather than every issue.
+    getIssueSummary: vi.fn().mockResolvedValue({}),
     getIssuesByAudiobook: vi.fn().mockResolvedValue([]),
     getConsistencyStatus: vi.fn().mockResolvedValue({ isRunning: false }),
   },

@@ -8,6 +8,12 @@ export type ConsistencyIssue = Require<
   "id" | "audiobookId" | "bookName" | "authors" | "issueType" | "description" | "detectedAt"
 >;
 
+// AudiobookManager.Api/Dtos/ConsistencyIssuePageDto.cs
+export type ConsistencyIssuePage = Require<
+  components["schemas"]["ConsistencyIssuePageDto"],
+  "items" | "totalCount"
+>;
+
 export type ConsistencyResolveResult = Require<
   components["schemas"]["ConsistencyResolveResultDto"],
   "issueId" | "issueType" | "actionTaken" | "message"

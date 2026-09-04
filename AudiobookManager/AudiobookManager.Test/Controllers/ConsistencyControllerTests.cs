@@ -81,19 +81,79 @@ public class ConsistencyControllerTests
             }
         };
 
-        _issueRepository.Setup(r => r.GetAllWithAudiobookAsync()).ReturnsAsync(issues);
+        _issueRepository
+            .Setup(r => r.GetPageWithAudiobookAsync(null, 0, 50))
+            .ReturnsAsync((issues, 1));
 
         var result = await _controller.GetIssues();
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual(1, result[0].Id);
-        Assert.AreEqual(1, result[0].AudiobookId);
-        Assert.AreEqual("Test Book", result[0].BookName);
-        Assert.AreEqual("Author One", result[0].Authors[0]);
-        Assert.AreEqual("MissingDescTxt", result[0].IssueType);
-        Assert.AreEqual("desc.txt missing", result[0].Description);
-        Assert.AreEqual("Some description", result[0].ExpectedValue);
-        Assert.IsNull(result[0].ActualValue);
+        var page = ((OkObjectResult)result.Result!).Value as ConsistencyIssuePageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(1, page.Items[0].Id);
+        Assert.AreEqual(1, page.Items[0].AudiobookId);
+        Assert.AreEqual("Test Book", page.Items[0].BookName);
+        Assert.AreEqual("Author One", page.Items[0].Authors[0]);
+        Assert.AreEqual("MissingDescTxt", page.Items[0].IssueType);
+        Assert.AreEqual("desc.txt missing", page.Items[0].Description);
+        Assert.AreEqual("Some description", page.Items[0].ExpectedValue);
+        Assert.IsNull(page.Items[0].ActualValue);
+    }
+
+    [TestMethod]
+    public async Task GetIssues_WithAnIssueType_PassesItThroughAndPagesFromIt()
+    {
+        _issueRepository
+            .Setup(r => r.GetPageWithAudiobookAsync(ConsistencyIssueType.TagMismatch, 100, 25))
+            .ReturnsAsync((new List<ConsistencyIssue>(), 3699));
+
+        var result = await _controller.GetIssues("TagMismatch", page: 4, pageSize: 25);
+
+        var page = ((OkObjectResult)result.Result!).Value as ConsistencyIssuePageDto;
+        Assert.IsNotNull(page);
+
+        // The total is the whole matching set, not the page - it is what sizes the pager.
+        Assert.AreEqual(3699, page.TotalCount);
+        _issueRepository.Verify(r => r.GetPageWithAudiobookAsync(ConsistencyIssueType.TagMismatch, 100, 25), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetIssues_AnIssueTypeThatIsNotOne_IsRefusedRatherThanIgnored()
+    {
+        // Silently returning every type would look like a working filter returning odd results.
+        var result = await _controller.GetIssues("NotAnIssueType");
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _issueRepository.Verify(
+            r => r.GetPageWithAudiobookAsync(It.IsAny<ConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetIssues_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetIssues(page: page, pageSize: pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetIssueCountsByType_ReturnsTheCountsKeyedByTypeName()
+    {
+        _issueRepository.Setup(r => r.GetCountsByTypeAsync()).ReturnsAsync(new Dictionary<ConsistencyIssueType, int>
+        {
+            [ConsistencyIssueType.TagMismatch] = 3699,
+            [ConsistencyIssueType.MissingDescTxt] = 12,
+        });
+
+        var counts = await _controller.GetIssueCountsByType();
+
+        Assert.AreEqual(3699, counts["TagMismatch"]);
+        Assert.AreEqual(12, counts["MissingDescTxt"]);
     }
 
     [TestMethod]
