@@ -283,6 +283,55 @@ public class HardcoverRateLimitingTests
             Times.Exactly(4));
     }
 
+    // An abandoned request must not be retried: each attempt re-acquires a rate-limit token and
+    // spends a unit of the persisted daily budget on work nobody will read. This passes on the
+    // unmodified handler too - the pipeline stops on the signalled token before ShouldHandle's
+    // answer matters - which is exactly why it is worth pinning: nothing else states it, and
+    // IsTransient reads as though it says the opposite.
+    [TestMethod]
+    public async Task RetryHandler_TheCallerCancels_DoesNotRetry()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        var inner = new CancellingStubHandler(callerCancellation);
+        var retryHandler = new HardcoverRetryHandler(new Mock<ILogger<HardcoverRetryHandler>>().Object)
+        {
+            InnerHandler = inner,
+        };
+
+        using var client = new HttpClient(retryHandler);
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
+            () => client.GetAsync("https://api.hardcover.app/v1/graphql", callerCancellation.Token));
+
+        Assert.AreEqual(1, inner.CallCount, "A cancelled request must be attempted once and abandoned.");
+    }
+
+    /// <summary>
+    /// Cancels the caller's own token and then throws the exception that cancellation produces -
+    /// the shape a disconnected client or an abandoned request presents to the retry policy.
+    /// </summary>
+    private class CancellingStubHandler : HttpMessageHandler
+    {
+        private readonly CancellationTokenSource _callerCancellation;
+
+        public CancellingStubHandler(CancellationTokenSource callerCancellation)
+        {
+            _callerCancellation = callerCancellation;
+        }
+
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+
+            // The caller goes away mid-flight, which is the sequence that matters: the token is
+            // signalled and the in-flight send then surfaces as a TaskCanceledException.
+            _callerCancellation.Cancel();
+            throw new TaskCanceledException("The caller went away.", null, _callerCancellation.Token);
+        }
+    }
+
     private class StubHandler : HttpMessageHandler
     {
         private readonly HttpStatusCode _status;

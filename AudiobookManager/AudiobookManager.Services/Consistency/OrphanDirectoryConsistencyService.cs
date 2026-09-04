@@ -43,16 +43,23 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         // a leaf - so the user had to run the check once per level. Bottom-up, a directory whose
         // every subdirectory is itself being reclaimed is reported in the same pass.
         //
-        // "Does this subtree hold audio?" is answered from the children's already-computed
-        // answers rather than by re-walking the subtree, so every file in the library is stat'ed
-        // once for the whole sweep. Asking Directory.EnumerateFiles(dir, "*", AllDirectories) per
-        // directory would re-walk each file once per ancestor level.
-        var allDirectories = Directory
-            .EnumerateDirectories(_settings.AudiobookLibraryPath, "*", SearchOption.AllDirectories)
+        // "Must this subtree be kept?" is answered from the children's already-computed answers
+        // rather than by re-walking the subtree, so every file in the library is stat'ed once for
+        // the whole sweep. Asking Directory.EnumerateFiles(dir, "*", AllDirectories) per directory
+        // would re-walk each file once per ancestor level.
+        // DirectoryWalk rather than SearchOption.AllDirectories: that option deliberately includes
+        // reparse points, and a symlink pointing back at an ancestor makes the enumeration itself
+        // never terminate. Symlinked media directories are ordinary on a NAS library assembled
+        // from several shares.
+        var allDirectories = DirectoryWalk
+            .EnumerateDirectoriesRecursively(_settings.AudiobookLibraryPath)
             .OrderByDescending(directory => directory.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
             .ToList();
 
-        var subtreeHasAudio = new HashSet<string>(AudiobookFileHandler.PathComparer);
+        // Directories that must not be reclaimed - because they hold audio, or because something
+        // under them could not be looked inside. Both answers travel upwards identically: a parent
+        // whose child must be kept must be kept too.
+        var mustKeep = new HashSet<string>(AudiobookFileHandler.PathComparer);
         var orphans = new List<OrphanDirectory>();
         var orphansByPath = new Dictionary<string, OrphanDirectory>(AudiobookFileHandler.PathComparer);
 
@@ -60,13 +67,21 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         {
             var subdirectories = Directory.EnumerateDirectories(directory).ToList();
 
-            var hasAudioFile =
+            // Three separate reasons to keep a directory, and only the first is about audio: it
+            // holds a supported file, a child of it is already being kept, or a child is a symlink.
+            //
+            // The last is why this is "must keep" rather than "has audio". A link's target is
+            // deliberately not walked, so nothing answers for what is under it - and a missing
+            // answer would otherwise read as "no audio under there", which is the one reading that
+            // ends in a recursive delete of a folder whose contents were never examined.
+            var mustKeepDirectory =
                 Directory.EnumerateFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)))
-                || subdirectories.Any(subtreeHasAudio.Contains);
+                || subdirectories.Any(mustKeep.Contains)
+                || subdirectories.Any(DirectoryWalk.IsLink);
 
-            if (hasAudioFile)
+            if (mustKeepDirectory)
             {
-                subtreeHasAudio.Add(directory);
+                mustKeep.Add(directory);
                 continue;
             }
 
@@ -163,8 +178,29 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
             return true;
         }
 
-        // Safety net in case a file was added to the directory since it was detected as orphaned
-        var hasAudioFile = Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories)
+        // This directory being a link is the one case the walk below cannot answer: enumerating
+        // through it would describe the target's contents, and "the target holds no audio" is not
+        // a reason to delete a link. Refuse instead.
+        //
+        // Links *inside* the subtree need no equivalent check. The delete at the end is
+        // Directory.Delete(recursive: true), which is documented not to recurse through a reparse
+        // point - a symlinked subdirectory is unlinked, and its target is left alone - so a link
+        // appearing between this check and the delete cannot take its target with it. Verified on
+        // this stack as well as read: a recursive delete of a directory containing a symlink to a
+        // populated directory left the target and its files intact.
+        if (DirectoryWalk.IsLink(directoryPath))
+        {
+            return false;
+        }
+
+        // Safety net in case a file was added since the directory was detected as orphaned, walked
+        // link-free for the same reason the detection is: an enumeration that followed a link
+        // would answer for the wrong subtree.
+        var directoriesToCheck = new[] { directoryPath }
+            .Concat(DirectoryWalk.EnumerateDirectoriesRecursively(directoryPath));
+
+        var hasAudioFile = directoriesToCheck
+            .SelectMany(Directory.EnumerateFiles)
             .Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)));
         if (hasAudioFile)
         {

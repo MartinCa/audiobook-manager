@@ -27,7 +27,13 @@ public class FileScanner
 
             foreach (string sPath in Directory.EnumerateDirectories(currentPath))
             {
-                directories.Push(sPath);
+                // Not into symlinks: a link back to an ancestor turns this walk into one that
+                // never terminates, and the same file reached through two paths would be scanned
+                // twice. See DirectoryWalk.
+                if (!DirectoryWalk.IsLink(sPath))
+                {
+                    directories.Push(sPath);
+                }
             }
         }
 

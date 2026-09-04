@@ -19,12 +19,32 @@ public class OrganizeWorker : BackgroundService
         _logger = logger;
     }
 
+    /// <summary>How long the loop sleeps when the queue is empty.</summary>
+    private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The first delay after a failure, doubled on each consecutive one up to
+    /// <see cref="MaxErrorDelay"/>.
+    /// </summary>
+    private static readonly TimeSpan InitialErrorDelay = TimeSpan.FromSeconds(1);
+
+    private static readonly TimeSpan MaxErrorDelay = TimeSpan.FromMinutes(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
 
+        // The idle delay below covers only the "queue is empty" path. If the queue read itself
+        // throws - SQLite busy under a concurrent scan, or a row whose json_audiobook no longer
+        // deserialises - there is no task to fail and nothing to delete, so the loop used to come
+        // straight back round at full speed: a pinned core and a log filling at thousands of lines
+        // per second, for a bad row until someone removes it by hand.
+        var consecutiveErrors = 0;
+
         while (!stoppingToken.IsCancellationRequested)
         {
+            var errorDelay = TimeSpan.Zero;
+
             using (var scope = _serviceProvider.CreateScope())
             {
                 QueuedOrganizeTask? task = null;
@@ -34,7 +54,8 @@ public class OrganizeWorker : BackgroundService
                     task = await organizeTaskService.GetNextQueuedOrganizeTask();
                     if (task == null)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                        consecutiveErrors = 0;
+                        await Task.Delay(IdleDelay, stoppingToken);
                         continue;
                     }
 
@@ -49,6 +70,8 @@ public class OrganizeWorker : BackgroundService
                     // instead of silently disappearing if the client missed the QueueError event.
                     var discoveredRepo = scope.ServiceProvider.GetRequiredService<IDiscoveredAudiobookRepository>();
                     await discoveredRepo.DeleteByPathAsync(task.OriginalFileLocation);
+
+                    consecutiveErrors = 0;
                 } catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     // Cooperative shutdown: the idle Task.Delay above (or another await) was
@@ -64,9 +87,42 @@ public class OrganizeWorker : BackgroundService
                         var organizeTaskService = scope.ServiceProvider.GetRequiredService<IQueuedOrganizeTaskService>();
                         await organizeTaskService.DeleteQueuedOrganizeTask(task.OriginalFileLocation);
                     }
+
+                    consecutiveErrors++;
+                    errorDelay = BackoffFor(consecutiveErrors);
+
+                    _logger.LogWarning(
+                        "Organize worker backing off for {Delay} after {ConsecutiveErrors} consecutive failure(s)",
+                        errorDelay,
+                        consecutiveErrors);
+                }
+            }
+
+            // Outside the scope, so the delay does not hold a DbContext (and everything else the
+            // scope resolved) open for the length of the backoff.
+            if (errorDelay > TimeSpan.Zero)
+            {
+                try
+                {
+                    await Task.Delay(errorDelay, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Exponential, capped. Capped rather than unbounded because the condition usually clears on
+    /// its own - a scan finishes, a mount comes back - and a worker that had backed off to hours
+    /// would take just as long to notice.
+    /// </summary>
+    private static TimeSpan BackoffFor(int consecutiveErrors)
+    {
+        var scaled = InitialErrorDelay * Math.Pow(2, Math.Min(consecutiveErrors - 1, 10));
+        return scaled < MaxErrorDelay ? scaled : MaxErrorDelay;
     }
 
     private async Task UpdateProgress(string originalFileLocation, string progressMessage, int progress)

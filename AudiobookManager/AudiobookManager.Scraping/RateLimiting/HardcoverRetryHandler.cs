@@ -28,7 +28,7 @@ public class HardcoverRetryHandler : DelegatingHandler
                 MaxRetryAttempts = MaxRetryAttempts,
                 BackoffType = DelayBackoffType.Exponential,
                 Delay = TimeSpan.FromSeconds(2),
-                ShouldHandle = args => ValueTask.FromResult(IsTransient(args.Outcome)),
+                ShouldHandle = args => ValueTask.FromResult(IsTransient(args.Outcome, args.Context.CancellationToken)),
                 DelayGenerator = args => ValueTask.FromResult(RetryAfterDelay(args.Outcome)),
                 OnRetry = args =>
                 {
@@ -55,9 +55,29 @@ public class HardcoverRetryHandler : DelegatingHandler
             cancellationToken);
     }
 
-    private static bool IsTransient(Outcome<HttpResponseMessage> outcome)
+    private static bool IsTransient(Outcome<HttpResponseMessage> outcome, CancellationToken cancellationToken)
     {
         if (outcome.Exception is HardcoverDailyLimitExceededException)
+        {
+            return false;
+        }
+
+        // The caller gave up - the request was abandoned or the client disconnected. Nothing about
+        // that gets better by trying again, and a retry would re-acquire a rate-limit token and
+        // spend a unit of the persisted daily budget on work nobody will read.
+        //
+        // Measured, this does not currently happen: the pipeline checks the token before it
+        // retries, so a signalled token stops the retry whatever this predicate answers. But Polly
+        // excludes OperationCanceledException from its *default* ShouldHandle, and the clause below
+        // overrides that default by naming TaskCanceledException as retryable - so as written this
+        // method claims the opposite of what the pipeline does, and the correct behaviour rests on
+        // an ordering neither the code nor Polly's retry documentation states. Saying it here costs
+        // one branch.
+        //
+        // It has to stay distinct from an HttpClient *timeout*, which surfaces as the same
+        // exception type and is genuinely worth retrying. The token separates them: a timeout
+        // leaves it unsignalled.
+        if (cancellationToken.IsCancellationRequested && outcome.Exception is OperationCanceledException)
         {
             return false;
         }
