@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   Clock,
   HardDrive,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,12 +28,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BookEditForm } from "@/components/BookEditForm";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { libraryApi, audiobookApi, filesApi } from "@/services/api";
+import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
@@ -130,6 +133,14 @@ export function DiscoveredAudiobooks() {
 
   const books: DiscoveredAudiobook[] = data?.items ?? [];
   const totalCount = data?.total ?? 0;
+
+  // Organize tasks whose json_audiobook failed to deserialize - including ones dead-lettered
+  // past the retry threshold - so a permanently-stuck file isn't invisible until someone digs
+  // through the logs. See #1322.
+  const { data: failedTasks = [] } = useQuery({
+    queryKey: ["failedOrganizeTasks"],
+    queryFn: () => queueApi.getFailedTasks(),
+  });
 
   // SignalR scan events
   useSignalREvent<ScanProgressPayload>("LibraryScanProgress", (data) => {
@@ -291,6 +302,41 @@ export function DiscoveredAudiobooks() {
     }
   };
 
+  const [retryingPaths, setRetryingPaths] = useState<Set<string>>(new Set());
+  const [removeFailedTargetPath, setRemoveFailedTargetPath] = useState<string | null>(null);
+  const [removingFailedTask, setRemovingFailedTask] = useState(false);
+
+  const handleRetryFailedTask = async (path: string) => {
+    setRetryingPaths((prev) => new Set(prev).add(path));
+    try {
+      await queueApi.retryFailedTask(path);
+      toast.success("Queued for another attempt");
+      void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setRetryingPaths((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+    }
+  };
+
+  const handleRemoveFailedTask = async (path: string) => {
+    setRemovingFailedTask(true);
+    try {
+      await queueApi.deleteFailedTask(path);
+      toast.success("Removed from the organize queue");
+      void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
+      setRemoveFailedTargetPath(null);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setRemovingFailedTask(false);
+    }
+  };
+
   const { dialogProps, checkCollisionAndProceed } = useTargetCollision({
     onReplaceExisting: (book) => proceedOrganizeDiscovered(book),
     onDeleteNew: (book) => {
@@ -338,6 +384,67 @@ export function DiscoveredAudiobooks() {
           Books marked "Well tagged" have valid tags and can be bulk imported.
         </p>
       </div>
+
+      {failedTasks.length > 0 && (
+        <Card className="border-destructive/50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="text-destructive h-4 w-4" />
+            <h2 className="text-foreground text-sm font-semibold">
+              Failed Organize Tasks ({failedTasks.length})
+            </h2>
+          </div>
+          <p className="text-muted-foreground mb-3 text-xs">
+            These files were queued to be organized but the queued data could not be read back -
+            most likely left over from before an app update. Retry after a fix has shipped, or
+            remove the queue entry and re-queue the file from scratch.
+          </p>
+          <div className="space-y-2">
+            {failedTasks.map((task) => (
+              <div
+                key={task.originalFileLocation}
+                className="border-border bg-card flex flex-col gap-2 rounded-md border p-2.5 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-foreground truncate text-sm font-medium">
+                    {task.originalFileLocation}
+                  </div>
+                  <div className="text-muted-foreground text-xs">
+                    Failed {task.failureCount} time{task.failureCount === 1 ? "" : "s"}
+                    {task.lastFailureAt
+                      ? ` · last at ${new Date(task.lastFailureAt).toLocaleString()}`
+                      : ""}
+                    {task.lastFailureReason ? ` · ${task.lastFailureReason}` : ""}
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={retryingPaths.has(task.originalFileLocation)}
+                    onClick={() => {
+                      void handleRetryFailedTask(task.originalFileLocation);
+                    }}
+                  >
+                    <RotateCcw
+                      className={`mr-1.5 h-3.5 w-3.5 ${retryingPaths.has(task.originalFileLocation) ? "animate-spin" : ""}`}
+                    />
+                    Retry
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setRemoveFailedTargetPath(task.originalFileLocation)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {scanning && scanProgress && (
         <OperationProgressBar
@@ -580,6 +687,52 @@ export function DiscoveredAudiobooks() {
           description="Are you sure you want to permanently delete this file and its folder contents? This will remove the file from disk and remove its record from discovered audiobooks."
         />
       )}
+
+      <Dialog
+        open={Boolean(removeFailedTargetPath)}
+        onOpenChange={(open) => {
+          if (!open) setRemoveFailedTargetPath(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove Failed Organize Task</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            This removes the queue entry only - the file itself is untouched on disk. You can
+            re-queue it from this page afterward.
+          </p>
+          <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setRemoveFailedTargetPath(null)}
+              disabled={removingFailedTask}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full sm:w-auto"
+              disabled={removingFailedTask}
+              onClick={() => {
+                if (removeFailedTargetPath) {
+                  void handleRemoveFailedTask(removeFailedTargetPath);
+                }
+              }}
+            >
+              {removingFailedTask ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove Task"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-2">

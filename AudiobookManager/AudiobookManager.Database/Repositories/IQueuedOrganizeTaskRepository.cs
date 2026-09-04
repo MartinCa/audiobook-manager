@@ -16,4 +16,18 @@ public interface IQueuedOrganizeTaskRepository
     /// permanently-bad row cannot block every row queued behind it.
     /// </summary>
     public Task RecordDeserializationFailureAsync(string originalFileLocation, string reason);
+
+    /// <summary>
+    /// Every row that has failed to deserialize at least once, most recently failed first.
+    /// Projected without <c>JsonAudiobook</c> - the column that fails is exactly what a caller
+    /// must not attempt to read back here.
+    /// </summary>
+    public Task<IList<FailedOrganizeTaskRow>> GetFailedQueuedOrganizeTasksAsync();
+
+    /// <summary>
+    /// Clears the failure count/reason/timestamp on the row at <paramref name="originalFileLocation"/>,
+    /// making it eligible for <see cref="GetNextQueuedOrganizeTask"/> again regardless of how many
+    /// times it had previously failed. Returns false if no row exists at that path.
+    /// </summary>
+    public Task<bool> RetryQueuedOrganizeTaskAsync(string originalFileLocation);
 }

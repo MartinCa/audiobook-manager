@@ -65,6 +65,33 @@ public class QueuedOrganizeTaskRepository : IQueuedOrganizeTaskRepository
                 .SetProperty(x => x.LastFailureAt, failedAt));
     }
 
+    public async Task<IList<FailedOrganizeTaskRow>> GetFailedQueuedOrganizeTasksAsync()
+    {
+        return await _db.QueuedOrganizeTasks
+            .AsNoTracking()
+            .Where(x => x.FailureCount > 0)
+            .OrderByDescending(x => x.LastFailureAt)
+            .Select(x => new FailedOrganizeTaskRow(
+                x.OriginalFileLocation,
+                x.QueuedTime,
+                x.FailureCount,
+                x.LastFailureReason,
+                x.LastFailureAt))
+            .ToListAsync();
+    }
+
+    public async Task<bool> RetryQueuedOrganizeTaskAsync(string originalFileLocation)
+    {
+        var affected = await _db.QueuedOrganizeTasks
+            .Where(x => x.OriginalFileLocation == originalFileLocation)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.FailureCount, 0)
+                .SetProperty(x => x.LastFailureReason, x => null)
+                .SetProperty(x => x.LastFailureAt, x => null));
+
+        return affected > 0;
+    }
+
     public async Task<QueuedOrganizeTask?> GetQueuedOrganizeTask(string originalFileLocation)
     {
         // A query rather than FindAsync, and untracked. FindAsync answers from the change

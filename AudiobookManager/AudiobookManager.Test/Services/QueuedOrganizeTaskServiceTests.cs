@@ -181,6 +181,51 @@ public class QueuedOrganizeTaskServiceTests
         Assert.AreEqual(0, tasks.Count);
     }
 
+    // #1322 follow-up: giving a user somewhere to see and act on a row that GetNextQueuedOrganizeTask
+    // has stopped serving (dead-lettered or just repeatedly failing).
+    [TestMethod]
+    public async Task GetFailedQueuedOrganizeTasks_ReturnsRowsThatHaveFailedAtLeastOnce()
+    {
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", DateTime.UtcNow);
+        await _service.QueueOrganizeTask(MakeBook("/import/healthy.m4b"));
+
+        try
+        {
+            await _service.GetNextQueuedOrganizeTask();
+        }
+        catch (QueuedOrganizeTaskDeserializationException)
+        {
+            // Expected - this is what records the failure against the row.
+        }
+
+        var failed = await _service.GetFailedQueuedOrganizeTasks();
+
+        Assert.AreEqual(1, failed.Count);
+        Assert.AreEqual("/import/corrupt.m4b", failed[0].OriginalFileLocation);
+        Assert.AreEqual(1, failed[0].FailureCount);
+    }
+
+    [TestMethod]
+    public async Task RetryQueuedOrganizeTask_RowPreviouslyDeadLettered_CanBeDequeuedAgain()
+    {
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", DateTime.UtcNow);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await Assert.ThrowsExactlyAsync<QueuedOrganizeTaskDeserializationException>(
+                () => _service.GetNextQueuedOrganizeTask());
+        }
+        Assert.IsNull(await _service.GetNextQueuedOrganizeTask(), "sanity check: dead-lettered row must not be returned yet");
+
+        var retried = await _service.RetryQueuedOrganizeTask("/import/corrupt.m4b");
+        Assert.IsTrue(retried);
+
+        // Still corrupt JSON, so it fails again - but the point is it was tried at all, not
+        // silently skipped forever.
+        await Assert.ThrowsExactlyAsync<QueuedOrganizeTaskDeserializationException>(
+            () => _service.GetNextQueuedOrganizeTask());
+    }
+
     private async Task InsertRawAsync(string originalFileLocation, string jsonAudiobook, DateTime queuedTime)
     {
         _db.QueuedOrganizeTasks.Add(new Database.Models.QueuedOrganizeTask(originalFileLocation, jsonAudiobook, queuedTime));
