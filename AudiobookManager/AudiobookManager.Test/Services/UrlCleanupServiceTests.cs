@@ -86,16 +86,6 @@ public class UrlCleanupServiceTests
     }
 
     [TestMethod]
-    public async Task CountDirtyUrlsAsync_DelegatesToTheRepository()
-    {
-        _audiobookRepository.Setup(r => r.CountDirtyUrlsAsync()).ReturnsAsync(2500);
-
-        var count = await _service.CountDirtyUrlsAsync();
-
-        Assert.AreEqual(2500, count);
-    }
-
-    [TestMethod]
     public async Task ApplyAsync_UpdatesOnlyRequestedDirtyBooksThroughAudiobookService()
     {
         _audiobookService.Setup(s => s.GetAudiobookById(1))

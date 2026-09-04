@@ -73,16 +73,6 @@ public class UrlCleanupController : ControllerBase
             totalCount));
     }
 
-    /// <summary>
-    /// How many books carry a dirty URL (the same predicate as the paged list), so the client can
-    /// render the header count and size its pager without loading the (possibly huge) list itself.
-    /// </summary>
-    [HttpGet("count")]
-    public async Task<int> GetDirtyUrlCount()
-    {
-        return await _urlCleanupService.CountDirtyUrlsAsync();
-    }
-
     [HttpPost("apply")]
     public async Task<ApplyUrlCleanupResultDto> Apply([FromBody] ApplyUrlCleanupDto dto)
     {

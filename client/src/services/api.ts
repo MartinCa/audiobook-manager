@@ -243,8 +243,6 @@ export const urlCleanupApi = {
   getDirtyUrlPage: (page: number, pageSize: number) =>
     api.get<UrlCleanupPage>("/url-cleanup/audiobooks", { query: { page, pageSize } }),
 
-  getDirtyUrlCount: () => api.get<number>("/url-cleanup/count"),
-
   apply: (audiobookIds: number[]) =>
     api.post<ApplyUrlCleanupResult>("/url-cleanup/apply", { audiobookIds }),
 };

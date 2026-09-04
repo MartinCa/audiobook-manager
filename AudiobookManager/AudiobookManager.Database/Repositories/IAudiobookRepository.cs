@@ -20,9 +20,6 @@ public interface IAudiobookRepository
     /// size its pager without a second round trip.
     /// </summary>
     Task<(List<DirtyUrlRow> Items, int Total)> GetDirtyUrlPageAsync(int limit, int offset);
-
-    /// <summary>How many audiobooks carry a dirty URL (same predicate as the page query above).</summary>
-    Task<int> CountDirtyUrlsAsync();
     Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset);
     Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,31 +16,28 @@ export function CleanBookUrls() {
   const queryClient = useQueryClient();
 
   // The dirty list is paged server-side: with a few thousand dirty URLs the old unpaged
-  // response rendered every book as a card into the DOM and the page became unusably slow. The
-  // header count is fetched separately so it still renders while a page is loading, and both
-  // live under the same ["urlCleanup"] prefix so one invalidation refreshes both.
-  const { data: totalCount = 0 } = useQuery({
-    queryKey: ["urlCleanup", "count"],
-    queryFn: () => urlCleanupApi.getDirtyUrlCount(),
-  });
-
+  // response rendered every book as a card into the DOM and the page became unusably slow.
   const [page, setPage] = useState(0);
-
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
-  // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
-  const currentPage = Math.min(page, pageCount - 1);
 
   const {
     data: pageData,
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ["urlCleanup", "page", currentPage],
-    queryFn: () => urlCleanupApi.getDirtyUrlPage(currentPage, PAGE_SIZE),
+    queryKey: ["urlCleanup", "page", page],
+    // keepPreviousData: while the next page loads the previous one stays rendered (with the
+    // checkboxes dimmed via isFetching), so the pager doesn't vanish on every navigation.
+    placeholderData: keepPreviousData,
+    queryFn: () => urlCleanupApi.getDirtyUrlPage(page, PAGE_SIZE),
   });
 
+  const totalCount = pageData?.totalCount ?? 0;
   const dirtyUrls = (pageData?.items ?? []) as AudiobookUrlCleanup[];
+
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
+  // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
+  const currentPage = Math.min(page, pageCount - 1);
 
   // null means "not customized yet" - defaults to everything on the loaded page selected. Once
   // the user toggles a box we switch to an explicit set, which is simpler than syncing state off
@@ -48,14 +45,20 @@ export function CleanBookUrls() {
   const [customSelection, setCustomSelection] = useState<Set<number> | null>(null);
   const selectedIds = customSelection ?? new Set(dirtyUrls.map((b) => b.audiobookId));
 
+  // The selection is page-scoped: navigating resets it back to "everything on the visible page
+  // selected", so the button label always describes what is in front of the user. Hoisted out of
+  // the pager buttons so the same reset also covers apply (below).
+  const goToPage = (next: number) => {
+    setPage(next);
+    setCustomSelection(null);
+  };
+
   const applyMutation = useMutation({
     mutationFn: (audiobookIds: number[]) => urlCleanupApi.apply(audiobookIds),
     onSuccess: (result) => {
       toast.success(`Cleaned ${result.updated ?? 0} book URL${result.updated === 1 ? "" : "s"}`);
-      setCustomSelection(null);
-      // Drop back to page 0 too: whatever page was being looked at may now be a stale slice,
-      // and the count query must agree with the freshly re-fetched page.
-      setPage(0);
+      // Drop back to page 0 too: whatever page was being looked at may now be a stale slice.
+      goToPage(0);
       void queryClient.invalidateQueries({ queryKey: ["urlCleanup"] });
     },
     onError: (err: unknown) => {
@@ -137,7 +140,7 @@ export function CleanBookUrls() {
             <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
             <p className="text-sm">Scanning saved URLs...</p>
           </div>
-        ) : dirtyUrls.length === 0 ? (
+        ) : totalCount === 0 ? (
           <Card className="p-12 text-center">
             <Link2 className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
             <h3 className="text-foreground text-lg font-medium">No trackable URLs found</h3>
@@ -178,6 +181,9 @@ export function CleanBookUrls() {
               </div>
             ))}
 
+            {/* Stays rendered even if this page comes back empty while the count is non-zero
+                (someone cleaned rows from another tab, or the clamp lagged a shrinking total),
+                so the user can page back instead of staring at a dead-end heading. */}
             {pageCount > 1 && (
               <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
                 <span className="text-muted-foreground text-xs">
@@ -189,7 +195,7 @@ export function CleanBookUrls() {
                     size="sm"
                     variant="outline"
                     disabled={currentPage === 0}
-                    onClick={() => setPage((p) => p - 1)}
+                    onClick={() => goToPage(currentPage - 1)}
                   >
                     Previous
                   </Button>
@@ -197,7 +203,7 @@ export function CleanBookUrls() {
                     size="sm"
                     variant="outline"
                     disabled={currentPage >= pageCount - 1}
-                    onClick={() => setPage((p) => p + 1)}
+                    onClick={() => goToPage(currentPage + 1)}
                   >
                     Next
                   </Button>

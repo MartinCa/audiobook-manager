@@ -109,14 +109,4 @@ public class UrlCleanupControllerTests
 
         Assert.IsInstanceOfType<OkObjectResult>(result.Result);
     }
-
-    [TestMethod]
-    public async Task GetDirtyUrlCount_ReturnsTheCount()
-    {
-        _urlCleanupService.Setup(s => s.CountDirtyUrlsAsync()).ReturnsAsync(2500);
-
-        var count = await _controller.GetDirtyUrlCount();
-
-        Assert.AreEqual(2500, count);
-    }
 }

@@ -46,8 +46,6 @@ public class UrlCleanupService : IUrlCleanupService
         return (items, total);
     }
 
-    public Task<int> CountDirtyUrlsAsync() => _audiobookRepository.CountDirtyUrlsAsync();
-
     public async Task<int> ApplyAsync(IEnumerable<long> audiobookIds)
     {
         var ids = audiobookIds.Distinct().ToList();

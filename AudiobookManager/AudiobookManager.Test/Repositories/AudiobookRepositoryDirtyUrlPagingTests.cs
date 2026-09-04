@@ -110,6 +110,22 @@ public class AudiobookRepositoryDirtyUrlPagingTests
         Assert.AreSequenceEqual(new[] { "Dirty Fragment URL", "Dirty Query URL" }, items.Select(i => i.BookName));
     }
 
+    // Regression (PR #1326 review): a scheme-less value is not dirty, even with a query string and
+    // fragment, because BookUrlCleaner.Clean bails out on a URL Uri.TryCreate cannot parse and
+    // returns it unchanged. Flagging it would render a card whose struck-through and "cleaned" URLs
+    // are the same string and keep the list permanently non-empty.
+    [TestMethod]
+    public async Task GetDirtyUrlPageAsync_ExcludesSchemeLessTailWithQueryOrFragment()
+    {
+        await SeedBookAsync("Dirty URL", "https://www.audible.com/pd/X?ref=x");
+        await SeedBookAsync("Scheme-less with query", "www.audible.com/pd/X?ref=y");
+
+        var (items, totalCount) = await _repository.GetDirtyUrlPageAsync(limit: 10, offset: 0);
+
+        Assert.AreEqual(1, totalCount);
+        Assert.AreEqual("Dirty URL", items.Single().BookName);
+    }
+
     // The bug paging invites: every page taken separately, and each row appearing exactly once
     // across all of them.
     [TestMethod]
@@ -130,18 +146,5 @@ public class AudiobookRepositoryDirtyUrlPagingTests
         }
 
         Assert.AreEqual(7, seen.Distinct().Count());
-    }
-
-    [TestMethod]
-    public async Task CountDirtyUrlsAsync_CountsOnlyDirtyUrls()
-    {
-        await SeedBookAsync("No URL");
-        await SeedBookAsync("Blank URL", "");
-        await SeedBookAsync("Clean URL", "https://hardcover.app/books/connections");
-        await SeedBookAsync("Dirty URL", "https://www.audible.com/pd/X?ref=x");
-
-        var count = await _repository.CountDirtyUrlsAsync();
-
-        Assert.AreEqual(1, count);
     }
 }

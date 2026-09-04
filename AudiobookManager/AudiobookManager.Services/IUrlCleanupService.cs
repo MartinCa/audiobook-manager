@@ -13,8 +13,5 @@ public interface IUrlCleanupService
     /// </summary>
     Task<(List<AudiobookUrlCleanup> Items, int Total)> FindDirtyUrlsPageAsync(int page, int pageSize);
 
-    /// <summary>How many audiobooks carry a dirty URL (same predicate as the paged query).</summary>
-    Task<int> CountDirtyUrlsAsync();
-
     Task<int> ApplyAsync(IEnumerable<long> audiobookIds);
 }
