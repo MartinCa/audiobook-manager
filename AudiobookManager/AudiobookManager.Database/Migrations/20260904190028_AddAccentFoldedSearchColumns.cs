@@ -42,10 +42,22 @@ namespace AudiobookManager.Database.Migrations
 
             // Backfill for every row that already existed before this migration - AddColumn only
             // sets up the schema, it does not populate the new columns for existing rows, and
-            // AudiobookRepository/PersonRepository only keep them in sync going forward (on the
-            // next insert or update). fold_accents is the same SQL scalar function the app
-            // registers on every connection (AccentFoldingConnectionInterceptor), available here
-            // because migrations run through that same connection pipeline.
+            // AccentFoldedColumnsInterceptor only keeps them in sync going forward (on the next
+            // insert or update).
+            //
+            // fold_accents is the same SQL scalar function the app registers on every connection
+            // (AccentFoldingConnectionInterceptor, wired up in DatabaseContext.OnConfiguring), and
+            // this UPDATE depends on that having already happened on whatever connection actually
+            // runs this migration. That holds for every path this codebase exercises -
+            // DatabaseContext's parameterless constructor and `dotnet ef` both go through
+            // OnConfiguring, and AddDbContext<DatabaseContext>() in DependencyInjection.cs is
+            // called with no options action, so production startup's Database.Migrate() does too
+            // (see AddAccentFoldedSearchColumnsMigration_BackfillsExistingRows for a real,
+            // migrator-driven regression test of this exact backfill, not just a manual check). A
+            // DbContext handed fully-external, already-configured DbContextOptions (skipping
+            // OnConfiguring entirely) would not register the function and this UPDATE would fail
+            // with "no such function: fold_accents" - nothing in this codebase does that, but it's
+            // the assumption to preserve if that ever changes.
             migrationBuilder.Sql("UPDATE persons SET name_folded = fold_accents(name);");
             migrationBuilder.Sql(
                 "UPDATE audiobooks SET " +

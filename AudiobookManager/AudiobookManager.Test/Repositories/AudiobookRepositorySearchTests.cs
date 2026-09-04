@@ -126,6 +126,51 @@ public class AudiobookRepositorySearchTests
         Assert.AreEqual("Sanderson Brandon", items[0].Authors.Single().Name);
     }
 
+    // Regression for review feedback on #1303: includeNarratorsAndGenres must actually gate those
+    // two Includes, not just exist as an unused parameter - the default (true) is what the paged
+    // /audiobooks/search endpoint relies on to populate MapToSummaryDto's Narrators/Genres fields.
+    [TestMethod]
+    public async Task SearchAsync_DefaultIncludesNarratorsAndGenres()
+    {
+        var book = new Audiobook(
+            default, "Wind and Truth", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/wat.m4b", "wat.m4b", 1000);
+        book.Authors.Add(new Person(default, "Brandon Sanderson"));
+        book.Narrators.Add(new Person(default, "Michael Kramer"));
+        book.Genres.Add(new Genre(default, "Fantasy"));
+        await _repository.InsertAudiobook(book);
+
+        var (items, _) = await _repository.SearchAsync("wind", 10, 0);
+
+        Assert.AreEqual("Michael Kramer", items[0].Narrators.Single().Name);
+        Assert.AreEqual("Fantasy", items[0].Genres.Single().Name);
+    }
+
+    // The type-ahead path (BrowseController.SearchLibrary) only ever reads Item.Authors from its
+    // hits, so it asks for includeNarratorsAndGenres: false. Authors must still come back - it's
+    // unconditionally included and is what the ranking ORDER BY matches on.
+    [TestMethod]
+    public async Task SearchAsync_NarratorsAndGenresExcluded_StillReturnsAuthors()
+    {
+        var book = new Audiobook(
+            default, "Wind and Truth", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/wat.m4b", "wat.m4b", 1000);
+        book.Authors.Add(new Person(default, "Brandon Sanderson"));
+        book.Narrators.Add(new Person(default, "Michael Kramer"));
+        book.Genres.Add(new Genre(default, "Fantasy"));
+        await _repository.InsertAudiobook(book);
+
+        var (items, total) = await _repository.SearchAsync(
+            "wind", 10, 0, includeTotal: false, includeNarratorsAndGenres: false);
+
+        Assert.AreEqual(0, total, "includeTotal: false must come back as the documented sentinel");
+        Assert.AreEqual("Brandon Sanderson", items[0].Authors.Single().Name);
+        Assert.AreEqual(0, items[0].Narrators.Count);
+        Assert.AreEqual(0, items[0].Genres.Count);
+    }
+
     // Regression test: this compared paths with a raw SQL `==`, which SQLite evaluates under its
     // BINARY collation - so on a case-insensitive volume a stored path differing only in case
     // from the generated target (an author's casing edited in the tags since import) was not
@@ -372,5 +417,60 @@ public class AudiobookRepositorySearchTests
 
         Assert.AreEqual(1, items.Count);
         Assert.AreEqual("Le Petit Prince", items[0].BookName);
+    }
+
+    // Regression for review feedback on #1303: the AddAccentFoldedSearchColumns migration's
+    // backfill (UPDATE ... SET book_name_folded = fold_accents(book_name), ...) only ever ran
+    // through a manual smoke test, not the committed suite - and it depends on fold_accents being
+    // registered on the connection that runs the migration, via AccentFoldingConnectionInterceptor
+    // (DatabaseContext.OnConfiguring). Rebuilt here through the real migrator (mirroring
+    // GenreRepositoryTests.AddUniqueGenreNameIndexMigration_*), seeding rows *before* this
+    // migration runs, to prove that dependency actually holds for this codebase's DatabaseContext
+    // construction pattern rather than trusting the comment that asserts it.
+    [TestMethod]
+    public async Task AddAccentFoldedSearchColumnsMigration_BackfillsExistingRows()
+    {
+        var migratedPath = Path.Combine(Path.GetTempPath(), $"foldbackfill-{Guid.NewGuid():N}.db");
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = migratedPath });
+
+        try
+        {
+            using (var seed = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings))
+            {
+                // Migrate up to (but not including) the folded columns, then plant rows with
+                // diacritics for the backfill to fold.
+                await seed.Database.MigrateAsync("AddUniqueGenreNameIndex");
+
+                await seed.Database.ExecuteSqlRawAsync(
+                    """
+                    INSERT INTO audiobooks (id, book_name, subtitle, series, description, year, file_info_full_path, file_info_file_name, file_info_size_in_bytes)
+                    VALUES (1, 'René''s Adventure', 'Ólafur''s Tale', 'Été', 'A story about René', 2020, '/library/rene.m4b', 'rene.m4b', 1);
+                    """);
+                await seed.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO persons (id, name) VALUES (1, 'Antoine de Saint-Exupéry');");
+            }
+
+            using (var migrated = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings))
+            {
+                await migrated.Database.MigrateAsync();
+
+                var book = await migrated.Audiobooks.AsNoTracking().SingleAsync(a => a.Id == 1);
+                Assert.AreEqual("Rene's Adventure", book.BookNameFolded);
+                Assert.AreEqual("Olafur's Tale", book.SubtitleFolded);
+                Assert.AreEqual("Ete", book.SeriesFolded);
+                Assert.AreEqual("A story about Rene", book.DescriptionFolded);
+
+                var person = await migrated.Persons.AsNoTracking().SingleAsync(p => p.Id == 1);
+                Assert.AreEqual("Antoine de Saint-Exupery", person.NameFolded);
+            }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(migratedPath))
+            {
+                File.Delete(migratedPath);
+            }
+        }
     }
 }

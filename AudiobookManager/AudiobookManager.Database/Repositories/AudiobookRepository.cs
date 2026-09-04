@@ -140,7 +140,15 @@ public class AudiobookRepository : IAudiobookRepository
         return (items, total);
     }
 
-    public async Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset, bool includeTotal = true)
+    /// <summary>
+    /// <paramref name="includeTotal"/> false makes <c>Total</c> a sentinel <c>0</c>, not a real
+    /// count - only meaningful for a caller that never reads it (the type-ahead path below).
+    /// <paramref name="includeNarratorsAndGenres"/> false skips those two Includes/the resulting
+    /// split query, for a caller that - like that same type-ahead path - only reads
+    /// <c>a.Authors</c> from the result.
+    /// </summary>
+    public async Task<(List<Audiobook> Items, int Total)> SearchAsync(
+        string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true)
     {
         // Fold the query so an unaccented search (e.g. "Rene") still matches an accented value
         // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
@@ -153,12 +161,20 @@ public class AudiobookRepository : IAudiobookRepository
         var pattern = $"%{folded}%";
         var prefixPattern = $"{folded}%";
 
-        var dbQuery = _db.Audiobooks
-            .AsNoTracking()
-            .Include(a => a.Authors)
-            .Include(a => a.Narrators)
-            .Include(a => a.Genres)
-            .AsSplitQuery()
+        // Authors is unconditional - every caller ranks on it (see the OrderByDescending below)
+        // and the type-ahead path renders it. Narrators/Genres are pulled in (as a split query, to
+        // avoid the row-multiplication a second and third collection Include would cause combined
+        // with Authors) only for a caller that actually reads them: BrowseController.SearchAudiobooks
+        // maps every hit through MapToSummaryDto, which does; SearchLibrary's type-ahead only ever
+        // reads a.Authors from its hits, so those two Includes plus the split query they force were
+        // pure overhead on every keystroke for a value never rendered.
+        IQueryable<Audiobook> baseQuery = _db.Audiobooks.AsNoTracking().Include(a => a.Authors);
+        if (includeNarratorsAndGenres)
+        {
+            baseQuery = baseQuery.Include(a => a.Narrators).Include(a => a.Genres).AsSplitQuery();
+        }
+
+        var dbQuery = baseQuery
             .Where(a =>
                 EF.Functions.Like(a.BookNameFolded, pattern) ||
                 EF.Functions.Like(a.SubtitleFolded, pattern) ||

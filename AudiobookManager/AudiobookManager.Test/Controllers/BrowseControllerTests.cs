@@ -33,7 +33,9 @@ public class BrowseControllerTests
         Assert.AreEqual(0, result.Books.Count);
         Assert.AreEqual(0, result.Authors.Count);
         Assert.AreEqual(0, result.Series.Count);
-        _audiobookRepo.Verify(r => r.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+        _audiobookRepo.Verify(
+            r => r.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()),
+            Times.Never);
     }
 
     [TestMethod]
@@ -42,7 +44,7 @@ public class BrowseControllerTests
         var book = MakeBook(1, "Mistborn: The Final Empire", "Mistborn");
         book.Authors = new List<Person> { new(1, "Brandon Sanderson") };
 
-        _audiobookRepo.Setup(r => r.SearchAsync("mist", 5, 0, false))
+        _audiobookRepo.Setup(r => r.SearchAsync("mist", 5, 0, false, false))
             .ReturnsAsync((new List<Audiobook> { book }, 1));
         _personRepo.Setup(r => r.SearchAuthorSummariesAsync("mist", 5))
             .ReturnsAsync(new List<AuthorSummaryRow>());
@@ -72,7 +74,7 @@ public class BrowseControllerTests
         var prefixMatch = new AuthorSummaryRow(1, "San Diego", 1);
         var substringMatch = new AuthorSummaryRow(2, "Brandon Sanderson", 1);
 
-        _audiobookRepo.Setup(r => r.SearchAsync("san", 5, 0, false)).ReturnsAsync((new List<Audiobook>(), 0));
+        _audiobookRepo.Setup(r => r.SearchAsync("san", 5, 0, false, false)).ReturnsAsync((new List<Audiobook>(), 0));
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("san", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
         _personRepo.Setup(r => r.SearchAuthorSummariesAsync("san", 5))
             .ReturnsAsync(new List<AuthorSummaryRow> { prefixMatch, substringMatch });
@@ -92,7 +94,7 @@ public class BrowseControllerTests
         var accentedPrefixMatch = new AuthorSummaryRow(1, "Réne Girard", 1);
         var substringMatch = new AuthorSummaryRow(2, "Marie Irene", 1);
 
-        _audiobookRepo.Setup(r => r.SearchAsync("rene", 5, 0, false)).ReturnsAsync((new List<Audiobook>(), 0));
+        _audiobookRepo.Setup(r => r.SearchAsync("rene", 5, 0, false, false)).ReturnsAsync((new List<Audiobook>(), 0));
         _audiobookRepo.Setup(r => r.SearchSeriesAsync("rene", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
         _personRepo.Setup(r => r.SearchAuthorSummariesAsync("rene", 5))
             .ReturnsAsync(new List<AuthorSummaryRow> { accentedPrefixMatch, substringMatch });
