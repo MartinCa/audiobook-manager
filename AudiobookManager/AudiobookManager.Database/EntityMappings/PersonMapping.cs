@@ -10,5 +10,8 @@ public class PersonMapping : IEntityTypeConfiguration<Person>
         builder
             .HasIndex(p => p.Name)
             .IsUnique();
+
+        // NameFolded maps by convention from its [Column] attribute - see the comment on
+        // Audiobook.BookNameFolded for why it exists and is deliberately not indexed.
     }
 }

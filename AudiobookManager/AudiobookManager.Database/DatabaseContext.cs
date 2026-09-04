@@ -38,7 +38,7 @@ public class DatabaseContext : DbContext
         };
         optionsBuilder.UseSqlite(connectionStringBuilder.ToString(), options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
             .UseSnakeCaseNamingConvention()
-            .AddInterceptors(new AccentFoldingConnectionInterceptor(), new SqlitePragmaInterceptor());
+            .AddInterceptors(new AccentFoldingConnectionInterceptor(), new SqlitePragmaInterceptor(), new AccentFoldedColumnsInterceptor());
     }
 
     public DbSet<SeriesMapping> SeriesMappings { get; set; }

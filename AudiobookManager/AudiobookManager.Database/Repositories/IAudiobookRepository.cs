@@ -20,7 +20,12 @@ public interface IAudiobookRepository
     /// size its pager without a second round trip.
     /// </summary>
     Task<(List<DirtyUrlRow> Items, int Total)> GetDirtyUrlPageAsync(int limit, int offset);
-    Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset);
+    /// <summary>
+    /// <paramref name="includeTotal"/> lets a caller that never renders a total (the type-ahead
+    /// endpoint, capped at <paramref name="limit"/>) skip the second full execution of the query
+    /// that <c>CountAsync</c> would otherwise cost on every keystroke.
+    /// </summary>
+    Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset, bool includeTotal = true);
     Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<List<string>> GetSeriesNamesAsync();

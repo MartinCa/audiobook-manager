@@ -140,10 +140,15 @@ public class AudiobookRepository : IAudiobookRepository
         return (items, total);
     }
 
-    public async Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset)
+    public async Task<(List<Audiobook> Items, int Total)> SearchAsync(string query, int limit, int offset, bool includeTotal = true)
     {
-        // Fold both sides so an unaccented query (e.g. "Rene") still matches an accented value
+        // Fold the query so an unaccented search (e.g. "Rene") still matches an accented value
         // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
+        // The columns below are already folded (see BookNameFolded etc. on the Audiobook/Person
+        // models - plain columns kept in sync by AccentFoldedColumnsInterceptor) rather than
+        // folded per row at query time: wrapping the source column in fold_accents() here, as this
+        // used to, cost a callback into managed code for every row scanned, on every OR term, on
+        // every keystroke (#1303).
         var folded = AccentFolding.FoldPlain(query);
         var pattern = $"%{folded}%";
         var prefixPattern = $"{folded}%";
@@ -154,17 +159,12 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Narrators)
             .Include(a => a.Genres)
             .AsSplitQuery()
-            // fold_accents is an application-defined scalar function, so every term here costs a
-            // callback into managed code per row. SQLite evaluates an OR chain left to right and
-            // stops at the first true, so the cheap, most-selective columns come first and
-            // Description - by far the largest, and the least likely to be what the user meant -
-            // comes last, where most rows never reach it.
             .Where(a =>
-                (a.BookName != null && EF.Functions.Like(AccentFolding.Fold(a.BookName), pattern)) ||
-                (a.Subtitle != null && EF.Functions.Like(AccentFolding.Fold(a.Subtitle), pattern)) ||
-                (a.Series != null && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern)) ||
-                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), pattern)) ||
-                (a.Description != null && EF.Functions.Like(AccentFolding.Fold(a.Description), pattern))
+                EF.Functions.Like(a.BookNameFolded, pattern) ||
+                EF.Functions.Like(a.SubtitleFolded, pattern) ||
+                EF.Functions.Like(a.SeriesFolded, pattern) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern)) ||
+                EF.Functions.Like(a.DescriptionFolded, pattern)
             )
             // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
             // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
@@ -172,12 +172,15 @@ public class AudiobookRepository : IAudiobookRepository
             // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
             // it. ThenBy(Id) keeps the order total, which a paged split query requires.
             .OrderByDescending(a =>
-                (a.BookName != null && EF.Functions.Like(AccentFolding.Fold(a.BookName), prefixPattern)) ||
-                a.Authors.Any(p => EF.Functions.Like(AccentFolding.Fold(p.Name), prefixPattern)))
+                EF.Functions.Like(a.BookNameFolded, prefixPattern) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern)))
             .ThenBy(a => a.BookName)
             .ThenBy(a => a.Id);
 
-        var total = await dbQuery.CountAsync();
+        // The type-ahead path (BrowseController.SearchLibrary) is capped at `limit` and never
+        // renders a total, so counting there was a second full execution of the query for a
+        // number nothing displays.
+        var total = includeTotal ? await dbQuery.CountAsync() : 0;
         var items = await dbQuery.Skip(offset).Take(limit).ToListAsync();
         return (items, total);
     }
@@ -190,7 +193,7 @@ public class AudiobookRepository : IAudiobookRepository
 
         var rows = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(AccentFolding.Fold(a.Series), pattern))
+            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern))
             .GroupBy(a => a.Series!)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
             // Rank before the limit, not after it - see SearchAsync for what ranking the

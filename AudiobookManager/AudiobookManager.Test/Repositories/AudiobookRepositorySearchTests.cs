@@ -323,4 +323,54 @@ public class AudiobookRepositorySearchTests
 
         Assert.IsNull(result);
     }
+
+    // Regression for #1303: the accent-folded shadow column search now reads from (BookNameFolded
+    // etc.) has to be kept in sync by AccentFoldedColumnsInterceptor on every save, not just at
+    // insert time - a rename that never updates the folded column would make the old name
+    // searchable forever and the new one never findable.
+    [TestMethod]
+    public async Task SearchAsync_AfterRenamingABook_FindsItByTheNewNameAndNotTheOld()
+    {
+        await SeedBookAsync("Original Título", null);
+
+        var (found, _) = await _repository.SearchAsync("titulo", 10, 0);
+        var loaded = await _repository.GetByIdWithIncludesAsync(found.Single().Id);
+        loaded!.BookName = "Renamed Título";
+        await _repository.UpdateAudiobookAsync(loaded);
+
+        var (byOldName, _) = await _repository.SearchAsync("original", 10, 0);
+        Assert.AreEqual(0, byOldName.Count, "the old name must no longer match after the rename");
+
+        var (byNewName, _) = await _repository.SearchAsync("renamed", 10, 0);
+        Assert.AreEqual(1, byNewName.Count);
+        Assert.AreEqual("Renamed Título", byNewName[0].BookName);
+
+        // Unaccented query still matches the accented new title, proving the folded column (not
+        // just the raw one) was recomputed.
+        var (byFoldedNewName, _) = await _repository.SearchAsync("titulo", 10, 0);
+        Assert.IsTrue(byFoldedNewName.Any(a => a.BookName == "Renamed Título"));
+    }
+
+    // Regression for #1303: a new Person can enter the change tracker without ever going through
+    // PersonRepository, by being attached to an Audiobook's Authors collection and cascade-inserted
+    // alongside it. AccentFoldedColumnsInterceptor has to catch that path too, not just
+    // PersonRepository.GetOrCreatePerson(s).
+    [TestMethod]
+    public async Task SearchAsync_AuthorAddedByCascadeInsertThroughAudiobook_IsFoldedAndSearchable()
+    {
+        var book = new Audiobook(
+            default, "Le Petit Prince", null, null, null, 1943,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Le Petit Prince.m4b", "Le Petit Prince.m4b", 1000)
+        {
+            Authors = new List<Person> { new Person(default, "Antoine de Saint-Exupéry") }
+        };
+
+        await _repository.InsertAudiobook(book);
+
+        var (items, _) = await _repository.SearchAsync("exupery", 10, 0);
+
+        Assert.AreEqual(1, items.Count);
+        Assert.AreEqual("Le Petit Prince", items[0].BookName);
+    }
 }
