@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Security;
@@ -57,6 +58,24 @@ internal class Program
 
         builder.Services.AddSignalR();
 
+        // Makes every error response - the framework's own, ControllerBase.Problem(), and the
+        // exception handler below - a single shape: RFC 9457 application/problem+json. The client
+        // has always documented and parsed that shape (client/src/lib/api.ts), but nothing was
+        // producing it: a bare-string BadRequest(ex.Message) serializes as text/plain, and the
+        // client's error parser reads a body only when the content type says json. Every
+        // hand-written server message was being dropped and shown as "Request failed with status
+        // 400".
+        builder.Services.AddProblemDetails(options =>
+            options.CustomizeProblemDetails = context =>
+            {
+                // A correlation id, so an operator can tie the stable message the caller sees to
+                // the full exception in the container log. MVC's ProblemDetailsFactory already
+                // adds this for responses produced inside a controller; the exception handler's
+                // path does not, and that is the one where the detail is deliberately withheld.
+                context.ProblemDetails.Extensions.TryAdd(
+                    "traceId", Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+            });
+
         builder.Services.AddControllers(options =>
         {
             options.Conventions.Add(new RouteTokenTransformerConvention(new SlugifyParameterTransformer()));
@@ -91,6 +110,12 @@ internal class Program
         }
 
         // app.UseHttpsRedirection();
+
+        // First, so it wraps everything after it. Without this an unhandled exception returned an
+        // empty 500 with no body at all, which the client could only render as a bare status code.
+        // Reachable without anything going wrong: organizing the same file twice violates
+        // QueuedOrganizeTask's primary key and throws DbUpdateException out of the repository.
+        app.UseExceptionHandler();
 
         // Before the static files and the SPA fallback, so a refused API write never falls through
         // to index.html.

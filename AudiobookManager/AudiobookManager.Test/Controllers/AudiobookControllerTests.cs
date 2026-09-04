@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -115,11 +116,26 @@ public class AudiobookControllerTests
 
         var result = await _controller.OrganizeAudiobook(dto);
 
-        Assert.AreEqual("/import/test.m4b", result);
+        Assert.AreEqual("/import/test.m4b", ((OkObjectResult)result.Result!).Value);
         _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a =>
             a.BookName == "Test Book" &&
             a.Authors.Count == 1 &&
             a.Authors[0].Name == "Test Author")), Times.Once);
+    }
+
+    // The reachable 500 this whole change started from: QueuedOrganizeTask's primary key is the
+    // source file path, so clicking Organize twice violated it and - with no exception handler
+    // registered - returned an empty 500 the user saw as nothing at all.
+    [TestMethod]
+    public async Task OrganizeAudiobook_FileAlreadyQueued_ReturnsConflictNamingTheFile()
+    {
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>()))
+            .ThrowsAsync(new OrganizeTaskAlreadyQueuedException("/import/test.m4b"));
+
+        var result = await _controller.OrganizeAudiobook(MakeDto());
+
+        var problem = ProblemAssert.HasStatus(result.Result, StatusCodes.Status409Conflict);
+        StringAssert.Contains(problem.Detail!, "/import/test.m4b");
     }
 
     [TestMethod]
@@ -380,7 +396,7 @@ public class AudiobookControllerTests
             await firstSaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             var second = _controller.UpdateAudiobook(101, dto);
-            Assert.IsInstanceOfType(second, typeof(ConflictObjectResult));
+            ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
         }
         finally
         {
@@ -550,7 +566,7 @@ public class AudiobookControllerTests
         try
         {
             var result = await _controller.DeleteAudiobook(1);
-            Assert.IsInstanceOfType<ConflictResult>(result);
+            ProblemAssert.HasStatus(result, StatusCodes.Status409Conflict);
             _audiobookService.Verify(s => s.DeleteAudiobook(It.IsAny<long>()), Times.Never);
         }
         finally

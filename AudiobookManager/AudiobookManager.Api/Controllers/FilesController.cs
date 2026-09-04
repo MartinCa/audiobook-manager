@@ -27,15 +27,15 @@ public class FilesController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+            return this.AccessDenied(ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
     }
 
@@ -51,11 +51,11 @@ public class FilesController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+            return this.AccessDenied(ex.Message);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
 
         if (string.IsNullOrEmpty(coverFilePath) || !System.IO.File.Exists(coverFilePath))
@@ -88,15 +88,15 @@ public class FilesController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+            return this.AccessDenied(ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
     }
 }

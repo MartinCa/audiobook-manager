@@ -166,7 +166,7 @@ public class ConsistencyController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error rechecking consistency for audiobook {AudiobookId}", audiobookId);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -198,12 +198,12 @@ public class ConsistencyController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error bulk resolving consistency issues of type {IssueType}", issueType);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -211,7 +211,7 @@ public class ConsistencyController : ControllerBase
     public async Task<IActionResult> ResolveSelectedIssues([FromBody] List<long> issueIds)
     {
         if (issueIds == null || issueIds.Count == 0)
-            return BadRequest("No issue ids provided");
+            return this.InvalidRequest("No issue ids provided.");
 
         try
         {
@@ -223,7 +223,7 @@ public class ConsistencyController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error bulk resolving selected consistency issues");
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -243,12 +243,12 @@ public class ConsistencyController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to read tag mismatch fields for issue {IssueId}", id);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -268,16 +268,16 @@ public class ConsistencyController : ControllerBase
         }
         catch (AudiobookBusyException ex)
         {
-            return Conflict(ex.Message);
+            return this.ConflictingState(ex.Message, "Cannot resolve issue");
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to resolve tag mismatch for issue {IssueId}", id);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -299,12 +299,12 @@ public class ConsistencyController : ControllerBase
         {
             // Resolving rewrites the book's files, so it takes the same per-audiobook gate a save
             // does. Another operation holding it is a "try again", not a server error.
-            return Conflict(ex.Message);
+            return this.ConflictingState(ex.Message, "Cannot resolve issue");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving consistency issue {IssueId}", id);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -332,7 +332,7 @@ public class ConsistencyController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving orphan directory {OrphanDirectoryId}", id);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -349,7 +349,7 @@ public class ConsistencyController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error bulk resolving orphan directories");
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 }

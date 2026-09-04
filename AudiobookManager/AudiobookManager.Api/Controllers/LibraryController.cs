@@ -106,7 +106,7 @@ public class LibraryController : ControllerBase
     public IActionResult StartBulkImport([FromBody] BulkImportDiscoveredDto dto)
     {
         if (dto.Paths == null || dto.Paths.Count == 0)
-            return BadRequest("No paths provided");
+            return this.InvalidRequest("No paths provided.");
 
         return BackgroundOperationRunner.Start(
             _bulkImportLock,

@@ -65,7 +65,7 @@ public class MetadataSearchController : ControllerBase
         if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || (uri.Scheme != "https" && uri.Scheme != "http"))
         {
-            return BadRequest("Invalid image URL");
+            return this.InvalidRequest("Invalid image URL.");
         }
 
         var client = _httpClientFactory.CreateClient();

@@ -74,11 +74,11 @@ public class SimilarValuesController : ControllerBase
     public IActionResult StartAlign([FromBody] AlignSimilarValuesDto dto)
     {
         if (dto.ValueType != "author" && dto.ValueType != "series")
-            return BadRequest("ValueType must be 'author' or 'series'");
+            return this.InvalidRequest("ValueType must be 'author' or 'series'.");
         if (dto.SourceValues == null || dto.SourceValues.Count == 0)
-            return BadRequest("SourceValues must contain at least one value");
+            return this.InvalidRequest("SourceValues must contain at least one value.");
         if (string.IsNullOrWhiteSpace(dto.TargetValue))
-            return BadRequest("TargetValue is required");
+            return this.InvalidRequest("TargetValue is required.");
 
         return BackgroundOperationRunner.Start(
             _alignLock,

@@ -88,7 +88,7 @@ public class SeriesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching match candidates for series {SeriesName}", seriesName);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -97,7 +97,7 @@ public class SeriesController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            return BadRequest("Query is required");
+            return this.InvalidRequest("Query is required.");
         }
 
         try
@@ -109,7 +109,7 @@ public class SeriesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching match candidates for series {SeriesName} with query {Query}", seriesName, query);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -118,7 +118,7 @@ public class SeriesController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(dto?.SourceName) || string.IsNullOrWhiteSpace(dto.SourceId))
         {
-            return BadRequest("SourceName and SourceId are required");
+            return this.InvalidRequest("SourceName and SourceId are required.");
         }
 
         try
@@ -128,12 +128,12 @@ public class SeriesController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error matching series {SeriesName} to {SourceName}/{SourceId}", seriesName, dto.SourceName, dto.SourceId);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -148,7 +148,7 @@ public class SeriesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting IncludeOmnibusEditions={Include} for series {SeriesName}", dto.IncludeOmnibusEditions, seriesName);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 
@@ -158,7 +158,7 @@ public class SeriesController : ControllerBase
         var threshold = dto?.ConfidenceThreshold ?? 0.85;
         if (threshold is < 0 or > 1)
         {
-            return BadRequest("ConfidenceThreshold must be between 0 and 1");
+            return this.InvalidRequest("ConfidenceThreshold must be between 0 and 1.");
         }
 
         var seriesNames = dto?.SeriesNames is { Count: > 0 } ? dto.SeriesNames : null;
@@ -217,7 +217,7 @@ public class SeriesController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(dto?.Position) && string.IsNullOrWhiteSpace(dto?.Title))
         {
-            return BadRequest("Position or Title is required to identify the expected book");
+            return this.InvalidRequest("Position or Title is required to identify the expected book.");
         }
 
         try
@@ -234,7 +234,7 @@ public class SeriesController : ControllerBase
             _logger.LogError(ex,
                 "Error setting ignored={Ignored} on expected book (position {Position}, title {Title}) of series {SeriesName}",
                 ignored, dto.Position, dto.Title, seriesName);
-            return StatusCode(500, ex.Message);
+            return this.UnexpectedError();
         }
     }
 

@@ -180,6 +180,27 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
   parses every response as JSON, so a binary GET cannot go through it. They are reads, which the
   guard does not cover, so they are unaffected — but a *write* must never be added this way.
 
+  **Invariant: an error response that carries a body carries RFC 9457
+  `application/problem+json` — never a bare string.** The client reads an error body only when the
+  content type says json (`toApiError` in `src/lib/api.ts`), so a bare `BadRequest("...")` or
+  `StatusCode(500, ex.Message)` — which serialize as `text/plain` — is discarded and the user is
+  shown "Request failed with status 400" instead of the message. Use the `ProblemResults` helpers
+  (`InvalidRequest`, `ConflictingState`, `AccessDenied`, `UnexpectedError`) or
+  `ControllerBase.Problem(...)`. `AddProblemDetails()` and `UseExceptionHandler()` in `Program.cs`
+  cover the framework's own responses and anything unhandled.
+
+  Bodyless results are the deliberate exception, not an oversight: a bare `NotFound()` is fine
+  where the status is the whole message — an id that does not resolve to a row, which the caller
+  supplied and can see. The client handles it (an empty body falls back to `statusText`, so the
+  user sees "Not Found"). Reach for `Problem(...)` over `NotFound()` when there is something to
+  say that the status code does not already say.
+
+  A 500 never carries the exception message. `ProblemResults.UnexpectedError` returns a fixed
+  sentence plus the `traceId`; the exception itself is logged with its context at the call site,
+  and the traceId is what ties the two together. Exception text here routinely contains absolute
+  container paths and filesystem layout. 4xx detail *is* relayed — that is the message telling the
+  caller what to fix — so only raise 4xx exceptions with messages that are safe to show.
+
   Swagger UI's "Try it out" sets the header via a request interceptor configured in
   `Program.cs`, so the guard applies uniformly in development rather than being carved out for
   the environment it is developed in.

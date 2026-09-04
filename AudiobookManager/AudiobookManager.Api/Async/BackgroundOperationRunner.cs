@@ -23,7 +23,19 @@ public static class BackgroundOperationRunner
     {
         if (!gate.Wait(0))
         {
-            return new ConflictObjectResult("An operation is already in progress");
+            // ProblemDetails rather than a bare string: this is not a controller, so
+            // ControllerBase.Problem() is not available, but the shape has to match what every
+            // other error returns or the client drops the message (it parses a body only when
+            // the content type says json).
+            return new ObjectResult(new ProblemDetails
+            {
+                Title = "Operation in progress",
+                Detail = "An operation is already in progress.",
+                Status = StatusCodes.Status409Conflict,
+            })
+            {
+                StatusCode = StatusCodes.Status409Conflict,
+            };
         }
 
         statusRegistry.SetRunning(operationKey);
