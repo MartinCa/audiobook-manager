@@ -188,7 +188,16 @@ public class CoverImageProcessor : ICoverImageProcessor
     private static byte[] Encode(Image image, int quality)
     {
         using var output = new MemoryStream();
-        image.Save(output, new JpegEncoder { Quality = quality });
+
+        // ColorType must be set explicitly. Left null, the encoder derives it from the decoded
+        // image's JpegMetadata.ColorType - metadata carried over from the source file - rather
+        // than from the pixel data it is actually about to write. A source CMYK/YCCK (Adobe
+        // APP14) JPEG decodes to correct RGB pixels but keeps that metadata, so an unset
+        // ColorType makes the encoder emit those RGB pixels behind a re-created Adobe APP14
+        // marker claiming CMYK/YCCK again - which is exactly the marker browsers use to apply a
+        // color transform that turns the cover neon-green. Forcing YCbCr writes a plain encode
+        // that matches the pixels regardless of what format they came from.
+        image.Save(output, new JpegEncoder { Quality = quality, ColorType = JpegEncodingColor.YCbCrRatio420 });
         return output.ToArray();
     }
 
