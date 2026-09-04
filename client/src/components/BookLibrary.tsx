@@ -22,6 +22,9 @@ import { browseApi, consistencyApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 import { Route } from "@/routes/library/index";
 
+/** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
+const NO_ISSUE_COUNTS: Record<number, number> = {};
+
 export function BookLibrary() {
   const navigate = useNavigate();
   const { q = "", page = 1 } = Route.useSearch();
@@ -66,18 +69,16 @@ export function BookLibrary() {
         q.trim()
           ? browseApi.searchAudiobooks(q.trim(), pageSize, offset)
           : browseApi.getAudiobooks(pageSize, offset),
-        consistencyApi.getIssues().catch(() => []),
+        // The summary endpoint, which counts per audiobook in the database. This used to fetch
+        // every issue and count them here - the whole table, including the metadata.opf and
+        // description bodies stored on each row, to render a badge number per book.
+        consistencyApi.getIssueSummary().catch(() => NO_ISSUE_COUNTS),
       ]);
-
-      const counts: Record<number, number> = {};
-      for (const issue of issuesRes) {
-        counts[issue.audiobookId] = (counts[issue.audiobookId] || 0) + 1;
-      }
 
       return {
         books: browseRes.items,
         totalCount: browseRes.total,
-        issueSummary: counts,
+        issueSummary: issuesRes,
       };
     },
   });

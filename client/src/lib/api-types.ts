@@ -625,6 +625,47 @@ export interface paths {
         };
         get: {
             parameters: {
+                query?: {
+                    issueType?: string;
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["ConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["ConsistencyIssuePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/consistency/issues/counts-by-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
                 query?: never;
                 header?: never;
                 path?: never;
@@ -638,9 +679,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyIssueDto"][];
-                        "application/json": components["schemas"]["ConsistencyIssueDto"][];
-                        "text/json": components["schemas"]["ConsistencyIssueDto"][];
+                        "text/plain": {
+                            [key: string]: number;
+                        };
+                        "application/json": {
+                            [key: string]: number;
+                        };
+                        "text/json": {
+                            [key: string]: number;
+                        };
                     };
                 };
             };
@@ -2790,6 +2837,11 @@ export interface components {
             actualValue?: string | null;
             /** Format: date-time */
             detectedAt?: string;
+        };
+        ConsistencyIssuePageDto: {
+            items?: components["schemas"]["ConsistencyIssueDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
         ConsistencyResolveResultDto: {
             /** Format: int64 */

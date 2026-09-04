@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ShieldAlert,
@@ -58,6 +58,8 @@ const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
 
 const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
 
+const PAGE_SIZE = 50;
+
 type PendingResolve =
   | { kind: "single"; issue: ConsistencyIssue }
   | { kind: "selected"; issueType: string; issueIds: number[] }
@@ -72,7 +74,11 @@ export function LibraryConsistency() {
   const [checkCompleteResult, setCheckCompleteResult] = useState<CompletePayload | null>(null);
 
   // Selection state
-  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<number>>(new Set());
+  // id -> issueType. A Set of ids was enough while every issue was in memory and the type could
+  // be looked up from the list; with each group paged separately, "which of the selected ids
+  // belong to this group" has no other way to be answered - the selected issue may be on a page
+  // that is no longer loaded.
+  const [selectedIssues, setSelectedIssues] = useState<Map<number, string>>(new Map());
   const [resolvingIds, setResolvingIds] = useState<Set<number>>(new Set());
   const [resolvingTypes, setResolvingTypes] = useState<Set<string>>(new Set());
   const [resolvingSelected, setResolvingSelected] = useState(false);
@@ -93,21 +99,50 @@ export function LibraryConsistency() {
   // interaction (opening the resolve dialog, toggling a checkbox) re-render all of them.
   // We render a page at a time and let the user page through.
   const [pageByType, setPageByType] = useState<Record<string, number>>({});
-  const PAGE_SIZE = 50;
 
+  // Two levels, because the issues themselves are no longer downloaded whole. The overview is
+  // how many issues of each type exist - enough to render the group headers and size each
+  // group's pager - and each group then fetches only the page being looked at.
   const { data, isLoading: loading } = useQuery({
-    queryKey: ["consistency"],
+    queryKey: ["consistency", "overview"],
     queryFn: async () => {
-      const [issuesData, orphansData] = await Promise.all([
-        consistencyApi.getIssues(),
+      const [countsByType, orphansData] = await Promise.all([
+        consistencyApi.getIssueCountsByType(),
         consistencyApi.getOrphanDirectories().catch(() => []),
       ]);
-      return { issues: issuesData, orphanDirs: orphansData };
+      return { countsByType, orphanDirs: orphansData };
     },
   });
 
-  const issues = data?.issues ?? [];
+  const countsByType = data?.countsByType ?? {};
   const orphanDirs = data?.orphanDirs ?? [];
+  const issueTypes = Object.keys(countsByType).sort();
+  const totalIssueCount = Object.values(countsByType).reduce((sum, count) => sum + count, 0);
+
+  const pageCountFor = (type: string) =>
+    Math.max(1, Math.ceil((countsByType[type] ?? 0) / PAGE_SIZE));
+
+  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
+  // page that is *displayed* can never disagree. They used to: a check that shrank a group while
+  // the user sat on a later page left the query asking for a page that no longer exists - which
+  // came back empty - while the pager, clamped separately, showed the group as one page of
+  // results. The group rendered as permanently empty with no way to page back into it.
+  const pageFor = (type: string) => Math.min(pageByType[type] ?? 0, pageCountFor(type) - 1);
+
+  const pageQueries = useQueries({
+    queries: issueTypes.map((type) => ({
+      queryKey: ["consistency", "page", type, pageFor(type)],
+      queryFn: () =>
+        consistencyApi.getIssues({
+          issueType: type,
+          page: pageFor(type),
+          pageSize: PAGE_SIZE,
+        }),
+    })),
+  });
+
+  const issuesForType = (type: string): ConsistencyIssue[] =>
+    (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as ConsistencyIssue[];
 
   useSignalREvent<ProgressPayload>("ConsistencyCheckProgress", (data) => {
     setChecking(true);
@@ -162,8 +197,8 @@ export function LibraryConsistency() {
       const result = await consistencyApi.resolveIssue(issue.id);
       notifyConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setSelectedIssueIds((prev) => {
-        const next = new Set(prev);
+      setSelectedIssues((prev) => {
+        const next = new Map(prev);
         next.delete(issue.id);
         return next;
       });
@@ -185,7 +220,7 @@ export function LibraryConsistency() {
       const res = await consistencyApi.resolveSelected(issueIds);
       toast.success(`Resolved ${res.resolved} issues (${res.failed} failed)`);
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setSelectedIssueIds(new Set());
+      setSelectedIssues(new Map());
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
     } finally {
@@ -201,10 +236,12 @@ export function LibraryConsistency() {
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       // The whole type is now resolved; drop any of its ids that were selected so
       // hidden selections don't linger after the refetch resolves them away.
-      setSelectedIssueIds((prev) => {
-        const next = new Set(prev);
-        for (const issue of groupedIssues[issueType] ?? []) {
-          next.delete(issue.id);
+      // The whole type is now resolved; drop its ids from the selection, including any that
+      // were selected on a page no longer loaded.
+      setSelectedIssues((prev) => {
+        const next = new Map(prev);
+        for (const [id, type] of prev) {
+          if (type === issueType) next.delete(id);
         }
         return next;
       });
@@ -238,8 +275,8 @@ export function LibraryConsistency() {
       const result = await consistencyApi.resolveTagMismatch(issueId, fieldValues);
       notifyConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      setSelectedIssueIds((prev) => {
-        const next = new Set(prev);
+      setSelectedIssues((prev) => {
+        const next = new Map(prev);
         next.delete(issueId);
         return next;
       });
@@ -311,22 +348,6 @@ export function LibraryConsistency() {
     }
   };
 
-  // Group issues by issueType
-  const groupedIssues = issues.reduce<Record<string, ConsistencyIssue[]>>((acc, issue) => {
-    const list = acc[issue.issueType] || [];
-    list.push(issue);
-    acc[issue.issueType] = list;
-    return acc;
-  }, {});
-
-  const visibleIssuesFor = (type: string, typeIssues: ConsistencyIssue[]) => {
-    const page = Math.min(
-      pageByType[type] ?? 0,
-      Math.max(0, Math.ceil(typeIssues.length / PAGE_SIZE) - 1),
-    );
-    return typeIssues.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -375,14 +396,14 @@ export function LibraryConsistency() {
 
       <div className="space-y-3">
         <div>
-          <h2 className="text-foreground text-lg font-bold">Issues ({issues.length})</h2>
+          <h2 className="text-foreground text-lg font-bold">Issues ({totalIssueCount})</h2>
 
           {loading ? (
             <div className="text-muted-foreground flex items-center justify-center py-12">
               <Loader2 className="text-primary mr-2 h-6 w-6 animate-spin" />
               <span className="text-sm">Checking issues...</span>
             </div>
-          ) : issues.length === 0 ? (
+          ) : totalIssueCount === 0 ? (
             <Card className="mt-3 p-8 text-center">
               <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-500" />
               <h3 className="text-foreground text-base font-semibold">
@@ -394,17 +415,18 @@ export function LibraryConsistency() {
             </Card>
           ) : (
             <Accordion type="multiple" className="mt-3 space-y-3">
-              {Object.entries(groupedIssues).map(([type, typeIssues]) => {
+              {issueTypes.map((type) => {
+                const typeCount = countsByType[type] ?? 0;
                 const isResolvingType = resolvingTypes.has(type);
-                const visibleIssues = visibleIssuesFor(type, typeIssues);
+                const visibleIssues = issuesForType(type);
                 const selectedIdsInGroup = new Set(
-                  typeIssues.filter((i) => selectedIssueIds.has(i.id)).map((i) => i.id),
+                  [...selectedIssues].filter(([, t]) => t === type).map(([id]) => id),
                 );
                 const selectedVisibleCount = visibleIssues.filter((i) =>
-                  selectedIssueIds.has(i.id),
+                  selectedIssues.has(i.id),
                 ).length;
-                const pageCount = Math.max(1, Math.ceil(typeIssues.length / PAGE_SIZE));
-                const currentPage = Math.min(pageByType[type] ?? 0, pageCount - 1);
+                const pageCount = pageCountFor(type);
+                const currentPage = pageFor(type);
                 const setPage = (page: number) =>
                   setPageByType((prev) => ({ ...prev, [type]: page }));
 
@@ -435,7 +457,7 @@ export function LibraryConsistency() {
                           variant="secondary"
                           className="bg-amber-500/15 text-amber-600 dark:text-amber-400"
                         >
-                          {typeIssues.length}
+                          {typeCount}
                         </Badge>
                       </div>
                     </AccordionTrigger>
@@ -457,10 +479,10 @@ export function LibraryConsistency() {
                               }
                               onChange={(e) => {
                                 const check = e.target.checked;
-                                setSelectedIssueIds((prev) => {
-                                  const next = new Set(prev);
+                                setSelectedIssues((prev) => {
+                                  const next = new Map(prev);
                                   for (const i of visibleIssues) {
-                                    if (check) next.add(i.id);
+                                    if (check) next.set(i.id, type);
                                     else next.delete(i.id);
                                   }
                                   return next;
@@ -492,13 +514,13 @@ export function LibraryConsistency() {
                               variant="secondary"
                               disabled={isResolvingType}
                               onClick={() => {
-                                onResolveByTypeClick(type, typeIssues.length);
+                                onResolveByTypeClick(type, typeCount);
                               }}
                             >
                               {isResolvingType ? (
                                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                               ) : null}
-                              Resolve All {typeIssues.length}
+                              Resolve All {typeCount}
                             </Button>
                           </div>
                         </div>
@@ -506,7 +528,7 @@ export function LibraryConsistency() {
                         <div className="space-y-2">
                           {visibleIssues.map((issue) => {
                             const isResolving = resolvingIds.has(issue.id);
-                            const isChecked = selectedIssueIds.has(issue.id);
+                            const isChecked = selectedIssues.has(issue.id);
 
                             return (
                               <div
@@ -519,9 +541,9 @@ export function LibraryConsistency() {
                                     checked={isChecked}
                                     onChange={(e) => {
                                       const checked = e.target.checked;
-                                      setSelectedIssueIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (checked) next.add(issue.id);
+                                      setSelectedIssues((prev) => {
+                                        const next = new Map(prev);
+                                        if (checked) next.set(issue.id, issue.issueType);
                                         else next.delete(issue.id);
                                         return next;
                                       });
@@ -578,8 +600,7 @@ export function LibraryConsistency() {
                           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
                             <span className="text-muted-foreground text-xs">
                               Showing {currentPage * PAGE_SIZE + 1}–
-                              {Math.min((currentPage + 1) * PAGE_SIZE, typeIssues.length)} of{" "}
-                              {typeIssues.length}
+                              {Math.min((currentPage + 1) * PAGE_SIZE, typeCount)} of {typeCount}
                             </span>
                             <div className="flex items-center gap-2">
                               <Button

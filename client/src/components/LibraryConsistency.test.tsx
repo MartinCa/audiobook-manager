@@ -53,6 +53,41 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
+/**
+ * Mocks the two calls the component now makes for issues: the per-type counts that size the
+ * groups, and one page at a time. Takes the full set the test cares about and serves it the way
+ * the server does, so the tests still read as "these issues exist" while asserting the paged
+ * contract.
+ */
+function mockPagedIssues(all: ConsistencyIssueFixture[]) {
+  const counts: Record<string, number> = {};
+  for (const issue of all) {
+    counts[issue.issueType] = (counts[issue.issueType] ?? 0) + 1;
+  }
+
+  vi.spyOn(consistencyApi, "getIssueCountsByType").mockResolvedValue(counts);
+  vi.spyOn(consistencyApi, "getIssues").mockImplementation((params = {}) => {
+    const { issueType, page = 0, pageSize = 50 } = params;
+    const matching = issueType ? all.filter((i) => i.issueType === issueType) : all;
+    return Promise.resolve({
+      items: matching.slice(page * pageSize, (page + 1) * pageSize),
+      totalCount: matching.length,
+    });
+  });
+}
+
+type ConsistencyIssueFixture = {
+  id: number;
+  audiobookId: number;
+  bookName: string;
+  authors: string[];
+  issueType: string;
+  description: string;
+  detectedAt: string;
+  expectedValue?: string;
+  actualValue?: string;
+};
+
 describe("LibraryConsistency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,7 +97,7 @@ describe("LibraryConsistency", () => {
   });
 
   it("renders run check button and consistency header", async () => {
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([]);
+    mockPagedIssues([]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
 
     renderWithProviders(<LibraryConsistency />);
@@ -71,7 +106,7 @@ describe("LibraryConsistency", () => {
   });
 
   it("shows info toast when orphan directory resolution retains directory because audio files exist", async () => {
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([]);
+    mockPagedIssues([]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([
       {
         id: 10,
@@ -111,7 +146,7 @@ describe("LibraryConsistency", () => {
   });
 
   it("opens bulk delete dialog when Delete All orphans button is clicked and deletes all", async () => {
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([]);
+    mockPagedIssues([]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([
       {
         id: 10,
@@ -150,7 +185,7 @@ describe("LibraryConsistency", () => {
   });
 
   it("opens selective tag-mismatch dialog and resolves with chosen field values", async () => {
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue([
+    mockPagedIssues([
       {
         id: 42,
         audiobookId: 7,
@@ -209,7 +244,7 @@ describe("LibraryConsistency", () => {
       expectedValue: `Subtitle: value ${i}`,
       actualValue: `Subtitle: other ${i}`,
     }));
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue(manyIssues);
+    mockPagedIssues(manyIssues);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
 
     renderWithProviders(<LibraryConsistency />);
@@ -219,20 +254,23 @@ describe("LibraryConsistency", () => {
     fireEvent.click(trigger);
 
     // Only the first page (50 entries) renders; later entries are reached via Next.
-    expect(screen.getByText(/Some Author — Book 0$/)).toBeInTheDocument();
+    expect(await screen.findByText(/Some Author — Book 0$/)).toBeInTheDocument();
     expect(screen.getByText(/Some Author — Book 49$/)).toBeInTheDocument();
     expect(screen.queryByText(/Some Author — Book 50$/)).not.toBeInTheDocument();
     expect(screen.getByText("Showing 1–50 of 120")).toBeInTheDocument();
 
+    // Each page is now fetched rather than sliced from memory, so the next page arrives
+    // asynchronously.
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText(/Some Author — Book 50$/)).toBeInTheDocument();
+    expect(await screen.findByText(/Some Author — Book 50$/)).toBeInTheDocument();
     expect(screen.queryByText(/Some Author — Book 0$/)).not.toBeInTheDocument();
     expect(screen.getByText("Showing 51–100 of 120")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Showing 101–120 of 120")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 101–120 of 120")).toBeInTheDocument();
 
     // "Select all visible" operates on the current page only: 20 issues on the last page.
+    await screen.findByText(/Some Author — Book 119$/);
     const selectAllCheckbox = screen.getAllByRole("checkbox")[0];
     expect(selectAllCheckbox).toBeDefined();
     if (selectAllCheckbox) fireEvent.click(selectAllCheckbox);
@@ -243,6 +281,42 @@ describe("LibraryConsistency", () => {
     fireEvent.click(selectAllCheckbox as HTMLElement);
     expect(screen.getByText("Select all visible (0 selected total)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Resolve Selected/ })).not.toBeInTheDocument();
+  });
+
+  // Regression: the page being fetched came straight from pageByType while the pager clamped
+  // separately, so a check that shrank a group under the user left the query asking for a page
+  // that no longer existed. It came back empty, the pager showed one page, and the group rendered
+  // permanently empty with no way to page back into it.
+  it("recovers when a refetch shrinks a group below the page the user is on", async () => {
+    const manyIssues = Array.from({ length: 120 }, (_, i) => ({
+      id: 1000 + i,
+      audiobookId: 10 + i,
+      bookName: `Book ${i}`,
+      authors: ["Some Author"],
+      issueType: "TagMismatch",
+      description: "m4b tags do not match library metadata: Subtitle",
+      detectedAt: "2026-09-01T10:00:00Z",
+    }));
+    mockPagedIssues(manyIssues);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const trigger = await screen.findByRole("button", { name: /Tag Mismatches/ });
+    fireEvent.click(trigger);
+    await screen.findByText(/Some Author — Book 0$/);
+
+    // Move to page 2, then have the next fetch return a group of two.
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText(/Some Author — Book 50$/);
+
+    mockPagedIssues(manyIssues.slice(0, 2));
+    await queryClient.invalidateQueries({ queryKey: ["consistency"] });
+
+    // The surviving issues are shown rather than an empty group: the fetch is clamped to the
+    // group's last real page, not left pointing past the end.
+    expect(await screen.findByText(/Some Author — Book 0$/)).toBeInTheDocument();
+    expect(screen.getByText(/Some Author — Book 1$/)).toBeInTheDocument();
   });
 
   it("keeps a group-wide selection count across pages and resolves the full set", async () => {
@@ -257,7 +331,7 @@ describe("LibraryConsistency", () => {
       expectedValue: `Subtitle: value ${i}`,
       actualValue: `Subtitle: other ${i}`,
     }));
-    vi.spyOn(consistencyApi, "getIssues").mockResolvedValue(manyIssues);
+    mockPagedIssues(manyIssues);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
     vi.spyOn(consistencyApi, "resolveSelected").mockResolvedValue({ resolved: 50, failed: 0 });
 
@@ -267,6 +341,7 @@ describe("LibraryConsistency", () => {
     fireEvent.click(trigger);
 
     // Select all 50 on page 1, then move to page 2.
+    await screen.findByText(/Some Author — Book 0$/);
     const selectAllCheckbox = screen.getAllByRole("checkbox")[0];
     expect(selectAllCheckbox).toBeDefined();
     if (selectAllCheckbox) fireEvent.click(selectAllCheckbox);
@@ -275,8 +350,10 @@ describe("LibraryConsistency", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     // Page 2 is now visible; page 1's selection is hidden but still counted group-wide,
-    // and "Resolve Selected" reflects the whole group (not just the visible page).
-    expect(screen.getByText(/Some Author — Book 50$/)).toBeInTheDocument();
+    // and "Resolve Selected" reflects the whole group (not just the visible page). This is the
+    // property that needed the selection to carry each issue's type: page 1's issues are no
+    // longer in memory to look it up from.
+    expect(await screen.findByText(/Some Author — Book 50$/)).toBeInTheDocument();
     expect(screen.getByText("Select all visible (50 selected total)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resolve Selected (50)" })).toBeInTheDocument();
 
