@@ -156,6 +156,18 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
   - Pattern-matching filter operators are disabled server-side and return HTTP 403 (`"... operations are not permitted on this server"`) even though they still appear in the published schema types: `_like`, `_nlike`, `_ilike`, `_niregex`, `_nregex`, `_iregex`, `_regex`, `_nsimilar`, `_similar`. Never build a `where: { field: { _ilike: ... } }`-style query against Hardcover — fuzzy/partial/typo-tolerant name matching (e.g. series search) must go through the Typesense-backed `search()` query instead (`query_type` values documented at the URL above; see `HardcoverScraper.Search()`/`SearchSeries()` for the pattern).
   - General queries time out at 30 seconds; `search()` queries time out at 2 seconds.
   - Queries must not run in a browser — the API key has to stay server-side.
+- **Cover images** — Every cover supplied by a *client* goes through `ICoverImageProcessor`
+  (`Services/Covers/`) before it becomes an `AudiobookImage`. **Invariant: never construct an
+  `AudiobookImage` straight from request data.** The format is decided by inspecting the bytes
+  (ImageSharp), not by the declared MIME type, so anything that is not a readable image is refused
+  rather than written into a book's m4b tags; oversized covers are resized and re-encoded as JPEG,
+  and a PNG already inside the caps is kept byte-for-byte (cover art is often flat artwork with
+  lettering, which re-encoding visibly damages). `AudiobookController.MapToDomain` is the single
+  place this happens — it serves organize, save, and both path-preview endpoints. Covers read back
+  *out* of an m4b by `AudiobookTagHandler` do not pass through it and are not re-encoded. The
+  client shrinks before uploading too (`client/src/lib/coverImage.ts`), but that is a
+  bandwidth measure only: the server never trusts it.
+
 - **Settings** — `AudiobookManagerSettings` with key env vars: `AudiobookImportPath`, `AudiobookLibraryPath`, `DbLocation`. Hardcover rate limiting is configured here too: `HardcoverBurstLimit` (5), `HardcoverPerMinuteLimit` (55) and `HardcoverDailyRequestLimit` (5000), all sized under Hardcover's Free-plan limits (burst 10, 60/min, 5000/day).
 - **HubClient** — SignalR client library. Implements `IOrganize` interface — must be updated when new SignalR events are added.
 - **Test** — MSTest unit tests with Moq for mocking.

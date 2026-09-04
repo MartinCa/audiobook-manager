@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -52,6 +53,9 @@ public class AudiobookControllerTests
             organizeHub.Object,
             _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             new AudiobookSaveGate(),
+            // The real processor, not a mock: these tests send real cover bytes through the
+            // controller, and a mock would only assert that it was called.
+            new CoverImageProcessor(NullLogger<CoverImageProcessor>.Instance),
             _logger.Object);
     }
 

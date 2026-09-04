@@ -16,6 +16,7 @@ public class AudiobookController : ControllerBase
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IAudiobookSaveGate _saveGate;
+    private readonly ICoverImageProcessor _coverImageProcessor;
     private readonly ILogger<AudiobookController> _logger;
 
     public AudiobookController(
@@ -25,6 +26,7 @@ public class AudiobookController : ControllerBase
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IAudiobookSaveGate saveGate,
+        ICoverImageProcessor coverImageProcessor,
         ILogger<AudiobookController> logger)
     {
         _audiobookService = audiobookService;
@@ -33,6 +35,7 @@ public class AudiobookController : ControllerBase
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _saveGate = saveGate;
+        _coverImageProcessor = coverImageProcessor;
         _logger = logger;
     }
 
@@ -197,7 +200,7 @@ public class AudiobookController : ControllerBase
         return Languages.Normalize(language) ?? language.Trim();
     }
 
-    private static Audiobook MapToDomain(OrganizeAudiobookDto dto)
+    private Audiobook MapToDomain(OrganizeAudiobookDto dto)
     {
         // The client splits free-text author/narrator/genre fields, so blank entries reach us for
         // an empty field. Drop them here rather than persisting Person/Genre rows with no name.
@@ -205,11 +208,12 @@ public class AudiobookController : ControllerBase
         var narrators = CleanNames(dto.Narrators).Select(n => new Person(n)).ToList();
         var fileInfo = new AudiobookFileInfo(dto.FilePath, dto.FileName, dto.SizeInBytes);
 
-        AudiobookImage? cover = null;
-        if (dto.Cover is not null)
-        {
-            cover = new AudiobookImage(dto.Cover.Base64Data, dto.Cover.MimeType);
-        }
+        // Every client-supplied cover comes through here - organize, save, and the two path
+        // preview endpoints - so this is the one place it has to be checked. Covers read back out
+        // of an m4b do not pass through here and are not re-encoded.
+        var cover = dto.Cover is null
+            ? null
+            : _coverImageProcessor.Normalize(dto.Cover.Base64Data, dto.Cover.MimeType);
 
         return new Audiobook(authors, dto.BookName, dto.Year, fileInfo)
         {

@@ -3,6 +3,7 @@ import { Upload, X, Image as ImageIcon, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { prepareCover } from "@/lib/coverImage";
 
 interface CoverEditorProps {
   base64Data?: string;
@@ -33,20 +34,17 @@ export function CoverEditor({
       ? coverUrl
       : undefined;
 
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileMime = file.type || "image/jpeg";
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      const base64Index = result.indexOf(";base64,");
-      const cleanBase64 = base64Index !== -1 ? result.substring(base64Index + 8) : result;
-      onCoverChange(cleanBase64, fileMime);
-      setDialogOpen(false);
-    };
-    reader.readAsDataURL(file);
+    // Shrunk here rather than sent whole: a cover picked from a phone's camera roll is a
+    // multi-megapixel photo, and it would travel as base64 in the JSON body and be stored in the
+    // organize queue row at that size. The server normalizes covers too — this is about not
+    // uploading the original in the first place.
+    const { base64Data: prepared, mimeType: preparedMime } = await prepareCover(file);
+    onCoverChange(prepared, preparedMime);
+    setDialogOpen(false);
   };
 
   const handleFetchUrl = async () => {
@@ -64,23 +62,9 @@ export function CoverEditor({
         throw new Error(`Failed to fetch image: status ${response.status}`);
       }
       const blob = await response.blob();
-      const contentType = blob.type || "image/jpeg";
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === "string") {
-            const resStr = reader.result;
-            const base64Index = resStr.indexOf(";base64,");
-            resolve(base64Index !== -1 ? resStr.substring(base64Index + 8) : resStr);
-          } else {
-            reject(new Error("Failed to read image as data URL"));
-          }
-        };
-        reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
-        reader.readAsDataURL(blob);
-      });
+      const { base64Data: fetched, mimeType: fetchedMime } = await prepareCover(blob);
 
-      onCoverChange(base64Data, contentType);
+      onCoverChange(fetched, fetchedMime);
       setUrlInput("");
       setDialogOpen(false);
     } catch (err: unknown) {
@@ -191,7 +175,13 @@ export function CoverEditor({
               <label className="text-muted-foreground text-xs font-semibold uppercase">
                 Upload image file
               </label>
-              <Input type="file" accept="image/*" onChange={handleFileUpload} />
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  void handleFileUpload(e);
+                }}
+              />
             </div>
 
             <div className="border-border flex flex-col-reverse justify-between gap-2 border-t pt-4 sm:flex-row">
