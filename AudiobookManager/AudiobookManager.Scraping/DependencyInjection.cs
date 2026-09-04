@@ -21,6 +21,28 @@ public static class DependencyInjection
         services.AddTransient<HardcoverRetryHandler>();
         services.AddTransient<HardcoverRateLimitingHandler>();
 
+        // The proxy-image endpoint is open forwarding by design (the cover editor fetches any
+        // URL the user pastes). The guard closes the unacceptable half of that: every connection
+        // is validated against the address it actually reaches, so private/loopback/link-local
+        // ranges - including cloud metadata - are refused whether they come from a literal IP, a
+        // DNS name, an IPv4-mapped form, or a redirect hop. See ProxyImageConnectGuard.
+        services.AddSingleton<ProxyImageConnectGuard>();
+        services.AddHttpClient("proxy-image", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        }).ConfigurePrimaryHttpMessageHandler(sp =>
+        {
+            var guard = sp.GetRequiredService<ProxyImageConnectGuard>();
+            return new SocketsHttpHandler
+            {
+                // The guard validates per connection inside ConnectCallback, which covers every
+                // redirect hop; keeping automatic redirects on also keeps the many cover CDNs
+                // that send 302s working unchanged.
+                AllowAutoRedirect = true,
+                ConnectCallback = guard.ConnectAsync,
+            };
+        });
+
         services.AddHttpClient("hardcover")
             .ConfigureHttpClient((sp, client) =>
             {

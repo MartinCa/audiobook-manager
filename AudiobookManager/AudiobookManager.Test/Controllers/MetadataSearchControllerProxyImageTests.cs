@@ -1,5 +1,6 @@
 using System.Net;
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Scraping;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -117,5 +118,26 @@ public class MetadataSearchControllerProxyImageTests
         var result = await controller.ProxyImage(url);
 
         ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+    }
+
+    [TestMethod]
+    public async Task ProxyImage_UrlResolvingToNonPublicAddress_IsRejected()
+    {
+        // The guard refuses the destination (hostname resolves to the cloud metadata address),
+        // and the endpoint must report it as a caller error - a 400 - not a 500.
+        var guard = new ProxyImageConnectGuard((_, _) => Task.FromResult(new[] { IPAddress.Parse("169.254.169.254") }));
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("proxy-image"))
+            .Returns(new HttpClient(new SocketsHttpHandler { ConnectCallback = guard.ConnectAsync }));
+
+        var controller = new MetadataSearchController(new Mock<IScrapingService>().Object, factory.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = await controller.ProxyImage("http://metadata.internal/latest/meta-data");
+
+        var problem = ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+        StringAssert.Contains(problem.Detail, "non-public");
     }
 }
