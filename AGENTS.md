@@ -582,6 +582,39 @@ Adding a new source (or changing an existing one's name/availability) requires t
 
 ## Frontend Patterns
 
+### List endpoints must be bounded — no unbounded lists over the wire
+
+**Invariant: every endpoint that returns a list drawn from a growing table (audiobooks,
+authors, series, missing-tag results, consistency issues, dirty URLs) must be either
+path-limited (search/type-ahead with a small `limit`) or server-side paged. An endpoint may
+not return the whole collection with no bound, and a list view may not receive the whole
+collection and page/filter it client-side.**
+
+This invariant is written down because it was violated more than once: the consistency issue
+list (#1319) shipped returning every issue with every field inline — multi-megabyte responses
+for a few thousand issues, held for the session, to render ~50 rows — and the URL-cleanup list
+(#1326) loaded every audiobook whole and rendered all dirty URLs as DOM cards. Each fixed list
+follows the same blueprint; new lists must start there instead of repeating the mistake:
+
+- **Server-side paged lists** use a page DTO (`{ items, total }` — see
+  `ConsistencyIssuePageDto` / `UrlCleanupPageDto`), a SQL-projected paged repository query with
+  a **total order** (see "A paged query needs a total order"), and validated/clamped
+  `page`/`pageSize` parameters with an overflow-guarded offset (see `UrlCleanupController`'s
+  `MaxPageOffset`). The client renders one page at a time with a clamped pager and
+  `keepPreviousData` (see `LibraryConsistency.tsx` / `CleanBookUrls.tsx`), and puts its
+  debounced search term in the TanStack Query key rather than filtering the loaded array.
+- **Path-limited lists** (search / type-ahead) take a small `limit` (`GET /browse/library-search`
+  defaults to 5; type-ahead name lists feed `narrowByQuery(..., 6)`), widening a hardcoded
+  client-side list instead of the server list is a regression (there is no limit on how many
+  distinct values a library can hold), and matching goes through the accent-insensitive search
+  helpers rather than a client-side `foldAccents` scan over every row.
+- A cheap **count endpoint** (or counts in the page DTO) supplies header badges ("Series (N)",
+  "Bulk Match (N)", "X of Y") instead of fetching the full list to count it.
+
+Before adding a list endpoint or list view, name the bound (page size plus total-order
+tiebreaker, or the explicit `limit`) in the same change that adds it. Unbounded lists are
+tracked in #1334–#1339.
+
 ### Async list loads go through TanStack Query, not manual state + effects
 
 A loader whose result overwrites shared state (a book list, a search result set) must ignore its
