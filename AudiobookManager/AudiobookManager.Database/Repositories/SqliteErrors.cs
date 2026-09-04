@@ -5,10 +5,8 @@ namespace AudiobookManager.Database.Repositories;
 
 /// <summary>
 /// Recognises the SQLite failures a repository is expected to recover from rather than surface.
-///
-/// Public so the test module can construct failure cases deterministically.
 /// </summary>
-public static class SqliteErrors
+internal static class SqliteErrors
 {
     /// <summary>
     /// Whether the save failed on a uniqueness constraint - SQLITE_CONSTRAINT_UNIQUE (2067) or
