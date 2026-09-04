@@ -151,6 +151,36 @@ public class QueuedOrganizeTaskServiceTests
         Assert.Fail($"The bad row was still being returned after {maxAttempts} attempts; it never dead-lettered.");
     }
 
+    // Follow-up to #1322, raised in review of the dead-letter fix: GetQueuedOrganizeTasks backs
+    // GET /api/queue/books, which BookList.tsx polls purely to show "queued" badges across the
+    // whole library. Before this, one row failing to deserialize took the entire response down -
+    // and since BookList swallows that into an empty list, every book in the library silently
+    // lost its queued badge instead of just the one that's actually stuck.
+    [TestMethod]
+    public async Task GetQueuedOrganizeTasks_OneRowFailsToDeserialize_SkipsItAndReturnsTheRest()
+    {
+        await InsertRawAsync("/import/corrupt.m4b", "not valid json", DateTime.UtcNow);
+        await _service.QueueOrganizeTask(MakeBook("/import/good-a.m4b"));
+        await _service.QueueOrganizeTask(MakeBook("/import/good-b.m4b"));
+
+        var tasks = await _service.GetQueuedOrganizeTasks();
+
+        CollectionAssert.AreEquivalent(
+            new[] { "/import/good-a.m4b", "/import/good-b.m4b" },
+            tasks.Select(t => t.OriginalFileLocation).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetQueuedOrganizeTasks_EveryRowFailsToDeserialize_ReturnsEmptyRatherThanThrowing()
+    {
+        await InsertRawAsync("/import/corrupt-a.m4b", "not valid json", DateTime.UtcNow);
+        await InsertRawAsync("/import/corrupt-b.m4b", "also not valid json", DateTime.UtcNow);
+
+        var tasks = await _service.GetQueuedOrganizeTasks();
+
+        Assert.AreEqual(0, tasks.Count);
+    }
+
     private async Task InsertRawAsync(string originalFileLocation, string jsonAudiobook, DateTime queuedTime)
     {
         _db.QueuedOrganizeTasks.Add(new Database.Models.QueuedOrganizeTask(originalFileLocation, jsonAudiobook, queuedTime));
