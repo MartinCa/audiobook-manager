@@ -108,33 +108,29 @@ public class CoverImageProcessorTests
     }
 
     // Regression: a CMYK/UcrK JPEG (Adobe APP14, 4 components) - which is what Audible's
-    // metadata search returns for some covers - round-trips through ImageSharp as an Adobe-marked
-    // JPEG whose invalid transform flag browsers render as neon-green stripes. The original bytes
-    // are valid and render everywhere, so they must be kept rather than re-encoded, exactly like a
-    // small PNG on the fast path.
+    // metadata search returns for some covers - decodes to correct RGB pixels, but ImageSharp's
+    // encoder previously derived its output color type from that source metadata rather than the
+    // pixels it was writing, so it recreated the Adobe APP14 marker on the re-encode. Browsers
+    // honour that marker and apply a color transform that paints the cover neon-green. The fix
+    // forces the encoder's own color type, so the re-encode must no longer carry that marker - and
+    // must still go through the normal path (resizing, size cap) like every other JPEG.
     [TestMethod]
-    public void Normalize_ACmykJpeg_IsKeptByteForByte()
+    public void Normalize_ACmykJpeg_IsReencodedWithoutTheAdobeMarkerThatCausesTheColorCorruption()
     {
-        // 40x40 Adobe APP14 CMYK JPEG captured from Audible's CDN (779 bytes). ImageSharp's
-        // encoder cannot produce CMYK, so the fixture is a real captured file embedded here.
-        var cmykJpeg =
-            "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCx" +
-            "AWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAKAAoBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgME" +
-            "BQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJCh" +
-            "YXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqi" +
-            "o6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAA4EQwBNAFkASw" +
-            "AAPwD9G/G//LSv0b/4Tf8A6afrX3RXpFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf/lpR/wAJ" +
-            "v/00/Wiivn/xv/y0o/4Tf/pp+tFFf0AeN/8AlpXz/wD8Jv8A9NP1oor5/wDG/wDy0o/4Tf8A6afrRRXz/wCN/wDlpR" +
-            "/wm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor+gDxv8A8tK+f/8AhN/+mn60UV8/+N/+" +
-            "WlH/AAm//TT9aKK+f/G//LSj/hN/+mn60UV8/wDjf/lpR/wm/wD00/Wiivn/AMb/APLSj/hN/wDpp+tFFf0AeN/+Wl" +
-            "fP/wDwm/8A00/Wiivn/wAb/wDLSj/hN/8App+tFFfP/jf/AJaUf8Jv/wBNP1oor5/8b/8ALSj/AITf/pp+tFFfP/jf" +
-            "/lpR/wAJv/00/Wiiv6APG/8Ay0r5/wD+E3/6afrRRXz/AON/+WlH/Cb/APTT9aKK+f8Axv8A8tKP+E3/AOmn60UV8/" +
-            "8Ajf8A5aUf8Jv/ANNP1oor5/8AG/8Ay0o/4Tf/AKafrRRX/9k=";
+        var cmykJpeg = CmykFixture;
 
         var result = _processor.Normalize(cmykJpeg, "image/jpeg");
 
         Assert.AreEqual("image/jpeg", result.MimeType);
-        Assert.AreEqual(cmykJpeg, result.Base64Data, "A CMYK JPEG must not be re-encoded.");
+        Assert.AreNotEqual(cmykJpeg, result.Base64Data, "A CMYK JPEG must go through the normal re-encode, not be passed through.");
+
+        var outputBytes = Convert.FromBase64String(result.Base64Data);
+        Assert.AreEqual(24, Image.Identify(outputBytes).PixelType.BitsPerPixel,
+            "The re-encode must be plain RGB/YCbCr - carrying the source's CMYK/YCCK color type forward is what caused the corruption.");
+
+        var adobeMarker = System.Text.Encoding.ASCII.GetBytes("Adobe");
+        Assert.IsTrue(outputBytes.AsSpan().IndexOf(adobeMarker) < 0,
+            "The re-encode must not carry an Adobe APP14 marker - that marker with the source's transform flag is what browsers use to apply the corrupting color transform.");
     }
 
     [TestMethod]
@@ -144,14 +140,11 @@ public class CoverImageProcessorTests
         var result = _processor.Normalize(cmykJpeg, "image/png");
 
         Assert.AreEqual("image/jpeg", result.MimeType, "The bytes decide the type, not the claim.");
-        Assert.AreEqual(cmykJpeg, result.Base64Data);
     }
 
     [TestMethod]
-    public void Normalize_AnRgbJpeg_IsStillReencodedNotPassedThrough()
+    public void Normalize_AnRgbJpeg_IsStillReencoded()
     {
-        // Ensures the CMYK guard does not accidentally match ordinary 3-component JPEGs: those
-        // must keep the normal re-encode (and with it the dimension and size caps).
         var jpeg = FlatJpeg(4000, 4000);
 
         var result = _processor.Normalize(jpeg, "image/jpeg");
@@ -301,7 +294,7 @@ public class CoverImageProcessorTests
     }
 
     // Real Adobe APP14 CMYK JPEG (40x40, 779 bytes) as served by Audible's CDN. Kept in one place:
-    // ImageSharp cannot generate CMYK, so every CMYK test shares the same captured fixture.
+    // ImageSharp's encoder cannot produce CMYK, so every CMYK test shares the same captured fixture.
     private static string CmykFixture => "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCx" +
             "AWEBETFBUVFQwPFxgWFBgSFBUU/8AAFAgAKAAoBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgME" +
             "BQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJCh" +

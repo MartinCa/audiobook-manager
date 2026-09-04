@@ -69,16 +69,6 @@ public class CoverImageProcessor : ICoverImageProcessor
             return new AudiobookImage(base64Data, PngFormat.Instance.DefaultMimeType);
         }
 
-        // CMYK JPEGs round-trip through ImageSharp as Adobe-marked (APP14 ct=100) JPEGs: the
-        // decoded pixels are correct, but the re-encode carries the source marker with a transform
-        // flag browsers do not honour, so they paint the cover neon-green. Keeping the original
-        // bytes is the only way to avoid that, and those bytes already render correctly.
-        if (format is JpegFormat && IsCmykJpeg(bytes))
-        {
-            LogIfMimeWasWrong(declaredMimeType, JpegFormat.Instance.DefaultMimeType);
-            return new AudiobookImage(base64Data, JpegFormat.Instance.DefaultMimeType);
-        }
-
         var (reencoded, width, height) = ToJpeg(bytes);
 
         _logger.LogInformation(
@@ -149,24 +139,6 @@ public class CoverImageProcessor : ICoverImageProcessor
         }
     }
 
-    private static bool IsCmykJpeg(byte[] bytes)
-    {
-        try
-        {
-            // Identify reads the header only. CMYK and UcrK (Adobe APP14) JPEGs advertise 4
-            // components and ImageSharp reports 32 bits per pixel for them; RGB and YCbCr
-            // JPEGs are 24. Decoding a CMYK JPEG yields RGB pixels that look correct to PIL
-            // but the re-encode carries the source APP14 marker with a transform browsers do not
-            // honour, so they paint it neon-green - identify before spending the decode.
-            return Image.Identify(bytes).PixelType.BitsPerPixel == 32;
-        }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException)
-        {
-            // Same guard as ExceedsMaxDimension: DetectFormat only read the container signature.
-            throw new InvalidCoverImageException("The cover image could not be read.");
-        }
-    }
-
     private (byte[] Bytes, int Width, int Height) ToJpeg(byte[] bytes)
     {
         using var image = LoadImage(bytes);
@@ -216,7 +188,16 @@ public class CoverImageProcessor : ICoverImageProcessor
     private static byte[] Encode(Image image, int quality)
     {
         using var output = new MemoryStream();
-        image.Save(output, new JpegEncoder { Quality = quality });
+
+        // ColorType must be set explicitly. Left null, the encoder derives it from the decoded
+        // image's JpegMetadata.ColorType - metadata carried over from the source file - rather
+        // than from the pixel data it is actually about to write. A source CMYK/YCCK (Adobe
+        // APP14) JPEG decodes to correct RGB pixels but keeps that metadata, so an unset
+        // ColorType makes the encoder emit those RGB pixels behind a re-created Adobe APP14
+        // marker claiming CMYK/YCCK again - which is exactly the marker browsers use to apply a
+        // color transform that turns the cover neon-green. Forcing YCbCr writes a plain encode
+        // that matches the pixels regardless of what format they came from.
+        image.Save(output, new JpegEncoder { Quality = quality, ColorType = JpegEncodingColor.YCbCrRatio420 });
         return output.ToArray();
     }
 
