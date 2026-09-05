@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@babel/types": "8.0.4",
-    "@martinrun/frontend-config": "0.2.5",
+    "@martinrun/frontend-config": "0.2.6",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/router-plugin": "1.168.35",
     "@testing-library/jest-dom": "7.0.1",
