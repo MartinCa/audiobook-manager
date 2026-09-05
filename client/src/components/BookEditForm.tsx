@@ -534,7 +534,7 @@ export function BookEditForm({
                       form.setValue(
                         "narrators",
                         current.map((n, i) => (i === index ? suggestion : n)),
-                        { shouldDirty: true },
+                        { shouldDirty: true, shouldValidate: true },
                       );
                     }}
                   >
