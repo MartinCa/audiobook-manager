@@ -43,6 +43,14 @@ public interface IAudiobookRepository
     Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync();
     Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
     Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);
+
+    /// <summary>
+    /// Every book carrying any of <paramref name="personNames"/> as an author OR a narrator, with
+    /// the Authors/Narrators/Genres graph loaded. The initials-spacing resolver needs both roles:
+    /// a person value non-compliant with the spacing setting must be rewritten on every book it
+    /// appears on, however the book lists it.
+    /// </summary>
+    Task<List<Audiobook>> GetBooksByPersonNamesAsync(IEnumerable<string> personNames);
     Task<List<AudiobookLanguageRef>> GetBooksMissingLanguageAsync();
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateLanguageAsync(long id, string? language);

@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
@@ -21,6 +22,8 @@ public class LibraryConsistencyServiceTests
     private IAudiobookFileHandler _fileHandler = null!;
     private IFileOperations _fileOperations = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
+    private Mock<IInitialsSpacingIssueDetector> _initialsSpacingIssueDetector = null!;
+    private Mock<ILibrarySettingsRepository> _librarySettingsRepository = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
     private AudiobookSaveGate _saveGate = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
@@ -62,6 +65,9 @@ public class LibraryConsistencyServiceTests
                 _issueRepository.Object, detectionService, NullLogger<UnreadableFileResolver>.Instance),
             new LibraryPathUnavailableResolver(
                 _issueRepository.Object, detectionService, NullLogger<LibraryPathUnavailableResolver>.Instance),
+            new InitialsSpacingResolver(
+                _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object, _saveGate,
+                NullLogger<InitialsSpacingResolver>.Instance),
         };
 
         var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
@@ -75,6 +81,8 @@ public class LibraryConsistencyServiceTests
             _audiobookService.Object,
             _saveGate,
             detectionService,
+            _initialsSpacingIssueDetector.Object,
+            _librarySettingsRepository.Object,
             resolvers,
             orphanDirectoryConsistencyService,
             effectiveSettings,
@@ -101,12 +109,26 @@ public class LibraryConsistencyServiceTests
         _fileOperations = new FileOperations();
         _fileHandler = new AudiobookFileHandler(_fileOperations);
         _audiobookService = new Mock<IAudiobookService>();
+        _initialsSpacingIssueDetector = new Mock<IInitialsSpacingIssueDetector>();
+        _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
         _saveGate = new AudiobookSaveGate();
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookLibraryPath = _libraryPath
         });
+
+        // The initials-spacing sweep reads the setting from the settings repository; default it to
+        // Unspaced and let individual tests override. The detector finds nothing unless a test
+        // configures findings (Moq's default for a method returning IEnumerable is null, and
+        // RunConsistencyCheck calls ToList() on it).
+        _librarySettingsRepository
+            .Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new Database.Models.LibrarySettings(
+                Database.Models.LibrarySettings.SingletonId, Database.Models.InitialsSpacing.Unspaced));
+        _initialsSpacingIssueDetector
+            .Setup(d => d.Detect(It.IsAny<IReadOnlyList<Database.Models.Audiobook>>(), It.IsAny<Domain.InitialsSpacing>()))
+            .Returns(new List<ConsistencyIssue>());
 
         _service = CreateService();
     }

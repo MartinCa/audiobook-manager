@@ -20,6 +20,7 @@ public static class DependencyInjection
         .AddSingleton<IConsistencyIssueDetector, TagMismatchDetector>()
         .AddSingleton<IConsistencyIssueDetector, SidecarFilesDetector>()
         .AddSingleton<IConsistencyIssueDetector, CoverFileDetector>()
+        .AddScoped<IInitialsSpacingIssueDetector, InitialsSpacingIssueDetector>()
         .AddScoped<IAudiobookIssueDetectionService, AudiobookIssueDetectionService>()
         .AddScoped<IConsistencyIssueResolver, MissingMediaFileResolver>()
         .AddScoped<IConsistencyIssueResolver, LibraryPathUnavailableResolver>()
@@ -27,5 +28,6 @@ public static class DependencyInjection
         .AddScoped<IConsistencyIssueResolver, TagOrPathMismatchResolver>()
         .AddScoped<IConsistencyIssueResolver, MissingCoverResolver>()
         .AddScoped<IConsistencyIssueResolver, UnreadableFileResolver>()
+        .AddScoped<IConsistencyIssueResolver, InitialsSpacingResolver>()
         .AddScoped<IOrphanDirectoryConsistencyService, OrphanDirectoryConsistencyService>();
 }

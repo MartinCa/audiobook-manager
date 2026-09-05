@@ -15,6 +15,7 @@ export const ISSUE_TYPE_LABELS: Record<string, string> = {
   TagMismatch: "Tag Mismatches",
   UnreadableFile: "Unreadable Files",
   LibraryPathUnavailable: "Library Path Unavailable",
+  InitialsSpacingMismatch: "Initials Spacing",
 };
 
 export function getIssueTypeLabel(issueType: string): string {
@@ -42,6 +43,8 @@ export const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
     "Each affected file will be read again. Files that can be read are re-checked normally; files that still cannot be read stay listed. Nothing is deleted or modified.",
   LibraryPathUnavailable:
     "Each affected book's directory will be looked for again. Books whose directory is back are re-checked normally; books whose directory is still missing stay listed. Nothing is deleted or modified.",
+  InitialsSpacingMismatch:
+    "For each affected author or narrator, every book carrying that name will have the name rewritten to the configured initials spacing (e.g. \u201cJ.K. Rowling\u201d \u2192 \u201cJ. K. Rowling\u201d), and the m4b tags, sidecars, and file paths updated to match.",
 };
 
 export const ISSUE_TYPE_INFO: Record<string, string> = {
@@ -51,6 +54,8 @@ export const ISSUE_TYPE_INFO: Record<string, string> = {
     "The media file is missing and so is its directory \u2014 the shape of an unmounted drive or share rather than a deleted book (deleting a book leaves its directory behind). The library record is kept and nothing is deleted: resolving simply looks again, and the book is re-checked normally once the directory is back.",
   TagMismatch:
     "Each book's m4b tags differ from its library metadata. Resolve opens a dialog to choose, field by field, whether to keep the library value, the file's value, or clear the field. Bulk resolve rewrites every tag to match the library and moves the file if that changes its path.",
+  InitialsSpacingMismatch:
+    "An author or narrator does not match the configured initials spacing (spaced like \u201cJ. K. Rowling\u201d or unspaced like \u201cJ.K. Rowling\u201d). Resolving rewrites the name to the configured style on every book that carries it, and updates the m4b tags, sidecars, and file path for each.",
 };
 
 export function getIssueTypeInfo(issueType: string): string {
