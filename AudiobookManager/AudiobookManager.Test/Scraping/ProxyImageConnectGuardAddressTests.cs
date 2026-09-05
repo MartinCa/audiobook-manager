@@ -42,8 +42,10 @@ public class ProxyImageConnectGuardAddressTests
     [DataRow("::1")]
     [DataRow("::")]
     [DataRow("fe80::1")] // IPv6 link-local
+    [DataRow("ff00::1")] // IPv6 multicast
     [DataRow("fc00::1")]
     [DataRow("fd12:3456:789a:1::1")] // ULA
+    [DataRow("fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")] // top of fc00::/7
     [DataRow("::ffff:127.0.0.1")] // IPv4-mapped loopback
     [DataRow("::ffff:10.0.0.1")] // IPv4-mapped RFC 1918
     [DataRow("::ffff:192.168.1.1")] // IPv4-mapped RFC 1918
@@ -66,6 +68,7 @@ public class ProxyImageConnectGuardAddressTests
     [DataRow("223.255.255.255")] // top of unicast
     [DataRow("2001:4860:4860::8888")] // Google DNS v6
     [DataRow("2606:4700:10::6814:179a")] // Cloudflare/example
+    [DataRow("fe00::1")] // just below fe80::/10 link-local, just above fc00::/7 ULA
     public void IsPublicAddress_PublicAddress_IsAllowed(string address)
     {
         Assert.IsTrue(ProxyImageConnectGuard.IsPublicAddress(IPAddress.Parse(address)));

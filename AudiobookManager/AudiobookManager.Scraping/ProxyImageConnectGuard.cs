@@ -52,6 +52,44 @@ public sealed class ProxyImageConnectGuard
     }
 
     /// <summary>
+    /// Networks it is never safe to fetch from. Kept as <see cref="IPNetwork"/> (rather than raw
+    /// octet arithmetic) so a range reads as itself; every entry below matches what the
+    /// hand-rolled checks used to express. IPv4-mapped IPv6 addresses are normalized to IPv4 in
+    /// <see cref="IsPublicAddress"/> before this list is consulted.
+    /// </summary>
+    private static readonly IPNetwork[] NonPublicNetworks =
+    {
+        // "This network" / unspecified - nothing to fetch from.
+        IPNetwork.Parse("0.0.0.0/8"),
+        // RFC 1918 private use.
+        IPNetwork.Parse("10.0.0.0/8"),
+        // Shared/CGNAT (RFC 6598): cloud and overlay networks (Tailscale, some Kubernetes/Docker
+        // NAT) route internal-only traffic through this block.
+        IPNetwork.Parse("100.64.0.0/10"),
+        IPNetwork.Parse("172.16.0.0/12"),
+        IPNetwork.Parse("192.168.0.0/16"),
+        // Loopback.
+        IPNetwork.Parse("127.0.0.0/8"),
+        // Link-local, which is also the cloud metadata service.
+        IPNetwork.Parse("169.254.0.0/16"),
+        // Multicast, then reserved (incl. 255.255.255.255 broadcast) - no HTTP server should be on either.
+        IPNetwork.Parse("224.0.0.0/4"),
+        IPNetwork.Parse("240.0.0.0/4"),
+    };
+
+    private static readonly IPNetwork[] NonPublicNetworksV6 =
+    {
+        // :: and ::1 - nothing to fetch from, loopback.
+        IPNetwork.Parse("::/128"),
+        IPNetwork.Parse("::1/128"),
+        // Link-local and multicast.
+        IPNetwork.Parse("fe80::/10"),
+        IPNetwork.Parse("ff00::/8"),
+        // Unique local addresses fc00::/7.
+        IPNetwork.Parse("fc00::/7"),
+    };
+
+    /// <summary>
     /// Whether <paramref name="address"/> is one this application is willing to fetch from. The
     /// negation of "public internet address": loopback, private RFC 1918, shared/CGNAT (RFC
     /// 6598), link-local, the cloud metadata range (169.254/16 covers it), ULA, IPv4-mapped
@@ -65,75 +103,16 @@ public sealed class ProxyImageConnectGuard
             address = address.MapToIPv4();
         }
 
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var bytes = address.GetAddressBytes();
-            var first = bytes[0];
+        var networks = address.AddressFamily == AddressFamily.InterNetwork
+            ? NonPublicNetworks
+            : NonPublicNetworksV6;
 
-            if (first == 0)
+        foreach (var network in networks)
+        {
+            if (network.Contains(address))
             {
-                // 0.0.0.0/8 - "this network" / unspecified, nothing to fetch from.
                 return false;
             }
-
-            if (first == 10)
-            {
-                return false; // 10/8, RFC 1918.
-            }
-
-            if (first == 127)
-            {
-                return false; // 127/8, loopback.
-            }
-
-            if (first == 169 && bytes[1] == 254)
-            {
-                return false; // 169.254/16, link-local (and the cloud metadata service).
-            }
-
-            if (first == 100 && bytes[1] is >= 64 and <= 127)
-            {
-                return false; // 100.64/10, shared/CGNAT (RFC 6598): cloud and overlay networks
-                              // (Tailscale, some Kubernetes/Docker NAT) route internal-only
-                              // traffic through this block.
-            }
-
-            if (first == 172 && bytes[1] is >= 16 and <= 31)
-            {
-                return false; // 172.16/12, RFC 1918.
-            }
-
-            if (first == 192 && bytes[1] == 168)
-            {
-                return false; // 192.168/16, RFC 1918.
-            }
-
-            if (first >= 224)
-            {
-                return false; // 224/4 multicast, 240/4 reserved incl. 255.255.255.255 broadcast.
-            }
-
-            return true;
-        }
-
-        // IPv6.
-        if (address.IsIPv6LinkLocal || address.IsIPv6Multicast)
-        {
-            return false;
-        }
-
-        var value = address.GetAddressBytes();
-
-        // ::1 loopback (and ::, which nothing should fetch from either).
-        if (value.All(b => b == 0) || (value[15] == 1 && value.Take(15).All(b => b == 0)))
-        {
-            return false;
-        }
-
-        // Unique local addresses fc00::/7.
-        if ((value[0] & 0xfe) == 0xfc)
-        {
-            return false;
         }
 
         return true;
