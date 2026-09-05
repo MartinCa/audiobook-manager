@@ -160,18 +160,6 @@ export function BookEditForm({
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Tracks which committed chip triggered the hint (`committed`) alongside the suggestion, so
-  // the hint can be invalidated (see the effects below) the moment that chip is edited, removed,
-  // or otherwise no longer present verbatim - rather than staying clickable and silently
-  // clobbering whatever now happens to be the last entry.
-  const [authorHint, setAuthorHint] = useState<{ committed: string; suggestion: string } | null>(
-    null,
-  );
-  const [narratorHint, setNarratorHint] = useState<{
-    committed: string;
-    suggestion: string;
-  } | null>(null);
-  const [seriesHint, setSeriesHint] = useState<string | null>(null);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
 
@@ -206,14 +194,41 @@ export function BookEditForm({
 
   const watchedValues = useWatch({ control: form.control });
 
-  // A hint is only shown while the chip that triggered it is still present verbatim - edited,
-  // removed, or replaced clears it (derived here, not via an effect, so there's no separate
-  // "invalidate" state update to keep in sync). Reordering leaves it valid: the value is still
-  // in the array, just at a different index, which the click handler below re-derives.
-  const activeAuthorHint =
-    authorHint && watchedValues.authors?.includes(authorHint.committed) ? authorHint : null;
-  const activeNarratorHint =
-    narratorHint && watchedValues.narrators?.includes(narratorHint.committed) ? narratorHint : null;
+  // Derived, not event-driven: a hint exists for every entry (by index) that currently has a
+  // similar-but-not-identical existing name, recomputed on every relevant change. This covers
+  // every way an entry can get into the array - typed one at a time, bulk-applied from a scraped
+  // metadata search result, or already present when the book was loaded - not just the one chip
+  // most recently typed into the field. It also can't go stale: there's no separate "which chip
+  // triggered this" state to fall out of sync when an entry is edited, removed, or reordered.
+  const authorHints = useMemo(() => {
+    const hints = new Map<number, string>();
+    (watchedValues.authors ?? []).forEach((author, index) => {
+      if (!author?.trim()) return;
+      const matches = findSimilarExisting(author, authorNames);
+      if (matches[0] && matches[0] !== author) hints.set(index, matches[0]);
+    });
+    return hints;
+  }, [watchedValues.authors, authorNames]);
+
+  const narratorHints = useMemo(() => {
+    const hints = new Map<number, string>();
+    (watchedValues.narrators ?? []).forEach((narrator, index) => {
+      if (!narrator?.trim()) return;
+      const matches = findSimilarExisting(narrator, narratorNames);
+      if (matches[0] && matches[0] !== narrator) hints.set(index, matches[0]);
+    });
+    return hints;
+  }, [watchedValues.narrators, narratorNames]);
+
+  // Same derived approach as the author/narrator hints above, for the single Series field: a
+  // similar existing series is shown regardless of whether the value was typed, blurred into, or
+  // set in bulk via a scraped metadata-search apply.
+  const seriesHint = useMemo(() => {
+    const series = watchedValues.series?.trim();
+    if (!series) return null;
+    const matches = findSimilarExisting(series, seriesNames);
+    return matches[0] && matches[0] !== series ? matches[0] : null;
+  }, [watchedValues.series, seriesNames]);
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -466,11 +481,6 @@ export function BookEditForm({
                     reorderable
                     placeholder="Author Name, Second Author"
                     aria-invalid={Boolean(form.formState.errors.authors)}
-                    onEntryCommitted={(newAuthor) => {
-                      const matches = findSimilarExisting(newAuthor, authorNames);
-                      const suggestion = matches[0] && matches[0] !== newAuthor ? matches[0] : null;
-                      setAuthorHint(suggestion ? { committed: newAuthor, suggestion } : null);
-                    }}
                   />
                 )}
               />
@@ -479,28 +489,23 @@ export function BookEditForm({
                   {form.formState.errors.authors.message}
                 </p>
               )}
-              {activeAuthorHint && (
+              {Array.from(authorHints.entries()).map(([index, suggestion]) => (
                 <button
+                  key={index}
                   type="button"
-                  className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
+                  className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
                   onClick={() => {
                     const current = form.getValues("authors");
-                    const index = current.indexOf(activeAuthorHint.committed);
-                    if (index === -1) {
-                      setAuthorHint(null);
-                      return;
-                    }
                     form.setValue(
                       "authors",
-                      current.map((a, i) => (i === index ? activeAuthorHint.suggestion : a)),
+                      current.map((a, i) => (i === index ? suggestion : a)),
                       { shouldDirty: true, shouldValidate: true },
                     );
-                    setAuthorHint(null);
                   }}
                 >
-                  Similar existing author: {activeAuthorHint.suggestion} (click to use)
+                  Similar existing author: {suggestion} (click to use)
                 </button>
-              )}
+              ))}
             </div>
 
             {isFieldVisible("narrators") && (
@@ -516,37 +521,26 @@ export function BookEditForm({
                       suggestions={narratorNames}
                       reorderable
                       placeholder="Narrator Name"
-                      onEntryCommitted={(newNarrator) => {
-                        const matches = findSimilarExisting(newNarrator, narratorNames);
-                        const suggestion =
-                          matches[0] && matches[0] !== newNarrator ? matches[0] : null;
-                        setNarratorHint(suggestion ? { committed: newNarrator, suggestion } : null);
-                      }}
                     />
                   )}
                 />
-                {activeNarratorHint && (
+                {Array.from(narratorHints.entries()).map(([index, suggestion]) => (
                   <button
+                    key={index}
                     type="button"
-                    className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
+                    className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
                     onClick={() => {
                       const current = form.getValues("narrators");
-                      const index = current.indexOf(activeNarratorHint.committed);
-                      if (index === -1) {
-                        setNarratorHint(null);
-                        return;
-                      }
                       form.setValue(
                         "narrators",
-                        current.map((n, i) => (i === index ? activeNarratorHint.suggestion : n)),
-                        { shouldDirty: true },
+                        current.map((n, i) => (i === index ? suggestion : n)),
+                        { shouldDirty: true, shouldValidate: true },
                       );
-                      setNarratorHint(null);
                     }}
                   >
-                    Similar existing narrator: {activeNarratorHint.suggestion} (click to use)
+                    Similar existing narrator: {suggestion} (click to use)
                   </button>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -589,13 +583,7 @@ export function BookEditForm({
                     onValueChange={(val) => field.onChange(val)}
                     candidates={seriesNames}
                     placeholder="Series name"
-                    onBlur={(e) => {
-                      field.onBlur();
-                      const matches = findSimilarExisting(e.target.value, seriesNames);
-                      setSeriesHint(
-                        matches[0] && matches[0] !== e.target.value ? matches[0] : null,
-                      );
-                    }}
+                    onBlur={field.onBlur}
                   />
                 )}
               />
@@ -605,7 +593,6 @@ export function BookEditForm({
                   className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
                   onClick={() => {
                     form.setValue("series", seriesHint, { shouldDirty: true });
-                    setSeriesHint(null);
                   }}
                 >
                   Similar existing series: {seriesHint} (click to use)
