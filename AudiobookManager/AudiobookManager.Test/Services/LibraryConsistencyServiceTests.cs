@@ -139,36 +139,54 @@ public class LibraryConsistencyServiceTests
     public async Task ResolveIssues_SiblingIssueCascadedAwayByAnEarlierResolve_IsNotCountedAsAFailure()
     {
         const long audiobookId = 7;
-        var book = MakeMissingFileBook(audiobookId, "/library/gone/missing.m4b");
 
-        var missingFileIssue = new ConsistencyIssue
+        // The parent directory must exist: a missing file whose directory is also gone is the
+        // LibraryPathUnavailable (unmount) shape and does not cascade. This test is about the
+        // genuine-deletion cascade, which requires an existing directory with a missing file.
+        var goneDir = Path.Combine(Path.GetTempPath(), $"abm-gone-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(goneDir);
+
+        try
         {
-            Id = 1,
-            AudiobookId = audiobookId,
-            Audiobook = book,
-            IssueType = ConsistencyIssueType.MissingMediaFile,
-            Description = "missing",
-        };
-        var opfIssue = new ConsistencyIssue
+            var book = MakeMissingFileBook(audiobookId, Path.Combine(goneDir, "missing.m4b"));
+
+            var missingFileIssue = new ConsistencyIssue
+            {
+                Id = 1,
+                AudiobookId = audiobookId,
+                Audiobook = book,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "missing",
+            };
+            var opfIssue = new ConsistencyIssue
+            {
+                Id = 2,
+                AudiobookId = audiobookId,
+                Audiobook = book,
+                IssueType = ConsistencyIssueType.MissingOpfFile,
+                Description = "no opf",
+            };
+
+            _issueRepository
+                .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+                .ReturnsAsync(new List<ConsistencyIssue> { missingFileIssue, opfIssue });
+
+            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
+
+            Assert.AreEqual(1, resolved, "the missing-media resolve removed the book and all its issues");
+            Assert.AreEqual(0, failed, "the sibling it cascaded away is not a failure");
+
+            // The cascaded sibling must not have been attempted at all.
+            _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()), Times.Never);
+        }
+        finally
         {
-            Id = 2,
-            AudiobookId = audiobookId,
-            Audiobook = book,
-            IssueType = ConsistencyIssueType.MissingOpfFile,
-            Description = "no opf",
-        };
-
-        _issueRepository
-            .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-            .ReturnsAsync(new List<ConsistencyIssue> { missingFileIssue, opfIssue });
-
-        var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
-
-        Assert.AreEqual(1, resolved, "the missing-media resolve removed the book and all its issues");
-        Assert.AreEqual(0, failed, "the sibling it cascaded away is not a failure");
-
-        // The cascaded sibling must not have been attempted at all.
-        _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()), Times.Never);
+            // The resolver removes the now-empty directory itself, so it may already be gone.
+            if (Directory.Exists(goneDir))
+            {
+                Directory.Delete(goneDir, true);
+            }
+        }
     }
 
     // The same shape for the narrower sidecar cascade: WriteMetadata writes desc.txt, reader.txt
@@ -769,10 +787,73 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("directory_unavailable", result.ActionTaken);
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
 
+            // Only the handled type is replaced. Detection short-circuits when the directory is
+            // missing, so its answer says nothing about the book's sidecars, tags or path - those
+            // stored issues may include findings that were never re-evaluated, and deleting them
+            // would discard that evidence. The broad delete must not be used here.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(
+                    1,
+                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                        types.Single() == ConsistencyIssueType.MissingMediaFile)),
+                Times.Once);
+
             // The re-check re-inserts the real finding (LibraryPathUnavailable), so the book
             // stays on the consistency screen under the correct heading.
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
                 issues.Any(i => i.IssueType == ConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Regression test for the review of #1311: the "directory also gone" branch of
+    // MissingMediaFileResolver used to delete *every* stored issue for the book before
+    // re-inserting only what detection found. But detection short-circuits when the directory is
+    // missing - it returns just the LibraryPathUnavailable finding and says nothing about the
+    // sidecars, tags or path - so a stored TagMismatch (detected earlier, when the directory was
+    // still there) was silently discarded along with the MissingMediaFile row it was clearing.
+    // The other stored issues must survive; only the handled type is replaced.
+    [TestMethod]
+    public async Task ResolveIssue_MissingMediaFile_ButDirectoryAlsoGoneNow_PreservesOtherStoredIssues()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var lostSubtree = Path.Combine(tempDir, "lost-subtree");
+
+        try
+        {
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 33,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "Media file not found",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(33)).ReturnsAsync(issue);
+
+            await _service.ResolveIssue(33);
+
+            // The broad delete would have removed the stored TagMismatch without re-evaluating
+            // it; the targeted delete leaves it in place.
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+            _issueRepository.Verify(
+                r => r.DeleteByAudiobookIdAndTypesAsync(
+                    1,
+                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
+                        types.Single() == ConsistencyIssueType.MissingMediaFile)),
+                Times.Once);
         }
         finally
         {

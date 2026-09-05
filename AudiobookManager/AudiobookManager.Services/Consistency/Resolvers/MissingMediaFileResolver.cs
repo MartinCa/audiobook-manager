@@ -67,14 +67,21 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
                 "Media file for audiobook {AudiobookId} ('{Title}') at '{FilePath}' is missing and so is its directory; re-checking instead of deleting the record.",
                 audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
-            await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+            // Only this type is replaced. Detection short-circuits when the directory is missing,
+            // so it said nothing about the book's sidecars, tags or path - and deleting the stored
+            // issues for those would discard findings that were never re-evaluated. The re-check's
+            // answer (LibraryPathUnavailable, the stock "share is gone" shape) is inserted below.
+            await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
+                audiobook.Id, new[] { ConsistencyIssueType.MissingMediaFile });
             var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
             if (newIssues.Count > 0)
             {
                 await _issueRepository.InsertRangeAsync(newIssues);
             }
 
-            return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+            // IssueOnly, not AllForAudiobook: nothing else about this book was touched, so a bulk
+            // resolve must not treat the book's other issues as settled by this one.
+            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "directory_unavailable",
