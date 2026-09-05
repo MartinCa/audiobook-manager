@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      root: "client/"
+      glob: "*.{ts,tsx}"
+      run: pnpm eslint --fix {staged_files} && pnpm prettier --write {staged_files}
+      stage_fixed: true
+    format:
+      root: "client/"
+      glob: "*.{json,css,md,js,mjs,html}"
+      run: pnpm prettier --write {staged_files}
+      stage_fixed: true
