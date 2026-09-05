@@ -31,6 +31,8 @@ public class ProxyImageConnectGuardAddressTests
     [DataRow("169.254.0.1")]
     [DataRow("169.254.169.254")] // cloud metadata
     [DataRow("169.254.255.255")]
+    [DataRow("100.64.0.1")] // shared/CGNAT (RFC 6598)
+    [DataRow("100.127.255.255")] // top of 100.64/10
     [DataRow("0.0.0.0")]
     [DataRow("0.255.255.255")]
     [DataRow("224.0.0.1")] // multicast, not unicast
@@ -46,6 +48,7 @@ public class ProxyImageConnectGuardAddressTests
     [DataRow("::ffff:10.0.0.1")] // IPv4-mapped RFC 1918
     [DataRow("::ffff:192.168.1.1")] // IPv4-mapped RFC 1918
     [DataRow("::ffff:169.254.169.254")] // IPv4-mapped cloud metadata
+    [DataRow("::ffff:100.64.0.1")] // IPv4-mapped shared/CGNAT
     public void IsPublicAddress_NonPublicRange_IsRefused(string address)
     {
         Assert.IsFalse(ProxyImageConnectGuard.IsPublicAddress(IPAddress.Parse(address)));
@@ -58,6 +61,8 @@ public class ProxyImageConnectGuardAddressTests
     [DataRow("172.32.0.1")] // just outside 172.16/12
     [DataRow("169.253.255.255")] // just outside 169.254/16
     [DataRow("192.169.0.1")] // just outside 192.168/16
+    [DataRow("100.63.255.255")] // just below 100.64/10
+    [DataRow("100.128.0.1")] // just above 100.64/10
     [DataRow("223.255.255.255")] // top of unicast
     [DataRow("2001:4860:4860::8888")] // Google DNS v6
     [DataRow("2606:4700:10::6814:179a")] // Cloudflare/example

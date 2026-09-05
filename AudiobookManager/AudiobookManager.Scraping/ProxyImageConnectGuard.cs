@@ -53,9 +53,10 @@ public sealed class ProxyImageConnectGuard
 
     /// <summary>
     /// Whether <paramref name="address"/> is one this application is willing to fetch from. The
-    /// negation of "public internet address": loopback, private RFC 1918, link-local, the cloud
-    /// metadata range (169.254/16 covers it), ULA, IPv4-mapped forms of all of the above, plus
-    /// multicast and broadcast, which no HTTP server should be on.
+    /// negation of "public internet address": loopback, private RFC 1918, shared/CGNAT (RFC
+    /// 6598), link-local, the cloud metadata range (169.254/16 covers it), ULA, IPv4-mapped
+    /// forms of all of the above, plus multicast and broadcast, which no HTTP server should be
+    /// on.
     /// </summary>
     public static bool IsPublicAddress(IPAddress address)
     {
@@ -88,6 +89,13 @@ public sealed class ProxyImageConnectGuard
             if (first == 169 && bytes[1] == 254)
             {
                 return false; // 169.254/16, link-local (and the cloud metadata service).
+            }
+
+            if (first == 100 && bytes[1] is >= 64 and <= 127)
+            {
+                return false; // 100.64/10, shared/CGNAT (RFC 6598): cloud and overlay networks
+                              // (Tailscale, some Kubernetes/Docker NAT) route internal-only
+                              // traffic through this block.
             }
 
             if (first == 172 && bytes[1] is >= 16 and <= 31)
