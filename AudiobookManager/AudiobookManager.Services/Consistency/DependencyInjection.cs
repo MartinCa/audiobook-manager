@@ -22,6 +22,7 @@ public static class DependencyInjection
         .AddSingleton<IConsistencyIssueDetector, CoverFileDetector>()
         .AddScoped<IAudiobookIssueDetectionService, AudiobookIssueDetectionService>()
         .AddScoped<IConsistencyIssueResolver, MissingMediaFileResolver>()
+        .AddScoped<IConsistencyIssueResolver, LibraryPathUnavailableResolver>()
         .AddScoped<IConsistencyIssueResolver, MetadataSidecarResolver>()
         .AddScoped<IConsistencyIssueResolver, TagOrPathMismatchResolver>()
         .AddScoped<IConsistencyIssueResolver, MissingCoverResolver>()

@@ -30,11 +30,22 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
         /// <summary>The path names a file this process can stat. Whether it *parses* is a later question.</summary>
         Readable,
 
-        /// <summary>Nothing is there.</summary>
+        /// <summary>
+        /// Nothing is at the file's path, and the file's *parent directory* is still there - the
+        /// shape a genuinely deleted book leaves behind. Answered with <see cref="ConsistencyIssueType.MissingMediaFile"/>,
+        /// whose resolution deletes the library record.
+        /// </summary>
         Missing,
 
         /// <summary>Something is there, but this process cannot get at it.</summary>
         Unreadable,
+
+        /// <summary>
+        /// Nothing is at the file's path and the parent directory is gone too - an unmounted
+        /// subtree rather than a deleted book. Answered with <see cref="ConsistencyIssueType.LibraryPathUnavailable"/>,
+        /// which is never resolved by deleting the record.
+        /// </summary>
+        DirectoryMissing,
     }
 
     /// <summary>
@@ -49,6 +60,14 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
     ///
     /// GetAttributes is the cheapest call that reports the difference: it stats the path and
     /// throws rather than swallowing, including when a *parent* directory denies traversal.
+    ///
+    /// It also splits "nothing at the path" into its two real shapes by checking the parent
+    /// directory. A genuinely deleted book leaves its directory behind (the app's own delete path
+    /// removes it too, but an external or partial deletion typically doesn't), while an unmounted
+    /// subtree - a dead per-author or per-share mount - takes the whole directory with it. The two
+    /// are answered differently because one is a deletion and the other is a book that is still
+    /// there, on a share that may come back: the second must never be resolved by deleting the
+    /// record.
     /// </summary>
     private static (MediaFileState State, string? Detail) ProbeMediaFile(string fullPath)
     {
@@ -64,6 +83,12 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
+            var parentPath = Path.GetDirectoryName(fullPath);
+            if (!Directory.Exists(parentPath))
+            {
+                return (MediaFileState.DirectoryMissing, null);
+            }
+
             return (MediaFileState.Missing, null);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
@@ -82,6 +107,20 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             {
                 ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
                     $"Media file not found: {audiobook.FileInfoFileName}",
+                    audiobook.FileInfoFullPath, null)
+            };
+        }
+
+        if (state == MediaFileState.DirectoryMissing)
+        {
+            // The file is missing and so is its parent directory. That is the shape of an
+            // unmounted subtree (a dead per-author or per-share mount), not of a deleted book,
+            // and it is reported separately so it can never be answered with the resolution that
+            // deletes the library record - the share may come back.
+            return new List<ConsistencyIssue>
+            {
+                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.LibraryPathUnavailable,
+                    $"Media file's directory is not available: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, null)
             };
         }

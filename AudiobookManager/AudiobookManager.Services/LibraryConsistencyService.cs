@@ -113,7 +113,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
             if (booksChecked % ProgressBroadcastInterval == 0 || booksChecked == totalBooks)
             {
-                var message = issues.Any(i => i.IssueType == ConsistencyIssueType.MissingMediaFile)
+                var message = issues.Any(i => i.IssueType is ConsistencyIssueType.MissingMediaFile or ConsistencyIssueType.LibraryPathUnavailable)
                     ? $"Missing: {bookLabel}"
                     : $"Checked: {bookLabel}";
                 await progressAction(message, booksChecked, totalBooks, issuesFound);

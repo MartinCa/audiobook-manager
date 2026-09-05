@@ -137,6 +137,56 @@ describe("consistencyHelpers", () => {
     });
   });
 
+  describe("LibraryPathUnavailable", () => {
+    it("has a label, a bulk description and its own explanatory info", () => {
+      expect(getIssueTypeLabel("LibraryPathUnavailable")).toBe("Library Path Unavailable");
+      expect(getBulkResolveDescription("LibraryPathUnavailable")).not.toBe("Continue?");
+
+      // Its own entry rather than falling through to the bulk description: like UnreadableFile,
+      // resolving cannot fix it - the directory has to come back. The screen says so up front.
+      expect(getIssueTypeInfo("LibraryPathUnavailable")).not.toBe(
+        getBulkResolveDescription("LibraryPathUnavailable"),
+      );
+    });
+
+    it("warns rather than reporting success when the directory is still unavailable", () => {
+      notifyConsistencyResolveResult({
+        issueId: 1,
+        issueType: "LibraryPathUnavailable",
+        actionTaken: "directory_still_unavailable",
+        message: "The directory still cannot be found.",
+      });
+
+      expect(toast.warning).toHaveBeenCalledWith("The directory still cannot be found.");
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it("reports success when the directory is readable again", () => {
+      notifyConsistencyResolveResult({
+        issueId: 1,
+        issueType: "LibraryPathUnavailable",
+        actionTaken: "directory_readable_again",
+        message: "The directory is available again.",
+      });
+
+      expect(toast.success).toHaveBeenCalledWith("The directory is available again.");
+      expect(toast.warning).not.toHaveBeenCalled();
+    });
+
+    it("reports info (not success) when a MissingMediaFile resolve re-checks to a missing directory", () => {
+      notifyConsistencyResolveResult({
+        issueId: 1,
+        issueType: "MissingMediaFile",
+        actionTaken: "directory_unavailable",
+        message: "The record was kept.",
+      });
+
+      expect(toast.info).toHaveBeenCalledWith("The record was kept.");
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.warning).not.toHaveBeenCalled();
+    });
+  });
+
   describe("notifyOrphanResolveResult", () => {
     it("shows info toast when actionTaken is retained_not_empty", () => {
       notifyOrphanResolveResult({
