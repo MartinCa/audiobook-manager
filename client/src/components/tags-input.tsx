@@ -254,18 +254,24 @@ export function TagsInput({
     commitEdit();
   };
 
+  // Sortable ids (and React keys below) are the entry's *position*, not its value. Values are
+  // supposed to be unique - isDuplicate rejects a new/edited entry that collides with another -
+  // but that guarantee only holds for edits made through this component. A caller that sets
+  // `value` directly (BookEditForm's "similar existing value" hint used to do this) could still
+  // produce two equal strings; keying/identifying chips by value would then give dnd-kit and
+  // React two elements with the same id, breaking drag-and-drop and risking duplicate-key
+  // rendering bugs. Position is always unique, so it can't have that failure mode.
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = value.indexOf(String(active.id));
-    const newIndex = value.indexOf(String(over.id));
-    if (oldIndex === -1 || newIndex === -1) return;
+    const oldIndex = Number(active.id);
+    const newIndex = Number(over.id);
     onValueChange(arrayMove(value, oldIndex, newIndex));
   };
 
   const chips = value.map((tag, index) =>
     editingIndex === index ? (
-      <div key={`${tag}-${index}`} className="relative">
+      <div key={index} className="relative">
         <input
           type="text"
           autoFocus
@@ -291,8 +297,8 @@ export function TagsInput({
       </div>
     ) : (
       <TagChip
-        key={tag}
-        id={tag}
+        key={index}
+        id={String(index)}
         tag={tag}
         disabled={disabled}
         reorderable={reorderable}
@@ -301,6 +307,8 @@ export function TagsInput({
       />
     ),
   );
+
+  const sortableIds = useMemo(() => value.map((_, index) => String(index)), [value]);
 
   return (
     <div
@@ -313,7 +321,7 @@ export function TagsInput({
     >
       {reorderable ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={value} strategy={horizontalListSortingStrategy}>
+          <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
             {chips}
           </SortableContext>
         </DndContext>

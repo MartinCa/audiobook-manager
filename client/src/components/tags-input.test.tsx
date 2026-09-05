@@ -322,4 +322,41 @@ describe("TagsInput", () => {
       expect(screen.queryByLabelText("Reorder Fantasy")).not.toBeInTheDocument();
     });
   });
+
+  describe("duplicate values (defense in depth)", () => {
+    // TagsInput itself never creates a duplicate through typing or in-place editing, but a
+    // caller can still pass in a `value` array containing one - it happened via BookEditForm's
+    // "similar existing value" hint. Chips must stay keyed/identified by position, not by their
+    // (possibly non-unique) string value, or React and dnd-kit both get confused about which
+    // element is which.
+    it("does not trigger a React duplicate-key warning when two chips share a value (reorderable)", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      render(<ControlledTagsInput initial={["Same", "Same"]} reorderable />);
+
+      const duplicateKeyWarning = errorSpy.mock.calls.some((args) =>
+        String(args[0]).toLowerCase().includes("same key"),
+      );
+      expect(duplicateKeyWarning).toBe(false);
+
+      errorSpy.mockRestore();
+    });
+
+    it("removes exactly the clicked duplicate, not both, when two chips share a value", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput
+          initial={["Duplicate Name", "Duplicate Name"]}
+          onValueChange={onValueChange}
+        />,
+      );
+
+      const removeButtons = screen.getAllByLabelText("Remove Duplicate Name");
+      expect(removeButtons).toHaveLength(2);
+
+      fireEvent.click(removeButtons[0]!);
+
+      expect(onValueChange).toHaveBeenCalledWith(["Duplicate Name"]);
+    });
+  });
 });

@@ -117,6 +117,25 @@ function buildAudiobook(
   };
 }
 
+// Applies a "similar existing value" hint's suggestion at a given index. A plain
+// current.map((v, i) => i === index ? suggestion : v) can silently create a duplicate: the
+// suggestion is, by construction, already very close to another entry, and is sometimes an
+// exact match for one already sitting elsewhere in the same array (e.g. two authors "Brandon
+// Sanderson" and "Brandon Sandersons" both present, with the hint on the typo suggesting the
+// exact name of the other). TagsInput itself refuses to create that duplicate through typing or
+// in-place editing, but a hint click bypasses TagsInput and calls form.setValue directly, so it
+// needs the same guard. When the suggestion already exists elsewhere, the flagged (typo'd) entry
+// is dropped instead of duplicated - the canonical entry is already present.
+function applyHintSuggestion(current: string[], index: number, suggestion: string): string[] {
+  const existsElsewhere = current.some(
+    (v, i) => i !== index && v.toLowerCase() === suggestion.toLowerCase(),
+  );
+  if (existsElsewhere) {
+    return current.filter((_, i) => i !== index);
+  }
+  return current.map((v, i) => (i === index ? suggestion : v));
+}
+
 export interface BookEditFormProps {
   initialBook: Audiobook;
   currentPath?: string;
@@ -496,11 +515,10 @@ export function BookEditForm({
                   className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
                   onClick={() => {
                     const current = form.getValues("authors");
-                    form.setValue(
-                      "authors",
-                      current.map((a, i) => (i === index ? suggestion : a)),
-                      { shouldDirty: true, shouldValidate: true },
-                    );
+                    form.setValue("authors", applyHintSuggestion(current, index, suggestion), {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
                   }}
                 >
                   Similar existing author: {suggestion} (click to use)
@@ -531,11 +549,10 @@ export function BookEditForm({
                     className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
                     onClick={() => {
                       const current = form.getValues("narrators");
-                      form.setValue(
-                        "narrators",
-                        current.map((n, i) => (i === index ? suggestion : n)),
-                        { shouldDirty: true, shouldValidate: true },
-                      );
+                      form.setValue("narrators", applyHintSuggestion(current, index, suggestion), {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
                     }}
                   >
                     Similar existing narrator: {suggestion} (click to use)

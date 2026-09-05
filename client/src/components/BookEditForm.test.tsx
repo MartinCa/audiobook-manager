@@ -141,6 +141,34 @@ describe("BookEditForm", () => {
     ).toBeInTheDocument();
   });
 
+  it("clicking a hint merges into an existing exact-match entry instead of creating a duplicate", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    // "Brandon Sanderson" is already a separate author on this book, and also the suggestion
+    // for the "Brandon Sandersons" typo - clicking the hint must not leave two identical
+    // "Brandon Sanderson" chips (which broke drag-and-drop and could double the credited author).
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Brandon Sanderson"]);
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          authors: [{ name: "Brandon Sanderson" }, { name: "Brandon Sandersons" }],
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("Similar existing author: Brandon Sanderson (click to use)");
+
+    fireEvent.click(screen.getByText("Similar existing author: Brandon Sanderson (click to use)"));
+
+    expect(screen.getAllByLabelText("Remove Brandon Sanderson")).toHaveLength(1);
+    expect(screen.queryByText("Brandon Sandersons")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Similar existing author: Brandon Sanderson (click to use)"),
+    ).not.toBeInTheDocument();
+  });
+
   it("clears the author hint once the flagged entry is fixed by editing it directly", async () => {
     const { similarValuesApi } = await import("@/services/api");
     vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
