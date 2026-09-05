@@ -160,7 +160,6 @@ export function BookEditForm({
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [seriesHint, setSeriesHint] = useState<string | null>(null);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
 
@@ -220,6 +219,16 @@ export function BookEditForm({
     });
     return hints;
   }, [watchedValues.narrators, narratorNames]);
+
+  // Same derived approach as the author/narrator hints above, for the single Series field: a
+  // similar existing series is shown regardless of whether the value was typed, blurred into, or
+  // set in bulk via a scraped metadata-search apply.
+  const seriesHint = useMemo(() => {
+    const series = watchedValues.series?.trim();
+    if (!series) return null;
+    const matches = findSimilarExisting(series, seriesNames);
+    return matches[0] && matches[0] !== series ? matches[0] : null;
+  }, [watchedValues.series, seriesNames]);
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -574,13 +583,7 @@ export function BookEditForm({
                     onValueChange={(val) => field.onChange(val)}
                     candidates={seriesNames}
                     placeholder="Series name"
-                    onBlur={(e) => {
-                      field.onBlur();
-                      const matches = findSimilarExisting(e.target.value, seriesNames);
-                      setSeriesHint(
-                        matches[0] && matches[0] !== e.target.value ? matches[0] : null,
-                      );
-                    }}
+                    onBlur={field.onBlur}
                   />
                 )}
               />
@@ -590,7 +593,6 @@ export function BookEditForm({
                   className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
                   onClick={() => {
                     form.setValue("series", seriesHint, { shouldDirty: true });
-                    setSeriesHint(null);
                   }}
                 >
                   Similar existing series: {seriesHint} (click to use)

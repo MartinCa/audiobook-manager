@@ -471,6 +471,51 @@ describe("BookEditForm", () => {
     expect(seriesInput).toHaveValue("The Stormlight Archive");
   });
 
+  it("shows a click-to-use hint for a similar existing series, including when the value is bulk-applied from a scraped result", async () => {
+    const { similarValuesApi, metadataSearchApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getSeriesNames).mockResolvedValueOnce(["The Stormlight Archive"]);
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [],
+          narrators: [],
+          genres: [],
+          series: [{ seriesName: "The Stormlight Archives", seriesPart: "1" }],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await waitFor(() => expect(similarValuesApi.getSeriesNames).toHaveBeenCalled());
+
+    // Same gap the author/narrator hint had: a series set in bulk from a metadata-search apply
+    // never goes through a manual blur, so the hint must be derived from the field value, not
+    // fired only from an onBlur handler.
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    expect(
+      await screen.findByText("Similar existing series: The Stormlight Archive (click to use)"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByText("Similar existing series: The Stormlight Archive (click to use)"),
+    );
+
+    expect(screen.getByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
+  });
+
   it("hides empty optional fields by default and expands them when toggle button is clicked", () => {
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
