@@ -67,6 +67,8 @@ export function TagsInput({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editHighlightedIndex, setEditHighlightedIndex] = useState(-1);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -84,6 +86,22 @@ export function TagsInput({
     return matches;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, suggestions, value]);
+
+  // Same narrowing as draftSuggestions, but excludes the entry currently being edited from the
+  // duplicate check (it's fine to retype a value back toward itself) rather than every entry.
+  const editSuggestions = useMemo(() => {
+    if (suggestions.length === 0 || editingIndex === null) return [];
+    const trimmed = editDraft.trim();
+    if (!trimmed) return [];
+    const matches = narrowByQuery(suggestions, trimmed, 6).filter(
+      (s) => !isDuplicate(s, editingIndex),
+    );
+    if (matches.length === 1 && normalizeForMatch(matches[0]) === normalizeForMatch(trimmed)) {
+      return [];
+    }
+    return matches;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDraft, suggestions, value, editingIndex]);
 
   const commitValue = (raw: string) => {
     const trimmed = raw.trim();
@@ -118,6 +136,8 @@ export function TagsInput({
     if (current === undefined) return;
     setEditingIndex(index);
     setEditDraft(current);
+    setIsEditOpen(false);
+    setEditHighlightedIndex(-1);
   };
 
   // Always a same-length, same-position replace (or, for an emptied value, a removal at that
@@ -127,6 +147,8 @@ export function TagsInput({
     const index = editingIndex;
     const trimmed = editDraft.trim();
     setEditingIndex(null);
+    setIsEditOpen(false);
+    setEditHighlightedIndex(-1);
 
     if (trimmed.length === 0) {
       removeAt(index);
@@ -138,8 +160,23 @@ export function TagsInput({
     onValueChange(value.map((v, i) => (i === index ? trimmed : v)));
   };
 
+  const applyEditSuggestion = (suggestion: string) => {
+    if (editingIndex === null) return;
+    const index = editingIndex;
+    setEditingIndex(null);
+    setIsEditOpen(false);
+    setEditHighlightedIndex(-1);
+
+    if (suggestion === value[index]) return;
+    if (isDuplicate(suggestion, index)) return;
+
+    onValueChange(value.map((v, i) => (i === index ? suggestion : v)));
+  };
+
   const cancelEdit = () => {
     setEditingIndex(null);
+    setIsEditOpen(false);
+    setEditHighlightedIndex(-1);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -185,6 +222,27 @@ export function TagsInput({
   };
 
   const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (isEditOpen && editSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setEditHighlightedIndex((prev) => (prev + 1) % editSuggestions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setEditHighlightedIndex((prev) => (prev <= 0 ? editSuggestions.length - 1 : prev - 1));
+        return;
+      }
+      if (e.key === "Enter") {
+        const selected = editSuggestions[editHighlightedIndex];
+        if (selected) {
+          e.preventDefault();
+          applyEditSuggestion(selected);
+          return;
+        }
+      }
+    }
+
     if (e.key === "Enter") {
       e.preventDefault();
       commitEdit();
@@ -211,16 +269,30 @@ export function TagsInput({
 
   const chips = value.map((tag, index) =>
     editingIndex === index ? (
-      <input
-        key={`${tag}-${index}`}
-        type="text"
-        autoFocus
-        value={editDraft}
-        onChange={(e) => setEditDraft(e.target.value)}
-        onKeyDown={handleEditKeyDown}
-        onBlur={handleEditBlur}
-        className="border-input bg-background min-w-24 rounded-md border px-2 py-1 text-base outline-none md:text-sm"
-      />
+      <div key={`${tag}-${index}`} className="relative">
+        <input
+          type="text"
+          autoFocus
+          value={editDraft}
+          onChange={(e) => {
+            setEditDraft(e.target.value);
+            setIsEditOpen(true);
+            setEditHighlightedIndex(-1);
+          }}
+          onFocus={() => setIsEditOpen(true)}
+          onKeyDown={handleEditKeyDown}
+          onBlur={handleEditBlur}
+          className="border-input bg-background min-w-24 rounded-md border px-2 py-1 text-base outline-none md:text-sm"
+        />
+        {isEditOpen && editSuggestions.length > 0 && (
+          <SuggestionListbox
+            suggestions={editSuggestions}
+            highlightedIndex={editHighlightedIndex}
+            onHighlight={setEditHighlightedIndex}
+            onSelect={applyEditSuggestion}
+          />
+        )}
+      </div>
     ) : (
       <TagChip
         key={tag}
@@ -275,34 +347,59 @@ export function TagsInput({
         />
 
         {isDraftOpen && draftSuggestions.length > 0 && (
-          <ul
-            role="listbox"
-            className="border-border bg-popover text-popover-foreground absolute top-full left-0 z-50 mt-1 max-h-48 w-max min-w-full overflow-y-auto overscroll-contain rounded-md border shadow-md sm:max-h-56"
-          >
-            {draftSuggestions.map((suggestion, index) => (
-              <li
-                key={suggestion}
-                role="option"
-                aria-selected={index === highlightedIndex}
-                className={cn(
-                  "cursor-pointer px-3.5 py-2.5 text-sm whitespace-nowrap transition-colors select-none",
-                  index === highlightedIndex
-                    ? "bg-accent text-accent-foreground font-medium"
-                    : "hover:bg-accent/80 hover:text-accent-foreground text-popover-foreground",
-                )}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  applySuggestion(suggestion);
-                }}
-                onMouseEnter={() => setHighlightedIndex(index)}
-              >
-                {suggestion}
-              </li>
-            ))}
-          </ul>
+          <SuggestionListbox
+            suggestions={draftSuggestions}
+            highlightedIndex={highlightedIndex}
+            onHighlight={setHighlightedIndex}
+            onSelect={applySuggestion}
+          />
         )}
       </div>
     </div>
+  );
+}
+
+interface SuggestionListboxProps {
+  suggestions: string[];
+  highlightedIndex: number;
+  onHighlight: (index: number) => void;
+  onSelect: (suggestion: string) => void;
+}
+
+// Shared dropdown for both the trailing "add a new entry" draft input and the in-place edit
+// input, so typeahead narrowing behaves identically no matter which one is being typed into.
+function SuggestionListbox({
+  suggestions,
+  highlightedIndex,
+  onHighlight,
+  onSelect,
+}: SuggestionListboxProps) {
+  return (
+    <ul
+      role="listbox"
+      className="border-border bg-popover text-popover-foreground absolute top-full left-0 z-50 mt-1 max-h-48 w-max min-w-full overflow-y-auto overscroll-contain rounded-md border shadow-md sm:max-h-56"
+    >
+      {suggestions.map((suggestion, index) => (
+        <li
+          key={suggestion}
+          role="option"
+          aria-selected={index === highlightedIndex}
+          className={cn(
+            "cursor-pointer px-3.5 py-2.5 text-sm whitespace-nowrap transition-colors select-none",
+            index === highlightedIndex
+              ? "bg-accent text-accent-foreground font-medium"
+              : "hover:bg-accent/80 hover:text-accent-foreground text-popover-foreground",
+          )}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            onSelect(suggestion);
+          }}
+          onMouseEnter={() => onHighlight(index)}
+        >
+          {suggestion}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -160,8 +160,17 @@ export function BookEditForm({
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [authorHint, setAuthorHint] = useState<string | null>(null);
-  const [narratorHint, setNarratorHint] = useState<string | null>(null);
+  // Tracks which committed chip triggered the hint (`committed`) alongside the suggestion, so
+  // the hint can be invalidated (see the effects below) the moment that chip is edited, removed,
+  // or otherwise no longer present verbatim - rather than staying clickable and silently
+  // clobbering whatever now happens to be the last entry.
+  const [authorHint, setAuthorHint] = useState<{ committed: string; suggestion: string } | null>(
+    null,
+  );
+  const [narratorHint, setNarratorHint] = useState<{
+    committed: string;
+    suggestion: string;
+  } | null>(null);
   const [seriesHint, setSeriesHint] = useState<string | null>(null);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
@@ -196,6 +205,15 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
+
+  // A hint is only shown while the chip that triggered it is still present verbatim - edited,
+  // removed, or replaced clears it (derived here, not via an effect, so there's no separate
+  // "invalidate" state update to keep in sync). Reordering leaves it valid: the value is still
+  // in the array, just at a different index, which the click handler below re-derives.
+  const activeAuthorHint =
+    authorHint && watchedValues.authors?.includes(authorHint.committed) ? authorHint : null;
+  const activeNarratorHint =
+    narratorHint && watchedValues.narrators?.includes(narratorHint.committed) ? narratorHint : null;
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -450,7 +468,8 @@ export function BookEditForm({
                     aria-invalid={Boolean(form.formState.errors.authors)}
                     onEntryCommitted={(newAuthor) => {
                       const matches = findSimilarExisting(newAuthor, authorNames);
-                      setAuthorHint(matches[0] && matches[0] !== newAuthor ? matches[0] : null);
+                      const suggestion = matches[0] && matches[0] !== newAuthor ? matches[0] : null;
+                      setAuthorHint(suggestion ? { committed: newAuthor, suggestion } : null);
                     }}
                   />
                 )}
@@ -460,21 +479,26 @@ export function BookEditForm({
                   {form.formState.errors.authors.message}
                 </p>
               )}
-              {authorHint && (
+              {activeAuthorHint && (
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
                   onClick={() => {
                     const current = form.getValues("authors");
-                    if (current.length === 0) return;
-                    form.setValue("authors", [...current.slice(0, -1), authorHint], {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    });
+                    const index = current.indexOf(activeAuthorHint.committed);
+                    if (index === -1) {
+                      setAuthorHint(null);
+                      return;
+                    }
+                    form.setValue(
+                      "authors",
+                      current.map((a, i) => (i === index ? activeAuthorHint.suggestion : a)),
+                      { shouldDirty: true, shouldValidate: true },
+                    );
                     setAuthorHint(null);
                   }}
                 >
-                  Similar existing author: {authorHint} (click to use)
+                  Similar existing author: {activeAuthorHint.suggestion} (click to use)
                 </button>
               )}
             </div>
@@ -494,27 +518,33 @@ export function BookEditForm({
                       placeholder="Narrator Name"
                       onEntryCommitted={(newNarrator) => {
                         const matches = findSimilarExisting(newNarrator, narratorNames);
-                        setNarratorHint(
-                          matches[0] && matches[0] !== newNarrator ? matches[0] : null,
-                        );
+                        const suggestion =
+                          matches[0] && matches[0] !== newNarrator ? matches[0] : null;
+                        setNarratorHint(suggestion ? { committed: newNarrator, suggestion } : null);
                       }}
                     />
                   )}
                 />
-                {narratorHint && (
+                {activeNarratorHint && (
                   <button
                     type="button"
                     className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
                     onClick={() => {
                       const current = form.getValues("narrators");
-                      if (current.length === 0) return;
-                      form.setValue("narrators", [...current.slice(0, -1), narratorHint], {
-                        shouldDirty: true,
-                      });
+                      const index = current.indexOf(activeNarratorHint.committed);
+                      if (index === -1) {
+                        setNarratorHint(null);
+                        return;
+                      }
+                      form.setValue(
+                        "narrators",
+                        current.map((n, i) => (i === index ? activeNarratorHint.suggestion : n)),
+                        { shouldDirty: true },
+                      );
                       setNarratorHint(null);
                     }}
                   >
-                    Similar existing narrator: {narratorHint} (click to use)
+                    Similar existing narrator: {activeNarratorHint.suggestion} (click to use)
                   </button>
                 )}
               </div>

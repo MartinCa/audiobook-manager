@@ -234,6 +234,72 @@ describe("TagsInput", () => {
 
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
+
+    it("also shows narrowed suggestions while editing an existing chip in place", () => {
+      render(<ControlledTagsInput initial={["Brandon Sanderon"]} suggestions={authorNames} />);
+
+      fireEvent.click(screen.getByLabelText("Edit Brandon Sanderon"));
+      const editInput = screen.getByDisplayValue("Brandon Sanderon");
+      fireEvent.change(editInput, { target: { value: "Brandon" } });
+
+      expect(screen.getByRole("option", { name: "Brandon Sanderson" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Brandon Ellis" })).toBeInTheDocument();
+    });
+
+    it("does not exclude the entry's own current value from edit suggestions, only other entries", () => {
+      render(
+        <ControlledTagsInput
+          initial={["Brandon Sanderson", "Frank Herbert"]}
+          suggestions={authorNames}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Frank Herbert"));
+      const editInput = screen.getByDisplayValue("Frank Herbert");
+      fireEvent.change(editInput, { target: { value: "Brandon" } });
+
+      // "Brandon Sanderson" is excluded because it's a *different* committed chip; suggesting
+      // it here would create a duplicate.
+      expect(screen.queryByRole("option", { name: "Brandon Sanderson" })).not.toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Brandon Ellis" })).toBeInTheDocument();
+    });
+
+    it("selecting a suggestion while editing replaces that entry in place, preserving order", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput
+          initial={["Alpha", "Brandon Sanderon", "Gamma"]}
+          suggestions={authorNames}
+          onValueChange={onValueChange}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Brandon Sanderon"));
+      const editInput = screen.getByDisplayValue("Brandon Sanderon");
+      fireEvent.change(editInput, { target: { value: "Brandon" } });
+      fireEvent.pointerDown(screen.getByRole("option", { name: "Brandon Sanderson" }));
+
+      expect(onValueChange).toHaveBeenCalledWith(["Alpha", "Brandon Sanderson", "Gamma"]);
+    });
+
+    it("selecting a highlighted edit suggestion with Enter commits it in place", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput
+          initial={["Brandon Sanderon"]}
+          suggestions={authorNames}
+          onValueChange={onValueChange}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Brandon Sanderon"));
+      const editInput = screen.getByDisplayValue("Brandon Sanderon");
+      fireEvent.change(editInput, { target: { value: "Brandon" } });
+      fireEvent.keyDown(editInput, { key: "ArrowDown" });
+      fireEvent.keyDown(editInput, { key: "Enter" });
+
+      expect(onValueChange).toHaveBeenCalledWith(["Brandon Sanderson"]);
+    });
   });
 
   describe("onEntryCommitted", () => {

@@ -117,6 +117,96 @@ describe("BookEditForm", () => {
     expect(screen.queryByText("Jane", { selector: "button" })).not.toBeInTheDocument();
   });
 
+  it("clears the author hint (without touching any other entry) once the flagged chip is removed", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
+    fireEvent.change(authorsInput, { target: { value: "Jane" } });
+    await screen.findByRole("option", { name: "Jane Authorr" });
+    fireEvent.keyDown(authorsInput, { key: "Escape" });
+    fireEvent.keyDown(authorsInput, { key: "Enter" });
+
+    expect(
+      await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
+    ).toBeInTheDocument();
+
+    // Remove the flagged chip itself - the hint must not survive to be clicked afterward, since
+    // there is no longer a "Jane" entry for it to describe.
+    fireEvent.click(screen.getByLabelText("Remove Jane"));
+
+    expect(
+      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
+    ).not.toBeInTheDocument();
+    // And the original, unrelated author is untouched.
+    expect(screen.getByText("Jane Author")).toBeInTheDocument();
+  });
+
+  it("clears the author hint once the flagged chip is edited, rather than leaving it to rename whatever is now last", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
+    fireEvent.change(authorsInput, { target: { value: "Jane" } });
+    await screen.findByRole("option", { name: "Jane Authorr" });
+    fireEvent.keyDown(authorsInput, { key: "Escape" });
+    fireEvent.keyDown(authorsInput, { key: "Enter" });
+
+    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+
+    // Fix the "Jane" chip by editing it directly (not via the hint) - the stale hint must not
+    // remain clickable afterward.
+    fireEvent.click(screen.getByLabelText("Edit Jane"));
+    const editInput = screen.getByDisplayValue("Jane");
+    fireEvent.change(editInput, { target: { value: "Jane Someone" } });
+    fireEvent.keyDown(editInput, { key: "Enter" });
+
+    expect(
+      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Jane Someone")).toBeInTheDocument();
+  });
+
+  it("keeps the author hint valid when an unrelated chip is edited, and still targets the flagged chip specifically", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
+    fireEvent.change(authorsInput, { target: { value: "Jane" } });
+    await screen.findByRole("option", { name: "Jane Authorr" });
+    fireEvent.keyDown(authorsInput, { key: "Escape" });
+    fireEvent.keyDown(authorsInput, { key: "Enter" });
+
+    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+
+    // Editing the *original*, unrelated "Jane Author" chip must not disturb the hint that
+    // "Jane" (a different chip) triggered - the hint is keyed to the specific chip, not to
+    // "whatever the array currently looks like".
+    fireEvent.click(screen.getByLabelText("Edit Jane Author"));
+    const editInput = screen.getByDisplayValue("Jane Author");
+    fireEvent.change(editInput, { target: { value: "Jane Author Renamed" } });
+    fireEvent.keyDown(editInput, { key: "Enter" });
+
+    expect(
+      screen.getByText("Similar existing author: Jane Authorr (click to use)"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
+
+    expect(screen.getByText("Jane Authorr")).toBeInTheDocument();
+    expect(screen.getByText("Jane Author Renamed")).toBeInTheDocument();
+    expect(screen.queryByText("Jane", { selector: "button" })).not.toBeInTheDocument();
+  });
+
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
     // Regression test: BookSearchDialog's <DialogContent> portals to document.body, but React
     // still bubbles synthetic events through the component tree it's rendered in, not the DOM
