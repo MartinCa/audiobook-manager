@@ -303,7 +303,7 @@ describe("BookEditForm", () => {
     // Primary fields are present
     expect(screen.getByDisplayValue("Jane Author")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Original Title")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Fantasy / Fiction")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Fantasy, Fiction")).toBeInTheDocument();
 
     // Secondary fields are hidden by default when empty
     expect(screen.queryByPlaceholderText("Narrator Name")).not.toBeInTheDocument();

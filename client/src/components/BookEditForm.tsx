@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TagsInput } from "@/components/ui/tags-input";
 import {
   Select,
   SelectContent,
@@ -58,7 +59,7 @@ const bookEditFormSchema = z.object({
     .trim()
     .min(1, "Year is required")
     .refine((v) => Number.isFinite(Number(v)), "Year must be a number"),
-  genres: z.string(),
+  genres: z.array(z.string()),
   description: z.string(),
   copyright: z.string(),
   publisher: z.string(),
@@ -79,7 +80,7 @@ function valuesFromBook(book: Audiobook): BookEditFormValues {
     series: book.series || "",
     seriesPart: book.seriesPart || "",
     year: book.year ? String(book.year) : "",
-    genres: (book.genres || []).join(" / "),
+    genres: book.genres || [],
     description: book.description || "",
     copyright: book.copyright || "",
     publisher: book.publisher || "",
@@ -103,10 +104,7 @@ function buildAudiobook(
     series: values.series?.trim() || undefined,
     seriesPart: values.seriesPart?.trim() || undefined,
     year: values.year ? parseInt(values.year, 10) : undefined,
-    genres: (values.genres ?? "")
-      .split("/")
-      .map((g) => g.trim())
-      .filter(Boolean),
+    genres: values.genres ?? [],
     description: values.description?.trim() || undefined,
     copyright: values.copyright?.trim() || undefined,
     publisher: values.publisher?.trim() || undefined,
@@ -255,7 +253,7 @@ export function BookEditForm({
       series: watchedValues.series,
       seriesPart: watchedValues.seriesPart,
       year: watchedValues.year ? parseInt(watchedValues.year, 10) : undefined,
-      genres: watchedValues.genres,
+      genres: watchedValues.genres?.join("/"),
       description: watchedValues.description,
       copyright: watchedValues.copyright,
       publisher: watchedValues.publisher,
@@ -305,7 +303,7 @@ export function BookEditForm({
       form.setValue("year", String(result.year), { shouldDirty: true, shouldValidate: true });
     }
     if (selectedFields.has("genres") && result.genres && result.genres.length > 0) {
-      form.setValue("genres", result.genres.join(" / "), { shouldDirty: true });
+      form.setValue("genres", result.genres, { shouldDirty: true });
     }
     if (selectedFields.has("description") && result.description) {
       form.setValue("description", cleanDescription(result.description), { shouldDirty: true });
@@ -569,8 +567,18 @@ export function BookEditForm({
             </div>
 
             <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-xs font-medium">Genres (separated by /)</label>
-              <Input {...form.register("genres")} placeholder="Fantasy / Fiction" />
+              <label className="mb-1 block text-xs font-medium">Genres</label>
+              <Controller
+                control={form.control}
+                name="genres"
+                render={({ field }) => (
+                  <TagsInput
+                    value={field.value ?? []}
+                    onValueChange={field.onChange}
+                    placeholder="Fantasy, Fiction"
+                  />
+                )}
+              />
             </div>
           </div>
 

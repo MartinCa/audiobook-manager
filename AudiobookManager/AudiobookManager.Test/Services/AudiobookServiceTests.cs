@@ -338,6 +338,53 @@ public class AudiobookServiceTests
         _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Once);
     }
 
+    // Regression: Genres is a many-to-many relation with no position column, so nothing
+    // preserved caller-supplied order anywhere in the pipeline - resaving the identical genre set
+    // in a different order (e.g. the client re-splits a free-text field) produced a different "/"
+    // -joined tag string every time, which looked like a real metadata change on every save. The
+    // shared WriteTagsRelocateAndWriteSidecarsAsync pipeline now sorts genres alphabetically
+    // before writing tags, so the same genre set always produces the same tag regardless of the
+    // order it was submitted in.
+    [TestMethod]
+    public async Task UpdateAudiobook_GenresSubmittedOutOfOrder_AreSortedBeforeTagsAreWritten()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbGenre(1, n)));
+
+        Audiobook? tagsSavedFor = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback<Audiobook, Action<float>?>((a, _) => tagsSavedFor = a);
+
+        // ParseAudiobook simulates the real tag round-trip: whatever order was actually written
+        // (tagsSavedFor.Genres) is what re-reading the file gives back.
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Genres = tagsSavedFor!.Genres.ToList()
+            });
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Genres = new List<string> { "Zeta Genre", "Alpha Genre", "Mid Genre" }
+        };
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        var expectedOrder = new List<string> { "Alpha Genre", "Mid Genre", "Zeta Genre" };
+        CollectionAssert.AreEqual(expectedOrder, tagsSavedFor!.Genres);
+        CollectionAssert.AreEqual(expectedOrder, result.Genres);
+    }
+
     [TestMethod]
     public async Task UpdateAudiobook_PathChanged_RelocatesFileAndCleansUpStaleSidecars()
     {

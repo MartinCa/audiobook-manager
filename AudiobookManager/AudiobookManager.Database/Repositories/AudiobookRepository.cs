@@ -127,7 +127,7 @@ public class AudiobookRepository : IAudiobookRepository
             .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             // BookName is not unique, so it cannot order a page on its own: rows sharing a
             // title have an undefined relative order, which lets the same book appear on two
@@ -171,7 +171,7 @@ public class AudiobookRepository : IAudiobookRepository
         IQueryable<Audiobook> baseQuery = _db.Audiobooks.AsNoTracking().Include(a => a.Authors);
         if (includeNarratorsAndGenres)
         {
-            baseQuery = baseQuery.Include(a => a.Narrators).Include(a => a.Genres).AsSplitQuery();
+            baseQuery = baseQuery.Include(a => a.Narrators).Include(a => a.Genres.OrderBy(g => g.Name)).AsSplitQuery();
         }
 
         var dbQuery = baseQuery
@@ -227,7 +227,7 @@ public class AudiobookRepository : IAudiobookRepository
         var query = _db.Audiobooks
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .Where(a => a.Series == seriesName);
 
@@ -278,7 +278,7 @@ public class AudiobookRepository : IAudiobookRepository
             .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId))
             .ToListAsync();
@@ -295,7 +295,7 @@ public class AudiobookRepository : IAudiobookRepository
         return await _db.Audiobooks
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .FirstOrDefaultAsync(a => a.Id == id);
     }
@@ -306,7 +306,7 @@ public class AudiobookRepository : IAudiobookRepository
             .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .OrderBy(a => a.BookName).ThenBy(a => a.Id)
             .ToListAsync();
@@ -369,7 +369,7 @@ public class AudiobookRepository : IAudiobookRepository
         return await _db.Audiobooks
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .Where(a => a.Authors.Any(p => names.Contains(p.Name)))
             .ToListAsync();
@@ -381,7 +381,7 @@ public class AudiobookRepository : IAudiobookRepository
         return await _db.Audiobooks
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
-            .Include(a => a.Genres)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
             .Where(a => a.Series != null && values.Contains(a.Series))
             .ToListAsync();
