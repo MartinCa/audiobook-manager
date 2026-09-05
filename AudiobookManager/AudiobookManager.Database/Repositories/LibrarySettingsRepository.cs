@@ -56,7 +56,21 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             settings.InitialsSpacing = initialsSpacing;
         }
 
-        await _db.SaveChangesAsync();
-        return settings;
+        try
+        {
+            await _db.SaveChangesAsync();
+            return settings;
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            // The insert raced for the singleton id (1): a second bootstrap won and this instance
+            // must apply its update to the winner's row instead of surfacing a UNIQUE violation.
+            _db.Entry(settings).State = EntityState.Detached;
+
+            var winner = await _db.LibrarySettings.SingleAsync();
+            winner.InitialsSpacing = initialsSpacing;
+            await _db.SaveChangesAsync();
+            return winner;
+        }
     }
 }

@@ -112,4 +112,27 @@ public class LibrarySettingsRepositoryTests
         using var check = OpenNewContext();
         Assert.AreEqual(1, await check.LibrarySettings.CountAsync(), "The race must not leave two rows behind");
     }
+
+    [TestMethod]
+    public async Task UpdateAsync_ConcurrentFirstWrites_EndUpWithExactlyOneRow()
+    {
+        // The get-or-create rescue in UpdateAsync must cover the race as well: two callers on
+        // separate contexts both find no row, both insert the singleton id, and only one wins.
+        // The loser must adopt the winner's row and apply its value to it rather than surfacing
+        // an unhandled UNIQUE violation - and the database must hold exactly one row with a
+        // deterministic end value.
+        var tasks = Enumerable.Range(0, 4).Select(i => Task.Run(async () =>
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+            using var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+            var repository = new LibrarySettingsRepository(context);
+            return await repository.UpdateAsync(
+                i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced);
+        }));
+
+        await Task.WhenAll(tasks);
+
+        using var check = OpenNewContext();
+        Assert.AreEqual(1, await check.LibrarySettings.CountAsync(), "The race must not leave two rows behind");
+    }
 }
