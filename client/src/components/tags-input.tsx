@@ -37,8 +37,6 @@ export interface TagsInputProps {
    * matters for fields like Authors/Narrators (folder naming, credits order), not Genres.
    */
   reorderable?: boolean;
-  /** Fires after a new chip is successfully committed (not on a rejected duplicate). */
-  onEntryCommitted?: (value: string) => void;
 }
 
 // A chip-based control for fields that are really a small set of discrete values (genres,
@@ -59,7 +57,6 @@ export function TagsInput({
   disabled,
   suggestions = [],
   reorderable = false,
-  onEntryCommitted,
   ...props
 }: TagsInputProps) {
   const [draft, setDraft] = useState("");
@@ -108,7 +105,6 @@ export function TagsInput({
     if (trimmed.length === 0) return;
     if (isDuplicate(trimmed)) return;
     onValueChange([...value, trimmed]);
-    onEntryCommitted?.(trimmed);
   };
 
   const commitDraft = () => {

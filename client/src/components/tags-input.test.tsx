@@ -302,30 +302,6 @@ describe("TagsInput", () => {
     });
   });
 
-  describe("onEntryCommitted", () => {
-    it("fires with the newly committed value", () => {
-      const onEntryCommitted = vi.fn();
-      render(<ControlledTagsInput onEntryCommitted={onEntryCommitted} />);
-
-      const input = screen.getByRole("textbox");
-      fireEvent.change(input, { target: { value: "Heartfelt" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-
-      expect(onEntryCommitted).toHaveBeenCalledWith("Heartfelt");
-    });
-
-    it("does not fire when the entry is rejected as a duplicate", () => {
-      const onEntryCommitted = vi.fn();
-      render(<ControlledTagsInput initial={["Fantasy"]} onEntryCommitted={onEntryCommitted} />);
-
-      const input = screen.getByRole("textbox");
-      fireEvent.change(input, { target: { value: "fantasy" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-
-      expect(onEntryCommitted).not.toHaveBeenCalled();
-    });
-  });
-
   describe("reordering", () => {
     it("does not render a drag handle when reorderable is not set (Genres usage)", () => {
       render(<ControlledTagsInput initial={["Fantasy", "Fiction"]} />);

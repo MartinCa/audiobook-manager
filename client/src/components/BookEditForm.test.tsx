@@ -89,122 +89,128 @@ describe("BookEditForm", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("shows a click-to-use hint when a similar author name already exists, and replaces the newly-added author on click", async () => {
+  it("shows a click-to-use hint for the initial author as soon as a similar existing name loads, with no typing required", async () => {
     const { similarValuesApi } = await import("@/services/api");
     vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
-
-    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
-    fireEvent.change(authorsInput, { target: { value: "Jane" } });
-    // Ensure the authorNames query has actually resolved into state (not just been called)
-    // before committing, since the similar-value hint depends on it.
-    await screen.findByRole("option", { name: "Jane Authorr" });
-    fireEvent.keyDown(authorsInput, { key: "Escape" });
-    fireEvent.keyDown(authorsInput, { key: "Enter" });
-
+    // "Jane Author" (already on the book) is similar to the candidate "Jane Authorr" - the hint
+    // must appear purely from that data arriving, without the user typing anything.
     expect(
       await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
     ).toBeInTheDocument();
-    // The typo'd entry is its own chip alongside the original author until the hint is applied.
-    expect(screen.getByText("Jane")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
 
     expect(screen.getByText("Jane Authorr")).toBeInTheDocument();
-    expect(screen.queryByText("Jane", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Jane Author", { selector: "button" })).not.toBeInTheDocument();
   });
 
-  it("clears the author hint (without touching any other entry) once the flagged chip is removed", async () => {
+  it("shows an independent hint for every flagged author at once, not just the most recently typed one", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce([
+      "Jane Authorr",
+      "Brandon Sanderson",
+    ]);
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
 
+    // Committing a second, unrelated typo'd author must not clear the first author's hint - the
+    // bug this regresses against always overwrote a single hint slot with the latest commit.
     const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
-    fireEvent.change(authorsInput, { target: { value: "Jane" } });
-    await screen.findByRole("option", { name: "Jane Authorr" });
+    fireEvent.change(authorsInput, { target: { value: "Brandon Sandersonn" } });
     fireEvent.keyDown(authorsInput, { key: "Escape" });
     fireEvent.keyDown(authorsInput, { key: "Enter" });
 
     expect(
-      await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
+      await screen.findByText("Similar existing author: Brandon Sanderson (click to use)"),
     ).toBeInTheDocument();
-
-    // Remove the flagged chip itself - the hint must not survive to be clicked afterward, since
-    // there is no longer a "Jane" entry for it to describe.
-    fireEvent.click(screen.getByLabelText("Remove Jane"));
-
-    expect(
-      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
-    ).not.toBeInTheDocument();
-    // And the original, unrelated author is untouched.
-    expect(screen.getByText("Jane Author")).toBeInTheDocument();
-  });
-
-  it("clears the author hint once the flagged chip is edited, rather than leaving it to rename whatever is now last", async () => {
-    const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
-
-    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
-
-    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
-    fireEvent.change(authorsInput, { target: { value: "Jane" } });
-    await screen.findByRole("option", { name: "Jane Authorr" });
-    fireEvent.keyDown(authorsInput, { key: "Escape" });
-    fireEvent.keyDown(authorsInput, { key: "Enter" });
-
-    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
-
-    // Fix the "Jane" chip by editing it directly (not via the hint) - the stale hint must not
-    // remain clickable afterward.
-    fireEvent.click(screen.getByLabelText("Edit Jane"));
-    const editInput = screen.getByDisplayValue("Jane");
-    fireEvent.change(editInput, { target: { value: "Jane Someone" } });
-    fireEvent.keyDown(editInput, { key: "Enter" });
-
-    expect(
-      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Jane Someone")).toBeInTheDocument();
-  });
-
-  it("keeps the author hint valid when an unrelated chip is edited, and still targets the flagged chip specifically", async () => {
-    const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
-
-    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
-
-    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
-    fireEvent.change(authorsInput, { target: { value: "Jane" } });
-    await screen.findByRole("option", { name: "Jane Authorr" });
-    fireEvent.keyDown(authorsInput, { key: "Escape" });
-    fireEvent.keyDown(authorsInput, { key: "Enter" });
-
-    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
-
-    // Editing the *original*, unrelated "Jane Author" chip must not disturb the hint that
-    // "Jane" (a different chip) triggered - the hint is keyed to the specific chip, not to
-    // "whatever the array currently looks like".
-    fireEvent.click(screen.getByLabelText("Edit Jane Author"));
-    const editInput = screen.getByDisplayValue("Jane Author");
-    fireEvent.change(editInput, { target: { value: "Jane Author Renamed" } });
-    fireEvent.keyDown(editInput, { key: "Enter" });
-
     expect(
       screen.getByText("Similar existing author: Jane Authorr (click to use)"),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
+    // Clicking one hint only fixes the entry it describes.
+    fireEvent.click(screen.getByText("Similar existing author: Brandon Sanderson (click to use)"));
 
-    expect(screen.getByText("Jane Authorr")).toBeInTheDocument();
-    expect(screen.getByText("Jane Author Renamed")).toBeInTheDocument();
-    expect(screen.queryByText("Jane", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
+    expect(screen.getByText("Jane Author")).toBeInTheDocument();
+    expect(
+      screen.getByText("Similar existing author: Jane Authorr (click to use)"),
+    ).toBeInTheDocument();
+  });
+
+  it("clears the author hint once the flagged entry is fixed by editing it directly", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+
+    fireEvent.click(screen.getByLabelText("Edit Jane Author"));
+    const editInput = screen.getByDisplayValue("Jane Author");
+    fireEvent.change(editInput, { target: { value: "Someone Else Entirely" } });
+    fireEvent.keyDown(editInput, { key: "Enter" });
+
+    expect(
+      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Someone Else Entirely")).toBeInTheDocument();
+  });
+
+  it("clears the author hint once the flagged entry is removed", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+
+    fireEvent.click(screen.getByLabelText("Remove Jane Author"));
+
+    expect(
+      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a hint for an author applied from a scraped metadata search result, not just hand-typed entries", async () => {
+    const { similarValuesApi, metadataSearchApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Brandon Sanderson"]);
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Brandon Sandersonn" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // The bulk-applied author never goes through TagsInput's own draft-entry flow, so this only
+    // works because the hint is derived from the current field value, not from a "just typed"
+    // event.
+    expect(
+      await screen.findByText("Similar existing author: Brandon Sanderson (click to use)"),
+    ).toBeInTheDocument();
   });
 
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
@@ -397,6 +403,26 @@ describe("BookEditForm", () => {
     fireEvent.pointerDown(screen.getByRole("option", { name: "Kate Reading" }));
 
     expect(screen.getByText("Kate Reading")).toBeInTheDocument();
+  });
+
+  it("shows a click-to-use hint for the initial narrator as soon as a similar existing name loads, matching author parity", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getNarratorNames).mockResolvedValueOnce(["Michael Kramerr"]);
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, narrators: [{ name: "Michael Kramer" }] }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Similar existing narrator: Michael Kramerr (click to use)"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Similar existing narrator: Michael Kramerr (click to use)"));
+
+    expect(screen.getByText("Michael Kramerr")).toBeInTheDocument();
   });
 
   it("reordering authors by drag does not affect the array via edit/remove side effects", () => {
