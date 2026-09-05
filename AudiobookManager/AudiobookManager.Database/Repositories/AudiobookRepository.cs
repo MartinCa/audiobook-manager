@@ -375,6 +375,19 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
     }
 
+    public async Task<List<Audiobook>> GetBooksByPersonNamesAsync(IEnumerable<string> personNames)
+    {
+        var names = personNames.ToList();
+        return await _db.Audiobooks
+            .Include(a => a.Authors)
+            .Include(a => a.Narrators)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
+            .AsSplitQuery()
+            .Where(a => a.Authors.Any(p => names.Contains(p.Name))
+                        || a.Narrators.Any(p => names.Contains(p.Name)))
+            .ToListAsync();
+    }
+
     public async Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues)
     {
         var values = seriesValues.ToList();

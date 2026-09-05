@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.FileManager;
+using AudiobookManager.Services.MappingExtensions;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,6 +22,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly IAudiobookIssueDetectionService _detectionService;
+    private readonly IInitialsSpacingIssueDetector _initialsSpacingIssueDetector;
+    private readonly ILibrarySettingsRepository _librarySettingsRepository;
     private readonly IOrphanDirectoryConsistencyService _orphanDirectoryConsistencyService;
     private readonly Dictionary<ConsistencyIssueType, IConsistencyIssueResolver> _resolversByType;
     private readonly AudiobookManagerSettings _settings;
@@ -33,6 +36,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
         IAudiobookIssueDetectionService detectionService,
+        IInitialsSpacingIssueDetector initialsSpacingIssueDetector,
+        ILibrarySettingsRepository librarySettingsRepository,
         IEnumerable<IConsistencyIssueResolver> resolvers,
         IOrphanDirectoryConsistencyService orphanDirectoryConsistencyService,
         IOptions<AudiobookManagerSettings> settings,
@@ -45,6 +50,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _audiobookService = audiobookService;
         _saveGate = saveGate;
         _detectionService = detectionService;
+        _initialsSpacingIssueDetector = initialsSpacingIssueDetector;
+        _librarySettingsRepository = librarySettingsRepository;
         _orphanDirectoryConsistencyService = orphanDirectoryConsistencyService;
         _logger = logger;
 
@@ -124,6 +131,18 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         {
             await _issueRepository.InsertRangeAsync(pending);
         }
+
+        // Library-wide sweep: person values that do not follow the configured initials spacing.
+        // Runs after the per-book loop so the loaded graph is reused, and before the orphan sweep
+        // so both library-level findings share the same cleared-table lifecycle.
+        var librarySettings = await _librarySettingsRepository.GetOrCreateAsync();
+        var initialsSpacingIssues = _initialsSpacingIssueDetector.Detect(
+            audiobooks, librarySettings.InitialsSpacing.ToDomain()).ToList();
+        if (initialsSpacingIssues.Count > 0)
+        {
+            await _issueRepository.InsertRangeAsync(initialsSpacingIssues);
+        }
+        issuesFound += initialsSpacingIssues.Count;
 
         issuesFound = await _orphanDirectoryConsistencyService.ScanAsync(progressAction, totalBooks, issuesFound);
 
@@ -211,9 +230,19 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// takes it again - the gate is non-reentrant, so it is held here, once, for whichever
     /// resolver runs. A book that is busy fails just this issue: the callers' per-item try/catch
     /// counts it and carries on, and the next check picks the issue up again.
+    ///
+    /// An <see cref="ConsistencyIssueType.InitialsSpacingMismatch"/> issue is the exception: it is
+    /// person-scoped and its resolver takes the per-book gate itself, once per book, over its own
+    /// loop (mirroring similar-value alignment). The outer gate would only pin it to one
+    /// representative book, and nothing a resolver below would do is already covered by that lease.
     /// </summary>
     private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveLoadedIssue(ConsistencyIssue issue)
     {
+        if (issue.IssueType is ConsistencyIssueType.InitialsSpacingMismatch)
+        {
+            return await ResolveLoadedIssueCore(issue);
+        }
+
         using var lease = _saveGate.Acquire(issue.AudiobookId);
 
         return await ResolveLoadedIssueCore(issue);

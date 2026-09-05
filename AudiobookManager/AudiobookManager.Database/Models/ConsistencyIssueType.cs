@@ -31,5 +31,18 @@ public enum ConsistencyIssueType
     /// - the share may come back - so this state is resolved by looking again, like
     /// <see cref="UnreadableFile"/>.
     /// </summary>
-    LibraryPathUnavailable = 11
+    LibraryPathUnavailable = 11,
+
+    /// <summary>
+    /// The library-wide initials-spacing setting (<c>LibrarySettings.InitialsSpacing</c>) says the
+    /// dotted initials in person names are either spaced ("J. K. Rowling") or unspaced
+    /// ("J.K. Rowling"), and a stored author/narrator value does not follow it. Unlike the other
+    /// issue types, this one is person-scoped rather than file-scoped: one issue per distinct
+    /// non-compliant person value, with <see cref="ConsistencyIssue.AudiobookId"/> naming a
+    /// representative book the person appears on, and <see cref="ConsistencyIssue.ExpectedValue"/>/
+    /// <see cref="ConsistencyIssue.ActualValue"/> carrying the canonical vs stored spelling.
+    /// Resolving rewrites the person value on every book that carries it via
+    /// <c>AudiobookService.UpdateAudiobook</c>, never a DB-only field update.
+    /// </summary>
+    InitialsSpacingMismatch = 12
 }
