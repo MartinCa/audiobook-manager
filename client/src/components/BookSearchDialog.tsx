@@ -196,7 +196,7 @@ export function BookSearchDialog({
               placeholder="Search title, author, or paste URL..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="min-w-0 flex-1 text-xs sm:text-sm"
+              className="min-w-0 flex-1 sm:text-sm"
             />
             <Button
               type="submit"
