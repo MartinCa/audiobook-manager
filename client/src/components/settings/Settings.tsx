@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   Settings as SettingsIcon,
   Plus,
@@ -121,10 +122,14 @@ export function Settings() {
         <div>
           <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
             <SettingsIcon className="text-primary h-6 w-6" />
-            Settings
+            Settings — Series Mappings
           </h1>
           <p className="text-muted-foreground text-sm">
-            Configure series name regular expression mappings.
+            Configure series name regular expression mappings. Library-wide settings live on the{" "}
+            <Link to="/settings/library" className="text-primary hover:underline">
+              Library Settings
+            </Link>{" "}
+            page.
           </p>
         </div>
 

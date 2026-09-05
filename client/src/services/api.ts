@@ -14,6 +14,7 @@ import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
+import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type { MetadataMultiSourceSearchResult } from "@/types/MetadataMultiSourceSearchResult";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
@@ -381,6 +382,11 @@ export const settingsApi = {
 
   deleteSeriesMapping: (mappingId: number) =>
     api.delete<void>(`/settings/series_mappings/${mappingId}`),
+
+  getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
+
+  updateLibrarySettings: (settings: UpdateLibrarySettings) =>
+    api.put<LibrarySettings>("/settings/library", settings),
 };
 
 // Files

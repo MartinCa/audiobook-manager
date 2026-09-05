@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConsistencyRouteImport } from './routes/consistency'
 import { Route as MissingTagsRouteImport } from './routes/missing-tags'
-import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SimilarValuesRouteImport } from './routes/similar-values'
 import { Route as LibraryIndexRouteImport } from './routes/library/index'
 import { Route as LibraryCleanUrlsRouteImport } from './routes/library/clean-urls'
@@ -20,6 +19,8 @@ import { Route as LibraryConsistencyRouteImport } from './routes/library/consist
 import { Route as LibraryDiscoveredRouteImport } from './routes/library/discovered'
 import { Route as LibraryMissingTagsRouteImport } from './routes/library/missing-tags'
 import { Route as LibrarySimilarValuesRouteImport } from './routes/library/similar-values'
+import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SettingsLibraryRouteImport } from './routes/settings/library'
 import { Route as LibraryAuthorsIndexRouteImport } from './routes/library/authors/index'
 import { Route as LibraryAuthorsAuthorIdRouteImport } from './routes/library/authors/$authorId'
 import { Route as LibraryBookBookIdRouteImport } from './routes/library/book.$bookId'
@@ -39,11 +40,6 @@ const ConsistencyRoute = ConsistencyRouteImport.update({
 const MissingTagsRoute = MissingTagsRouteImport.update({
   id: '/missing-tags',
   path: '/missing-tags',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SimilarValuesRoute = SimilarValuesRouteImport.update({
@@ -81,6 +77,16 @@ const LibrarySimilarValuesRoute = LibrarySimilarValuesRouteImport.update({
   path: '/library/similar-values',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsLibraryRoute = SettingsLibraryRouteImport.update({
+  id: '/settings/library',
+  path: '/settings/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryAuthorsIndexRoute = LibraryAuthorsIndexRouteImport.update({
   id: '/library/authors/',
   path: '/library/authors/',
@@ -111,14 +117,15 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/consistency': typeof ConsistencyRoute
   '/missing-tags': typeof MissingTagsRoute
-  '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/settings/library': typeof SettingsLibraryRoute
   '/library/': typeof LibraryIndexRoute
+  '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
   '/library/book/$bookId': typeof LibraryBookBookIdRoute
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
@@ -129,14 +136,15 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/consistency': typeof ConsistencyRoute
   '/missing-tags': typeof MissingTagsRoute
-  '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/settings/library': typeof SettingsLibraryRoute
   '/library': typeof LibraryIndexRoute
+  '/settings': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
   '/library/book/$bookId': typeof LibraryBookBookIdRoute
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
@@ -148,14 +156,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/consistency': typeof ConsistencyRoute
   '/missing-tags': typeof MissingTagsRoute
-  '/settings': typeof SettingsRoute
   '/similar-values': typeof SimilarValuesRoute
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/settings/library': typeof SettingsLibraryRoute
   '/library/': typeof LibraryIndexRoute
+  '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
   '/library/book/$bookId': typeof LibraryBookBookIdRoute
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
@@ -168,14 +177,15 @@ export interface FileRouteTypes {
     | '/'
     | '/consistency'
     | '/missing-tags'
-    | '/settings'
     | '/similar-values'
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
     | '/library/similar-values'
+    | '/settings/library'
     | '/library/'
+    | '/settings/'
     | '/library/authors/$authorId'
     | '/library/book/$bookId'
     | '/library/series/$seriesName'
@@ -186,14 +196,15 @@ export interface FileRouteTypes {
     | '/'
     | '/consistency'
     | '/missing-tags'
-    | '/settings'
     | '/similar-values'
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
     | '/library/similar-values'
+    | '/settings/library'
     | '/library'
+    | '/settings'
     | '/library/authors/$authorId'
     | '/library/book/$bookId'
     | '/library/series/$seriesName'
@@ -204,14 +215,15 @@ export interface FileRouteTypes {
     | '/'
     | '/consistency'
     | '/missing-tags'
-    | '/settings'
     | '/similar-values'
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
     | '/library/missing-tags'
     | '/library/similar-values'
+    | '/settings/library'
     | '/library/'
+    | '/settings/'
     | '/library/authors/$authorId'
     | '/library/book/$bookId'
     | '/library/series/$seriesName'
@@ -223,14 +235,15 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConsistencyRoute: typeof ConsistencyRoute
   MissingTagsRoute: typeof MissingTagsRoute
-  SettingsRoute: typeof SettingsRoute
   SimilarValuesRoute: typeof SimilarValuesRoute
   LibraryCleanUrlsRoute: typeof LibraryCleanUrlsRoute
   LibraryConsistencyRoute: typeof LibraryConsistencyRoute
   LibraryDiscoveredRoute: typeof LibraryDiscoveredRoute
   LibraryMissingTagsRoute: typeof LibraryMissingTagsRoute
   LibrarySimilarValuesRoute: typeof LibrarySimilarValuesRoute
+  SettingsLibraryRoute: typeof SettingsLibraryRoute
   LibraryIndexRoute: typeof LibraryIndexRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
   LibraryAuthorsAuthorIdRoute: typeof LibraryAuthorsAuthorIdRoute
   LibraryBookBookIdRoute: typeof LibraryBookBookIdRoute
   LibrarySeriesSeriesNameRoute: typeof LibrarySeriesSeriesNameRoute
@@ -259,13 +272,6 @@ declare module '@tanstack/react-router' {
       path: '/missing-tags'
       fullPath: '/missing-tags'
       preLoaderRoute: typeof MissingTagsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/similar-values': {
@@ -317,6 +323,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibrarySimilarValuesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/library': {
+      id: '/settings/library'
+      path: '/settings/library'
+      fullPath: '/settings/library'
+      preLoaderRoute: typeof SettingsLibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library/authors/': {
       id: '/library/authors/'
       path: '/library/authors'
@@ -359,14 +379,15 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConsistencyRoute: ConsistencyRoute,
   MissingTagsRoute: MissingTagsRoute,
-  SettingsRoute: SettingsRoute,
   SimilarValuesRoute: SimilarValuesRoute,
   LibraryCleanUrlsRoute: LibraryCleanUrlsRoute,
   LibraryConsistencyRoute: LibraryConsistencyRoute,
   LibraryDiscoveredRoute: LibraryDiscoveredRoute,
   LibraryMissingTagsRoute: LibraryMissingTagsRoute,
   LibrarySimilarValuesRoute: LibrarySimilarValuesRoute,
+  SettingsLibraryRoute: SettingsLibraryRoute,
   LibraryIndexRoute: LibraryIndexRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
   LibraryAuthorsAuthorIdRoute: LibraryAuthorsAuthorIdRoute,
   LibraryBookBookIdRoute: LibraryBookBookIdRoute,
   LibrarySeriesSeriesNameRoute: LibrarySeriesSeriesNameRoute,

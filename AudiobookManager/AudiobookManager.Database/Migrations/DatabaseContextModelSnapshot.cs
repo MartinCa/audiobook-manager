@@ -325,6 +325,22 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("hardcover_request_quota", (string)null);
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.LibrarySettings", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int>("InitialsSpacing")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("initials_spacing");
+
+                    b.HasKey("Id")
+                        .HasName("pk_library_settings");
+
+                    b.ToTable("library_settings", (string)null);
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.OrphanDirectory", b =>
                 {
                     b.Property<long>("Id")
