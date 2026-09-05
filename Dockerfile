@@ -25,7 +25,12 @@ RUN corepack enable
 
 COPY /client/package.json /client/pnpm-lock.yaml /client/pnpm-workspace.yaml ./
 
-RUN pnpm install --frozen-lockfile
+# --ignore-scripts: this stage only needs the packages on disk to run `pnpm
+# build` below, never a package's own install script. Without it, lefthook's
+# `prepare` script (`lefthook install`) shells out to `git rev-parse` to find
+# the repo root - which fails outright here, since this image has no `git`
+# binary and the build context never copies `.git` in the first place.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY /client ./
 
