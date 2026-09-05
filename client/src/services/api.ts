@@ -225,6 +225,8 @@ export const similarValuesApi = {
 
   getAuthorNames: () => api.get<string[]>("/similar-values/author-names"),
 
+  getNarratorNames: () => api.get<string[]>("/similar-values/narrator-names"),
+
   getSeriesNames: () => api.get<string[]>("/similar-values/series-names"),
 
   align: (valueType: "author" | "series", sourceValues: string[], targetValue: string) =>

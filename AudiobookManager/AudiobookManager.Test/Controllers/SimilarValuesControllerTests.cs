@@ -133,6 +133,17 @@ public class SimilarValuesControllerTests
     }
 
     [TestMethod]
+    public async Task GetNarratorNames_ReturnsDistinctSortedNames()
+    {
+        _personRepository.Setup(r => r.GetNarratorNamesAsync())
+            .ReturnsAsync(new List<string> { "Amy Narrator", "Zed Narrator" });
+
+        var result = await _controller.GetNarratorNames();
+
+        CollectionAssert.AreEqual(new List<string> { "Amy Narrator", "Zed Narrator" }, result);
+    }
+
+    [TestMethod]
     public async Task GetSeriesNames_ReturnsSortedKeys()
     {
         _audiobookRepository.Setup(r => r.GetSeriesNamesAsync())

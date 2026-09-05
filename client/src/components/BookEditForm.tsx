@@ -32,7 +32,6 @@ import { TypeaheadInput } from "./TypeaheadInput";
 import { audiobookApi, settingsApi, similarValuesApi } from "@/services/api";
 import {
   joinList,
-  splitList,
   cleanDescription,
   normalizeSeriesPart,
   DEFAULT_COLLAPSED_FIELDS,
@@ -48,8 +47,8 @@ import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 // DESIGN.md section 1: forms use react-hook-form + zod for client-side validation. The
 // server validates independently; this only stops an obviously incomplete submit early.
 const bookEditFormSchema = z.object({
-  authors: z.string().trim().min(1, "At least one author is required"),
-  narrators: z.string(),
+  authors: z.array(z.string()).min(1, "At least one author is required"),
+  narrators: z.array(z.string()),
   bookName: z.string().trim().min(1, "Book title is required"),
   subtitle: z.string(),
   series: z.string(),
@@ -73,8 +72,8 @@ type BookEditFormValues = z.infer<typeof bookEditFormSchema>;
 
 function valuesFromBook(book: Audiobook): BookEditFormValues {
   return {
-    authors: joinList(book.authors?.map((a) => a.name)),
-    narrators: joinList(book.narrators?.map((n) => n.name)),
+    authors: book.authors?.map((a) => a.name) ?? [],
+    narrators: book.narrators?.map((n) => n.name) ?? [],
     bookName: book.bookName || "",
     subtitle: book.subtitle || "",
     series: book.series || "",
@@ -97,8 +96,8 @@ function buildAudiobook(
   initialBook: Audiobook,
 ): Audiobook {
   return {
-    authors: splitList(values.authors ?? "").map((name) => ({ name })),
-    narrators: splitList(values.narrators ?? "").map((name) => ({ name })),
+    authors: (values.authors ?? []).map((name) => ({ name })),
+    narrators: (values.narrators ?? []).map((name) => ({ name })),
     bookName: (values.bookName ?? "").trim(),
     subtitle: values.subtitle?.trim() || undefined,
     series: values.series?.trim() || undefined,
@@ -162,6 +161,7 @@ export function BookEditForm({
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [authorHint, setAuthorHint] = useState<string | null>(null);
+  const [narratorHint, setNarratorHint] = useState<string | null>(null);
   const [seriesHint, setSeriesHint] = useState<string | null>(null);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
@@ -171,6 +171,11 @@ export function BookEditForm({
   const { data: authorNames = [] } = useQuery({
     queryKey: ["similarValueNames", "authors"],
     queryFn: () => similarValuesApi.getAuthorNames(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: narratorNames = [] } = useQuery({
+    queryKey: ["similarValueNames", "narrators"],
+    queryFn: () => similarValuesApi.getNarratorNames(),
     staleTime: 5 * 60 * 1000,
   });
   const { data: seriesNames = [] } = useQuery({
@@ -222,7 +227,7 @@ export function BookEditForm({
   useEffect(() => {
     let cancelled = false;
     const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
-    if (!values.bookName?.trim() || !values.authors?.trim()) return;
+    if (!values.bookName?.trim() || !values.authors || values.authors.length === 0) return;
 
     const book = buildAudiobook(values, undefined, initialBook);
     const timer = setTimeout(() => {
@@ -246,8 +251,8 @@ export function BookEditForm({
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
-      authors: watchedValues.authors,
-      narrators: watchedValues.narrators,
+      authors: joinList(watchedValues.authors),
+      narrators: joinList(watchedValues.narrators),
       bookName: watchedValues.bookName,
       subtitle: watchedValues.subtitle,
       series: watchedValues.series,
@@ -280,15 +285,18 @@ export function BookEditForm({
       form.setValue("subtitle", result.subtitle, { shouldDirty: true });
     }
     if (selectedFields.has("authors") && result.authors && result.authors.length > 0) {
-      form.setValue("authors", joinList(result.authors.map((a) => a.name)), {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
+      form.setValue(
+        "authors",
+        result.authors.map((a) => a.name),
+        { shouldDirty: true, shouldValidate: true },
+      );
     }
     if (selectedFields.has("narrators") && result.narrators && result.narrators.length > 0) {
-      form.setValue("narrators", joinList(result.narrators.map((n) => n.name)), {
-        shouldDirty: true,
-      });
+      form.setValue(
+        "narrators",
+        result.narrators.map((n) => n.name),
+        { shouldDirty: true },
+      );
     }
     if (selectedFields.has("series")) {
       const firstSeries = result.series?.[0];
@@ -433,19 +441,16 @@ export function BookEditForm({
                 control={form.control}
                 name="authors"
                 render={({ field }) => (
-                  <TypeaheadInput
-                    ref={field.ref}
-                    value={field.value ?? ""}
-                    onValueChange={(val) => field.onChange(val)}
-                    candidates={authorNames}
-                    multiValue={true}
+                  <TagsInput
+                    value={field.value ?? []}
+                    onValueChange={field.onChange}
+                    suggestions={authorNames}
+                    reorderable
                     placeholder="Author Name, Second Author"
                     aria-invalid={Boolean(form.formState.errors.authors)}
-                    onBlur={(e) => {
-                      field.onBlur();
-                      const primaryAuthor = splitList(e.target.value)[0];
-                      const matches = findSimilarExisting(primaryAuthor, authorNames);
-                      setAuthorHint(matches[0] && matches[0] !== primaryAuthor ? matches[0] : null);
+                    onEntryCommitted={(newAuthor) => {
+                      const matches = findSimilarExisting(newAuthor, authorNames);
+                      setAuthorHint(matches[0] && matches[0] !== newAuthor ? matches[0] : null);
                     }}
                   />
                 )}
@@ -460,7 +465,9 @@ export function BookEditForm({
                   type="button"
                   className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
                   onClick={() => {
-                    form.setValue("authors", authorHint, {
+                    const current = form.getValues("authors");
+                    if (current.length === 0) return;
+                    form.setValue("authors", [...current.slice(0, -1), authorHint], {
                       shouldDirty: true,
                       shouldValidate: true,
                     });
@@ -475,7 +482,41 @@ export function BookEditForm({
             {isFieldVisible("narrators") && (
               <div className="min-w-0 flex-1">
                 <label className="mb-1 block text-xs font-medium">Narrators</label>
-                <Input {...form.register("narrators")} placeholder="Narrator Name" />
+                <Controller
+                  control={form.control}
+                  name="narrators"
+                  render={({ field }) => (
+                    <TagsInput
+                      value={field.value ?? []}
+                      onValueChange={field.onChange}
+                      suggestions={narratorNames}
+                      reorderable
+                      placeholder="Narrator Name"
+                      onEntryCommitted={(newNarrator) => {
+                        const matches = findSimilarExisting(newNarrator, narratorNames);
+                        setNarratorHint(
+                          matches[0] && matches[0] !== newNarrator ? matches[0] : null,
+                        );
+                      }}
+                    />
+                  )}
+                />
+                {narratorHint && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
+                    onClick={() => {
+                      const current = form.getValues("narrators");
+                      if (current.length === 0) return;
+                      form.setValue("narrators", [...current.slice(0, -1), narratorHint], {
+                        shouldDirty: true,
+                      });
+                      setNarratorHint(null);
+                    }}
+                  >
+                    Similar existing narrator: {narratorHint} (click to use)
+                  </button>
+                )}
               </div>
             )}
           </div>

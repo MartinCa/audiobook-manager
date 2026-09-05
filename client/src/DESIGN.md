@@ -39,7 +39,10 @@ Router, `src/routeTree.gen.ts` is committed to Git as a vendored contract (see S
 ### Allowed dependencies
 
 Anything in the table above, plus: `clsx`, `tailwind-merge`, `class-variance-authority`
-(these come with shadcn), `sonner` for toasts, `cmdk` for command palettes.
+(these come with shadcn), `sonner` for toasts, `cmdk` for command palettes, `@dnd-kit/core` +
+`@dnd-kit/sortable` + `@dnd-kit/utilities` for drag-and-drop reordering (Authors/Narrators chips
+in `TagsInput` — needs real pointer/touch drag support, which a hand-rolled `HTML5 draggable`
+implementation does not give on touch devices; see issue #1350).
 
 Everything else requires a one-line justification in the PR description. Prefer writing
 30 lines over adding a dependency for something small. Prefer a dependency over writing

@@ -1,15 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { TagsInput } from "./tags-input";
+import { TagsInput, type TagsInputProps } from "./tags-input";
+
+type ControlledTagsInputProps = {
+  initial?: string[];
+  onValueChange?: (value: string[]) => void;
+} & Partial<Omit<TagsInputProps, "value" | "onValueChange">>;
 
 function ControlledTagsInput({
   initial = [],
   onValueChange,
-}: {
-  initial?: string[];
-  onValueChange?: (value: string[]) => void;
-}) {
+  placeholder = "Fantasy, Fiction",
+  ...rest
+}: ControlledTagsInputProps) {
   const [value, setValue] = useState(initial);
   return (
     <TagsInput
@@ -18,7 +22,8 @@ function ControlledTagsInput({
         setValue(v);
         onValueChange?.(v);
       }}
-      placeholder="Fantasy, Fiction"
+      placeholder={placeholder}
+      {...rest}
     />
   );
 }
@@ -170,6 +175,109 @@ describe("TagsInput", () => {
 
       expect(onValueChange).not.toHaveBeenCalled();
       expect(screen.getByText("Fantasy")).toBeInTheDocument();
+    });
+  });
+
+  describe("typeahead suggestions", () => {
+    const authorNames = ["Brandon Sanderson", "Brandon Ellis", "Frank Herbert"];
+
+    it("shows narrowed suggestions while typing a new entry", () => {
+      render(<ControlledTagsInput suggestions={authorNames} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Brandon" } });
+
+      expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
+      expect(screen.getByText("Brandon Ellis")).toBeInTheDocument();
+      expect(screen.queryByText("Frank Herbert")).not.toBeInTheDocument();
+    });
+
+    it("does not suggest a candidate that is already a committed chip", () => {
+      render(<ControlledTagsInput initial={["Brandon Sanderson"]} suggestions={authorNames} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Brandon" } });
+
+      expect(screen.queryByRole("option", { name: "Brandon Sanderson" })).not.toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Brandon Ellis" })).toBeInTheDocument();
+    });
+
+    it("clicking a suggestion commits it as a chip and clears the draft", () => {
+      const onValueChange = vi.fn();
+      render(<ControlledTagsInput suggestions={authorNames} onValueChange={onValueChange} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Frank" } });
+      fireEvent.pointerDown(screen.getByText("Frank Herbert"));
+
+      expect(onValueChange).toHaveBeenCalledWith(["Frank Herbert"]);
+      expect(input).toHaveValue("");
+    });
+
+    it("selecting a highlighted suggestion with Enter commits it", () => {
+      const onValueChange = vi.fn();
+      render(<ControlledTagsInput suggestions={authorNames} onValueChange={onValueChange} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Brandon" } });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onValueChange).toHaveBeenCalledWith(["Brandon Sanderson"]);
+    });
+
+    it("does not show suggestions when none are configured (Genres usage)", () => {
+      render(<ControlledTagsInput />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Fantasy" } });
+
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("onEntryCommitted", () => {
+    it("fires with the newly committed value", () => {
+      const onEntryCommitted = vi.fn();
+      render(<ControlledTagsInput onEntryCommitted={onEntryCommitted} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "Heartfelt" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEntryCommitted).toHaveBeenCalledWith("Heartfelt");
+    });
+
+    it("does not fire when the entry is rejected as a duplicate", () => {
+      const onEntryCommitted = vi.fn();
+      render(<ControlledTagsInput initial={["Fantasy"]} onEntryCommitted={onEntryCommitted} />);
+
+      const input = screen.getByRole("textbox");
+      fireEvent.change(input, { target: { value: "fantasy" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onEntryCommitted).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("reordering", () => {
+    it("does not render a drag handle when reorderable is not set (Genres usage)", () => {
+      render(<ControlledTagsInput initial={["Fantasy", "Fiction"]} />);
+
+      expect(screen.queryByLabelText("Reorder Fantasy")).not.toBeInTheDocument();
+    });
+
+    it("renders a drag handle per chip when reorderable", () => {
+      render(<ControlledTagsInput initial={["Fantasy", "Fiction"]} reorderable />);
+
+      expect(screen.getByLabelText("Reorder Fantasy")).toBeInTheDocument();
+      expect(screen.getByLabelText("Reorder Fiction")).toBeInTheDocument();
+    });
+
+    it("hides the drag handle when disabled even if reorderable", () => {
+      render(<ControlledTagsInput initial={["Fantasy"]} reorderable disabled />);
+
+      expect(screen.queryByLabelText("Reorder Fantasy")).not.toBeInTheDocument();
     });
   });
 });

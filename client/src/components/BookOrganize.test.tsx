@@ -20,6 +20,7 @@ vi.mock("@/services/api", () => ({
   },
   similarValuesApi: {
     getAuthorNames: vi.fn().mockResolvedValue([]),
+    getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
 }));
@@ -80,7 +81,7 @@ describe("BookOrganize", () => {
 
     const titleInput = await screen.findByPlaceholderText("Book title");
     expect(titleInput).toHaveValue("Foundation");
-    expect(screen.getByPlaceholderText("Author Name, Second Author")).toHaveValue("Isaac Asimov");
+    expect(screen.getByText("Isaac Asimov")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("YYYY")).toHaveValue(1951);
   });
 

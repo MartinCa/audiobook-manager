@@ -13,6 +13,7 @@ vi.mock("@/services/api", () => ({
   },
   similarValuesApi: {
     getAuthorNames: vi.fn().mockResolvedValue([]),
+    getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
   metadataSearchApi: {
@@ -72,7 +73,7 @@ describe("BookEditForm", () => {
   it("renders fields populated from the initial book", () => {
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
-    expect(screen.getByDisplayValue("Jane Author")).toBeInTheDocument();
+    expect(screen.getByText("Jane Author")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Original Title")).toBeInTheDocument();
     expect(screen.getByDisplayValue("2020")).toBeInTheDocument();
   });
@@ -81,14 +82,14 @@ describe("BookEditForm", () => {
     const onSave = vi.fn();
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
 
-    fireEvent.change(screen.getByDisplayValue("Jane Author"), { target: { value: "" } });
+    fireEvent.click(screen.getByLabelText("Remove Jane Author"));
     fireEvent.click(screen.getByText("Save Audiobook"));
 
     expect(await screen.findByText("At least one author is required")).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("shows a click-to-use hint when a similar author name already exists", async () => {
+  it("shows a click-to-use hint when a similar author name already exists, and replaces the newly-added author on click", async () => {
     const { similarValuesApi } = await import("@/services/api");
     vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
 
@@ -96,17 +97,24 @@ describe("BookEditForm", () => {
 
     await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
 
-    const authorsInput = screen.getByDisplayValue("Jane Author");
+    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
     fireEvent.change(authorsInput, { target: { value: "Jane" } });
-    fireEvent.blur(authorsInput);
+    // Ensure the authorNames query has actually resolved into state (not just been called)
+    // before committing, since the similar-value hint depends on it.
+    await screen.findByRole("option", { name: "Jane Authorr" });
+    fireEvent.keyDown(authorsInput, { key: "Escape" });
+    fireEvent.keyDown(authorsInput, { key: "Enter" });
 
     expect(
       await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
     ).toBeInTheDocument();
+    // The typo'd entry is its own chip alongside the original author until the hint is applied.
+    expect(screen.getByText("Jane")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
 
-    expect(screen.getByDisplayValue("Jane Authorr")).toBeInTheDocument();
+    expect(screen.getByText("Jane Authorr")).toBeInTheDocument();
+    expect(screen.queryByText("Jane", { selector: "button" })).not.toBeInTheDocument();
   });
 
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
@@ -253,7 +261,7 @@ describe("BookEditForm", () => {
     expect(resetBtn).toBeDisabled();
   });
 
-  it("offers live author typeahead suggestions while typing and selects on click", async () => {
+  it("offers live author typeahead suggestions while typing and commits the selection as a chip", async () => {
     const { similarValuesApi } = await import("@/services/api");
     vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce([
       "Brandon Sanderson",
@@ -264,14 +272,64 @@ describe("BookEditForm", () => {
 
     await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
 
-    const authorsInput = screen.getByDisplayValue("Jane Author");
+    const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
     fireEvent.focus(authorsInput);
     fireEvent.change(authorsInput, { target: { value: "Sand" } });
 
     expect(await screen.findByRole("option", { name: "Brandon Sanderson" })).toBeInTheDocument();
 
     fireEvent.pointerDown(screen.getByRole("option", { name: "Brandon Sanderson" }));
-    expect(authorsInput).toHaveValue("Brandon Sanderson");
+
+    expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
+    expect(authorsInput).toHaveValue("");
+  });
+
+  it("offers live narrator typeahead suggestions and a similar-value hint, matching author parity", async () => {
+    const { similarValuesApi } = await import("@/services/api");
+    vi.mocked(similarValuesApi.getNarratorNames).mockResolvedValueOnce([
+      "Michael Kramerr",
+      "Kate Reading",
+    ]);
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, narrators: [{ name: "Michael Kramer" }] }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(similarValuesApi.getNarratorNames).toHaveBeenCalled());
+
+    const narratorsInput = screen.getByRole("textbox", { name: "Narrator Name" });
+    fireEvent.change(narratorsInput, { target: { value: "Kate" } });
+
+    expect(await screen.findByRole("option", { name: "Kate Reading" })).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("option", { name: "Kate Reading" }));
+
+    expect(screen.getByText("Kate Reading")).toBeInTheDocument();
+  });
+
+  it("reordering authors by drag does not affect the array via edit/remove side effects", () => {
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          authors: [{ name: "Alpha Author" }, { name: "Beta Author" }],
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    // Editing one author must not reorder the other - the drag handle is the only reorder path.
+    fireEvent.click(screen.getByLabelText("Edit Alpha Author"));
+    const editInput = screen.getByDisplayValue("Alpha Author");
+    fireEvent.change(editInput, { target: { value: "Alpha Author Fixed" } });
+    fireEvent.keyDown(editInput, { key: "Enter" });
+
+    expect(screen.getByText("Alpha Author Fixed")).toBeInTheDocument();
+    expect(screen.getByText("Beta Author")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reorder Alpha Author Fixed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reorder Beta Author")).toBeInTheDocument();
   });
 
   it("offers live series typeahead suggestions while typing and selects on click", async () => {
@@ -301,7 +359,7 @@ describe("BookEditForm", () => {
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
     // Primary fields are present
-    expect(screen.getByDisplayValue("Jane Author")).toBeInTheDocument();
+    expect(screen.getByText("Jane Author")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Original Title")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Fantasy, Fiction")).toBeInTheDocument();
 
@@ -353,7 +411,7 @@ describe("BookEditForm", () => {
     );
 
     // Populated optional fields are visible
-    expect(screen.getByDisplayValue("Michael Kramer")).toBeInTheDocument();
+    expect(screen.getByText("Michael Kramer")).toBeInTheDocument();
     expect(screen.getByDisplayValue("A Great Story")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Tor Books")).toBeInTheDocument();
     expect(screen.getByDisplayValue("4.8")).toBeInTheDocument();
