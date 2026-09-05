@@ -93,4 +93,83 @@ describe("TagsInput", () => {
 
     expect(onValueChange).not.toHaveBeenCalled();
   });
+
+  describe("editing an existing chip", () => {
+    it("clicking a chip turns it into an editable input pre-filled with its value", () => {
+      render(<ControlledTagsInput initial={["Fantasy", "Fiction"]} />);
+
+      fireEvent.click(screen.getByLabelText("Edit Fantasy"));
+
+      expect(screen.getByDisplayValue("Fantasy")).toBeInTheDocument();
+    });
+
+    it("commits an edit in place on Enter, preserving the order of every other entry", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput initial={["Alpha", "Beta", "Gamma"]} onValueChange={onValueChange} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Beta"));
+      const editInput = screen.getByDisplayValue("Beta");
+      fireEvent.change(editInput, { target: { value: "Beta Fixed" } });
+      fireEvent.keyDown(editInput, { key: "Enter" });
+
+      expect(onValueChange).toHaveBeenCalledWith(["Alpha", "Beta Fixed", "Gamma"]);
+    });
+
+    it("commits an edit on blur too, not just Enter", () => {
+      const onValueChange = vi.fn();
+      render(<ControlledTagsInput initial={["Fantasy"]} onValueChange={onValueChange} />);
+
+      fireEvent.click(screen.getByLabelText("Edit Fantasy"));
+      const editInput = screen.getByDisplayValue("Fantasy");
+      fireEvent.change(editInput, { target: { value: "Fantasy Fixed" } });
+      fireEvent.blur(editInput);
+
+      expect(onValueChange).toHaveBeenCalledWith(["Fantasy Fixed"]);
+    });
+
+    it("cancels the edit on Escape without changing the value", () => {
+      const onValueChange = vi.fn();
+      render(<ControlledTagsInput initial={["Fantasy"]} onValueChange={onValueChange} />);
+
+      fireEvent.click(screen.getByLabelText("Edit Fantasy"));
+      const editInput = screen.getByDisplayValue("Fantasy");
+      fireEvent.change(editInput, { target: { value: "Something Else" } });
+      fireEvent.keyDown(editInput, { key: "Escape" });
+
+      expect(onValueChange).not.toHaveBeenCalled();
+      expect(screen.getByText("Fantasy")).toBeInTheDocument();
+      expect(screen.queryByDisplayValue("Something Else")).not.toBeInTheDocument();
+    });
+
+    it("removes the entry when edited down to an empty value", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput initial={["Fantasy", "Fiction"]} onValueChange={onValueChange} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Fantasy"));
+      const editInput = screen.getByDisplayValue("Fantasy");
+      fireEvent.change(editInput, { target: { value: "   " } });
+      fireEvent.keyDown(editInput, { key: "Enter" });
+
+      expect(onValueChange).toHaveBeenCalledWith(["Fiction"]);
+    });
+
+    it("rejects an edit that would duplicate another existing entry", () => {
+      const onValueChange = vi.fn();
+      render(
+        <ControlledTagsInput initial={["Fantasy", "Fiction"]} onValueChange={onValueChange} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Edit Fantasy"));
+      const editInput = screen.getByDisplayValue("Fantasy");
+      fireEvent.change(editInput, { target: { value: "fiction" } });
+      fireEvent.keyDown(editInput, { key: "Enter" });
+
+      expect(onValueChange).not.toHaveBeenCalled();
+      expect(screen.getByText("Fantasy")).toBeInTheDocument();
+    });
+  });
 });
