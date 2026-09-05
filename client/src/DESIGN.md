@@ -12,23 +12,23 @@ is not listed in **Allowed dependencies** without asking first.
 
 ## 1. Stack
 
-| Layer           | Choice                                                                                       | Not this                                                                       |
-| --------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Language        | TypeScript, `strict: true`                                                                   | JavaScript, `any`                                                              |
-| UI runtime      | React (function components + hooks only)                                                     | class components                                                               |
-| Build / routing | Vite + TanStack Router (SPA) _or_ Next.js App Router (when SSR/SEO is genuinely needed)      | CRA, Webpack by hand                                                           |
-| Components      | shadcn/ui                                                                                    | MUI, Ant, Chakra, Bootstrap                                                    |
-| Primitives      | Base UI (shadcn default since July 2026). Pin the choice in `components.json`.               | mixing Radix and Base UI in one repo                                           |
-| Styling         | Tailwind CSS + CSS variables for theme tokens                                                | CSS-in-JS, SCSS, inline `style={{}}`                                           |
-| Icons           | `lucide-react`                                                                               | mixed icon sets                                                                |
-| Server state    | TanStack Query                                                                               | fetch-into-`useState`, fetch-into-Zustand                                      |
-| Client state    | `useState` → lifted props → Zustand (in that order)                                          | Redux, Context as a state manager                                              |
-| Forms           | `react-hook-form` + `zod` (client-side validation only — the server validates independently) | hand-rolled validation                                                         |
-| Tables          | TanStack Table (headless) + shadcn table primitives                                          | ag-grid, custom sort logic                                                     |
-| Charts          | shadcn/ui Charts (Recharts)                                                                  | new charting lib per project                                                   |
-| Dates           | `date-fns`                                                                                   | moment, hand-rolled parsing                                                    |
-| Tests           | Vitest + Testing Library; Playwright only where a flow is worth it                           | Enzyme, snapshot-everything                                                    |
-| Lint/format     | ESLint (typescript-eslint) + Prettier, both enforced in CI with `--max-warnings 0`           | per-file disables without a reason comment; a lint job that passes on warnings |
+| Layer           | Choice                                                                                                                                 | Not this                                                                                                                         |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Language        | TypeScript, `strict: true`                                                                                                             | JavaScript, `any`                                                                                                                |
+| UI runtime      | React (function components + hooks only)                                                                                               | class components                                                                                                                 |
+| Build / routing | Vite + TanStack Router (SPA) _or_ Next.js App Router (when SSR/SEO is genuinely needed)                                                | CRA, Webpack by hand                                                                                                             |
+| Components      | shadcn/ui                                                                                                                              | MUI, Ant, Chakra, Bootstrap                                                                                                      |
+| Primitives      | Base UI (shadcn default since July 2026). Pin the choice in `components.json`.                                                         | mixing Radix and Base UI in one repo                                                                                             |
+| Styling         | Tailwind CSS + CSS variables for theme tokens                                                                                          | CSS-in-JS, SCSS, inline `style={{}}`                                                                                             |
+| Icons           | `lucide-react`                                                                                                                         | mixed icon sets                                                                                                                  |
+| Server state    | TanStack Query                                                                                                                         | fetch-into-`useState`, fetch-into-Zustand                                                                                        |
+| Client state    | `useState` → lifted props → Zustand (in that order)                                                                                    | Redux, Context as a state manager                                                                                                |
+| Forms           | `react-hook-form` + `zod` (client-side validation only — the server validates independently)                                           | hand-rolled validation                                                                                                           |
+| Tables          | TanStack Table (headless) + shadcn table primitives                                                                                    | ag-grid, custom sort logic                                                                                                       |
+| Charts          | shadcn/ui Charts (Recharts)                                                                                                            | new charting lib per project                                                                                                     |
+| Dates           | `date-fns`                                                                                                                             | moment, hand-rolled parsing                                                                                                      |
+| Tests           | Vitest + Testing Library; Playwright only where a flow is worth it                                                                     | Enzyme, snapshot-everything                                                                                                      |
+| Lint/format     | ESLint (typescript-eslint, TanStack Query plugin) + Prettier, pre-commit hooks (Lefthook), both enforced in CI with `--max-warnings 0` | per-file disables without a reason comment; a lint job that passes on warnings; Husky (unmaintained — no release since Nov 2024) |
 
 **Default to the SPA path.** Most projects here are internal tools behind auth on a
 private network. They do not need SSR, RSC, or an SEO story, and the client/server
@@ -38,11 +38,13 @@ Router, `src/routeTree.gen.ts` is committed to Git as a vendored contract (see S
 
 ### Allowed dependencies
 
-Anything in the table above, plus: `clsx`, `tailwind-merge`, `class-variance-authority`
-(these come with shadcn), `sonner` for toasts, `cmdk` for command palettes, `@dnd-kit/core` +
-`@dnd-kit/sortable` + `@dnd-kit/utilities` for drag-and-drop reordering (Authors/Narrators chips
-in `TagsInput` — needs real pointer/touch drag support, which a hand-rolled `HTML5 draggable`
-implementation does not give on touch devices; see issue #1350).
+Anything in the table above, plus: `cn` (shadcn's Tailwind class-merging engine — a
+drop-in replacement for `clsx` + `tailwind-merge`, installed via `npx shadcn migrate cn`
+on Tailwind v4 projects; new `shadcn init` scaffolds already use it — the migration
+command is a no-op if the project doesn't already have `clsx`/`tailwind-merge` in
+`lib/utils.ts`, so don't go looking for something to run on a fresh project),
+`class-variance-authority` (these come with shadcn), `sonner` for toasts, `cmdk` for
+command palettes.
 
 Everything else requires a one-line justification in the PR description. Prefer writing
 30 lines over adding a dependency for something small. Prefer a dependency over writing
@@ -100,7 +102,7 @@ Components are **copied into this repo** and are therefore our code. That has co
   occasional chore — Renovate cannot do it. Run it when there is a reason to, not on a schedule.
 - Use `shadcn docs <component>` to get current API surface rather than recalling props.
 
-### Known Base UI component quirks
+### Known Base UI component quirks & overlay mobile safety
 
 Found empirically, not documented by shadcn or Base UI — no build error, no lint
 warning, no console message, just a UI bug the first time real content or a real
@@ -120,28 +122,76 @@ the root circle — unlike `checkbox.tsx`'s root, which already carries
 +     "border-primary text-primary ... grid aspect-square h-4 w-4 cursor-pointer place-content-center rounded-full border ...",
 ```
 
-**`dialog.tsx`: `DialogContent` sets no `max-h`/`overflow` of its own.** shadcn's
-own docs describe the fix as a flex header/body/footer split, but nothing in the
-generated component enforces it — so the easy first move,
-`<DialogContent className="max-h-[85vh] overflow-y-auto">` wrapped around content
-that already has its own bounded list or table, produces two independently
-scrolling regions nested inside each other (visibly two scrollbars), and skipping
-the wrapper entirely lets a tall dialog grow straight past the viewport instead of
-scrolling internally. Structure any dialog whose content can overflow as:
+**`dialog.tsx` & `alert-dialog.tsx`: default classes clip and overflow on mobile.**
+The upstream default classes (`w-full max-w-lg p-6 sm:rounded-lg`) cause modals on mobile
+(<640px) to touch the viewport edges without margins, and tall modals (or when the
+virtual keyboard opens) overflow past the screen height without scrolling, making footer
+action buttons unclickable. Furthermore, defaulting to `sm:space-x-2` without `gap-2` in
+`DialogFooter` / `AlertDialogFooter` results in zero vertical spacing between buttons when
+stacked on mobile.
+
+Update `DialogContent` and `DialogFooter` in `src/components/ui/dialog.tsx` (and mirror
+in `src/components/ui/alert-dialog.tsx`):
+
+```diff
+  <DialogPrimitive.Content
+    className={cn(
+-     "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 sm:rounded-lg",
++     "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-2rem)] sm:w-full max-w-lg max-h-[90dvh] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 border p-4 sm:p-6 shadow-lg duration-200 rounded-lg sm:rounded-lg",
+      className
+    )}
+```
+
+```diff
+  function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
+    return (
+      <div
+        className={cn(
+-         "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
++         "flex flex-col-reverse sm:flex-row sm:justify-end gap-2",
+          className
+        )}
+        {...props}
+      />
+    )
+  }
+```
+
+**Dialog Footer Buttons recipe:**
+Buttons inside `DialogFooter` and `AlertDialogFooter` should use `className="w-full sm:w-auto"`
+so they provide full-width touch targets on mobile and natural widths on desktop:
 
 ```tsx
-<DialogContent className="flex max-h-[85vh] flex-col overflow-hidden">
+<DialogFooter>
+  <Button variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>
+    Cancel
+  </Button>
+  <Button className="w-full sm:w-auto" type="submit">
+    Save changes
+  </Button>
+</DialogFooter>
+```
+
+**Complex dialogs with inner scrolling:**
+For dialogs containing a scrollable table or list alongside fixed header and footer rows,
+structure the content as a flex column with `overflow-hidden` so inner scroll regions do
+not nest dual scrollbars:
+
+```tsx
+<DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden p-4 sm:p-6">
   <DialogHeader>...</DialogHeader>
-  <div className="flex-1 overflow-y-auto">...</div>
-  {/* a fixed action row, if any, is a sibling here — not inside the scroll area */}
+  <div className="min-h-0 flex-1 overflow-y-auto">...</div>
+  <DialogFooter>...</DialogFooter>
 </DialogContent>
 ```
 
-Drop `max-h-*`/`overflow-y-auto` from any bounded child inside that body — the
-outer body is now the only scroll container (give it `overflow-x-auto` too if the
-content can also overflow horizontally, e.g. a wide table). Skip the split, and
-the outer `max-h`/`overflow-hidden`, for a dialog that can never overflow (a
-confirm prompt, a short form) — it's dead weight there.
+**Other overlay components (`sheet.tsx`, `popover.tsx`, `dropdown-menu.tsx`):**
+
+- **`sheet.tsx` (`SheetContent`)**: Ensure tall content has `overflow-y-auto` and viewport-safe
+  bounds (`max-h-[100dvh]`) so actions remain reachable on mobile.
+- **`popover.tsx` (`PopoverContent`) & `dropdown-menu.tsx` (`DropdownMenuContent`)**:
+  Ensure contents enforce `max-h-[90dvh] overflow-y-auto` and viewport collision padding so
+  large menus or complex popovers do not clip beyond mobile viewports.
 
 ---
 
@@ -189,7 +239,9 @@ src/
 - Compose conditional classes with `cn()`. Never build class strings with template literals
   and ternaries inline.
 - Variants belong in `cva`, not in a pile of boolean props.
-- Responsive down to a phone. If a table cannot work at 375px, show a card list instead.
+- **Responsive down to a phone (375px).** If a table cannot work at 375px, show a card list instead.
+  - **Flex child text truncation**: In flex rows where text sits alongside fixed-width elements (badges, buttons, icons), the text container must have `min-w-0 flex-1` for `truncate` or `break-words` to take effect and prevent horizontal scrollbars.
+  - **Monospace & diff blocks**: Components displaying arbitrary paths, URLs, commit hashes, or code/diff blocks must include `break-all` alongside `whitespace-pre-wrap` (or an explicit `overflow-x-auto` container) so unbroken strings wrap cleanly on narrow screens.
 
 ---
 
@@ -206,6 +258,9 @@ Non-negotiable, and not worth discussing in review because it is written here:
   screen), empty (with an action to take), and error (what failed and what to do next).
 - Error text says what happened and how to fix it. It does not apologize and it is not vague.
 - Button labels are verbs and stay consistent through a flow — "Publish" produces "Published".
+- Responsive down to 375px wide with zero accidental horizontal scrolling. Dialogs and overlays
+  are bounded to viewport heights (`max-h-[90dvh]` / `max-h-[100dvh]`) with vertical scrolling,
+  and action buttons in footers stack cleanly with full touch targets (`w-full sm:w-auto`).
 
 ---
 
@@ -248,12 +303,16 @@ is ASP.NET Core, FastAPI, Flask, or a Go binary. The rules below keep it that wa
 - Check whether a shadcn component already exists before building one. It usually does.
 - Do not add a state library, a data-fetching library, or a UI kit. The stack is decided.
 - Do not hand-edit `src/components/ui/**`, `src/lib/api-types.ts`, or `src/routeTree.gen.ts`. All are vendored.
+- Guarantee mobile (<640px) responsiveness on all UI additions: use `w-[calc(100vw-2rem)] sm:w-full`
+  and `max-h-[90dvh] overflow-y-auto` on dialogs, `gap-2` and `w-full sm:w-auto` for footer buttons,
+  `min-w-0 flex-1` on flex text containers, and `break-all` on paths/URLs/hashes.
 - Do not refactor unrelated files while completing a task.
 - Prefer deleting code to adding an option. This is a hobby project; there is no user base
   to keep happy.
 - Types come from the API contract, not from guesses. If the shape is unknown, ask rather
   than writing an interface that will silently drift.
 - No `any`, no `@ts-expect-error` without a comment explaining the underlying issue.
+- Always run the mandatory verification commands before opening a PR: `pnpm run lint` (`--max-warnings 0`), `pnpm run format-check`, `tsc --noEmit`, and `pnpm test`.
 - When unsure between two reasonable approaches, pick the one with less indirection and say
   in the PR why.
 
@@ -263,11 +322,9 @@ is ASP.NET Core, FastAPI, Flask, or a Go binary. The rules below keep it that wa
 
 _Fill this in per repo. Everything above is shared and should stay identical across projects._
 
-- **What this app is:** Audiobook Manager - full-stack web application that organizes m4b audiobook files into a structured library, with metadata scraping and Audiobookshelf integration.
-- **Who uses it:** Self-hosters and personal audiobook library managers.
-- **Router / framework choice and why:** React 19 + TanStack Router (SPA, file-based routes under `src/routes/`) with Vite.
-- **Backend and where its OpenAPI spec lives:** ASP.NET Core Web API (net10.0), OpenAPI spec available via Swagger at `/swagger/v1/swagger.json`.
-- **Pagination convention:** Offset-based (`limit`, `offset` query params) returning `{ count, total, items }` (`src/types/Common.ts`'s `PaginatedResult<T>`), and server-side `{ items, total }` page DTOs for the tool pages (consistency issue list, URL cleanup). Size-agnostic "everything in the library" pages (authors, series, similar values, missing tags) are **not** fetched whole and filtered client-side — a list endpoint is either path-limited or server-side paged. See `AGENTS.md`'s "List endpoints must be bounded" invariant.
+- **What this app is:**
+- **Who uses it:**
+- **Router / framework choice and why:**
+- **Backend and where its OpenAPI spec lives:**
+- **Pagination convention:**
 - **Deviations from the shared conventions (with reasons):**
-  - `src/types/*.ts` is a mix of thin aliases over `api-types.ts` (`components["schemas"][...]`, narrowed to the fields the DTO's C# source actually guarantees non-null — see `src/lib/dto.ts`'s `Require` helper) and a handful of genuinely frontend-only shapes with no wire counterpart (`Audiobook`/`AudiobookPerson`, the tag-preview-only `OrganizeAudiobookInput`, `PaginatedResult<T>`, `UserNotificationError`). Each such file documents which case it is and why. This is a deliberate compromise on section 7's "never hand-write response interfaces": Swashbuckle only emits an OpenAPI `required` array for types carrying `[Required]` attributes, so directly aliasing `components["schemas"][...]` for this backend's plain-record response DTOs would make every field optional/nullable regardless of what the server actually sends.
-  - Section 1's "pin the choice in `components.json`" for Base UI doesn't apply here: this project's `components.json` uses `"style": "default"` rather than one of the shadcn CLI's bundled presets (e.g. `base-nova`), and its `configSchema` is `.strict()` with no field for pinning a base on a non-preset style — adding one (e.g. `"base": "base"`) makes the CLI reject the whole config file (`Invalid configuration found`), confirmed via `npx shadcn@latest add button --dry-run`. There's currently no config-file mechanism to enforce this for this project's setup; it relies on convention (and this file) instead.

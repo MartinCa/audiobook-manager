@@ -15,6 +15,19 @@ pnpm dlx shadcn@latest add MartinCa/frontend-kit/conventions --overwrite
 The project-specific section at the bottom of `DESIGN.md` is the exception — that
 part is owned by this repo.
 
+## Mandatory verification before opening PRs
+
+Git hooks (`lefthook`) format and lint files locally on `git commit`. However, AI agents frequently operate in ephemeral cloud VMs, Web/mobile sessions, or Docker containers where git hooks may not be initialized or executed automatically.
+
+Before creating commits and opening a pull request, you **MUST** run all verification commands explicitly:
+
+1. `pnpm run lint` — ESLint flat config with `--max-warnings 0` (enforcing strict TypeScript, TanStack Query best practices, import boundaries, and no Zustand fetches).
+2. `pnpm run format-check` — Prettier verification (`prettier --check .`).
+3. `tsc --noEmit` (or `pnpm exec tsc --noEmit`) — Full project type-checking.
+4. `pnpm test` — Automated test suite.
+
+Fix any reported violations or warnings rather than disabling rules or skipping checks.
+
 ## Shortcuts
 
 - `shadcn info` — what is installed, which base, where the docs are.
@@ -39,7 +52,9 @@ guess a number that looks plausible.
 `pnpm lint` enforces the mechanical parts of `DESIGN.md`: no `any`, no deep
 relative imports, no direct primitive imports outside `components/ui/`, no
 inline `style` props, no fetching inside a Zustand store (in either
-`create(init)` or the curried `create()(init)` form). A few rules are warnings
+`create(init)` or the curried `create()(init)` form), and TanStack Query
+best practices via `@tanstack/eslint-plugin-query` (exhaustive query key dependencies,
+stable query clients, mutation property order). A few rules are warnings
 rather than errors, so CI runs with `--max-warnings 0` — a warning is not a
 pass, it is a thing to fix. If a rule fires,
 fix the code rather than disabling the rule. If the rule is genuinely wrong,
