@@ -12,6 +12,20 @@ export function normalizeForMatch(value: string | null | undefined): string {
     .trim();
 }
 
+// "J. K. Rowling" and "J.K. Rowling" name the same person; the space after a dotted initial is
+// a typographical variant, not a different token. Collapse it BEFORE normalizeForMatch strips
+// the dots, so the two forms compare equal when matching. Deliberately surgical: only a space
+// between a dotted initial and the next letter is collapsed, so "Harry Pot ter" still does NOT
+// match "Harry Potter".
+function foldInitialSpacing(value: string): string {
+  return value.replace(/([A-Za-z]\.)\s+(?=[A-Za-z])/g, "$1");
+}
+
+function normalizedFolded(value: string | null | undefined): string {
+  if (!value) return "";
+  return normalizeForMatch(foldInitialSpacing(value));
+}
+
 export function isNearMatch(
   input: string | null | undefined,
   candidate: string | null | undefined,
@@ -19,13 +33,22 @@ export function isNearMatch(
   const normInput = normalizeForMatch(input);
   const normCandidate = normalizeForMatch(candidate);
   if (!normInput || !normCandidate) return false;
-  return normInput === normCandidate || normCandidate.includes(normInput);
+  return (
+    normInput === normCandidate ||
+    normCandidate.includes(normInput) ||
+    normalizedFolded(candidate).includes(normalizedFolded(input))
+  );
 }
 
 export function narrowByQuery(candidates: string[], query: string, limit: number = 5): string[] {
   if (!query.trim()) return [];
   const normQuery = normalizeForMatch(query);
-  return candidates.filter((c) => normalizeForMatch(c).includes(normQuery)).slice(0, limit);
+  const foldedQuery = normalizedFolded(query);
+  return candidates
+    .filter(
+      (c) => normalizeForMatch(c).includes(normQuery) || normalizedFolded(c).includes(foldedQuery),
+    )
+    .slice(0, limit);
 }
 
 export function findSimilarExisting(
