@@ -16,6 +16,10 @@ public interface IPersonRepository
     /// autocomplete, which needs nothing but the strings.</summary>
     Task<List<string>> GetAuthorNamesAsync();
 
+    /// <summary>Distinct names of narrators that have at least one book. Backs the entry-time
+    /// autocomplete, which needs nothing but the strings.</summary>
+    Task<List<string>> GetNarratorNamesAsync();
+
     /// <summary>Every author that has at least one book, with its book count projected in SQL.</summary>
     Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync();
 

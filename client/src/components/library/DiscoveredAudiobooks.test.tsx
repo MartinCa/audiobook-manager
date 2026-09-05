@@ -125,8 +125,8 @@ describe("DiscoveredAudiobooks", () => {
     const trigger = await screen.findByText("Book Title", { exact: false });
     fireEvent.click(trigger);
 
-    const authorsInput = await screen.findByDisplayValue("Author One / Author Two");
-    expect(authorsInput).toBeInTheDocument();
+    expect(await screen.findByText("Author One")).toBeInTheDocument();
+    expect(screen.getByText("Author Two")).toBeInTheDocument();
   });
 
   // Regression: DiscoveredAudiobookDto didn't carry Description/Copyright/Publisher/Language/

@@ -46,6 +46,7 @@ vi.mock("@/services/api", () => ({
   },
   similarValuesApi: {
     getAuthorNames: vi.fn().mockResolvedValue([]),
+    getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
 }));
@@ -122,7 +123,7 @@ describe("BookDetail", () => {
     renderWithProviders();
 
     expect(await screen.findByDisplayValue("The Way of Kings")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Brandon Sanderson")).toBeInTheDocument();
+    expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
     expect(screen.getByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
     expect(screen.getByDisplayValue("2010")).toBeInTheDocument();
   });

@@ -127,6 +127,45 @@ public class PersonRepositorySearchTests
         await _audiobookRepository.InsertAudiobook(audiobook);
     }
 
+    private async Task SeedBookWithNarratorAsync(string bookName, string narratorName)
+    {
+        var audiobook = new Audiobook(
+            default, bookName, null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
+        {
+            Authors = new List<Person> { new Person(default, $"Placeholder Author for {bookName}") },
+            Narrators = new List<Person> { new Person(default, narratorName) }
+        };
+
+        await _audiobookRepository.InsertAudiobook(audiobook);
+    }
+
+    [TestMethod]
+    public async Task GetNarratorNamesAsync_OrdersForAReaderNotByCodePoint()
+    {
+        await SeedBookWithNarratorAsync("Book A", "alice munro");
+        await SeedBookWithNarratorAsync("Book B", "Zadie Smith");
+        await SeedBookWithNarratorAsync("Book C", "Avila Narrator");
+
+        var names = await _repository.GetNarratorNamesAsync();
+
+        CollectionAssert.AreEqual(
+            new List<string> { "alice munro", "Avila Narrator", "Zadie Smith" },
+            names);
+    }
+
+    [TestMethod]
+    public async Task GetNarratorNamesAsync_ExcludesPeopleWithNoNarratedBooks()
+    {
+        await SeedBookWithNarratorAsync("Book A", "Narrating Narrator");
+        await _repository.GetOrCreatePerson("Author Only");
+
+        var names = await _repository.GetNarratorNamesAsync();
+
+        CollectionAssert.AreEqual(new List<string> { "Narrating Narrator" }, names);
+    }
+
     [TestMethod]
     public async Task SearchAuthorSummariesAsync_ReturnsMatchingAuthorsWithBookCount()
     {

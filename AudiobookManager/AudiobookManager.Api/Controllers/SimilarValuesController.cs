@@ -64,6 +64,12 @@ public class SimilarValuesController : ControllerBase
         return await _personRepository.GetAuthorNamesAsync();
     }
 
+    [HttpGet("narrator-names")]
+    public async Task<List<string>> GetNarratorNames()
+    {
+        return await _personRepository.GetNarratorNamesAsync();
+    }
+
     [HttpGet("series-names")]
     public async Task<List<string>> GetSeriesNames()
     {
