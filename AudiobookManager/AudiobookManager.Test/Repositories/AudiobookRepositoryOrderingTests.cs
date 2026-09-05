@@ -122,4 +122,74 @@ public class AudiobookRepositoryOrderingTests
             new List<string> { "apple book", "Emile book", "Zebra book" },
             books.Select(b => b.BookName).ToList());
     }
+
+    // Regression: Genres is a many-to-many with no position column, so nothing about the join
+    // table preserves the order genres were assigned in - EF only leaves unchanged links alone
+    // and appends new ones, so re-saving the very same set of genres in a different order used to
+    // read back in a different, effectively arbitrary order each time (the bug this test guards:
+    // applying identical metadata twice produced two different genre strings). Genres have no
+    // order semantics anywhere else in the app - TagConsistencyChecker.FormatGenres already
+    // sorts them before comparing - so ordering the Include alphabetically at the read side makes
+    // the result deterministic without needing a position column.
+    [TestMethod]
+    public async Task GetByIdWithIncludesAsync_OrdersGenresAlphabeticallyRegardlessOfLinkOrder()
+    {
+        var zeta = new Genre(default, "Zeta Genre");
+        var alpha = new Genre(default, "Alpha Genre");
+        var mid = new Genre(default, "Mid Genre");
+
+        var audiobook = new Audiobook(
+            default, "Book A", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Book A.m4b", "Book A.m4b", 1000)
+        {
+            Authors = new List<Person> { new Person(default, "An Author") },
+            Genres = new List<Genre> { zeta, alpha, mid }
+        };
+
+        var inserted = await _repository.InsertAudiobook(audiobook);
+        var bookId = inserted.Id;
+
+        // A fresh context/repository per read, exactly like the request-scoped DbContext the app
+        // actually uses - reusing _db's tracked Audiobook would let EF's identity map hand back
+        // the navigation as it was first populated in memory instead of re-querying, which would
+        // make this test pass for a reason that has nothing to do with the Include ordering.
+        CollectionAssert.AreEqual(
+            new List<string> { "Alpha Genre", "Mid Genre", "Zeta Genre" },
+            (await FreshRead(bookId))!.Genres.Select(g => g.Name).ToList());
+
+        // Re-save the identical genre set, only reordered - as re-applying the same metadata
+        // does. Nothing should change: the link rows for Alpha/Mid/Zeta already exist and are
+        // untouched, and the read-side ordering must still make the result alphabetical rather
+        // than reflecting whatever order this list happened to be assigned in.
+        using (var updateDb = NewContext())
+        {
+            var updateRepo = new AudiobookRepository(updateDb);
+            var toUpdate = await updateRepo.GetByIdWithIncludesAsync(bookId);
+            var updateGenres = await updateDb.Genres.ToListAsync();
+            toUpdate!.Genres = new List<Genre>
+            {
+                updateGenres.Single(g => g.Name == "Mid Genre"),
+                updateGenres.Single(g => g.Name == "Zeta Genre"),
+                updateGenres.Single(g => g.Name == "Alpha Genre"),
+            };
+            await updateRepo.UpdateAudiobookAsync(toUpdate);
+        }
+
+        CollectionAssert.AreEqual(
+            new List<string> { "Alpha Genre", "Mid Genre", "Zeta Genre" },
+            (await FreshRead(bookId))!.Genres.Select(g => g.Name).ToList());
+    }
+
+    private DatabaseContext NewContext()
+    {
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        return new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+    }
+
+    private async Task<Audiobook?> FreshRead(long id)
+    {
+        using var db = NewContext();
+        return await new AudiobookRepository(db).GetByIdWithIncludesAsync(id);
+    }
 }

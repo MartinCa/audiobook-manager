@@ -126,6 +126,15 @@ public class AudiobookService : IAudiobookService
 
         await progressAction("Started", 0);
 
+        // Genres carry no order of their own anywhere in this app (TagConsistencyChecker already
+        // sorts them before comparing), but the "/"-joined tag string and the genres_by_name
+        // lookup below both preserve whatever order they arrive in. Sorting here - before the tag
+        // is written - means the same set of genres always produces the same tag string, the same
+        // re-parsed audiobook.Genres, and the same DB link order, regardless of what order the
+        // caller (scraper, form, resolver) happened to supply them in. Without this, resubmitting
+        // identical genres in a different order looked like a real change on every save.
+        audiobook.Genres = audiobook.Genres.OrderBy(g => g, StringComparer.Ordinal).ToList();
+
         // Computed here rather than after the tag write, even though nothing between the two
         // changes the answer: JoinLibraryPath asserts the result stays inside the library root,
         // and an assertion is only a backstop if it fires before anything irreversible. Tripping
