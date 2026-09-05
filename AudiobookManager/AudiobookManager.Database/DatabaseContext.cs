@@ -42,6 +42,7 @@ public class DatabaseContext : DbContext
     }
 
     public DbSet<SeriesMapping> SeriesMappings { get; set; }
+    public DbSet<LibrarySettings> LibrarySettings { get; set; }
     public DbSet<Audiobook> Audiobooks { get; set; }
     public DbSet<Genre> Genres { get; set; }
     public DbSet<Person> Persons { get; set; }

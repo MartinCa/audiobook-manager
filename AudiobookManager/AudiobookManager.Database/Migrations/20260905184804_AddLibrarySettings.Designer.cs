@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20260904190028_AddAccentFoldedSearchColumns")]
-    partial class AddAccentFoldedSearchColumns
+    [Migration("20260905184804_AddLibrarySettings")]
+    partial class AddLibrarySettings
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -328,6 +328,22 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("hardcover_request_quota", (string)null);
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.LibrarySettings", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int>("InitialsSpacing")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("initials_spacing");
+
+                    b.HasKey("Id")
+                        .HasName("pk_library_settings");
+
+                    b.ToTable("library_settings", (string)null);
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.OrphanDirectory", b =>
                 {
                     b.Property<long>("Id")
@@ -382,18 +398,14 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("original_file_location");
 
+                    b.Property<int>("FailureCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("failure_count");
+
                     b.Property<string>("JsonAudiobook")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("json_audiobook");
-
-                    b.Property<DateTime>("QueuedTime")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("queued_time");
-
-                    b.Property<int>("FailureCount")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("failure_count");
 
                     b.Property<DateTime?>("LastFailureAt")
                         .HasColumnType("TEXT")
@@ -402,6 +414,10 @@ namespace AudiobookManager.Database.Migrations
                     b.Property<string>("LastFailureReason")
                         .HasColumnType("TEXT")
                         .HasColumnName("last_failure_reason");
+
+                    b.Property<DateTime>("QueuedTime")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("queued_time");
 
                     b.HasKey("OriginalFileLocation")
                         .HasName("pk_queued_organize_task");

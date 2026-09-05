@@ -6,10 +6,12 @@ namespace AudiobookManager.Services;
 public class SettingsService : ISettingsService
 {
     private readonly ISeriesMappingRepository _seriesMappingRepository;
+    private readonly ILibrarySettingsRepository _librarySettingsRepository;
 
-    public SettingsService(ISeriesMappingRepository seriesMappingRepository)
+    public SettingsService(ISeriesMappingRepository seriesMappingRepository, ILibrarySettingsRepository librarySettingsRepository)
     {
         _seriesMappingRepository = seriesMappingRepository;
+        _librarySettingsRepository = librarySettingsRepository;
     }
 
     public async Task<Domain.SeriesMapping> CreateSeriesMapping(Domain.SeriesMapping seriesMapping)
@@ -46,4 +48,15 @@ public class SettingsService : ISettingsService
         return dbModel.ToDomain();
     }
 
+    public async Task<Domain.LibrarySettings> GetLibrarySettings()
+    {
+        var dbSettings = await _librarySettingsRepository.GetOrCreateAsync();
+        return dbSettings.ToDomain();
+    }
+
+    public async Task<Domain.LibrarySettings> UpdateLibrarySettings(Domain.LibrarySettings settings)
+    {
+        var dbSettings = await _librarySettingsRepository.UpdateAsync(settings.InitialsSpacing.ToDb());
+        return dbSettings.ToDomain();
+    }
 }

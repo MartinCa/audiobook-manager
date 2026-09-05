@@ -3,6 +3,10 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Settings } from "./Settings";
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, ...props }: React.ComponentProps<"a">) => <a {...props}>{children}</a>,
+}));
+
 vi.mock("@/services/api", () => ({
   settingsApi: {
     getSeriesMappings: vi.fn().mockResolvedValue([]),
@@ -28,7 +32,7 @@ describe("Settings", () => {
   it("renders Settings page with Series Mapping and About & System Information", async () => {
     renderWithProviders(<Settings />);
 
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings — Series Mappings" })).toBeInTheDocument();
     expect(screen.getByText(/Series Regex Mappings/)).toBeInTheDocument();
     expect(screen.getByText("About & System Information")).toBeInTheDocument();
 

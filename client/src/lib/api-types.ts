@@ -2483,6 +2483,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["LibrarySettingsDto"];
+                        "application/json": components["schemas"]["LibrarySettingsDto"];
+                        "text/json": components["schemas"]["LibrarySettingsDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UpdateLibrarySettingsDto"];
+                    "text/json": components["schemas"]["UpdateLibrarySettingsDto"];
+                    "application/*+json": components["schemas"]["UpdateLibrarySettingsDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["LibrarySettingsDto"];
+                        "application/json": components["schemas"]["LibrarySettingsDto"];
+                        "text/json": components["schemas"]["LibrarySettingsDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/similar-values/similar-authors": {
         parameters: {
             query?: never;
@@ -3076,6 +3140,9 @@ export interface components {
             /** Format: int32 */
             bookCount?: number;
         };
+        LibrarySettingsDto: {
+            initialsSpacing?: string | null;
+        };
         MatchSeriesDto: {
             sourceName?: string | null;
             sourceId?: string | null;
@@ -3304,6 +3371,9 @@ export interface components {
             targetPath?: string | null;
             exists?: boolean;
             existing?: components["schemas"]["ExistingTargetFileDto"];
+        };
+        UpdateLibrarySettingsDto: {
+            initialsSpacing?: string | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

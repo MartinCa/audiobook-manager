@@ -50,7 +50,10 @@ export function RootLayout() {
     pathname.startsWith("/library/similar-values") ||
     pathname.startsWith("/library/clean-urls");
 
-  const isSettingsActive = pathname === "/settings";
+  const isSettingsActive =
+    pathname === "/settings" ||
+    pathname === "/settings/" ||
+    pathname.startsWith("/settings/library");
 
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
@@ -170,17 +173,51 @@ export function RootLayout() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Link
-                to="/settings"
-                className={`flex items-center space-x-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  isSettingsActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <SettingsIcon className="h-3.5 w-3.5" />
-                <span>Settings</span>
-              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-auto px-3 py-1.5 text-xs font-medium ${
+                        isSettingsActive
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <SettingsIcon className="mr-1.5 h-3.5 w-3.5" />
+                      <span>Settings</span>
+                      <ChevronDown className="ml-1 h-3 w-3 opacity-60" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-muted-foreground text-xs font-semibold uppercase">
+                      Settings
+                    </DropdownMenuLabel>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/settings" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <BookMarked className="text-primary mr-2 h-4 w-4" />
+                    <span>Series Mappings</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/settings/library" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <SettingsIcon className="text-primary mr-2 h-4 w-4" />
+                    <span>Library Settings</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </nav>
 
             <ThemeToggle />
@@ -306,14 +343,26 @@ export function RootLayout() {
                 <DropdownMenuSeparator />
 
                 <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-muted-foreground text-xs font-semibold uppercase">
+                    Settings
+                  </DropdownMenuLabel>
                   <DropdownMenuItem
                     onClick={() => {
                       void navigate({ to: "/settings" });
                     }}
                     className="cursor-pointer text-xs"
                   >
+                    <BookMarked className="text-primary mr-2 h-4 w-4" />
+                    <span>Series Mappings</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/settings/library" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
                     <SettingsIcon className="text-primary mr-2 h-4 w-4" />
-                    <span>Settings</span>
+                    <span>Library Settings</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 

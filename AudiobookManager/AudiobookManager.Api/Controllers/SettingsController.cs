@@ -88,4 +88,35 @@ public class SettingsController : ControllerBase
     {
         await _settingsService.DeleteSeriesMapping(mappingId);
     }
+
+    /// <summary>
+    /// The UI-editable library-wide settings. The enum is carried as its name string ("Spaced"/
+    /// "Unspaced") so the wire format stays legible and an out-of-range value is a 400 rather
+    /// than a silent numeric cast.
+    /// </summary>
+    [HttpGet("library")]
+    public async Task<ActionResult<LibrarySettingsDto>> GetLibrarySettings()
+    {
+        var settings = await _settingsService.GetLibrarySettings();
+        return Ok(ToDto(settings));
+    }
+
+    [HttpPut("library")]
+    public async Task<ActionResult<LibrarySettingsDto>> UpdateLibrarySettings([FromBody] UpdateLibrarySettingsDto dto)
+    {
+        if (dto?.InitialsSpacing is null ||
+            !Enum.TryParse<InitialsSpacing>(dto.InitialsSpacing, ignoreCase: true, out var parsed))
+        {
+            return this.InvalidRequest(
+                $"'{dto?.InitialsSpacing}' is not a known initials spacing. Use one of: " +
+                $"{string.Join(", ", Enum.GetNames<InitialsSpacing>())}.");
+        }
+
+        var updated = await _settingsService.UpdateLibrarySettings(
+            new Domain.LibrarySettings { InitialsSpacing = parsed });
+        return Ok(ToDto(updated));
+    }
+
+    private static LibrarySettingsDto ToDto(Domain.LibrarySettings settings) =>
+        new(settings.InitialsSpacing.ToString());
 }
