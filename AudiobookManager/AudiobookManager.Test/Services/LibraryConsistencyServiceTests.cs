@@ -1154,9 +1154,9 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
-                iss.ExpectedValue!.Contains("Series Part: 0.5") &&
-                iss.ActualValue!.Contains("Series Part: 0") &&
-                !iss.ActualValue!.Contains("Series Part: 0.5")
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Series Part", "0.5") &&
+                TagMismatchPayloadHasField(iss.ActualValue, "Series Part", "0") &&
+                !TagMismatchPayloadHasField(iss.ActualValue, "Series Part", "0.5")
             ))), Times.Once);
         }
         finally
@@ -1219,15 +1219,15 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
-                iss.ExpectedValue!.Contains("Description: DB description") &&
-                iss.ActualValue!.Contains("Description: File description") &&
-                iss.ExpectedValue!.Contains("Copyright: DB copyright") &&
-                iss.ExpectedValue!.Contains("Publisher: DB publisher") &&
-                iss.ExpectedValue!.Contains("Rating: DB rating") &&
-                iss.ExpectedValue!.Contains("Asin: DB asin") &&
-                iss.ExpectedValue!.Contains("Www: DB www") &&
-                iss.ExpectedValue!.Contains("Genres: Fiction") &&
-                iss.ActualValue!.Contains("Genres: Fantasy")
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Description", "DB description") &&
+                TagMismatchPayloadHasField(iss.ActualValue, "Description", "File description") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Copyright", "DB copyright") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Publisher", "DB publisher") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Rating", "DB rating") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Asin", "DB asin") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Www", "DB www") &&
+                TagMismatchPayloadHasField(iss.ExpectedValue, "Genres", "Fiction") &&
+                TagMismatchPayloadHasField(iss.ActualValue, "Genres", "Fantasy")
             ))), Times.Once);
         }
         finally
@@ -2068,6 +2068,13 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new(1, "Library Author") },
             Narrators = new List<Database.Models.Person> { new(2, "Library Narrator") }
         };
+
+    /// <summary>
+    /// Reads a field from the JSON payload inside a Moq expression-tree predicate. Keeping the
+    /// parsing in a plain method avoids expression-tree restrictions around out variables.
+    /// </summary>
+    private static bool TagMismatchPayloadHasField(string? serialized, string field, string expectedValue) =>
+        TagMismatchPayload.TryParse(serialized)?.Any(f => f.Field == field && f.Value == expectedValue) == true;
 
     private static ConsistencyIssue MakeTagMismatchIssue(DbAudiobook book, long id = 5) => new()
     {

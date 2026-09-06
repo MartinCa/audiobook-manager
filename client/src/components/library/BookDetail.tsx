@@ -5,7 +5,7 @@ import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2 } from "luci
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
-import { DiffDisplay } from "../DiffDisplay";
+import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
@@ -323,7 +323,18 @@ export function BookDetail() {
 
                       {issue.expectedValue && issue.actualValue ? (
                         <div className="mt-2">
-                          <DiffDisplay expected={issue.expectedValue} actual={issue.actualValue} />
+                          {issue.issueType === "TagMismatch" ? (
+                            <TagMismatchDiffDisplay
+                              description={issue.description}
+                              expected={issue.expectedValue}
+                              actual={issue.actualValue}
+                            />
+                          ) : (
+                            <DiffDisplay
+                              expected={issue.expectedValue}
+                              actual={issue.actualValue}
+                            />
+                          )}
                         </div>
                       ) : null}
                     </div>

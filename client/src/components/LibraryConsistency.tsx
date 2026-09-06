@@ -23,7 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OperationProgressBar } from "./OperationProgressBar";
-import { DiffDisplay } from "./DiffDisplay";
+import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
 import { TagMismatchResolveDialog } from "./TagMismatchResolveDialog";
@@ -564,10 +564,18 @@ export function LibraryConsistency() {
                                     </p>
 
                                     {issue.expectedValue && issue.actualValue ? (
-                                      <DiffDisplay
-                                        expected={issue.expectedValue}
-                                        actual={issue.actualValue}
-                                      />
+                                      issue.issueType === "TagMismatch" ? (
+                                        <TagMismatchDiffDisplay
+                                          description={issue.description}
+                                          expected={issue.expectedValue}
+                                          actual={issue.actualValue}
+                                        />
+                                      ) : (
+                                        <DiffDisplay
+                                          expected={issue.expectedValue}
+                                          actual={issue.actualValue}
+                                        />
+                                      )
                                     ) : issue.expectedValue ? (
                                       <div className="text-muted-foreground text-[11px] break-all">
                                         Expected: {issue.expectedValue}
