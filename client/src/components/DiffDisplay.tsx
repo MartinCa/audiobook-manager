@@ -18,10 +18,38 @@ type SerializedField = {
   value: string;
 };
 
+function parseJsonFields(serialized: string): SerializedField[] | null {
+  if (!serialized.trimStart().startsWith("[")) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(serialized);
+    if (!Array.isArray(parsed)) return null;
+    const fields = parsed as unknown[];
+    if (
+      fields.some(
+        (entry) =>
+          entry === null ||
+          typeof entry !== "object" ||
+          typeof (entry as SerializedField).field !== "string" ||
+          typeof (entry as SerializedField).value !== "string",
+      )
+    ) {
+      return null;
+    }
+    return fields as SerializedField[];
+  } catch {
+    return null;
+  }
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Legacy format for issues stored before the JSON payload: newline-separated "Field: value"
+// lines. The marker scan is a heuristic - a free-text value can contain a line starting with
+// "Publisher: " - so it is only ever a fallback for rows the consistency check has not
+// rewritten yet; newly detected issues serialize as unambiguous JSON above.
 function parseSerializedFields(serialized: string, fieldNames: string[]): SerializedField[] {
   const fields: Array<{ field: string; start: number; valueStart: number }> = [];
   let searchFrom = 0;
@@ -53,14 +81,24 @@ function parseTagMismatchFields(
   const fieldList = description.match(/m4b tags do not match library metadata:\s*(.*)$/)?.[1];
   if (!fieldList) return [];
 
+  const expectedJson = parseJsonFields(expected);
+  const actualJson = parseJsonFields(actual);
+
+  // Legacy line-based fallback: the description still names the fields, and the values are
+  // matched by their "Field: " markers.
   const fieldNames = fieldList
     .split(",")
     .map((field) => field.trim())
     .filter(Boolean);
-  const expectedFields = parseSerializedFields(expected, fieldNames);
-  const actualFields = parseSerializedFields(actual, fieldNames);
 
-  return fieldNames.map((field) => ({
+  const expectedFields = expectedJson ?? parseSerializedFields(expected, fieldNames);
+  const actualFields = actualJson ?? parseSerializedFields(actual, fieldNames);
+
+  // When both sides carry the JSON payload, field names come from it - the description is
+  // display text and must agree with the payload, but the payload is the source of truth.
+  const fields = expectedJson && actualJson ? expectedJson.map((f) => f.field) : fieldNames;
+
+  return fields.map((field) => ({
     field,
     expected: expectedFields.find((value) => value.field === field)?.value ?? "",
     actual: actualFields.find((value) => value.field === field)?.value ?? "",
