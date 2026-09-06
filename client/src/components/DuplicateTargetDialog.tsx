@@ -35,12 +35,13 @@ export function DuplicateTargetDialog({
   const [directoryContents, setDirectoryContents] = useState<BookFileInfo[]>([]);
   const [loadingContents, setLoadingContents] = useState(false);
 
+  const resetTransientState = () => {
+    setConfirmDelete(false);
+    setDirectoryContents([]);
+    setLoadingContents(false);
+  };
+
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setConfirmDelete(false);
-      setDirectoryContents([]);
-      setLoadingContents(false);
-    }
     onOpenChange(nextOpen);
   };
 
@@ -58,7 +59,13 @@ export function DuplicateTargetDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      onOpenChangeComplete={(nextOpen) => {
+        if (!nextOpen) resetTransientState();
+      }}
+    >
       <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
         <DialogHeader>
           <DialogTitle>
@@ -92,8 +99,8 @@ export function DuplicateTargetDialog({
                 variant="destructive"
                 className="w-full sm:w-auto"
                 onClick={() => {
+                  handleOpenChange(false);
                   onDeleteNew?.();
-                  onOpenChange(false);
                 }}
               >
                 Confirm Delete
@@ -145,7 +152,7 @@ export function DuplicateTargetDialog({
               <Button
                 variant="outline"
                 className="w-full sm:w-auto"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
               >
                 Cancel
               </Button>
@@ -164,8 +171,8 @@ export function DuplicateTargetDialog({
                 variant="default"
                 className="w-full sm:w-auto"
                 onClick={() => {
+                  handleOpenChange(false);
                   onReplaceExisting();
-                  onOpenChange(false);
                 }}
               >
                 Replace existing
