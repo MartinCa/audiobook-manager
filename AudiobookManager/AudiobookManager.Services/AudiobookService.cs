@@ -104,11 +104,33 @@ public class AudiobookService : IAudiobookService
 
         var newParsed = await WriteTagsRelocateAndWriteSidecarsAsync(audiobook, oldDirectory, progressAction);
 
-        await InsertAudiobook(newParsed);
+        var inserted = await InsertAudiobook(newParsed);
+
+        // The client signal rode the queued-organize JSON on the domain object; only now, after
+        // the row exists, can the bookkeeping timestamp be stamped.
+        await MarkIfMetadataAppliedFromSearchAsync(audiobook, inserted.Id!.Value);
 
         await progressAction("Done", 100);
 
         return newParsed;
+    }
+
+    /// <summary>
+    /// Bookkeeping stamp for "this save carried metadata applied from an online search result".
+    /// A plain column write - deliberately not part of the tag/file pipeline, because the
+    /// timestamp is not a tag and must never influence GenerateRelativeAudiobookPath.
+    /// </summary>
+    public async Task MarkMetadataRefreshedAsync(long id, DateTime whenUtc)
+    {
+        await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(id, whenUtc);
+    }
+
+    private async Task MarkIfMetadataAppliedFromSearchAsync(Audiobook audiobook, long id)
+    {
+        if (audiobook.MetadataAppliedFromSearch)
+        {
+            await MarkMetadataRefreshedAsync(id, DateTime.UtcNow);
+        }
     }
 
     /// <summary>
@@ -433,6 +455,10 @@ public class AudiobookService : IAudiobookService
             "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
             existing.Id, existing.BookName, existing.FileInfoFullPath);
 
+        // The client signal only reaches this service through the caller-built domain object;
+        // consistency resolves and similar-value alignment never set it, so they never stamp.
+        await MarkIfMetadataAppliedFromSearchAsync(audiobook, id);
+
         await progressAction("Done", 100);
 
         return FromDb(existing);
@@ -499,7 +525,8 @@ public class AudiobookService : IAudiobookService
             Asin = audiobookDb.Asin,
             Www = audiobookDb.Www,
             CoverFilePath = audiobookDb.CoverFilePath,
-            DurationInSeconds = audiobookDb.DurationInSeconds
+            DurationInSeconds = audiobookDb.DurationInSeconds,
+            LastMetadataRefreshedAt = audiobookDb.LastMetadataRefreshedAt
         };
     }
 

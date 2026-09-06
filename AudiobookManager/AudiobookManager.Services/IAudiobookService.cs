@@ -15,6 +15,12 @@ public interface IAudiobookService
 
     Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null);
 
+    /// <summary>
+    /// Bookkeeping-only column write: "metadata was last applied/checked against an online
+    /// source at <paramref name="whenUtc"/>". Never touches tags, files or sidecars.
+    /// </summary>
+    Task MarkMetadataRefreshedAsync(long id, DateTime whenUtc);
+
     Task<Audiobook?> GetAudiobookById(long id);
 
     Task DeleteAudiobook(long id);

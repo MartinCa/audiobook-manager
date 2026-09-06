@@ -142,6 +142,36 @@ public class AudiobookControllerTests
         StringAssert.Contains(problem.Detail!, "/import/test.m4b");
     }
 
+    // The MetadataAppliedFromSearch client signal must ride the queued organize task on the
+    // domain object (the worker is the only place a not-yet-inserted book's id can be stamped),
+    // so MapToDomain has to carry it across from the DTO.
+    [TestMethod]
+    public async Task OrganizeAudiobook_MetadataAppliedFromSearch_CarriedOntoTheQueuedDomainBook()
+    {
+        var dto = MakeDto();
+        dto.MetadataAppliedFromSearch = true;
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.MetadataAppliedFromSearch)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_WithoutTheFlag_TheQueuedDomainBookDoesNotCarryIt()
+    {
+        var dto = MakeDto();
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a => !a.MetadataAppliedFromSearch)), Times.Once);
+    }
+
     [TestMethod]
     public void GeneratePath_DelegatesToService()
     {
@@ -225,6 +255,35 @@ public class AudiobookControllerTests
             a.Series == "Some Series" &&
             a.SeriesPart == "2" &&
             a.Year == 2024), It.IsAny<Func<string, int, Task>>()), Times.Once);
+    }
+
+    // The client signal reaches UpdateAudiobook's service call only through MapToDomain, so the
+    // flag the form attached to the save must arrive on the domain object the service receives -
+    // the service stamps the bookkeeping timestamp from it after the save succeeds.
+    [TestMethod]
+    public async Task UpdateAudiobook_MetadataAppliedFromSearch_CarriedOntoTheSavedDomainBook()
+    {
+        var dto = MakeDto();
+        dto.MetadataAppliedFromSearch = true;
+
+        var updated = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/library/Test Author/Book 01 - 2024 - Test Book/test.m4b", "test.m4b", 1000));
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+
+        var result = _controller.UpdateAudiobook(1, dto);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await WaitUntilAsync(() =>
+            _audiobookService.Invocations.Any(i => i.Method.Name == nameof(IAudiobookService.UpdateAudiobook)),
+            TimeSpan.FromSeconds(5));
+
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Audiobook>(a => a.MetadataAppliedFromSearch), It.IsAny<Func<string, int, Task>>()), Times.Once);
     }
 
     [TestMethod]

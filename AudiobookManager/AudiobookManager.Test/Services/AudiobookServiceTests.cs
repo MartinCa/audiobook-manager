@@ -1036,4 +1036,211 @@ public class AudiobookServiceTests
     }
 
     #endregion
+
+    #region MetadataRefreshTracking
+
+    // Regression guard for the LastMetadataRefreshedAt bookkeeping column: the timestamp is
+    // written only by MarkMetadataRefreshedAsync (or by OrganizeAudiobook/UpdateAudiobook when
+    // the client's MetadataAppliedFromSearch signal rides the save), and only via the repository's
+    // dedicated column update - never by InsertAudiobook/UpdateAudiobookAsync themselves.
+
+    [TestMethod]
+    public async Task MarkMetadataRefreshedAsync_UpdatesTheTimestampColumn()
+    {
+        var when = new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+        await _service.MarkMetadataRefreshedAsync(42, when);
+
+        _audiobookRepository.Verify(
+            r => r.UpdateLastMetadataRefreshedAtAsync(42, when),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task InsertAudiobook_NeverStampsLastMetadataRefreshedAt()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author1") },
+            "Test Book",
+            2024,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        {
+            MetadataAppliedFromSearch = true
+        };
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
+
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 1;
+                return db;
+            });
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        // InsertAudiobook is also reachable outside the organize flow; only OrganizeAudiobook
+        // consumes the flag, so the plain insert must leave the bookkeeping column untouched.
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.LastMetadataRefreshedAt == null)), Times.Once);
+        _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()), Times.Never);
+        Assert.IsNull(result.LastMetadataRefreshedAt);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_MetadataAppliedFromSearch_StampsTimestampAfterInsert()
+    {
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var author = new Person("New Author");
+        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000))
+        {
+            MetadataAppliedFromSearch = true
+        };
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 5;
+                return db;
+            });
+
+        var stampedIds = new List<(long Id, DateTime When)>();
+        _audiobookRepository.Setup(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()))
+            .Callback<long, DateTime?>((id, when) => stampedIds.Add((id, when!.Value)))
+            .Returns(Task.CompletedTask);
+
+        await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask);
+
+        // The stamp must target the inserted row's id, and the write must happen after the insert
+        // (it is the insert that makes the id exist).
+        Assert.AreEqual(1, stampedIds.Count);
+        Assert.AreEqual(5, stampedIds[0].Id);
+        Assert.IsTrue(DateTime.UtcNow - stampedIds[0].When < TimeSpan.FromMinutes(1), "Stamp should be approximately now");
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.LastMetadataRefreshedAt == null)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_WithoutMetadataAppliedFromSearch_DoesNotStampTimestamp()
+    {
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var author = new Person("New Author");
+        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000));
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 5;
+                return db;
+            });
+
+        await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask);
+
+        _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_MetadataAppliedFromSearch_StampsTimestampAfterUpdate()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            MetadataAppliedFromSearch = true
+        };
+
+        var stampedIds = new List<(long Id, DateTime When)>();
+        _audiobookRepository.Setup(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()))
+            .Callback<long, DateTime?>((id, when) => stampedIds.Add((id, when!.Value)))
+            .Returns(Task.CompletedTask);
+
+        await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual(1, stampedIds.Count);
+        Assert.AreEqual(1, stampedIds[0].Id);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_WithoutMetadataAppliedFromSearch_DoesNotStampTimestamp()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        await _service.UpdateAudiobook(1, updateDto);
+
+        _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void FromDb_MapsLastMetadataRefreshedAt()
+    {
+        var when = new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+        var db = new DbAudiobook(
+            1, "Book", null, null, null, 2020,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Book/book.m4b", "book.m4b", 1000)
+        {
+            LastMetadataRefreshedAt = when
+        };
+
+        var domain = AudiobookService.FromDb(db);
+
+        Assert.AreEqual(when, domain.LastMetadataRefreshedAt);
+        // The transient client signal must never be mapped from the DB.
+        Assert.IsFalse(domain.MetadataAppliedFromSearch);
+    }
+
+    #endregion
 }

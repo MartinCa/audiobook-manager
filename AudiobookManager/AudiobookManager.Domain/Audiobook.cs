@@ -24,6 +24,22 @@ public class Audiobook
     public int? DurationInSeconds { get; set; }
     public bool? ReplaceExisting { get; set; }
 
+    /// <summary>
+    /// UTC timestamp of the last time this book's metadata was applied/checked against an online
+    /// source. Set only by AudiobookService.MarkMetadataRefreshedAsync - never from request DTOs
+    /// and never written by the normal insert/update pipeline (it stays null there).
+    /// </summary>
+    public DateTime? LastMetadataRefreshedAt { get; set; }
+
+    /// <summary>
+    /// Transient client signal (OrganizeAudiobookDto.MetadataAppliedFromSearch), never persisted
+    /// and never mapped from the DB: "the user applied fields from a metadata search result, and
+    /// this save carries it". Rides the queued-organize JSON so the worker can stamp the
+    /// timestamp after the book row exists. Consumed and cleared by OrganizeAudiobook and
+    /// UpdateAudiobook; leave it false when building a book for consistency resolves/alignment.
+    /// </summary>
+    public bool MetadataAppliedFromSearch { get; set; }
+
     public AudiobookFileInfo FileInfo { get; set; }
 
     public Audiobook(List<Person> authors, string? bookName, int? year, AudiobookFileInfo fileInfo)

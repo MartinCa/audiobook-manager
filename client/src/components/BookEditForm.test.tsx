@@ -241,6 +241,56 @@ describe("BookEditForm", () => {
     ).toBeInTheDocument();
   });
 
+  // The applied-search signal is bookkeeping the backend stamps LastMetadataRefreshedAt from:
+  // it must ride exactly the save that carried the applied search result, and nothing else.
+  it("sends metadataAppliedFromSearch with a save that follows applying a search result, then clears it for the next save", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    // No search applied yet: a plain save must not carry the signal.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].metadataAppliedFromSearch).toBe(false);
+
+    // Apply a search result, then save - this save carries the signal.
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1]?.[0].metadataAppliedFromSearch).toBe(true);
+    expect(onSave.mock.calls[1]?.[0].bookName).toBe("Scraped Book");
+
+    // One-shot: the following plain save must not re-stamp the refresh timestamp.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(3));
+    expect(onSave.mock.calls[2]?.[0].metadataAppliedFromSearch).toBe(false);
+  });
+
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
     // Regression test: BookSearchDialog's <DialogContent> portals to document.body, but React
     // still bubbles synthetic events through the component tree it's rendered in, not the DOM

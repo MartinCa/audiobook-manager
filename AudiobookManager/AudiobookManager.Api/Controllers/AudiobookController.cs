@@ -230,7 +230,8 @@ public class AudiobookController : ControllerBase
             Asin = dto.Asin,
             Www = dto.Www,
             Cover = cover,
-            ReplaceExisting = dto.ReplaceExisting
+            ReplaceExisting = dto.ReplaceExisting,
+            MetadataAppliedFromSearch = dto.MetadataAppliedFromSearch
         };
     }
 }

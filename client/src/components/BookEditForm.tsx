@@ -94,6 +94,7 @@ function buildAudiobook(
   values: BookEditFormValues,
   cover: AudiobookImage | undefined,
   initialBook: Audiobook,
+  metadataAppliedFromSearch = false,
 ): Audiobook {
   return {
     authors: (values.authors ?? []).map((name) => ({ name })),
@@ -114,6 +115,7 @@ function buildAudiobook(
     cover,
     fileInfo: initialBook.fileInfo,
     durationInSeconds: initialBook.durationInSeconds,
+    metadataAppliedFromSearch,
   };
 }
 
@@ -300,6 +302,9 @@ export function BookEditForm({
 
   const [tagPreviewOpen, setTagPreviewOpen] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<MetadataSearchResult | null>(null);
+  // Set once a search result's fields are applied; rides the next save as the one-shot
+  // metadataAppliedFromSearch signal (see buildAudiobook), then cleared. Reset drops it too.
+  const [metadataAppliedFromSearch, setMetadataAppliedFromSearch] = useState(false);
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
@@ -330,6 +335,8 @@ export function BookEditForm({
   };
 
   const handleApplyPreviewedTags = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+    if (selectedFields.size === 0) return;
+    setMetadataAppliedFromSearch(true);
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
     }
@@ -424,7 +431,10 @@ export function BookEditForm({
   const handleValidSubmit = async (values: BookEditFormValues) => {
     setSaving(true);
     try {
-      await onSave(buildAudiobook(values, cover, initialBook));
+      await onSave(buildAudiobook(values, cover, initialBook, metadataAppliedFromSearch));
+      // The signal is one-shot: it must ride exactly the save that carried the applied search
+      // result. A later plain edit of the same book must not re-stamp the refresh timestamp.
+      setMetadataAppliedFromSearch(false);
       // A newly-typed author/series is now a real value in the backend; refresh the cached
       // name lists so the next book's entry-time duplicate-prevention hint can see it.
       void queryClient.invalidateQueries({ queryKey: ["similarValueNames"] });
@@ -437,6 +447,7 @@ export function BookEditForm({
     form.reset(valuesFromBook(initialBook));
     setCover(initialBook.cover);
     setShowAllOptionalFields(false);
+    setMetadataAppliedFromSearch(false);
     onReset?.();
   };
 

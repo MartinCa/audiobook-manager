@@ -139,7 +139,8 @@ public class BrowseController : ControllerBase
             audiobook.DurationInSeconds,
             audiobook.FileInfoFullPath,
             audiobook.FileInfoFileName,
-            audiobook.FileInfoSizeInBytes
+            audiobook.FileInfoSizeInBytes,
+            audiobook.LastMetadataRefreshedAt
         );
     }
 
