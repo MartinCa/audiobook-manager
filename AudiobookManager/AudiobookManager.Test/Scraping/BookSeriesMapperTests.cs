@@ -146,6 +146,32 @@ public class BookSeriesMapperTests
     }
 
     [TestMethod]
+    public async Task MapBookSeriesPerBook_PreservesPerBookGrouping()
+    {
+        // The contract the grouped overload exists for: group i out is group i in, entry for
+        // entry - a caller can never slice one book's mapped series onto another book's result.
+        var mapper = CreateMapper();
+
+        var books = new List<IList<MetadataSeriesSearchResult>>
+        {
+            Results("Stormlight Archive", "Something Else"),
+            new List<MetadataSeriesSearchResult>(), // a book with no series must stay an empty group, not shift the grouping
+            Results("Mistborn Series", "Unmatched Series"),
+        };
+
+        var mapped = await mapper.MapBookSeriesPerBook(books);
+
+        Assert.AreEqual(3, mapped.Count);
+        Assert.AreEqual(2, mapped[0].Count);
+        Assert.AreEqual("The Stormlight Archive", mapped[0][0].SeriesName);
+        Assert.AreEqual("Something Else", mapped[0][1].SeriesName);
+        Assert.AreEqual(0, mapped[1].Count);
+        Assert.AreEqual(2, mapped[2].Count);
+        Assert.AreEqual("Mistborn", mapped[2][0].SeriesName);
+        Assert.AreEqual("Unmatched", mapped[2][1].SeriesName);
+    }
+
+    [TestMethod]
     public async Task MapBookSeries_UnmatchedName_IsReturnedCleanedNotMapped()
     {
         var mapper = CreateMapper();

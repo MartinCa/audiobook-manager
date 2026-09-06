@@ -10,6 +10,16 @@ namespace AudiobookManager.Scraping;
 public interface IBookSeriesMapper
 {
     public Task<IList<MetadataSeriesSearchResult>> MapBookSeries(IList<MetadataSeriesSearchResult> results);
+
+    /// <summary>
+    /// Maps each book's series list through the user's series mappings, preserving the grouping:
+    /// output group i is input group i, entry-for-entry. <see cref="MapSingleBookSeries"/> is a
+    /// strict 1:1, order-preserving function of each input (never filters, merges, or reorders),
+    /// and this method's shape holds callers to that per book instead of letting them slice one
+    /// flattened result on trust. Callers mapping more than one book's series at once use this
+    /// rather than flattening and re-slicing.
+    /// </summary>
+    public Task<IList<IList<MetadataSeriesSearchResult>>> MapBookSeriesPerBook(IList<IList<MetadataSeriesSearchResult>> books);
 }
 
 public partial class BookSeriesMapper : IBookSeriesMapper
@@ -59,6 +69,18 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         var mapped = await Task.WhenAll(mappingTasks);
 
         return mapped.ToList();
+    }
+
+    public async Task<IList<IList<MetadataSeriesSearchResult>>> MapBookSeriesPerBook(IList<IList<MetadataSeriesSearchResult>> books)
+    {
+        // Each group goes through MapBookSeries, which is entry-for-entry 1:1 within the group
+        // (Select + Task.WhenAll preserve count and order), so the group correspondence this
+        // method's contract promises is structural, not incidental. Every group shares the one
+        // lazy mappings load; the mapping itself is pure CPU after that, so the concurrent
+        // groups never touch the DbContext.
+        var mappedGroups = await Task.WhenAll(books.Select(MapBookSeries));
+
+        return mappedGroups.ToList();
     }
 
     public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping)>? mappings = null)

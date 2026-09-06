@@ -644,7 +644,7 @@ public class ConsistencyControllerTests
     }
 
     [TestMethod]
-    public void ResolveSelectedIssues_Valid_StartsTheRun()
+    public async Task ResolveSelectedIssues_Valid_StartsTheRun()
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
         SetupScope(mockConsistencyService.Object);
@@ -652,19 +652,28 @@ public class ConsistencyControllerTests
         var result = _controller.ResolveSelectedIssues(new List<long> { 1, 2 });
 
         Assert.IsInstanceOfType<OkResult>(result);
+
+        // The gate is process-static: without waiting for the background task to release it,
+        // this test returns while the gate is still held and the next resolve-endpoint test
+        // (ShareOneGate below) gets a 409 for its own first call - the exact race
+        // OperationGate's docstring warns about. Seen failing under CI contention.
+        await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
     }
 
     [TestMethod]
-    public void ResolveEndpoints_ShareOneGate_SecondResolveIsA409()
+    public async Task ResolveEndpoints_ShareOneGate_SecondResolveIsA409()
     {
         // A resolve-by-type and a resolve-selected rewrite the same files through the same
         // service, so they must exclude each other - one process-static gate for both.
+        // The work blocks on a completion signal rather than Delay(Infinite): a forever-held
+        // gate would poison every resolve-endpoint test ordered after this one in the run.
+        var workMayFinish = new TaskCompletionSource();
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
         mockConsistencyService.Setup(s => s.ResolveIssues(
                 It.IsAny<IEnumerable<long>>(), It.IsAny<Func<int, int, int, int, Task>?>()))
             .Returns(async () =>
             {
-                await Task.Delay(Timeout.Infinite);
+                await workMayFinish.Task;
                 return (0, 0, 0);
             });
         SetupScope(mockConsistencyService.Object);
@@ -679,6 +688,10 @@ public class ConsistencyControllerTests
         // ...and selected 409s too.
         var secondSelected = _controller.ResolveSelectedIssues(new List<long> { 2 });
         Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)secondSelected).StatusCode);
+
+        // Let the first operation finish so the gate is free again for later tests.
+        workMayFinish.SetResult();
+        await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
     }
 
     #endregion
