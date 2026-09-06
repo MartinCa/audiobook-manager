@@ -132,12 +132,13 @@ export function DiscoveredAudiobooks() {
         debouncedSearch.trim() || undefined,
       ),
   });
+  const { data: unfilteredData } = useQuery({
+    queryKey: ["discoveredAudiobooks", "", 1, pageSize],
+    queryFn: () => libraryApi.getDiscovered(pageSize, 0),
+  });
 
   const books: DiscoveredAudiobook[] = data?.items ?? [];
   const totalCount = data?.total ?? 0;
-  const unfilteredData = queryClient.getQueryData<{
-    wellTaggedTotal?: number;
-  }>(["discoveredAudiobooks", "", 1, pageSize]);
   const wellTaggedTotal = data?.wellTaggedTotal ?? unfilteredData?.wellTaggedTotal ?? 0;
 
   // Organize tasks whose json_audiobook failed to deserialize - including ones dead-lettered
