@@ -203,4 +203,33 @@ public class MetadataRefreshDifferTests
 
         Assert.AreEqual(0, diffs.Count);
     }
+
+    [TestMethod]
+    public void Diff_UnrecognizedStoredAndSourceLanguage_NoSpuriousDiff()
+    {
+        // Regression: a book whose language was backfilled straight from an m4b tag ("spa") is
+        // not in the managed alias table; if the source is equally unrecognized, both sides
+        // normalize to null and the source fallback must land on the stored value - a symmetric
+        // fallback used to be missing there, reporting "spa → (blank)" for a nothing-changed pair.
+        var book = Book(language: "spa");
+        var fetched = Fetched(r => r.Language = "spa");
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
+    public void Diff_UnrecognizedStoredLanguage_RecognizedSource_OffersTheManagedCode()
+    {
+        var book = Book(language: "spa");
+        var fetched = Fetched(r => r.Language = "English");
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+
+        Assert.AreEqual(1, diffs.Count);
+        Assert.AreEqual("Language", diffs[0].Field);
+        Assert.AreEqual("spa", diffs[0].LibraryValue);
+        Assert.AreEqual("en", diffs[0].SourceValue);
+    }
 }

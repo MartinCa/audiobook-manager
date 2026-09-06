@@ -56,7 +56,7 @@ public class PendingMetadataRefreshRepository : IPendingMetadataRefreshRepositor
             .Include(p => p.Audiobook)
                 .ThenInclude(a => a.Authors)
             .AsSplitQuery()
-            .OrderBy(p => p.AudiobookId)
+            .OrderByDescending(p => p.FetchedAt)
             .ThenBy(p => p.Id)
             .Skip(skip)
             .Take(take)

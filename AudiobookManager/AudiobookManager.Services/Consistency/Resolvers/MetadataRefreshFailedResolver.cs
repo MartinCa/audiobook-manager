@@ -1,5 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
+using AudiobookManager.Scraping.RateLimiting;
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
@@ -34,7 +36,24 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
     {
         var audiobook = issue.Audiobook;
 
-        var result = await _metadataRefreshService.RefreshAudiobookAsync(audiobook.Id);
+        MetadataRefreshResult result;
+
+        try
+        {
+            result = await _metadataRefreshService.RefreshAudiobookAsync(audiobook.Id);
+        }
+        catch (HardcoverDailyLimitExceededException ex)
+        {
+            // The service only re-throws this to let the bulk loop stop early; a single resolve
+            // reaches it raw and would otherwise surface as a generic 500 from the controller's
+            // catch-all - while the dedicated refresh endpoint returns the clear message. Do the
+            // same here: the issue row stays (nothing was refreshed), the message is actionable.
+            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+                issue.Id,
+                issue.IssueType,
+                "daily_limit_reached",
+                ex.Message));
+        }
 
         if (result.Success)
         {

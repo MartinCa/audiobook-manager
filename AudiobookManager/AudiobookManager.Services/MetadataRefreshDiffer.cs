@@ -49,8 +49,12 @@ public static class MetadataRefreshDiffer
 
         // Language: both sides fold through the managed alias table, so "English" (source) does
         // not differ from "en" (stored) - and an unrecognizable source value is left alone rather
-        // than offering a diff to an unmanaged code.
-        Add("Language", Languages.Normalize(book.Language) ?? book.Language, Languages.Normalize(fetched.Language) ?? Languages.Normalize(book.Language));
+        // than offering a diff to an unmanaged code. The fallbacks must be symmetric: when the
+        // stored value is ALSO unrecognized (e.g. backfilled "spa" from an m4b tag), both sides
+        // normalize to null, and the source fallback has to land on the stored value too -
+        // otherwise a nothing-changed pair reads as "spa → (blank)".
+        Add("Language", Languages.Normalize(book.Language) ?? book.Language,
+            Languages.Normalize(fetched.Language) ?? (Languages.Normalize(book.Language) ?? book.Language));
 
         Add("Rating", book.Rating, fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add("Copyright", book.Copyright, fetched.Copyright);

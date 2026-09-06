@@ -159,4 +159,28 @@ public class MetadataRefreshEligibilityRepositoryTests
         // An unknown book id has no row either - same false, not an exception.
         Assert.IsFalse(await repository.DeleteByAudiobookIdAsync(999999));
     }
+
+    [TestMethod]
+    public async Task PendingPage_IsNewestFetchedFirst()
+    {
+        // The interface doc promises "newest-fetched first"; the review of PR #1380 caught the
+        // implementation ordering by audiobook id instead.
+        var first = await AddBookAsync("FetchedFirst", "https://x/1", null);
+        var second = await AddBookAsync("FetchedSecond", "https://x/2", null);
+        var repository = new PendingMetadataRefreshRepository(_db);
+        await repository.UpsertAsync(new PendingMetadataRefresh
+        {
+            AudiobookId = first.Id, FetchedAt = DateTime.UtcNow.AddDays(-1),
+            SourceName = "Audible", SourceUrl = "https://x/1", PayloadJson = "{\"version\":1}",
+        });
+        await repository.UpsertAsync(new PendingMetadataRefresh
+        {
+            AudiobookId = second.Id, FetchedAt = DateTime.UtcNow,
+            SourceName = "Audible", SourceUrl = "https://x/2", PayloadJson = "{\"version\":1}",
+        });
+
+        var (items, _) = await repository.GetPageWithAudiobookAsync(skip: 0, take: 10);
+
+        CollectionAssert.AreEqual(new[] { second.Id, first.Id }, items.Select(i => i.AudiobookId).ToList());
+    }
 }
