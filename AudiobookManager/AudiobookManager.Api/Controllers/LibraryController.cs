@@ -11,8 +11,7 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class LibraryController : ControllerBase
 {
-    private static readonly SemaphoreSlim _scanLock = new(1, 1);
-    private static readonly SemaphoreSlim _bulkImportLock = new(1, 1);
+    private static readonly SemaphoreSlim _libraryOperationLock = new(1, 1);
 
     public const string ScanOperationKey = "library-scan";
     public const string BulkImportOperationKey = "discovered-import";
@@ -47,7 +46,7 @@ public class LibraryController : ControllerBase
     public IActionResult StartLibraryScan()
     {
         return BackgroundOperationRunner.Start(
-            _scanLock,
+            _libraryOperationLock,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -73,9 +72,10 @@ public class LibraryController : ControllerBase
     }
 
     [HttpGet("discovered")]
-    public async Task<PaginatedResult<DiscoveredAudiobookDto>> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
+    public async Task<DiscoveredAudiobookPageDto> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
+        var wellTaggedTotal = await _discoveredRepo.CountWellTaggedAsync();
         var mapped = items.Select(item => new DiscoveredAudiobookDto(item)).ToList();
 
         // Each duplicate check is an independent, synchronous filesystem probe. Run the page's
@@ -92,7 +92,7 @@ public class LibraryController : ControllerBase
                 pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item)));
         }
 
-        return new PaginatedResult<DiscoveredAudiobookDto>(mapped.Count, total, mapped);
+        return new DiscoveredAudiobookPageDto(mapped.Count, total, wellTaggedTotal, mapped);
     }
 
     [HttpDelete("discovered")]
@@ -108,8 +108,22 @@ public class LibraryController : ControllerBase
         if (dto.Paths == null || dto.Paths.Count == 0)
             return this.InvalidRequest("No paths provided.");
 
+        return StartBulkImportOperation((scanService, progressAction, onItemFailed) =>
+            scanService.BulkImportAsync(dto.Paths, progressAction, onItemFailed));
+    }
+
+    [HttpPost("discovered/bulk-import-well-tagged")]
+    public IActionResult StartBulkImportWellTagged()
+    {
+        return StartBulkImportOperation((scanService, progressAction, onItemFailed) =>
+            scanService.BulkImportAllWellTaggedAsync(progressAction, onItemFailed));
+    }
+
+    private IActionResult StartBulkImportOperation(
+        Func<ILibraryScanService, Func<int, int, int, int, Task>, Func<string, string, Task>, Task<(int Processed, int Succeeded, int Failed)>> startImport)
+    {
         return BackgroundOperationRunner.Start(
-            _bulkImportLock,
+            _libraryOperationLock,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -128,7 +142,7 @@ public class LibraryController : ControllerBase
                 Task OnItemFailed(string path, string error) =>
                     _organizeHub.Clients.All.QueueError(new QueueError(path, error));
 
-                var (processed, succeeded, failed) = await scanService.BulkImportAsync(dto.Paths, ProgressAction, OnItemFailed);
+                var (processed, succeeded, failed) = await startImport(scanService, ProgressAction, OnItemFailed);
 
                 await _organizeHub.Clients.All.DiscoveredImportComplete(
                     new DiscoveredImportComplete(processed, succeeded, failed));

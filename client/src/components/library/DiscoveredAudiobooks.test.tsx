@@ -17,6 +17,7 @@ vi.mock("@/services/api", () => ({
     getDiscovered: vi.fn(),
     deleteDiscovered: vi.fn(),
     bulkImport: vi.fn(),
+    bulkImportWellTagged: vi.fn(),
     startScan: vi.fn(),
   },
   audiobookApi: {
@@ -37,6 +38,9 @@ vi.mock("@/services/api", () => ({
     getFailedTasks: vi.fn().mockResolvedValue([]),
     deleteFailedTask: vi.fn(),
     retryFailedTask: vi.fn(),
+  },
+  operationsApi: {
+    getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
   },
 }));
 
@@ -105,6 +109,7 @@ describe("DiscoveredAudiobooks", () => {
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
 
     renderWithProviders();
@@ -113,11 +118,37 @@ describe("DiscoveredAudiobooks", () => {
     expect(screen.getByText(/Author One \/ Author Two/)).toBeInTheDocument();
   });
 
+  it("confirms and starts importing all well-tagged discovered books", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [],
+      total: 30,
+      count: 0,
+      wellTaggedTotal: 30,
+    });
+    vi.mocked(libraryApi.bulkImportWellTagged).mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    const importAllButton = await screen.findByRole("button", {
+      name: "Import All Well-Tagged (30)",
+    });
+    fireEvent.click(importAllButton);
+
+    expect(await screen.findByText("Import All Well-Tagged Books?")).toBeInTheDocument();
+    expect(screen.getByText(/across every page/)).toBeInTheDocument();
+    expect(libraryApi.bulkImportWellTagged).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import All Books" }));
+
+    await waitFor(() => expect(libraryApi.bulkImportWellTagged).toHaveBeenCalledOnce());
+  });
+
   it("populates the edit form's authors field and the file path from the flat DTO fields", async () => {
     vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
 
     renderWithProviders();
@@ -145,6 +176,7 @@ describe("DiscoveredAudiobooks", () => {
       ],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
 
     renderWithProviders();
@@ -163,6 +195,7 @@ describe("DiscoveredAudiobooks", () => {
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
     vi.mocked(audiobookApi.checkTargetPath).mockResolvedValue({
       exists: true,
@@ -198,6 +231,7 @@ describe("DiscoveredAudiobooks", () => {
       ],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
 
     renderWithProviders();
@@ -219,6 +253,7 @@ describe("DiscoveredAudiobooks", () => {
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
 
     renderWithProviders();
@@ -237,6 +272,7 @@ describe("DiscoveredAudiobooks", () => {
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
     vi.mocked(audiobookApi.organizeBook).mockResolvedValue("/library/Target/book.m4b");
 
@@ -300,6 +336,7 @@ describe("DiscoveredAudiobooks", () => {
       items: [discoveredBook],
       total: 1,
       count: 1,
+      wellTaggedTotal: 1,
     });
     vi.mocked(audiobookApi.organizeBook).mockResolvedValue("/library/Target/book.m4b");
 
@@ -332,7 +369,12 @@ describe("DiscoveredAudiobooks", () => {
 
   describe("Failed Organize Tasks", () => {
     it("does not render the failed-tasks section when there are none", async () => {
-      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        wellTaggedTotal: 0,
+      });
 
       renderWithProviders();
 
@@ -341,7 +383,12 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     it("lists a failed task with its failure count and reason", async () => {
-      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        wellTaggedTotal: 0,
+      });
       vi.mocked(queueApi.getFailedTasks).mockResolvedValue([
         {
           originalFileLocation: "/import/corrupt.m4b",
@@ -361,7 +408,12 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     it("retries a failed task and refreshes the list", async () => {
-      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        wellTaggedTotal: 0,
+      });
       vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
         {
           originalFileLocation: "/import/corrupt.m4b",
@@ -394,7 +446,12 @@ describe("DiscoveredAudiobooks", () => {
     // banner - now also invalidates the failed-tasks list, so a real re-failure brings the row
     // back into view instead of requiring a page reload.
     it("brings a retried task back into the list once QueueError reports it failed again", async () => {
-      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        wellTaggedTotal: 0,
+      });
       vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
         {
           originalFileLocation: "/import/corrupt.m4b",
@@ -438,7 +495,12 @@ describe("DiscoveredAudiobooks", () => {
     });
 
     it("removes a failed task after confirming in the dialog", async () => {
-      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({ items: [], total: 0, count: 0 });
+      vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        wellTaggedTotal: 0,
+      });
       vi.mocked(queueApi.getFailedTasks).mockResolvedValueOnce([
         {
           originalFileLocation: "/import/corrupt.m4b",

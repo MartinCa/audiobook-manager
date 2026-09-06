@@ -14,6 +14,9 @@ public class LibraryScanService : ILibraryScanService
     /// <summary>Discovered rows accumulated before a single batched insert.</summary>
     private const int InsertBatchSize = 200;
 
+    /// <summary>Discovered rows loaded at a time during all-books import.</summary>
+    private const int ImportBatchSize = 200;
+
     /// <summary>Files scanned between SignalR progress broadcasts.</summary>
     private const int ProgressBroadcastInterval = 25;
 
@@ -213,8 +216,58 @@ public class LibraryScanService : ILibraryScanService
                 }
             },
             _logger,
+
             path => $"Failed to bulk import discovered audiobook at {path}",
             progressAction);
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> BulkImportAllWellTaggedAsync(
+        Func<int, int, int, int, Task> progressAction,
+        Func<string, string, Task>? onItemFailed = null)
+    {
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var total = await _discoveredAudiobookRepository.CountWellTaggedAsync();
+        var lastId = 0L;
+
+        while (true)
+        {
+            var batch = await _discoveredAudiobookRepository.GetWellTaggedBatchAsync(lastId, ImportBatchSize);
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var entry in batch)
+            {
+                lastId = entry.Id;
+                processed++;
+
+                try
+                {
+                    var domain = ToDomainAudiobook(entry);
+                    await _audiobookService.OrganizeAudiobook(domain, (_, __) => Task.CompletedTask);
+                    await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
+                    succeeded++;
+                }
+                catch (Exception ex) when (onItemFailed is not null)
+                {
+                    await onItemFailed(entry.FileInfoFullPath, ex.Message);
+                    failed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to bulk import discovered audiobook at {FilePath}", entry.FileInfoFullPath);
+                    failed++;
+                }
+
+                await progressAction(processed, total, succeeded, failed);
+            }
+        }
+
+        return (processed, succeeded, failed);
     }
 
     /// <summary>

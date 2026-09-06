@@ -8,6 +8,8 @@ public interface IDiscoveredAudiobookRepository
     Task InsertRangeAsync(IEnumerable<DiscoveredAudiobook> discovered);
     Task<List<DiscoveredAudiobook>> GetAllAsync();
     Task<(List<DiscoveredAudiobook> Items, int Total)> GetPaginatedAsync(int limit, int offset, string? search = null);
+    Task<int> CountWellTaggedAsync();
+    Task<List<DiscoveredAudiobook>> GetWellTaggedBatchAsync(long afterId, int batchSize);
     Task<List<DiscoveredAudiobook>> GetByPathsAsync(List<string> paths);
     Task DeleteAsync(long id);
     Task DeleteByPathAsync(string fullPath);

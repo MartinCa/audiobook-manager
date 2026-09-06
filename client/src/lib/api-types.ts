@@ -1299,9 +1299,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["DiscoveredAudiobookDtoPaginatedResult"];
-                        "application/json": components["schemas"]["DiscoveredAudiobookDtoPaginatedResult"];
-                        "text/json": components["schemas"]["DiscoveredAudiobookDtoPaginatedResult"];
+                        "text/plain": components["schemas"]["DiscoveredAudiobookPageDto"];
+                        "application/json": components["schemas"]["DiscoveredAudiobookPageDto"];
+                        "text/json": components["schemas"]["DiscoveredAudiobookPageDto"];
                     };
                 };
             };
@@ -1356,6 +1356,39 @@ export interface paths {
                     "application/*+json": components["schemas"]["BulkImportDiscoveredDto"];
                 };
             };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/discovered/bulk-import-well-tagged": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
             responses: {
                 /** @description OK */
                 200: {
@@ -3071,11 +3104,13 @@ export interface components {
             isWellTagged?: boolean;
             isDuplicate?: boolean;
         };
-        DiscoveredAudiobookDtoPaginatedResult: {
+        DiscoveredAudiobookPageDto: {
             /** Format: int32 */
             count?: number;
             /** Format: int32 */
             total?: number;
+            /** Format: int32 */
+            wellTaggedTotal?: number;
             items?: components["schemas"]["DiscoveredAudiobookDto"][] | null;
         };
         ExistingTargetFileDto: {

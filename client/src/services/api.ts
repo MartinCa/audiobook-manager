@@ -10,7 +10,7 @@ import type {
   ConsistencyIssuePage,
   ConsistencyResolveResult,
 } from "@/types/ConsistencyIssue";
-import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
+import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
@@ -146,7 +146,7 @@ export const libraryApi = {
   startScan: () => api.post<void>("/library/scan"),
 
   getDiscovered: (limit = 20, offset = 0, search?: string) =>
-    api.get<PaginatedResult<DiscoveredAudiobook>>("/library/discovered", {
+    api.get<DiscoveredAudiobookPage>("/library/discovered", {
       query: { limit, offset, search: search || undefined },
     }),
 
@@ -156,6 +156,9 @@ export const libraryApi = {
     }),
 
   bulkImport: (paths: string[]) => api.post<void>("/library/discovered/bulk-import", { paths }),
+
+  bulkImportWellTagged: () =>
+    api.post<void>("/library/discovered/bulk-import-well-tagged", undefined),
 };
 
 // Consistency

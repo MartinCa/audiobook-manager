@@ -36,6 +36,7 @@ import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
@@ -88,6 +89,7 @@ export function DiscoveredAudiobooks() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [allImportDialogOpen, setAllImportDialogOpen] = useState(false);
 
   // Live organize progress/error for the per-item "Import to Library" action, keyed by the
   // discovered file's path (same key the backend reports UpdateProgress/QueueError under).
@@ -133,6 +135,7 @@ export function DiscoveredAudiobooks() {
 
   const books: DiscoveredAudiobook[] = data?.items ?? [];
   const totalCount = data?.total ?? 0;
+  const wellTaggedTotal = data?.wellTaggedTotal ?? 0;
 
   // Organize tasks whose json_audiobook failed to deserialize - including ones dead-lettered
   // past the retry threshold - so a permanently-stuck file isn't invisible until someone digs
@@ -140,6 +143,20 @@ export function DiscoveredAudiobooks() {
   const { data: failedTasks = [] } = useQuery({
     queryKey: ["failedOrganizeTasks"],
     queryFn: () => queueApi.getFailedTasks(),
+  });
+
+  useOperationResync("discovered-import", (status) => {
+    setImporting(status.isRunning);
+    if (status.isRunning) {
+      setImportProgress((previous) => ({
+        processed: status.processed,
+        total: status.total,
+        succeeded: previous?.succeeded ?? 0,
+        failed: previous?.failed ?? 0,
+      }));
+    } else {
+      setImportProgress(null);
+    }
   });
 
   // SignalR scan events
@@ -274,6 +291,18 @@ export function DiscoveredAudiobooks() {
     try {
       await libraryApi.bulkImport(Array.from(selectedPaths));
       toast.success(`Import queued for ${selectedPaths.size} books`);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+      setImporting(false);
+    }
+  };
+
+  const handleBulkImportWellTagged = async () => {
+    setAllImportDialogOpen(false);
+    setImporting(true);
+    try {
+      await libraryApi.bulkImportWellTagged();
+      toast.success(`Import queued for ${wellTaggedTotal} well-tagged books`);
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
       setImporting(false);
@@ -498,34 +527,49 @@ export function DiscoveredAudiobooks() {
           ) : null}
         </div>
 
-        {wellTaggedEligible.length > 0 && (
+        {wellTaggedTotal > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               className="w-full sm:w-auto"
-              onClick={handleSelectAllWellTagged}
+              disabled={importing}
+              onClick={() => setAllImportDialogOpen(true)}
             >
-              {selectedPaths.size === wellTaggedEligible.length ? (
-                <CheckSquare className="mr-1.5 h-4 w-4" />
-              ) : (
-                <Square className="mr-1.5 h-4 w-4" />
-              )}
-              Select all well-tagged ({wellTaggedEligible.length})
+              <FolderInput className="mr-1.5 h-4 w-4" />
+              Import All Well-Tagged ({wellTaggedTotal})
             </Button>
 
-            {selectedPaths.size > 0 && (
-              <Button
-                size="sm"
-                className="w-full sm:w-auto"
-                disabled={importing}
-                onClick={() => {
-                  void handleBulkImport();
-                }}
-              >
-                <FolderInput className="mr-1.5 h-4 w-4" />
-                Import Selected ({selectedPaths.size})
-              </Button>
+            {wellTaggedEligible.length > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={handleSelectAllWellTagged}
+                >
+                  {selectedPaths.size === wellTaggedEligible.length ? (
+                    <CheckSquare className="mr-1.5 h-4 w-4" />
+                  ) : (
+                    <Square className="mr-1.5 h-4 w-4" />
+                  )}
+                  Select all well-tagged ({wellTaggedEligible.length})
+                </Button>
+
+                {selectedPaths.size > 0 && (
+                  <Button
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    disabled={importing}
+                    onClick={() => {
+                      void handleBulkImport();
+                    }}
+                  >
+                    <FolderInput className="mr-1.5 h-4 w-4" />
+                    Import Selected ({selectedPaths.size})
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -695,6 +739,42 @@ export function DiscoveredAudiobooks() {
           description="Are you sure you want to permanently delete this file and its folder contents? This will remove the file from disk and remove its record from discovered audiobooks."
         />
       )}
+
+      <Dialog open={allImportDialogOpen} onOpenChange={setAllImportDialogOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
+          <DialogHeader>
+            <DialogTitle>Import All Well-Tagged Books?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex gap-3">
+              <AlertTriangle className="text-status-warn mt-0.5 h-5 w-5 shrink-0" />
+              <p className="text-muted-foreground text-sm">
+                This will import all <strong>{wellTaggedTotal}</strong> well-tagged discovered
+                audiobooks across every page. Each book will be organized into the library. Books
+                that fail, including duplicate target paths, will remain available for review.
+              </p>
+            </div>
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setAllImportDialogOpen(false)}
+                disabled={importing}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => void handleBulkImportWellTagged()}
+                disabled={importing}
+              >
+                <FolderInput className="mr-2 h-4 w-4" />
+                Import All Books
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(removeFailedTargetPath)}

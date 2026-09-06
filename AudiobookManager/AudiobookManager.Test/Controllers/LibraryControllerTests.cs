@@ -194,4 +194,26 @@ public class LibraryControllerTests
         Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/untagged.m4b").IsDuplicate);
         _libraryScanService.Verify(s => s.IsDuplicateTarget(notWellTagged), Times.Never);
     }
+
+    [TestMethod]
+    public async Task GetDiscovered_IncludesWellTaggedTotalFromRepository()
+    {
+        _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
+            .ReturnsAsync((new List<DiscoveredAudiobook>(), 4));
+        _discoveredRepo.Setup(r => r.CountWellTaggedAsync()).ReturnsAsync(3);
+
+        var result = await _controller.GetDiscovered();
+
+        Assert.AreEqual(4, result.Total);
+        Assert.AreEqual(3, result.WellTaggedTotal);
+    }
+
+    [TestMethod]
+    public void StartBulkImportWellTagged_StartsBackgroundOperation()
+    {
+        var result = _controller.StartBulkImportWellTagged();
+
+        Assert.IsNotNull(result);
+    }
+
 }
