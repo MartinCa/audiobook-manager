@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -576,10 +577,18 @@ public partial class AudibleScraper : IScraper
         return elem.ValueKind == JsonValueKind.Object && elem.TryGetProperty(name, out var prop) ? prop : null;
     }
 
+    /// <summary>
+    /// Audible emits character references (e.g. "&amp;Eacute;") inside its JSON-LD script content.
+    /// The HTML parser never decodes them because &lt;script&gt; is a raw-text element per the HTML5
+    /// spec, so the entity reaches System.Text.Json verbatim and would otherwise be persisted
+    /// (e.g. "&amp;Eacute;mile Zola"). Decode every string read out of that JSON; WebUtility only
+    /// touches strings containing '&', and decoding "author &amp; book" style literals is correct
+    /// since the source HTML layer never decoded them.
+    /// </summary>
     private static string? GetJsonString(JsonElement elem, string name)
     {
         var prop = GetJsonProperty(elem, name);
-        return prop is { ValueKind: JsonValueKind.String } ? prop.Value.GetString() : null;
+        return prop is { ValueKind: JsonValueKind.String } ? WebUtility.HtmlDecode(prop.Value.GetString()) : null;
     }
 
     private static float? ParseJsonNumber(JsonElement elem)
