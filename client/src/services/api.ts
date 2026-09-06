@@ -196,16 +196,13 @@ export const consistencyApi = {
       fieldValues,
     }),
 
+  // Fire-and-forget: both endpoints start a background resolve and return no result body -
+  // progress and the outcome arrive over SignalR (ConsistencyResolveProgress/Complete).
   resolveSelected: (issueIds: number[]) =>
-    api.post<{ resolved: number; failed: number }>(
-      "/consistency/issues/resolve-selected",
-      issueIds,
-    ),
+    api.post<void>("/consistency/issues/resolve-selected", issueIds),
 
   resolveByType: (issueType: string) =>
-    api.post<{ resolved: number; failed: number }>(
-      `/consistency/issues/resolve-by-type/${encodeURIComponent(issueType)}`,
-    ),
+    api.post<void>(`/consistency/issues/resolve-by-type/${encodeURIComponent(issueType)}`),
 
   getOrphanDirectories: () => api.get<OrphanDirectory[]>("/consistency/orphan-directories"),
 

@@ -15,8 +15,10 @@ namespace AudiobookManager.Api.Controllers;
 public class ConsistencyController : ControllerBase
 {
     private static readonly SemaphoreSlim _checkLock = new(1, 1);
+    private static readonly SemaphoreSlim _resolveLock = new(1, 1);
 
     public const string OperationKey = "consistency-check";
+    public const string ResolveOperationKey = "consistency-resolve";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -222,15 +224,21 @@ public class ConsistencyController : ControllerBase
         }
     }
 
+    // Both bulk-resolve endpoints share one gate and one operation key: they rewrite the same
+    // files through the same service, so a resolve-by-type must exclude a resolve-selected (and
+    // vice versa), not just another of its own kind. The work is fire-and-forget with SignalR
+    // progress (ConsistencyResolveProgress/Complete), mirroring the similar-value align flow.
     [HttpPost("issues/resolve-by-type/{issueType}")]
     public async Task<IActionResult> ResolveIssuesByType(string issueType)
     {
+        // Validated before the runner takes over: inside fire-and-forget work a refusal would
+        // reach the client only as ConsistencyResolveComplete(0, 0, 0), which reads as "nothing
+        // to resolve" - the opposite of "the sweep was refused, check your mount".
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            var (resolved, failed) = await consistencyService.ResolveIssuesByType(issueType);
-            return Ok(new { resolved, failed });
+            await consistencyService.ValidateResolveByTypeAsync(issueType);
         }
         catch (LibraryUnavailableException ex)
         {
@@ -238,11 +246,6 @@ public class ConsistencyController : ControllerBase
             // and the message says what to check. A 409 so the client shows it rather than a
             // generic failure.
             _logger.LogWarning("Refused bulk resolve of {IssueType}: {Reason}", issueType, ex.Message);
-
-            // ProblemDetails rather than a bare string: the client reads ApiError.message from
-            // problem.detail, and a string body serializes as text/plain, which its error parser
-            // skips - so the "what to check" message this refusal exists to deliver never reached
-            // the toast. Also a drop-in once AddProblemDetails is registered.
             return this.ConflictingState(ex.Message, "Library unavailable");
         }
         catch (ArgumentException ex)
@@ -251,29 +254,60 @@ public class ConsistencyController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error bulk resolving consistency issues of type {IssueType}", issueType);
+            _logger.LogError(ex, "Error validating bulk resolve of consistency issues of type {IssueType}", issueType);
             return this.UnexpectedError();
         }
+
+        return BackgroundOperationRunner.Start(
+            _resolveLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ResolveOperationKey,
+            async sp =>
+            {
+                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
+                // processed (not resolved + failed) as the completion total: cascade-skipped
+                // items counted toward the per-item progress the bar showed, so the complete
+                // event has to agree with it rather than report a smaller number.
+                var (processed, resolved, failed) = await consistencyService.ResolveIssuesByType(issueType, ResolveProgressAction);
+                await _organizeHub.Clients.All.ConsistencyResolveComplete(
+                    new ConsistencyResolveComplete(processed, resolved, failed));
+            },
+            () => _organizeHub.Clients.All.ConsistencyResolveComplete(new ConsistencyResolveComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpPost("issues/resolve-selected")]
-    public async Task<IActionResult> ResolveSelectedIssues([FromBody] List<long> issueIds)
+    public IActionResult ResolveSelectedIssues([FromBody] List<long> issueIds)
     {
         if (issueIds == null || issueIds.Count == 0)
             return this.InvalidRequest("No issue ids provided.");
 
-        try
-        {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
-            var (resolved, failed) = await consistencyService.ResolveIssues(issueIds);
-            return Ok(new { resolved, failed });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error bulk resolving selected consistency issues");
-            return this.UnexpectedError();
-        }
+        return BackgroundOperationRunner.Start(
+            _resolveLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ResolveOperationKey,
+            async sp =>
+            {
+                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
+                // Same as ResolveIssuesByType: processed, so the completion total matches the
+                // per-item progress (cascade-skips counted) the bar just showed.
+                var (processed, resolved, failed) = await consistencyService.ResolveIssues(issueIds, ResolveProgressAction);
+                await _organizeHub.Clients.All.ConsistencyResolveComplete(
+                    new ConsistencyResolveComplete(processed, resolved, failed));
+            },
+            () => _organizeHub.Clients.All.ConsistencyResolveComplete(new ConsistencyResolveComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
+    private Task ResolveProgressAction(int processed, int total, int succeeded, int failed)
+    {
+        _statusRegistry.SetProgress(ResolveOperationKey, processed, total);
+        return _organizeHub.Clients.All.ConsistencyResolveProgress(
+            new ConsistencyResolveProgress(processed, total, succeeded, failed));
     }
 
     [HttpGet("issues/{id}/tag-mismatch")]

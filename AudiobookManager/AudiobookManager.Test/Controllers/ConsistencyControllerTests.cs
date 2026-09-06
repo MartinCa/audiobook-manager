@@ -575,4 +575,111 @@ public class ConsistencyControllerTests
     }
 
     #endregion
+
+    #region Bulk resolve
+
+    // Both bulk-resolve endpoints are fire-and-forget through BackgroundOperationRunner: the
+    // response only says the operation started, and progress/completion travel over SignalR.
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_ValidatesBeforeStarting_AndRunsInBackground()
+    {
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        SetupScope(mockConsistencyService.Object);
+
+        var result = await _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingDescTxt));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        mockConsistencyService.Verify(
+            s => s.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingDescTxt)), Times.Once);
+
+        // The background task resolves with a progress callback and broadcasts completion;
+        // wait for the real release rather than a fixed sleep (the gate is process-static).
+        await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
+        mockConsistencyService.Verify(s => s.ResolveIssuesByType(
+            nameof(ConsistencyIssueType.MissingDescTxt), It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_AnUnknownType_IsA400_NothingStarts()
+    {
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.ValidateResolveByTypeAsync("NotAnIssueType"))
+            .ThrowsAsync(new ArgumentException("Unknown issue type: NotAnIssueType"));
+        SetupScope(mockConsistencyService.Object);
+
+        var result = await _controller.ResolveIssuesByType("NotAnIssueType");
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+        mockConsistencyService.Verify(s => s.ResolveIssuesByType(
+            It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ResolveIssuesByType_AnImplausibleSweep_IsA409WithTheReason_NothingStarts()
+    {
+        // The refusal must surface synchronously: thrown inside the fire-and-forget work it
+        // would reach the client only as ConsistencyResolveComplete(0, 0, 0) - which reads as
+        // "nothing to resolve", the opposite of what a refused sweep means.
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingMediaFile)))
+            .ThrowsAsync(new LibraryUnavailableException("library is not fully mounted"));
+        SetupScope(mockConsistencyService.Object);
+
+        var result = await _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+
+        var problem = ProblemAssert.HasStatus(result, StatusCodes.Status409Conflict);
+        StringAssert.Contains(problem.Detail!, "library is not fully mounted");
+        mockConsistencyService.Verify(s => s.ResolveIssuesByType(
+            It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void ResolveSelectedIssues_NoIds_IsA400_NothingStarts()
+    {
+        var result = _controller.ResolveSelectedIssues(new List<long>());
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+        _serviceScopeFactory.Verify(f => f.CreateScope(), Times.Never);
+    }
+
+    [TestMethod]
+    public void ResolveSelectedIssues_Valid_StartsTheRun()
+    {
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        SetupScope(mockConsistencyService.Object);
+
+        var result = _controller.ResolveSelectedIssues(new List<long> { 1, 2 });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+    }
+
+    [TestMethod]
+    public void ResolveEndpoints_ShareOneGate_SecondResolveIsA409()
+    {
+        // A resolve-by-type and a resolve-selected rewrite the same files through the same
+        // service, so they must exclude each other - one process-static gate for both.
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.ResolveIssues(
+                It.IsAny<IEnumerable<long>>(), It.IsAny<Func<int, int, int, int, Task>?>()))
+            .Returns(async () =>
+            {
+                await Task.Delay(Timeout.Infinite);
+                return (0, 0, 0);
+            });
+        SetupScope(mockConsistencyService.Object);
+
+        var first = _controller.ResolveSelectedIssues(new List<long> { 1 });
+        Assert.IsInstanceOfType<OkResult>(first);
+
+        // by-type 409s while selected is running...
+        var secondByType = _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingDescTxt)).GetAwaiter().GetResult();
+        Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)secondByType).StatusCode);
+
+        // ...and selected 409s too.
+        var secondSelected = _controller.ResolveSelectedIssues(new List<long> { 2 });
+        Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)secondSelected).StatusCode);
+    }
+
+    #endregion
 }

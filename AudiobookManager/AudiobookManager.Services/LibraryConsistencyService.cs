@@ -275,10 +275,13 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// "another issue in this batch that this same resolver would also clear" falls out of that
     /// dictionary for free, with nothing left to drift out of sync with it.
     /// </summary>
-    private async Task<(int resolved, int failed)> ResolveLoadedIssuesAsync(IReadOnlyList<ConsistencyIssue> issues)
+    private async Task<(int processed, int resolved, int failed)> ResolveLoadedIssuesAsync(
+        IReadOnlyList<ConsistencyIssue> issues,
+        Func<int, int, int, int, Task>? progressAction = null)
     {
         var succeeded = 0;
         var failed = 0;
+        var processed = 0;
         var cascadedAll = new HashSet<long>();
         var cascadedByResolver = new HashSet<(long AudiobookId, IConsistencyIssueResolver Resolver)>();
 
@@ -292,31 +295,40 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 _logger.LogDebug(
                     "Skipping issue {IssueId} ({IssueType}): an earlier resolve in this batch already covered audiobook {AudiobookId}",
                     issue.Id, issue.IssueType, issue.AudiobookId);
-                continue;
+            }
+            else
+            {
+                try
+                {
+                    var (scope, _) = await ResolveLoadedIssue(issue);
+                    succeeded++;
+
+                    if (scope == ResolveScope.AllForAudiobook)
+                    {
+                        cascadedAll.Add(issue.AudiobookId);
+                    }
+                    else if (scope == ResolveScope.SidecarsForAudiobook)
+                    {
+                        cascadedByResolver.Add((issue.AudiobookId, resolver));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during bulk resolve", issue.Id);
+                    failed++;
+                }
             }
 
-            try
+            // Cascade-skipped items count as processed (the bar keeps moving and the totals add
+            // up) but as neither succeeded nor failed - they were resolved by an earlier item.
+            processed++;
+            if (progressAction is not null)
             {
-                var (scope, _) = await ResolveLoadedIssue(issue);
-                succeeded++;
-
-                if (scope == ResolveScope.AllForAudiobook)
-                {
-                    cascadedAll.Add(issue.AudiobookId);
-                }
-                else if (scope == ResolveScope.SidecarsForAudiobook)
-                {
-                    cascadedByResolver.Add((issue.AudiobookId, resolver));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to resolve issue {IssueId} during bulk resolve", issue.Id);
-                failed++;
+                await progressAction(processed, issues.Count, succeeded, failed);
             }
         }
 
-        return (succeeded, failed);
+        return (processed, succeeded, failed);
     }
 
     public Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId) =>
@@ -325,34 +337,60 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     public Task<(int resolved, int failed, int retained)> ResolveAllOrphanDirectories() =>
         _orphanDirectoryConsistencyService.ResolveAllOrphanDirectories();
 
-    public async Task<(int resolved, int failed)> ResolveIssuesByType(string issueType)
+    public async Task<(int processed, int resolved, int failed)> ResolveIssuesByType(
+        string issueType,
+        Func<int, int, int, int, Task>? progressAction = null)
     {
-        if (!Enum.TryParse<ConsistencyIssueType>(issueType, out var parsedType))
-            throw new ArgumentException($"Unknown issue type: {issueType}");
+        var parsedType = ParseIssueType(issueType);
 
         // GetByTypeAsync already returns each issue with the audiobook graph the resolvers need,
         // so resolve those entities directly instead of throwing them away and re-fetching each
         // one by id (which cost N+1 queries with the same includes).
         var issues = await _issueRepository.GetByTypeAsync(parsedType);
 
-        if (parsedType == ConsistencyIssueType.MissingMediaFile)
-        {
-            // Distinct audiobooks, not issue rows: the fraction is compared against a count of
-            // books, and it is one record deleted per book however many issues named it. One
-            // MissingMediaFile per book is all detection produces today, but nothing in the type
-            // system says so, and an inflated numerator here would refuse a legitimate sweep.
-            await EnsureMissingMediaFileSweepIsPlausibleAsync(
-                issues.Select(i => i.AudiobookId).Distinct().Count());
-        }
+        await EnsureSweepIsPlausibleAsync(parsedType, issues);
 
-        return await ResolveLoadedIssuesAsync(issues);
+        return await ResolveLoadedIssuesAsync(issues, progressAction);
     }
 
-    public async Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds)
+    public async Task ValidateResolveByTypeAsync(string issueType)
+    {
+        var parsedType = ParseIssueType(issueType);
+        var issues = await _issueRepository.GetByTypeAsync(parsedType);
+
+        await EnsureSweepIsPlausibleAsync(parsedType, issues);
+    }
+
+    private static ConsistencyIssueType ParseIssueType(string issueType)
+    {
+        if (!Enum.TryParse<ConsistencyIssueType>(issueType, out var parsedType))
+            throw new ArgumentException($"Unknown issue type: {issueType}");
+
+        return parsedType;
+    }
+
+    private async Task EnsureSweepIsPlausibleAsync(ConsistencyIssueType parsedType, List<ConsistencyIssue> issues)
+    {
+        if (parsedType != ConsistencyIssueType.MissingMediaFile)
+        {
+            return;
+        }
+
+        // Distinct audiobooks, not issue rows: the fraction is compared against a count of
+        // books, and it is one record deleted per book however many issues named it. One
+        // MissingMediaFile per book is all detection produces today, but nothing in the type
+        // system says so, and an inflated numerator here would refuse a legitimate sweep.
+        await EnsureMissingMediaFileSweepIsPlausibleAsync(
+            issues.Select(i => i.AudiobookId).Distinct().Count());
+    }
+
+    public async Task<(int processed, int resolved, int failed)> ResolveIssues(
+        IEnumerable<long> issueIds,
+        Func<int, int, int, int, Task>? progressAction = null)
     {
         var issues = await _issueRepository.GetByIdsAsync(issueIds.ToList());
 
-        return await ResolveLoadedIssuesAsync(issues);
+        return await ResolveLoadedIssuesAsync(issues, progressAction);
     }
 
     /// <summary>
