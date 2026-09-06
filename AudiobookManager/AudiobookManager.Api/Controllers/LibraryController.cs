@@ -11,7 +11,10 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class LibraryController : ControllerBase
 {
-    private static readonly SemaphoreSlim _libraryOperationLock = new(1, 1);
+    // Scanning and importing retain separate gates so starting one does not unexpectedly reject
+    // the other; the two import variants share a gate because they both mutate discovered files.
+    private static readonly SemaphoreSlim _scanLock = new(1, 1);
+    private static readonly SemaphoreSlim _bulkImportLock = new(1, 1);
 
     public const string ScanOperationKey = "library-scan";
     public const string BulkImportOperationKey = "discovered-import";
@@ -46,7 +49,7 @@ public class LibraryController : ControllerBase
     public IActionResult StartLibraryScan()
     {
         return BackgroundOperationRunner.Start(
-            _libraryOperationLock,
+            _scanLock,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -75,7 +78,11 @@ public class LibraryController : ControllerBase
     public async Task<DiscoveredAudiobookPageDto> GetDiscovered(int limit = 20, int offset = 0, string? search = null)
     {
         var (items, total) = await _discoveredRepo.GetPaginatedAsync(limit, offset, search);
-        var wellTaggedTotal = await _discoveredRepo.CountWellTaggedAsync();
+        // The count is global, not search-filtered, and is used by the unfiltered page to offer
+        // the all-books action. Avoid repeating the full-table count for every search keystroke.
+        var wellTaggedTotal = string.IsNullOrWhiteSpace(search)
+            ? await _discoveredRepo.CountWellTaggedAsync()
+            : 0;
         var mapped = items.Select(item => new DiscoveredAudiobookDto(item)).ToList();
 
         // Each duplicate check is an independent, synchronous filesystem probe. Run the page's
@@ -123,7 +130,7 @@ public class LibraryController : ControllerBase
         Func<ILibraryScanService, Func<int, int, int, int, Task>, Func<string, string, Task>, Task<(int Processed, int Succeeded, int Failed)>> startImport)
     {
         return BackgroundOperationRunner.Start(
-            _libraryOperationLock,
+            _bulkImportLock,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,

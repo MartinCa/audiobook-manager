@@ -251,15 +251,14 @@ public class LibraryScanService : ILibraryScanService
                     await _discoveredAudiobookRepository.DeleteAsync(entry.Id);
                     succeeded++;
                 }
-                catch (Exception ex) when (onItemFailed is not null)
-                {
-                    await onItemFailed(entry.FileInfoFullPath, ex.Message);
-                    failed++;
-                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
                         "Failed to bulk import discovered audiobook at {FilePath}", entry.FileInfoFullPath);
+                    if (onItemFailed is not null)
+                    {
+                        await onItemFailed(entry.FileInfoFullPath, ex.Message);
+                    }
                     failed++;
                 }
 

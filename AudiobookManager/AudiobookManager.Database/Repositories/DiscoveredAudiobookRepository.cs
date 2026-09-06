@@ -75,9 +75,7 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
     private IQueryable<DiscoveredAudiobook> WellTaggedQuery() =>
         _db.DiscoveredAudiobooks
             .AsNoTracking()
-            .Where(d => !string.IsNullOrWhiteSpace(d.Authors)
-                && !string.IsNullOrWhiteSpace(d.BookName)
-                && d.Year.HasValue);
+            .Where(DiscoveredAudiobookPredicates.IsWellTaggedExpression);
 
     public async Task DeleteAsync(long id)
     {

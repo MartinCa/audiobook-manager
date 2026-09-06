@@ -216,4 +216,16 @@ public class LibraryControllerTests
         Assert.IsNotNull(result);
     }
 
+    [TestMethod]
+    public async Task GetDiscovered_WithSearch_DoesNotCountAllWellTaggedRows()
+    {
+        _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, "author"))
+            .ReturnsAsync((new List<DiscoveredAudiobook>(), 0));
+
+        var result = await _controller.GetDiscovered(search: "author");
+
+        Assert.AreEqual(0, result.WellTaggedTotal);
+        _discoveredRepo.Verify(r => r.CountWellTaggedAsync(), Times.Never);
+    }
+
 }

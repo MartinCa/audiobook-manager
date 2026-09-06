@@ -135,7 +135,10 @@ export function DiscoveredAudiobooks() {
 
   const books: DiscoveredAudiobook[] = data?.items ?? [];
   const totalCount = data?.total ?? 0;
-  const wellTaggedTotal = data?.wellTaggedTotal ?? 0;
+  const unfilteredData = queryClient.getQueryData<{
+    wellTaggedTotal?: number;
+  }>(["discoveredAudiobooks", "", 1, pageSize]);
+  const wellTaggedTotal = data?.wellTaggedTotal ?? unfilteredData?.wellTaggedTotal ?? 0;
 
   // Organize tasks whose json_audiobook failed to deserialize - including ones dead-lettered
   // past the retry threshold - so a permanently-stuck file isn't invisible until someone digs
