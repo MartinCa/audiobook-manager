@@ -184,6 +184,54 @@ public class AudibleScraperTests
         Assert.IsTrue(CreateScraper().SupportsSeriesLookup);
     }
 
+    // Regression test: Audible emits character references (e.g. "&Eacute;") inside its JSON-LD script
+    // content. <script> is a raw-text element per the HTML5 spec, so AngleSharp never decodes them and
+    // the entity reached System.Text.Json verbatim - titles and authors were persisted as
+    // "La B&Ecirc;te Humaine" / "&Eacute;mile Zola" (seen live on the B09J44L8D4 detail page).
+    [TestMethod]
+    public async Task ParseAudibleDetails_DecodesCharacterReferencesInLdJsonStrings()
+    {
+        var target = CreateScraper();
+        var html = await File.ReadAllTextAsync("Scraping/TestData/audible-bete-humaine.html");
+        var bookUrl = "https://www.audible.com/pd/La-Bete-Humaine-The-Beast-Within-Audiobook/B09J44L8D4";
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        Assert.AreEqual("La Bête Humaine [The Beast Within] (English Edition)", result.BookName);
+        Assert.AreEqual(1, result.Authors.Count);
+        Assert.AreEqual("Émile Zola", result.Authors.Single().Name);
+        Assert.IsNotNull(result.Description);
+        StringAssert.Contains(result.Description, "La Bête Humaine (1890)");
+        StringAssert.Contains(result.Description, "Émile Zola's most unsettling novel.");
+        Assert.AreEqual("Naxos AudioBooks", result.Publisher);
+    }
+
+    [TestMethod]
+    public async Task ParseAudibleDetails_DecodeIsIdempotent_AmpersandAndDoubleEncodedEntities()
+    {
+        var target = CreateScraper();
+        var html = """
+            <html><body>
+            <script type="application/ld+json">
+            {
+                "@context": "http://schema.org",
+                "@type": "Audiobook",
+                "name": "Author & Book: A History",
+                "author": [ { "@type": "Person", "name": "Simon &amp; Schuster" } ],
+                "duration": "PT45M"
+            }
+            </script>
+            </body></html>
+            """;
+        var bookUrl = "https://www.audible.com/pd/A-Standalone-Book-Audiobook/B0STANDALONE";
+
+        var result = await target.ParseAudibleDetails(html, bookUrl);
+
+        // A literal ampersand must survive, and "&amp;" (already encoded once) must decode exactly once.
+        Assert.AreEqual("Author & Book: A History", result.BookName);
+        Assert.AreEqual("Simon & Schuster", result.Authors.Single().Name);
+    }
+
     [TestMethod]
     public async Task SearchSeries_JackReacher_ReturnsDeduplicatedSeriesWithAuthors()
     {
