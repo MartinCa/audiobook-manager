@@ -275,7 +275,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// "another issue in this batch that this same resolver would also clear" falls out of that
     /// dictionary for free, with nothing left to drift out of sync with it.
     /// </summary>
-    private async Task<(int resolved, int failed)> ResolveLoadedIssuesAsync(
+    private async Task<(int processed, int resolved, int failed)> ResolveLoadedIssuesAsync(
         IReadOnlyList<ConsistencyIssue> issues,
         Func<int, int, int, int, Task>? progressAction = null)
     {
@@ -328,7 +328,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             }
         }
 
-        return (succeeded, failed);
+        return (processed, succeeded, failed);
     }
 
     public Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId) =>
@@ -337,7 +337,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     public Task<(int resolved, int failed, int retained)> ResolveAllOrphanDirectories() =>
         _orphanDirectoryConsistencyService.ResolveAllOrphanDirectories();
 
-    public async Task<(int resolved, int failed)> ResolveIssuesByType(
+    public async Task<(int processed, int resolved, int failed)> ResolveIssuesByType(
         string issueType,
         Func<int, int, int, int, Task>? progressAction = null)
     {
@@ -384,7 +384,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             issues.Select(i => i.AudiobookId).Distinct().Count());
     }
 
-    public async Task<(int resolved, int failed)> ResolveIssues(
+    public async Task<(int processed, int resolved, int failed)> ResolveIssues(
         IEnumerable<long> issueIds,
         Func<int, int, int, int, Task>? progressAction = null)
     {

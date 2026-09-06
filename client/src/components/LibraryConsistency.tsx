@@ -107,6 +107,10 @@ export function LibraryConsistency() {
 
   // Resolve confirmation state
   const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
+  // Guards the confirm button against a double-click/double-Enter firing confirmPendingResolve
+  // twice before the first await settles - the second start request would hit the server's
+  // 409 and surface as a spurious "already in progress" error on a resolve that started fine.
+  const [confirmingResolve, setConfirmingResolve] = useState(false);
 
   // Tag mismatch selective-resolution state
   const [tagMismatchIssue, setTagMismatchIssue] = useState<ConsistencyIssue | null>(null);
@@ -343,19 +347,24 @@ export function LibraryConsistency() {
   };
 
   const confirmPendingResolve = async () => {
-    if (!pendingResolve) return;
-    // Bulk resolves run in the background and report over SignalR, so the dialog closes as soon
-    // as the start request returns instead of sitting on a "Resolving..." button for the whole
-    // batch. Kept open only on failure (e.g. a 409 because another resolve is in progress).
-    const succeeded =
-      pendingResolve.kind === "single"
-        ? await handleResolveSingle(pendingResolve.issue)
-        : pendingResolve.kind === "selected"
-          ? await handleResolveSelected(pendingResolve.issueIds)
-          : await handleResolveByType(pendingResolve.issueType);
+    if (!pendingResolve || confirmingResolve) return;
+    setConfirmingResolve(true);
+    try {
+      // Bulk resolves run in the background and report over SignalR, so the dialog closes as
+      // soon as the start request returns instead of sitting on a "Resolving..." button for the
+      // whole batch. Kept open only on failure (e.g. a 409 because another resolve is running).
+      const succeeded =
+        pendingResolve.kind === "single"
+          ? await handleResolveSingle(pendingResolve.issue)
+          : pendingResolve.kind === "selected"
+            ? await handleResolveSelected(pendingResolve.issueIds)
+            : await handleResolveByType(pendingResolve.issueType);
 
-    if (succeeded) {
-      setPendingResolve(null);
+      if (succeeded) {
+        setPendingResolve(null);
+      }
+    } finally {
+      setConfirmingResolve(false);
     }
   };
 
@@ -811,6 +820,7 @@ export function LibraryConsistency() {
               <Button
                 variant="destructive"
                 className="w-full sm:w-auto"
+                disabled={confirmingResolve}
                 onClick={() => {
                   void confirmPendingResolve();
                 }}

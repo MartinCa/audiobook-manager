@@ -193,7 +193,7 @@ public class LibraryConsistencyServiceTests
                 .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
                 .ReturnsAsync(new List<ConsistencyIssue> { missingFileIssue, opfIssue });
 
-            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
+            var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
 
             Assert.AreEqual(1, resolved, "the missing-media resolve removed the book and all its issues");
             Assert.AreEqual(0, failed, "the sibling it cascaded away is not a failure");
@@ -249,7 +249,7 @@ public class LibraryConsistencyServiceTests
                 .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
                 .ReturnsAsync(new List<ConsistencyIssue> { descIssue, opfIssue });
 
-            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
+            var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
 
             Assert.AreEqual(1, resolved);
             Assert.AreEqual(0, failed);
@@ -296,7 +296,7 @@ public class LibraryConsistencyServiceTests
                 .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
                 .ReturnsAsync(issues);
 
-            var (resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L, 3L });
+            var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L, 3L });
 
             Assert.AreEqual(2, resolved);
             Assert.AreEqual(0, failed);
@@ -347,16 +347,20 @@ public class LibraryConsistencyServiceTests
                 .ReturnsAsync(issues);
 
             var reports = new List<(int Processed, int Total, int Succeeded, int Failed)>();
-            var (resolved, failed) = await _service.ResolveIssues(
+            var (processed, resolved, failed) = await _service.ResolveIssues(
                 new[] { 1L, 2L, 3L },
-                (processed, total, succeeded, failedCount) =>
+                (processedCount, total, succeeded, failedCount) =>
                 {
-                    reports.Add((processed, total, succeeded, failedCount));
+                    reports.Add((processedCount, total, succeeded, failedCount));
                     return Task.CompletedTask;
                 });
 
             Assert.AreEqual(2, resolved);
             Assert.AreEqual(0, failed);
+            // The returned processed total includes the cascade-skipped item, so a completion
+            // event built from it agrees with the 3/3 the per-item progress just showed -
+            // resolved + failed (2) would not.
+            Assert.AreEqual(3, processed, "processed includes the cascade-skipped item, not just resolved + failed");
             CollectionAssert.AreEqual(
                 new List<(int, int, int, int)> { (1, 3, 1, 0), (2, 3, 1, 0), (3, 3, 2, 0) },
                 reports,
@@ -386,7 +390,7 @@ public class LibraryConsistencyServiceTests
             .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
             .ReturnsAsync(issues);
 
-        var (resolved, failed) = await _service.ResolveIssues(new[] { 1L });
+        var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L });
 
         Assert.AreEqual(1, resolved);
         Assert.AreEqual(0, failed);
@@ -440,7 +444,7 @@ public class LibraryConsistencyServiceTests
         _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile))
             .ReturnsAsync(issues);
 
-        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(2, resolved);
         Assert.AreEqual(0, failed);
@@ -1201,7 +1205,7 @@ public class LibraryConsistencyServiceTests
 
             using var lease = _saveGate.Acquire(5201);
 
-            var (resolved, failed) = await _service.ResolveIssues(new List<long> { 31, 32 });
+            var (_, resolved, failed) = await _service.ResolveIssues(new List<long> { 31, 32 });
 
             Assert.AreEqual(1, resolved);
             Assert.AreEqual(1, failed);
@@ -2408,7 +2412,7 @@ public class LibraryConsistencyServiceTests
         _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(50);
 
-        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(1, resolved);
         Assert.AreEqual(0, failed);
@@ -2424,7 +2428,7 @@ public class LibraryConsistencyServiceTests
         _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(3);
 
-        var (resolved, _) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, _) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(2, resolved);
     }
@@ -2439,7 +2443,7 @@ public class LibraryConsistencyServiceTests
             .ToList();
         _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingOpfFile)).ReturnsAsync(issues);
 
-        var (resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingOpfFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingOpfFile));
 
         // Whether each one succeeds is this fixture's business (these books have no real files);
         // what matters is that the sweep ran over all ten rather than being refused, and that the

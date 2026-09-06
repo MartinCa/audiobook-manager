@@ -9,8 +9,17 @@ public interface ILibraryConsistencyService
     Task<List<TagMismatchField>> GetTagMismatchFieldsAsync(long issueId);
     Task<ConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues);
     Task<ConsistencyResolveResult> ResolveIssue(long issueId);
-    Task<(int resolved, int failed)> ResolveIssuesByType(string issueType, Func<int, int, int, int, Task>? progressAction = null);
-    Task<(int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds, Func<int, int, int, int, Task>? progressAction = null);
+    /// <summary>
+    /// Resolves every stored issue of the given type. The tuple is
+    /// <c>(processed, resolved, failed)</c>: <c>processed</c> counts every issue in the batch,
+    /// including cascade-skips (siblings an earlier resolve already covered), so callers
+    /// reporting a completion total consistent with the per-item progress use it rather than
+    /// <c>resolved + failed</c>.
+    /// </summary>
+    Task<(int processed, int resolved, int failed)> ResolveIssuesByType(string issueType, Func<int, int, int, int, Task>? progressAction = null);
+
+    /// <inheritdoc cref="ResolveIssuesByType"/>
+    Task<(int processed, int resolved, int failed)> ResolveIssues(IEnumerable<long> issueIds, Func<int, int, int, int, Task>? progressAction = null);
 
     /// <summary>
     /// Validates a bulk resolve-by-type request without resolving anything. Callers that hand the

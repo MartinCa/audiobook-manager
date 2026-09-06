@@ -267,9 +267,12 @@ public class ConsistencyController : ControllerBase
             async sp =>
             {
                 var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
-                var (resolved, failed) = await consistencyService.ResolveIssuesByType(issueType, ResolveProgressAction);
+                // processed (not resolved + failed) as the completion total: cascade-skipped
+                // items counted toward the per-item progress the bar showed, so the complete
+                // event has to agree with it rather than report a smaller number.
+                var (processed, resolved, failed) = await consistencyService.ResolveIssuesByType(issueType, ResolveProgressAction);
                 await _organizeHub.Clients.All.ConsistencyResolveComplete(
-                    new ConsistencyResolveComplete(resolved + failed, resolved, failed));
+                    new ConsistencyResolveComplete(processed, resolved, failed));
             },
             () => _organizeHub.Clients.All.ConsistencyResolveComplete(new ConsistencyResolveComplete(0, 0, 0)),
             _appLifetime.ApplicationStopping);
@@ -290,9 +293,11 @@ public class ConsistencyController : ControllerBase
             async sp =>
             {
                 var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
-                var (resolved, failed) = await consistencyService.ResolveIssues(issueIds, ResolveProgressAction);
+                // Same as ResolveIssuesByType: processed, so the completion total matches the
+                // per-item progress (cascade-skips counted) the bar just showed.
+                var (processed, resolved, failed) = await consistencyService.ResolveIssues(issueIds, ResolveProgressAction);
                 await _organizeHub.Clients.All.ConsistencyResolveComplete(
-                    new ConsistencyResolveComplete(resolved + failed, resolved, failed));
+                    new ConsistencyResolveComplete(processed, resolved, failed));
             },
             () => _organizeHub.Clients.All.ConsistencyResolveComplete(new ConsistencyResolveComplete(0, 0, 0)),
             _appLifetime.ApplicationStopping);

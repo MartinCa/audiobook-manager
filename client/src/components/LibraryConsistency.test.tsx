@@ -336,7 +336,8 @@ describe("LibraryConsistency", () => {
     }));
     mockPagedIssues(manyIssues);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
-    vi.spyOn(consistencyApi, "resolveSelected").mockResolvedValue({ resolved: 50, failed: 0 });
+    // Fire-and-forget: the endpoint returns no result body, so the mock resolves void.
+    vi.spyOn(consistencyApi, "resolveSelected").mockResolvedValue(undefined);
 
     renderWithProviders(<LibraryConsistency />);
 
@@ -389,11 +390,8 @@ describe("LibraryConsistency", () => {
       },
     ]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
-    // The endpoint is fire-and-forget now: the response carries no result, only that the
-    // background resolve started (the mock matches the runtime call, not the stale type).
-    vi.spyOn(consistencyApi, "resolveByType").mockResolvedValue(
-      undefined as unknown as { resolved: number; failed: number },
-    );
+    // Fire-and-forget: the endpoint returns no result body, so the mock resolves void.
+    vi.spyOn(consistencyApi, "resolveByType").mockResolvedValue(undefined);
 
     renderWithProviders(<LibraryConsistency />);
 
@@ -414,6 +412,46 @@ describe("LibraryConsistency", () => {
     expect(toast.success).toHaveBeenCalledWith(
       'Resolution started for all "Missing Description Files" issues',
     );
+  });
+
+  // Regression: with no disabled guard on the confirm button, a double-click fired
+  // confirmPendingResolve twice, the second start hit the server's 409, and the user got a
+  // spurious "already in progress" error on a resolve that started fine.
+  it("sends only one start request when the confirm button is clicked twice", async () => {
+    mockPagedIssues([
+      {
+        id: 7,
+        audiobookId: 3,
+        bookName: "Some Book",
+        authors: ["Some Author"],
+        issueType: "MissingDescTxt",
+        description: "desc.txt missing",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    vi.spyOn(consistencyApi, "resolveByType").mockReturnValue(startGate);
+
+    renderWithProviders(<LibraryConsistency />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Missing Description Files/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resolve All 1" }));
+    await screen.findByText("Confirm Resolution");
+
+    const confirmBtn = screen.getByRole("button", { name: "Resolve All" });
+    // Two clicks before the first start request settles must not produce two requests.
+    fireEvent.click(confirmBtn);
+    fireEvent.click(confirmBtn);
+
+    releaseStart();
+    await waitFor(() => {
+      expect(screen.queryByText("Confirm Resolution")).not.toBeInTheDocument();
+    });
+    expect(consistencyApi.resolveByType).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the confirmation dialog open and toasts the error when a bulk resolve is refused", async () => {

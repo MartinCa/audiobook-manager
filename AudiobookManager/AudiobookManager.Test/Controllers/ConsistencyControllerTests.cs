@@ -665,7 +665,7 @@ public class ConsistencyControllerTests
             .Returns(async () =>
             {
                 await Task.Delay(Timeout.Infinite);
-                return (0, 0);
+                return (0, 0, 0);
             });
         SetupScope(mockConsistencyService.Object);
 
