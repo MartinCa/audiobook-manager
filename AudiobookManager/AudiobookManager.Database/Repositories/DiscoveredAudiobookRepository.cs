@@ -53,10 +53,29 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         return (items, total);
     }
 
+    public async Task<int> CountWellTaggedAsync()
+    {
+        return await WellTaggedQuery().CountAsync();
+    }
+
+    public async Task<List<DiscoveredAudiobook>> GetWellTaggedBatchAsync(long afterId, int batchSize)
+    {
+        return await WellTaggedQuery()
+            .Where(d => d.Id > afterId)
+            .OrderBy(d => d.Id)
+            .Take(batchSize)
+            .ToListAsync();
+    }
+
     public async Task<List<DiscoveredAudiobook>> GetByPathsAsync(List<string> paths)
     {
         return await _db.DiscoveredAudiobooks.Where(d => paths.Contains(d.FileInfoFullPath)).ToListAsync();
     }
+
+    private IQueryable<DiscoveredAudiobook> WellTaggedQuery() =>
+        _db.DiscoveredAudiobooks
+            .AsNoTracking()
+            .Where(DiscoveredAudiobookPredicates.IsWellTaggedExpression);
 
     public async Task DeleteAsync(long id)
     {

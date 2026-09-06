@@ -47,9 +47,7 @@ public class DiscoveredAudiobookDto
         Asin = discovered.Asin;
         Www = discovered.Www;
         DurationInSeconds = discovered.DurationInSeconds;
-        IsWellTagged = !string.IsNullOrWhiteSpace(discovered.Authors)
-            && !string.IsNullOrWhiteSpace(discovered.BookName)
-            && discovered.Year.HasValue;
+        IsWellTagged = DiscoveredAudiobookPredicates.IsWellTagged(discovered);
     }
 }
 

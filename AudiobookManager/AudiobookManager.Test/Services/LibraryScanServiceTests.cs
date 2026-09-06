@@ -315,6 +315,69 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
+    public async Task BulkImportAllWellTaggedAsync_ImportsAllBatchesAndLeavesFailures()
+    {
+        var successful = new DiscoveredAudiobook("Successful", "/import/successful.m4b", "successful.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 1,
+            Authors = "Author",
+            Year = 2024
+        };
+        var failed = new DiscoveredAudiobook("Failed", "/import/failed.m4b", "failed.m4b", 1000, DateTime.UtcNow)
+        {
+            Id = 2,
+            Authors = "Author",
+            Year = 2024
+        };
+
+        _discoveredAudiobookRepository.Setup(r => r.CountWellTaggedAsync()).ReturnsAsync(2);
+        _discoveredAudiobookRepository
+            .SetupSequence(r => r.GetWellTaggedBatchAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook> { successful, failed })
+            .ReturnsAsync(new List<DiscoveredAudiobook>());
+        _audiobookService
+            .Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns<DomainAudiobook, Func<string, int, Task>>((book, _) =>
+                book.BookName == "Failed"
+                    ? Task.FromException<DomainAudiobook>(new InvalidOperationException("target exists"))
+                    : Task.FromResult(book));
+
+        var progress = new List<(int Processed, int Total, int Succeeded, int Failed)>();
+        var failures = new List<string>();
+
+        var result = await _service.BulkImportAllWellTaggedAsync(
+            (processed, total, succeeded, failedCount) =>
+            {
+                progress.Add((processed, total, succeeded, failedCount));
+                return Task.CompletedTask;
+            },
+            (path, _) =>
+            {
+                failures.Add(path);
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual((2, 1, 1), result);
+        CollectionAssert.AreEqual(new[] { "/import/failed.m4b" }, failures);
+        Assert.AreEqual((2, 2, 1, 1), progress[^1]);
+        _discoveredAudiobookRepository.Verify(r => r.DeleteAsync(successful.Id), Times.Once);
+        _discoveredAudiobookRepository.Verify(r => r.DeleteAsync(failed.Id), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task BulkImportAllWellTaggedAsync_UsesStableIdCursorForEachBatch()
+    {
+        _discoveredAudiobookRepository.Setup(r => r.CountWellTaggedAsync()).ReturnsAsync(0);
+        _discoveredAudiobookRepository
+            .Setup(r => r.GetWellTaggedBatchAsync(0, It.IsAny<int>()))
+            .ReturnsAsync(new List<DiscoveredAudiobook>());
+
+        await _service.BulkImportAllWellTaggedAsync((_, _, _, _) => Task.CompletedTask);
+
+        _discoveredAudiobookRepository.Verify(r => r.GetWellTaggedBatchAsync(0, It.IsAny<int>()), Times.Once);
+    }
+
+    [TestMethod]
     public async Task BulkImportAsync_OrganizesEachDiscoveredBookAndDeletesTheDiscoveredEntry()
     {
         var discovered = new DiscoveredAudiobook("A Book", "/import/book.m4b", "book.m4b", 1000, DateTime.UtcNow)

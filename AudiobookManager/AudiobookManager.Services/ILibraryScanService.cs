@@ -11,6 +11,10 @@ public interface ILibraryScanService
         Func<int, int, int, int, Task> progressAction,
         Func<string, string, Task>? onItemFailed = null);
 
+    Task<(int Processed, int Succeeded, int Failed)> BulkImportAllWellTaggedAsync(
+        Func<int, int, int, int, Task> progressAction,
+        Func<string, string, Task>? onItemFailed = null);
+
     /// <summary>
     /// Whether a discovered entry's generated library path is already occupied by another file,
     /// so bulk import would fail. Returns false for an entry missing the tags required to
