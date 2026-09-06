@@ -2,6 +2,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
@@ -33,7 +34,9 @@ public class LibraryConsistencyServiceTests
     // with this fixture's mocks - one detection service, one resolver per issue-type group, and
     // one orphan-directory service, all sharing the repository/handler mocks so assertions against
     // those mocks still see every call regardless of which piece made it.
-    private LibraryConsistencyService CreateService(IOptions<AudiobookManagerSettings>? settings = null)
+    private LibraryConsistencyService CreateService(
+        IOptions<AudiobookManagerSettings>? settings = null,
+        IMetadataRefreshService? metadataRefreshService = null)
     {
         var effectiveSettings = settings ?? _settings;
 
@@ -69,7 +72,8 @@ public class LibraryConsistencyServiceTests
                 _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object, _saveGate,
                 NullLogger<InitialsSpacingResolver>.Instance),
             new MetadataRefreshFailedResolver(
-                new Mock<IMetadataRefreshService>().Object, _issueRepository.Object,
+                metadataRefreshService ?? new Mock<IMetadataRefreshService>().Object,
+                _issueRepository.Object,
                 NullLogger<MetadataRefreshFailedResolver>.Instance),
         };
 
@@ -430,6 +434,37 @@ public class LibraryConsistencyServiceTests
             .ReturnsAsync(new List<ConsistencyIssue>());
 
         await _service.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingDescTxt));
+    }
+
+    [TestMethod]
+    public async Task ResolveIssues_DailyLimitHit_CountsAsFailedNotSucceeded()
+    {
+        // Regression (PR #1380 review round 2): the resolver reports a spent daily budget as a
+        // normal non-throwing result, so the bulk sweep must consult the scope - counting every
+        // limited issue as "succeeded" would toast "Resolved N issues (0 failed)" while nothing
+        // was refreshed and every issue row is left stale.
+        var issues = new List<ConsistencyIssue>
+        {
+            MakeIssue(81, 9101, ConsistencyIssueType.MetadataRefreshFailed),
+            MakeIssue(82, 9102, ConsistencyIssueType.MetadataRefreshFailed),
+            MakeIssue(83, 9103, ConsistencyIssueType.MetadataRefreshFailed),
+        };
+        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MetadataRefreshFailed))
+            .ReturnsAsync(issues);
+
+        var refreshService = new Mock<IMetadataRefreshService>();
+        refreshService
+            .Setup(s => s.RefreshAudiobookAsync(It.IsAny<long>()))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
+
+        var service = CreateService(metadataRefreshService: refreshService.Object);
+
+        var (processed, resolved, failed) = await service.ResolveIssuesByType(
+            nameof(ConsistencyIssueType.MetadataRefreshFailed));
+
+        Assert.AreEqual(3, processed);
+        Assert.AreEqual(0, resolved, "nothing was refreshed; none of these may count as resolved");
+        Assert.AreEqual(3, failed);
     }
 
     // Regression test for the N+1: ResolveIssuesByType loaded every issue *with* its audiobook

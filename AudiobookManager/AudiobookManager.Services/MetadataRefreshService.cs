@@ -243,7 +243,20 @@ public class MetadataRefreshService : IMetadataRefreshService
             staleIssue.Description = "Metadata refresh failed";
             staleIssue.ActualValue = error;
             staleIssue.DetectedAt = DateTime.UtcNow;
-            await _issueRepository.UpdateAsync(staleIssue);
+
+            try
+            {
+                await _issueRepository.UpdateAsync(staleIssue);
+            }
+            catch (KeyNotFoundException)
+            {
+                // The stale issue was deleted between the read above and this update - a
+                // concurrent resolve of the same book succeeded in the meantime. The row is
+                // gone, which is at least as current as the error we were about to write;
+                // bookkeeping only, so this must not fail the refresh attempt (UpdateAsync's
+                // fail-fast would otherwise surface as a bogus 404 from the single-book
+                // endpoint, which maps KeyNotFoundException to NotFound for the *book*).
+            }
         }
         else
         {

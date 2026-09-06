@@ -45,7 +45,7 @@ public class MetadataRefreshFailedResolverTests
 
         var (scope, result) = await CreateResolver().ResolveAsync(issue);
 
-        Assert.AreEqual(ResolveScope.IssueOnly, scope);
+        Assert.AreEqual(ResolveScope.NotResolved, scope);
         Assert.AreEqual("daily_limit_reached", result.ActionTaken);
         StringAssert.Contains(result.Message, "5000");
         // The failure row stays: nothing was refreshed, so there is nothing to clean up.

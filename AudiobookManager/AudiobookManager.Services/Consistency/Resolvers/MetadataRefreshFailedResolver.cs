@@ -44,11 +44,14 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
         }
         catch (HardcoverDailyLimitExceededException ex)
         {
-            // The service only re-throws this to let the bulk loop stop early; a single resolve
-            // reaches it raw and would otherwise surface as a generic 500 from the controller's
-            // catch-all - while the dedicated refresh endpoint returns the clear message. Do the
-            // same here: the issue row stays (nothing was refreshed), the message is actionable.
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            // The service only re-throws this to let the bulk refresh loop stop early; a single
+            // resolve reaches it raw and would otherwise surface as a generic 500 from the
+            // controller's catch-all - while the dedicated refresh endpoint returns the clear
+            // message. Report it as NotResolved rather than a throw: LibraryConsistencyService's
+            // bulk sweep only counts exceptions as failed, so a normal result here would count
+            // every remaining limited issue as "succeeded" - and NotResolved (rather than
+            // rethrowing) also keeps other sources' issues resolvable further down the batch.
+            return (ResolveScope.NotResolved, new ConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "daily_limit_reached",
