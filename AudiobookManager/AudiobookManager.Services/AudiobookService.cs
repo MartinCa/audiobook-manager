@@ -98,7 +98,10 @@ public class AudiobookService : IAudiobookService
         };
     }
 
-    public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction)
+    public Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction) =>
+        OrganizeAudiobook(audiobook, progressAction, false);
+
+    public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction, bool metadataAppliedFromSearch)
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
@@ -106,9 +109,9 @@ public class AudiobookService : IAudiobookService
 
         var inserted = await InsertAudiobook(newParsed);
 
-        // The client signal rode the queued-organize JSON on the domain object; only now, after
-        // the row exists, can the bookkeeping timestamp be stamped.
-        await MarkIfMetadataAppliedFromSearchAsync(audiobook, inserted.Id!.Value);
+        // The queue envelope carries the client signal; only now, after the row exists, can the
+        // bookkeeping timestamp be stamped.
+        await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, inserted.Id!.Value);
 
         await progressAction("Done", 100);
 
@@ -125,9 +128,9 @@ public class AudiobookService : IAudiobookService
         await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(id, whenUtc);
     }
 
-    private async Task MarkIfMetadataAppliedFromSearchAsync(Audiobook audiobook, long id)
+    private async Task MarkIfMetadataAppliedFromSearchAsync(bool metadataAppliedFromSearch, long id)
     {
-        if (audiobook.MetadataAppliedFromSearch)
+        if (metadataAppliedFromSearch)
         {
             await MarkMetadataRefreshedAsync(id, DateTime.UtcNow);
         }
@@ -412,7 +415,10 @@ public class AudiobookService : IAudiobookService
         return FromDb(dbAudiobook);
     }
 
-    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null)
+    public Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null) =>
+        UpdateAudiobook(id, audiobook, progressAction, false);
+
+    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction, bool metadataAppliedFromSearch)
     {
         progressAction ??= (_, _) => Task.CompletedTask;
 
@@ -455,9 +461,9 @@ public class AudiobookService : IAudiobookService
             "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
             existing.Id, existing.BookName, existing.FileInfoFullPath);
 
-        // The client signal only reaches this service through the caller-built domain object;
-        // consistency resolves and similar-value alignment never set it, so they never stamp.
-        await MarkIfMetadataAppliedFromSearchAsync(audiobook, id);
+        // Only the controller passes the online-search signal; consistency resolves and
+        // similar-value alignment use the overload without it, so they never stamp.
+        await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, id);
 
         await progressAction("Done", 100);
 

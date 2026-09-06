@@ -84,8 +84,8 @@ public class OrganizeWorkerTests
         var dequeueCount = 0;
         _organizeTaskService.Setup(s => s.GetNextQueuedOrganizeTask())
             .ReturnsAsync(() => dequeueCount++ == 0 ? task : null);
-        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
-            .ReturnsAsync((DomainAudiobook a, Func<string, int, Task> _) => a);
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>(), It.IsAny<bool>()))
+            .ReturnsAsync((DomainAudiobook a, Func<string, int, Task> _, bool __) => a);
 
         await _worker.StartAsync(CancellationToken.None);
         await WaitUntilAsync(() => dequeueCount >= 1, TimeSpan.FromSeconds(5));
@@ -103,7 +103,7 @@ public class OrganizeWorkerTests
         var dequeueCount = 0;
         _organizeTaskService.Setup(s => s.GetNextQueuedOrganizeTask())
             .ReturnsAsync(() => dequeueCount++ == 0 ? task : null);
-        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+        _audiobookService.Setup(s => s.OrganizeAudiobook(It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>(), It.IsAny<bool>()))
             .ThrowsAsync(new Exception("'/library/book.m4b' already exists"));
 
         await _worker.StartAsync(CancellationToken.None);

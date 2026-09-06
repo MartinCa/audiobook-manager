@@ -116,7 +116,7 @@ public class AudiobookControllerTests
         var dto = MakeDto();
         var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
 
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
 
         var result = await _controller.OrganizeAudiobook(dto);
 
@@ -124,7 +124,7 @@ public class AudiobookControllerTests
         _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a =>
             a.BookName == "Test Book" &&
             a.Authors.Count == 1 &&
-            a.Authors[0].Name == "Test Author")), Times.Once);
+            a.Authors[0].Name == "Test Author"), false), Times.Once);
     }
 
     // The reachable 500 this whole change started from: QueuedOrganizeTask's primary key is the
@@ -133,7 +133,7 @@ public class AudiobookControllerTests
     [TestMethod]
     public async Task OrganizeAudiobook_FileAlreadyQueued_ReturnsConflictNamingTheFile()
     {
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>()))
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>()))
             .ThrowsAsync(new OrganizeTaskAlreadyQueuedException("/import/test.m4b"));
 
         var result = await _controller.OrganizeAudiobook(MakeDto());
@@ -142,34 +142,33 @@ public class AudiobookControllerTests
         StringAssert.Contains(problem.Detail!, "/import/test.m4b");
     }
 
-    // The MetadataAppliedFromSearch client signal must ride the queued organize task on the
-    // domain object (the worker is the only place a not-yet-inserted book's id can be stamped),
-    // so MapToDomain has to carry it across from the DTO.
+    // The MetadataAppliedFromSearch client signal must be passed as explicit queue metadata,
+    // rather than attached to the mutable audiobook domain object.
     [TestMethod]
-    public async Task OrganizeAudiobook_MetadataAppliedFromSearch_CarriedOntoTheQueuedDomainBook()
+    public async Task OrganizeAudiobook_MetadataAppliedFromSearch_PassedAsExplicitQueueMetadata()
     {
         var dto = MakeDto();
         dto.MetadataAppliedFromSearch = true;
-        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow, true);
 
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), true)).ReturnsAsync(queuedTask);
 
         await _controller.OrganizeAudiobook(dto);
 
-        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.MetadataAppliedFromSearch)), Times.Once);
+        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), true), Times.Once);
     }
 
     [TestMethod]
-    public async Task OrganizeAudiobook_WithoutTheFlag_TheQueuedDomainBookDoesNotCarryIt()
+    public async Task OrganizeAudiobook_WithoutTheFlag_PassesFalseQueueMetadata()
     {
         var dto = MakeDto();
         var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
 
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), false)).ReturnsAsync(queuedTask);
 
         await _controller.OrganizeAudiobook(dto);
 
-        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a => !a.MetadataAppliedFromSearch)), Times.Once);
+        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), false), Times.Once);
     }
 
     [TestMethod]
@@ -239,7 +238,7 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/Some Series/Book 02 - 2024 - Updated Book Name/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false)).ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
 
         var result = _controller.UpdateAudiobook(1, dto);
@@ -254,14 +253,13 @@ public class AudiobookControllerTests
             a.BookName == "Updated Book Name" &&
             a.Series == "Some Series" &&
             a.SeriesPart == "2" &&
-            a.Year == 2024), It.IsAny<Func<string, int, Task>>()), Times.Once);
+            a.Year == 2024), It.IsAny<Func<string, int, Task>>(), false), Times.Once);
     }
 
-    // The client signal reaches UpdateAudiobook's service call only through MapToDomain, so the
-    // flag the form attached to the save must arrive on the domain object the service receives -
-    // the service stamps the bookkeeping timestamp from it after the save succeeds.
+    // The client signal reaches UpdateAudiobook as an explicit argument, not as mutable state on
+    // the domain object, so consistency/alignment callers cannot accidentally opt in.
     [TestMethod]
-    public async Task UpdateAudiobook_MetadataAppliedFromSearch_CarriedOntoTheSavedDomainBook()
+    public async Task UpdateAudiobook_MetadataAppliedFromSearch_PassedAsExplicitServiceArgument()
     {
         var dto = MakeDto();
         dto.MetadataAppliedFromSearch = true;
@@ -272,7 +270,7 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/Book 01 - 2024 - Test Book/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), true)).ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
 
         var result = _controller.UpdateAudiobook(1, dto);
@@ -283,7 +281,7 @@ public class AudiobookControllerTests
             _audiobookService.Invocations.Any(i => i.Method.Name == nameof(IAudiobookService.UpdateAudiobook)),
             TimeSpan.FromSeconds(5));
 
-        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Audiobook>(a => a.MetadataAppliedFromSearch), It.IsAny<Func<string, int, Task>>()), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), true), Times.Once);
     }
 
     [TestMethod]
@@ -296,8 +294,8 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/2024 - Test Book/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
-            .Returns((long id, Audiobook a, Func<string, int, Task> progressAction) => InvokeProgressThenReturn(progressAction, updated));
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
+            .Returns((long id, Audiobook a, Func<string, int, Task> progressAction, bool _) => InvokeProgressThenReturn(progressAction, updated));
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
 
         _controller.UpdateAudiobook(1, dto);
@@ -323,7 +321,7 @@ public class AudiobookControllerTests
     {
         var dto = MakeDto();
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .ThrowsAsync(new Exception("relocation failed"));
 
         _controller.UpdateAudiobook(1, dto);
@@ -350,7 +348,7 @@ public class AudiobookControllerTests
             2024,
             new AudiobookFileInfo("/library/Test Author/2024 - Test Book/test.m4b", "test.m4b", 1000));
 
-        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>())).ReturnsAsync(updated);
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false)).ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
             .ThrowsAsync(new Exception("recheck failed"));
 
@@ -382,7 +380,7 @@ public class AudiobookControllerTests
         var releaseSave = new TaskCompletionSource();
 
         _audiobookService
-            .Setup(s => s.UpdateAudiobook(202, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Setup(s => s.UpdateAudiobook(202, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .Returns(async () =>
             {
                 saveStarted.TrySetResult();
@@ -440,7 +438,7 @@ public class AudiobookControllerTests
         var releaseFirstSave = new TaskCompletionSource();
 
         _audiobookService
-            .Setup(s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Setup(s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .Returns(async () =>
             {
                 firstSaveStarted.TrySetResult();
@@ -471,7 +469,7 @@ public class AudiobookControllerTests
             TimeSpan.FromSeconds(5));
 
         _audiobookService.Verify(
-            s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()),
+            s => s.UpdateAudiobook(101, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false),
             Times.Once);
 
         // Poll the real condition (the gate being free) rather than assuming the background
@@ -497,7 +495,7 @@ public class AudiobookControllerTests
         var releaseBookOne = new TaskCompletionSource();
 
         _audiobookService
-            .Setup(s => s.UpdateAudiobook(102, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Setup(s => s.UpdateAudiobook(102, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .Returns(async () =>
             {
                 bookOneStarted.TrySetResult();
@@ -505,7 +503,7 @@ public class AudiobookControllerTests
                 return updated;
             });
         _audiobookService
-            .Setup(s => s.UpdateAudiobook(103, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Setup(s => s.UpdateAudiobook(103, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
             .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
@@ -534,7 +532,7 @@ public class AudiobookControllerTests
         var dto = MakeDto();
 
         _audiobookService
-            .Setup(s => s.UpdateAudiobook(104, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Setup(s => s.UpdateAudiobook(104, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .ThrowsAsync(new Exception("save blew up"));
 
         Assert.IsInstanceOfType(_controller.UpdateAudiobook(104, dto), typeof(OkResult));
@@ -560,14 +558,14 @@ public class AudiobookControllerTests
         var dto = MakeDto();
         dto.Language = posted;
         var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
 
         await _controller.OrganizeAudiobook(dto);
 
         // A value that reached the client from a scrape or an old free-text tag has to be stored
         // the same way as one picked from the language select.
         _organizeTaskService.Verify(
-            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == expected)), Times.Once);
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == expected), false), Times.Once);
     }
 
     [TestMethod]
@@ -576,14 +574,14 @@ public class AudiobookControllerTests
         var dto = MakeDto();
         dto.Language = "  German  ";
         var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
 
         await _controller.OrganizeAudiobook(dto);
 
         // The strict select cannot produce a new one, but a book already carrying an unmanaged
         // language must not lose it to an unrelated edit.
         _organizeTaskService.Verify(
-            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == "German")), Times.Once);
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == "German"), false), Times.Once);
     }
 
     [TestMethod]
@@ -595,14 +593,14 @@ public class AudiobookControllerTests
         var dto = MakeDto();
         dto.Language = posted;
         var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
-        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>())).ReturnsAsync(queuedTask);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
 
         await _controller.OrganizeAudiobook(dto);
 
         // A blank must not be persisted as a real value - it is what makes the book show up under
         // Missing Tags.
         _organizeTaskService.Verify(
-            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == null)), Times.Once);
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Language == null), false), Times.Once);
     }
 
     [TestMethod]

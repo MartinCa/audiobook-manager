@@ -61,7 +61,7 @@ public class OrganizeWorker : BackgroundService
 
                     var audiobookService = scope.ServiceProvider.GetRequiredService<IAudiobookService>();
 
-                    await audiobookService.OrganizeAudiobook(task.Audiobook, (msg, prg) => UpdateProgress(task.OriginalFileLocation, msg, prg));
+                    await audiobookService.OrganizeAudiobook(task.Audiobook, (msg, prg) => UpdateProgress(task.OriginalFileLocation, msg, prg), task.MetadataAppliedFromSearch);
 
                     await organizeTaskService.DeleteQueuedOrganizeTask(task.OriginalFileLocation);
 

@@ -1062,10 +1062,7 @@ public class AudiobookServiceTests
             new List<Person> { new Person("Author1") },
             "Test Book",
             2024,
-            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
-        {
-            MetadataAppliedFromSearch = true
-        };
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000));
 
         _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
             .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
@@ -1079,8 +1076,7 @@ public class AudiobookServiceTests
 
         var result = await _service.InsertAudiobook(audiobook);
 
-        // InsertAudiobook is also reachable outside the organize flow; only OrganizeAudiobook
-        // consumes the flag, so the plain insert must leave the bookkeeping column untouched.
+        // InsertAudiobook is also reachable outside the organize flow and has no refresh signal.
         _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.LastMetadataRefreshedAt == null)), Times.Once);
         _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()), Times.Never);
         Assert.IsNull(result.LastMetadataRefreshedAt);
@@ -1096,10 +1092,7 @@ public class AudiobookServiceTests
         File.WriteAllText(importPath, "original m4b content");
 
         var author = new Person("New Author");
-        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000))
-        {
-            MetadataAppliedFromSearch = true
-        };
+        var audiobook = new Audiobook(new List<Person> { author }, "New Book", 2024, new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000));
 
         _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
@@ -1121,7 +1114,7 @@ public class AudiobookServiceTests
             .Callback<long, DateTime?>((id, when) => stampedIds.Add((id, when!.Value)))
             .Returns(Task.CompletedTask);
 
-        await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask);
+        await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask, true);
 
         // The stamp must target the inserted row's id, and the write must happen after the insert
         // (it is the insert that makes the id exist).
@@ -1182,17 +1175,14 @@ public class AudiobookServiceTests
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
 
-        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
-        {
-            MetadataAppliedFromSearch = true
-        };
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
 
         var stampedIds = new List<(long Id, DateTime When)>();
         _audiobookRepository.Setup(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()))
             .Callback<long, DateTime?>((id, when) => stampedIds.Add((id, when!.Value)))
             .Returns(Task.CompletedTask);
 
-        await _service.UpdateAudiobook(1, updateDto);
+        await _service.UpdateAudiobook(1, updateDto, null, true);
 
         Assert.AreEqual(1, stampedIds.Count);
         Assert.AreEqual(1, stampedIds[0].Id);
@@ -1238,8 +1228,6 @@ public class AudiobookServiceTests
         var domain = AudiobookService.FromDb(db);
 
         Assert.AreEqual(when, domain.LastMetadataRefreshedAt);
-        // The transient client signal must never be mapped from the DB.
-        Assert.IsFalse(domain.MetadataAppliedFromSearch);
     }
 
     #endregion

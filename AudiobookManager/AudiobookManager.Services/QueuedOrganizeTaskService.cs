@@ -97,7 +97,10 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
         return await _repository.RetryQueuedOrganizeTaskAsync(originalFileLocation);
     }
 
-    public async Task<QueuedOrganizeTask> QueueOrganizeTask(Audiobook audiobook)
+    public Task<QueuedOrganizeTask> QueueOrganizeTask(Audiobook audiobook) =>
+        QueueOrganizeTask(audiobook, false);
+
+    public async Task<QueuedOrganizeTask> QueueOrganizeTask(Audiobook audiobook, bool metadataAppliedFromSearch)
     {
         var originalFileLocation = audiobook.FileInfo.FullPath;
 
@@ -108,7 +111,7 @@ public class QueuedOrganizeTaskService : IQueuedOrganizeTaskService
             throw new OrganizeTaskAlreadyQueuedException(originalFileLocation);
         }
 
-        var domainModel = new QueuedOrganizeTask(originalFileLocation, audiobook, DateTime.UtcNow);
+        var domainModel = new QueuedOrganizeTask(originalFileLocation, audiobook, DateTime.UtcNow, metadataAppliedFromSearch);
         var dbEntity = domainModel.ToDb();
 
         try

@@ -6,6 +6,7 @@ public interface IAudiobookService
     Audiobook ParseAudiobook(string filePath, bool includeCoverData = true);
 
     Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction);
+    Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction, bool metadataAppliedFromSearch);
 
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
 
@@ -14,6 +15,7 @@ public interface IAudiobookService
     Task<TargetPathCollisionResult> CheckTargetPathCollision(Audiobook audiobook);
 
     Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null);
+    Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction, bool metadataAppliedFromSearch);
 
     /// <summary>
     /// Bookkeeping-only column write: "metadata was last applied/checked against an online

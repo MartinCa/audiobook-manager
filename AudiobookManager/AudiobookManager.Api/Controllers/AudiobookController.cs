@@ -52,7 +52,7 @@ public class AudiobookController : ControllerBase
 
         try
         {
-            var task = await _organizeTaskService.QueueOrganizeTask(book);
+            var task = await _organizeTaskService.QueueOrganizeTask(book, dto.MetadataAppliedFromSearch);
             return Ok(task.OriginalFileLocation);
         }
         catch (OrganizeTaskAlreadyQueuedException ex)
@@ -102,7 +102,7 @@ public class AudiobookController : ControllerBase
                 Task ProgressAction(string message, int progress) =>
                     _organizeHub.Clients.All.AudiobookSaveProgress(new AudiobookSaveProgress(id, message, progress));
 
-                await audiobookService.UpdateAudiobook(id, book, ProgressAction);
+                await audiobookService.UpdateAudiobook(id, book, ProgressAction, dto.MetadataAppliedFromSearch);
 
                 try
                 {
@@ -230,8 +230,7 @@ public class AudiobookController : ControllerBase
             Asin = dto.Asin,
             Www = dto.Www,
             Cover = cover,
-            ReplaceExisting = dto.ReplaceExisting,
-            MetadataAppliedFromSearch = dto.MetadataAppliedFromSearch
+            ReplaceExisting = dto.ReplaceExisting
         };
     }
 }

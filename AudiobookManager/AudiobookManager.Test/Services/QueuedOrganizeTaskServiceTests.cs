@@ -43,12 +43,28 @@ public class QueuedOrganizeTaskServiceTests
             if (File.Exists(path))
             {
                 File.Delete(path);
+
             }
         }
     }
 
     private static Audiobook MakeBook(string path) =>
         new(new List<Person>(), "A Book", 2024, new AudiobookFileInfo(path, Path.GetFileName(path), 1000));
+
+    [TestMethod]
+    public async Task QueueOrganizeTask_MetadataAppliedFromSearch_SurvivesQueueBoundaryWithoutMutatingAudiobook()
+    {
+        var queued = await _service.QueueOrganizeTask(MakeBook("/import/metadata.m4b"), true);
+
+        Assert.IsTrue(queued.MetadataAppliedFromSearch);
+        Assert.IsFalse(queued.Audiobook.GetType().GetProperties().Any(p => p.Name == "MetadataAppliedFromSearch"));
+
+        var reloaded = await _service.GetNextQueuedOrganizeTask();
+
+        Assert.IsNotNull(reloaded);
+        Assert.IsTrue(reloaded!.MetadataAppliedFromSearch);
+        Assert.AreEqual("A Book", reloaded.Audiobook.BookName);
+    }
 
     [TestMethod]
     public async Task QueueOrganizeTask_QueuesTheFile()

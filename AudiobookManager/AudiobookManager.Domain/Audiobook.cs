@@ -31,15 +31,6 @@ public class Audiobook
     /// </summary>
     public DateTime? LastMetadataRefreshedAt { get; set; }
 
-    /// <summary>
-    /// Transient client signal (OrganizeAudiobookDto.MetadataAppliedFromSearch), never persisted
-    /// and never mapped from the DB: "the user applied fields from a metadata search result, and
-    /// this save carries it". Rides the queued-organize JSON so the worker can stamp the
-    /// timestamp after the book row exists. Consumed and cleared by OrganizeAudiobook and
-    /// UpdateAudiobook; leave it false when building a book for consistency resolves/alignment.
-    /// </summary>
-    public bool MetadataAppliedFromSearch { get; set; }
-
     public AudiobookFileInfo FileInfo { get; set; }
 
     public Audiobook(List<Person> authors, string? bookName, int? year, AudiobookFileInfo fileInfo)
