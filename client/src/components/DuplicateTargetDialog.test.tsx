@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
@@ -63,6 +64,47 @@ describe("DuplicateTargetDialog", () => {
     const confirmBtn = screen.getByText("Confirm Delete");
     fireEvent.click(confirmBtn);
     expect(onDeleteNew).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the confirmation view when closed and reopened", async () => {
+    const onDeleteNew = vi.fn();
+
+    function ControlledDialog() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Reopen duplicate dialog
+          </button>
+          <DuplicateTargetDialog
+            open={open}
+            onOpenChange={setOpen}
+            newPath="/staging/audiobook.m4b"
+            newSizeInBytes={50000000}
+            targetPath="/library/Author/audiobook.m4b"
+            onReplaceExisting={vi.fn()}
+            onDeleteNew={onDeleteNew}
+          />
+        </>
+      );
+    }
+
+    vi.mocked(filesApi.getDirectoryContents).mockResolvedValue([]);
+    renderWithClient(<ControlledDialog />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete new file" }));
+    expect(await screen.findByText("Confirm Deletion of New File")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Delete" }));
+    await waitFor(() => expect(onDeleteNew).toHaveBeenCalledOnce());
+
+    expect(screen.queryByText("Confirm Deletion of New File")).not.toBeInTheDocument();
+
+    // Reopening the same mounted dialog must start at the comparison view for the next book.
+    fireEvent.click(screen.getByRole("button", { name: "Reopen duplicate dialog" }));
+    expect(screen.getByRole("button", { name: "Delete new file" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete new file" }));
+    expect(screen.getByText("Confirm Deletion of New File")).toBeInTheDocument();
   });
 
   it("does not render Delete new file button if onDeleteNew is not provided", () => {
