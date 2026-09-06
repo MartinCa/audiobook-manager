@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { DiffDisplay } from "./DiffDisplay";
+import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 
 describe("DiffDisplay", () => {
   it("renders identical text without addition/removal classes", () => {
@@ -14,5 +14,20 @@ describe("DiffDisplay", () => {
     const { container } = render(<DiffDisplay actual="Bran" expected="Brandon" />);
     expect(container.querySelector(".text-emerald-600")).toBeInTheDocument();
     expect(screen.getByText("don")).toBeInTheDocument();
+  });
+
+  it("renders a separate diff block for each TagMismatch field", () => {
+    const { container } = render(
+      <TagMismatchDiffDisplay
+        description="m4b tags do not match library metadata: Publisher, Rating"
+        expected="Publisher: Head of Zeus\nRating: 4.5"
+        actual="Publisher: Macmillan Audio\nRating: 4.4"
+      />,
+    );
+
+    expect(screen.getByText("Publisher")).toBeInTheDocument();
+    expect(screen.getByText("Rating")).toBeInTheDocument();
+    expect(container.querySelectorAll(".bg-muted\\/50")).toHaveLength(2);
+    expect(screen.queryByText(/Publisher:.*Rating/)).toBeNull();
   });
 });
