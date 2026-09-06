@@ -148,17 +148,19 @@ public class SettingsServiceTests
         foreach (var spacing in new[] { DomainInitialsSpacing.Spaced, DomainInitialsSpacing.Unspaced })
         {
             _librarySettingsRepository
-                .Setup(r => r.UpdateAsync(It.IsAny<DbInitialsSpacing>()))
-                .ReturnsAsync((DbInitialsSpacing s) => new DbLibrarySettings(1, s));
+                .Setup(r => r.UpdateAsync(It.IsAny<DbInitialsSpacing>(), It.IsAny<int>()))
+                .ReturnsAsync((DbInitialsSpacing s, int delayMs) => new DbLibrarySettings(1, s, delayMs));
 
-            var result = await _service.UpdateLibrarySettings(new DomainLibrarySettings { InitialsSpacing = spacing });
+            var result = await _service.UpdateLibrarySettings(
+                new DomainLibrarySettings { InitialsSpacing = spacing, MetadataRefreshDelayMs = 2500 });
 
             Assert.AreEqual(spacing, result.InitialsSpacing);
         }
 
+        // The delay rides along with the spacing through the same update - not a second write path.
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Spaced), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Spaced, 2500), Times.Once);
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Unspaced), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, 2500), Times.Once);
     }
 }

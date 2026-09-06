@@ -8,5 +8,5 @@ public interface ILibrarySettingsRepository
     Task<LibrarySettings> GetOrCreateAsync();
 
     /// <summary>Updates the settings row (creating it if missing) and returns the saved row.</summary>
-    Task<LibrarySettings> UpdateAsync(InitialsSpacing initialsSpacing);
+    Task<LibrarySettings> UpdateAsync(InitialsSpacing initialsSpacing, int metadataRefreshDelayMs);
 }

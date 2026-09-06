@@ -190,6 +190,24 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .ToListAsync();
     }
 
+    public async Task UpdateAsync(ConsistencyIssue issue)
+    {
+        // The caller typically hands back an entity this context did not track (GetByAudiobookIdAsync
+        // is AsNoTracking), so attach-and-mark rather than assuming tracked state.
+        var tracked = _db.ChangeTracker.Entries<ConsistencyIssue>()
+            .FirstOrDefault(e => e.Entity.Id == issue.Id)?.Entity ?? issue;
+        if (!ReferenceEquals(tracked, issue))
+        {
+            _db.Entry(tracked).CurrentValues.SetValues(issue);
+        }
+        else if (_db.Entry(issue).State == EntityState.Detached)
+        {
+            _db.Update(issue);
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
     private void DetachTracked(Func<ConsistencyIssue, bool>? predicate = null)
     {
         foreach (var entry in _db.ChangeTracker.Entries<ConsistencyIssue>()

@@ -425,6 +425,18 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
     }
 
+    public async Task<List<MetadataRefreshEligibleBook>> GetBooksEligibleForMetadataRefreshAsync(DateTime? staleBeforeUtc)
+    {
+        return await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Www != null && a.Www != "" &&
+                (staleBeforeUtc == null || a.LastMetadataRefreshedAt == null || a.LastMetadataRefreshedAt < staleBeforeUtc))
+            .OrderBy(a => a.LastMetadataRefreshedAt)
+            .ThenBy(a => a.Id)
+            .Select(a => new MetadataRefreshEligibleBook(a.Id, a.Www, a.LastMetadataRefreshedAt))
+            .ToListAsync();
+    }
+
     /// <summary>
     /// Sets just the language column.
     ///

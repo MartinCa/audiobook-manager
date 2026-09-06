@@ -133,4 +133,17 @@ public class Client : IOrganize
         Console.WriteLine($"Audiobook {error.AudiobookId} save error: {error.Error}");
         return Task.CompletedTask;
     }
+
+    public Task MetadataRefreshProgress(MetadataRefreshProgress progress)
+    {
+        Console.WriteLine($"Metadata refresh: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task MetadataRefreshComplete(MetadataRefreshComplete result)
+    {
+        var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
+        Console.WriteLine($"Metadata refresh complete: {result.TotalProcessed}/{result.Total} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
+        return Task.CompletedTask;
+    }
 }

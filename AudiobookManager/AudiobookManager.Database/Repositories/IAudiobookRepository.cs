@@ -52,6 +52,15 @@ public interface IAudiobookRepository
     /// </summary>
     Task<List<Audiobook>> GetBooksByPersonNamesAsync(IEnumerable<string> personNames);
     Task<List<AudiobookLanguageRef>> GetBooksMissingLanguageAsync();
+
+    /// <summary>
+    /// Books that may be due a metadata refresh, projected to the refresh engine's needs (id,
+    /// source URL, bookkeeping timestamp): a non-empty Www and either never refreshed or last
+    /// refreshed before <paramref name="staleBeforeUtc"/>. Projects in SQL rather than loading
+    /// entity graphs - eligibility filtering must not materialize descriptions for books the
+    /// caller filters out.
+    /// </summary>
+    Task<List<MetadataRefreshEligibleBook>> GetBooksEligibleForMetadataRefreshAsync(DateTime? staleBeforeUtc);
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateLanguageAsync(long id, string? language);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);

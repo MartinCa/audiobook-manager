@@ -119,7 +119,7 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object);
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced"));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", 1000));
 
         Assert.IsNotNull(result);
         service.Verify(s => s.UpdateLibrarySettings(
@@ -132,7 +132,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object);
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced"));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", 1000));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -147,7 +147,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object);
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, 1000));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);

@@ -68,6 +68,9 @@ public class LibraryConsistencyServiceTests
             new InitialsSpacingResolver(
                 _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object, _saveGate,
                 NullLogger<InitialsSpacingResolver>.Instance),
+            new MetadataRefreshFailedResolver(
+                new Mock<IMetadataRefreshService>().Object, _issueRepository.Object,
+                NullLogger<MetadataRefreshFailedResolver>.Instance),
         };
 
         var orphanDirectoryConsistencyService = new OrphanDirectoryConsistencyService(
