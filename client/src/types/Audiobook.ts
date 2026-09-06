@@ -37,6 +37,11 @@ export interface Audiobook {
 
   replaceExisting?: boolean;
 
+  // Transient save-signal, not book data: "fields on this save were applied from a metadata
+  // search result". Set by BookEditForm when TagPreviewDialog fields are applied, cleared
+  // after the save that carried it; toAudiobookDto forwards it, toPathPreviewDto ignores it.
+  metadataAppliedFromSearch?: boolean;
+
   fileInfo?: BookFileInfo;
 }
 

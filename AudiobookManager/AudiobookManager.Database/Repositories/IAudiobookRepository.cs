@@ -55,6 +55,9 @@ public interface IAudiobookRepository
     Task UpdateFilePathAsync(long id, string newFullPath, string newFileName);
     Task UpdateLanguageAsync(long id, string? language);
     Task UpdateCoverFilePathAsync(long id, string? coverFilePath);
+
+    /// <summary>Bookkeeping-only column write; see <see cref="UpdateLanguageAsync"/> for why a direct write is safe here.</summary>
+    Task UpdateLastMetadataRefreshedAtAsync(long id, DateTime? whenUtc);
     Task DeleteAudiobookAsync(long id);
     Task UpdateAudiobookAsync(Audiobook audiobook);
 }

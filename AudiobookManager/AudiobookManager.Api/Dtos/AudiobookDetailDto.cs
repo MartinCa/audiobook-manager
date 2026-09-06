@@ -21,5 +21,6 @@ public record AudiobookDetailDto(
     int? DurationInSeconds,
     string FilePath,
     string FileName,
-    long SizeInBytes
+    long SizeInBytes,
+    DateTime? LastMetadataRefreshedAt
 );

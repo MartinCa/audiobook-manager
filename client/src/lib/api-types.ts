@@ -2943,6 +2943,9 @@ export interface components {
             /** Format: int32 */
             durationInSeconds?: number | null;
             replaceExisting?: boolean | null;
+            /** Format: date-time */
+            lastMetadataRefreshedAt?: string | null;
+            metadataAppliedFromSearch?: boolean;
             fileInfo?: components["schemas"]["AudiobookFileInfo"];
         };
         AudiobookDetailDto: {
@@ -2971,6 +2974,8 @@ export interface components {
             fileName?: string | null;
             /** Format: int64 */
             sizeInBytes?: number;
+            /** Format: date-time */
+            lastMetadataRefreshedAt?: string | null;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -3275,6 +3280,7 @@ export interface components {
             /** Format: int64 */
             sizeInBytes?: number;
             replaceExisting?: boolean;
+            metadataAppliedFromSearch?: boolean;
         };
         OrphanDirectoryDto: {
             /** Format: int64 */

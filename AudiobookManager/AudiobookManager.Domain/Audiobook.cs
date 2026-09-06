@@ -24,6 +24,13 @@ public class Audiobook
     public int? DurationInSeconds { get; set; }
     public bool? ReplaceExisting { get; set; }
 
+    /// <summary>
+    /// UTC timestamp of the last time this book's metadata was applied/checked against an online
+    /// source. Set only by AudiobookService.MarkMetadataRefreshedAsync - never from request DTOs
+    /// and never written by the normal insert/update pipeline (it stays null there).
+    /// </summary>
+    public DateTime? LastMetadataRefreshedAt { get; set; }
+
     public AudiobookFileInfo FileInfo { get; set; }
 
     public Audiobook(List<Person> authors, string? bookName, int? year, AudiobookFileInfo fileInfo)

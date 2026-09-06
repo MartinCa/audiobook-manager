@@ -98,17 +98,42 @@ public class AudiobookService : IAudiobookService
         };
     }
 
-    public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction)
+    public Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction) =>
+        OrganizeAudiobook(audiobook, progressAction, false);
+
+    public async Task<Audiobook> OrganizeAudiobook(Audiobook audiobook, Func<string, int, Task> progressAction, bool metadataAppliedFromSearch)
     {
         var oldDirectory = Path.GetDirectoryName(audiobook.FileInfo.FullPath);
 
         var newParsed = await WriteTagsRelocateAndWriteSidecarsAsync(audiobook, oldDirectory, progressAction);
 
-        await InsertAudiobook(newParsed);
+        var inserted = await InsertAudiobook(newParsed);
+
+        // The queue envelope carries the client signal; only now, after the row exists, can the
+        // bookkeeping timestamp be stamped.
+        await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, inserted.Id!.Value);
 
         await progressAction("Done", 100);
 
         return newParsed;
+    }
+
+    /// <summary>
+    /// Bookkeeping stamp for "this save carried metadata applied from an online search result".
+    /// A plain column write - deliberately not part of the tag/file pipeline, because the
+    /// timestamp is not a tag and must never influence GenerateRelativeAudiobookPath.
+    /// </summary>
+    public async Task MarkMetadataRefreshedAsync(long id, DateTime whenUtc)
+    {
+        await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(id, whenUtc);
+    }
+
+    private async Task MarkIfMetadataAppliedFromSearchAsync(bool metadataAppliedFromSearch, long id)
+    {
+        if (metadataAppliedFromSearch)
+        {
+            await MarkMetadataRefreshedAsync(id, DateTime.UtcNow);
+        }
     }
 
     /// <summary>
@@ -390,7 +415,10 @@ public class AudiobookService : IAudiobookService
         return FromDb(dbAudiobook);
     }
 
-    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null)
+    public Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction = null) =>
+        UpdateAudiobook(id, audiobook, progressAction, false);
+
+    public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction, bool metadataAppliedFromSearch)
     {
         progressAction ??= (_, _) => Task.CompletedTask;
 
@@ -432,6 +460,10 @@ public class AudiobookService : IAudiobookService
         _logger.LogInformation(
             "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
             existing.Id, existing.BookName, existing.FileInfoFullPath);
+
+        // Only the controller passes the online-search signal; consistency resolves and
+        // similar-value alignment use the overload without it, so they never stamp.
+        await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, id);
 
         await progressAction("Done", 100);
 
@@ -499,7 +531,8 @@ public class AudiobookService : IAudiobookService
             Asin = audiobookDb.Asin,
             Www = audiobookDb.Www,
             CoverFilePath = audiobookDb.CoverFilePath,
-            DurationInSeconds = audiobookDb.DurationInSeconds
+            DurationInSeconds = audiobookDb.DurationInSeconds,
+            LastMetadataRefreshedAt = audiobookDb.LastMetadataRefreshedAt
         };
     }
 

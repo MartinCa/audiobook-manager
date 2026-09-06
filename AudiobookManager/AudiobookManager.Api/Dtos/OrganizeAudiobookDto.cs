@@ -24,6 +24,13 @@ public class OrganizeAudiobookDto
     [Required] public string FileName { get; set; } = null!;
     public long SizeInBytes { get; set; }
     public bool ReplaceExisting { get; set; } = false;
+
+    /// <summary>
+    /// Client signal, not a tag: "fields on this save were applied from a metadata search result".
+    /// The controller maps it onto the domain object; the service stamps the bookkeeping
+    /// timestamp after the save succeeds. The timestamp itself is never accepted from clients.
+    /// </summary>
+    public bool MetadataAppliedFromSearch { get; set; } = false;
 }
 
 public class OrganizeAudiobookCoverDto

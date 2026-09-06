@@ -454,6 +454,22 @@ public class AudiobookRepository : IAudiobookRepository
         }
     }
 
+    /// <summary>
+    /// Bookkeeping-only column write. A direct write is deliberate and safe, exactly as for
+    /// <see cref="UpdateLanguageAsync"/>: the timestamp plays no part in
+    /// <c>GenerateRelativeAudiobookPath</c> and is not an m4b tag, so nothing can desync a file
+    /// from its record.
+    /// </summary>
+    public async Task UpdateLastMetadataRefreshedAtAsync(long id, DateTime? whenUtc)
+    {
+        var audiobook = await _db.Audiobooks.FindAsync(id);
+        if (audiobook != null)
+        {
+            audiobook.LastMetadataRefreshedAt = whenUtc;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task DeleteAudiobookAsync(long id)
     {
         var audiobook = await _db.Audiobooks.FindAsync(id);

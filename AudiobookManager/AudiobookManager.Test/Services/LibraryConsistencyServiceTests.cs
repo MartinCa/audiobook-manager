@@ -2341,7 +2341,7 @@ public class LibraryConsistencyServiceTests
         await Assert.ThrowsExactlyAsync<AudiobookBusyException>(
             () => _service.ResolveTagMismatchSelectivelyAsync(5, new Dictionary<string, string?> { ["Year"] = "2021" }));
         _audiobookService.Verify(
-            s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()),
+            s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>(), It.IsAny<bool>()),
             Times.Never);
     }
 

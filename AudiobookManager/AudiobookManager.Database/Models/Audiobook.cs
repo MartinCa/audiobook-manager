@@ -70,6 +70,14 @@ public class Audiobook
     [Column("file_info_size_in_bytes")]
     public long FileInfoSizeInBytes { get; set; }
 
+    /// <summary>
+    /// Bookkeeping only (UTC): when metadata was last applied/checked against an online source.
+    /// Not part of any m4b tag or generated library path - written exclusively by
+    /// AudiobookService.MarkMetadataRefreshedAsync, never from request DTOs.
+    /// </summary>
+    [Column("last_metadata_refreshed_at")]
+    public DateTime? LastMetadataRefreshedAt { get; set; }
+
     // Accent-folded shadow columns, kept in sync with BookName/Subtitle/Series/Description by
     // AccentFoldedColumnsInterceptor (a SaveChangesInterceptor, so it catches every save
     // regardless of which repository or EF cascade produced it) rather than computed by SQLite:

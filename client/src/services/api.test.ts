@@ -52,6 +52,16 @@ describe("api service mappings and contracts", () => {
       expect(replaceDto.replaceExisting).toBe(true);
     });
 
+    it("forwards the one-shot metadataAppliedFromSearch signal only when set", () => {
+      // Default (a save that carried no applied search result) must send false explicitly - the
+      // backend's DTO default is false anyway, but sending the field keeps the contract visible.
+      const plain = toAudiobookDto(sampleAudiobook);
+      expect(plain.metadataAppliedFromSearch).toBe(false);
+
+      const applied = toAudiobookDto({ ...sampleAudiobook, metadataAppliedFromSearch: true });
+      expect(applied.metadataAppliedFromSearch).toBe(true);
+    });
+
     it("serializes Audiobook to lightweight path preview DTO", () => {
       const previewDto = toPathPreviewDto(sampleAudiobook);
       expect(previewDto.authors).toEqual(["Brandon Sanderson"]);
@@ -61,6 +71,9 @@ describe("api service mappings and contracts", () => {
       expect(previewDto.year).toBe(2010);
       expect((previewDto as Record<string, unknown>).description).toBeUndefined();
       expect((previewDto as Record<string, unknown>).cover).toBeUndefined();
+      // Send only what the endpoint reads: the preview endpoints are hit on a debounced
+      // keystroke watcher, so the bookkeeping signal must not ride along.
+      expect((previewDto as Record<string, unknown>).metadataAppliedFromSearch).toBeUndefined();
     });
   });
 
