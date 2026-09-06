@@ -93,6 +93,28 @@ public class HardcoverScraper : IScraper
             }
         }
 
+        // One mapping call for the whole result set, not per hit: the mapper is scoped and
+        // shared by the concurrent scrapers in SearchMultiple, and its own comments document
+        // the DbContext single-operation constraint that a per-hit fan-out would stress
+        // (AudibleScraper.Search made exactly that mistake with one await per hit).
+        try
+        {
+            var allSeries = results.SelectMany(r => r.Series ?? []).ToList();
+            var mapped = await _bookSeriesMapper.MapBookSeries(allSeries);
+
+            var mappedIndex = 0;
+            foreach (var result in results)
+            {
+                var count = result.Series?.Count ?? 0;
+                result.Series = mapped.Skip(mappedIndex).Take(count).ToList();
+                mappedIndex += count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to map series names for Hardcover search results");
+        }
+
         return results;
     }
 
@@ -689,9 +711,115 @@ public class HardcoverScraper : IScraper
             ImageUrl = imageUrl,
             Rating = rating,
             NumberOfRatings = numberOfRatings,
-            Series = new List<MetadataSeriesSearchResult>(),
+            Series = ParseSearchHitSeries(document),
             Genres = new List<string>(),
         };
+    }
+
+    /// <summary>
+    /// Series info straight from the Typesense search document, so the results preview can
+    /// show it without the extra GetBookDetails query the Audible scraper avoids too. The
+    /// search document carries the featured series (a book_series-shaped object with
+    /// position + nested series.name) and a flat series_names list without positions.
+    /// Confirmed live: absent is null or {} - never a throw - and position is a float.
+    /// </summary>
+    private static IList<MetadataSeriesSearchResult> ParseSearchHitSeries(JsonElement document)
+    {
+        var series = new List<MetadataSeriesSearchResult>();
+
+        // The book_series-shaped featured object; also tolerate a string-encoded JSON
+        // variant, mirroring how cached_image/cached_tags sometimes arrive in this API.
+        if (document.TryGetProperty("featured_series", out var featuredElement))
+        {
+            JsonElement? featuredObj = featuredElement.ValueKind switch
+            {
+                JsonValueKind.Object => featuredElement,
+                JsonValueKind.String when TryDeserializeJson(featuredElement.GetString(), out var parsed) => parsed,
+                _ => null,
+            };
+
+            if (featuredObj is not null &&
+                featuredObj.Value.TryGetProperty("series", out var seriesElement) &&
+                seriesElement.ValueKind == JsonValueKind.Object)
+            {
+                var name = seriesElement.GetPropertyValueOrNull("name");
+                if (!string.IsNullOrEmpty(name))
+                {
+                    series.Add(new MetadataSeriesSearchResult(name)
+                    {
+                        SeriesPart = FormatSeriesPosition(
+                            featuredObj.Value.TryGetProperty("position", out var positionElement)
+                                ? positionElement
+                                : default),
+                    });
+                }
+            }
+        }
+
+        if (document.TryGetProperty("series_names", out var seriesNamesElement) &&
+            seriesNamesElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var nameElement in seriesNamesElement.EnumerateArray())
+            {
+                var name = nameElement.GetString();
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                // The featured entry already carries this series (with its position).
+                if (series.Any(s => string.Equals(s.SeriesName, name, StringComparison.InvariantCultureIgnoreCase)))
+                {
+                    continue;
+                }
+
+                series.Add(new MetadataSeriesSearchResult(name));
+            }
+        }
+
+        return series;
+    }
+
+    private static bool TryDeserializeJson(string? json, out JsonElement element)
+    {
+        element = default;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            element = JsonSerializer.Deserialize<JsonElement>(json);
+            return element.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Formats a book_series position the same way <see cref="ParseSeries"/> does for the
+    /// details path - 5.0 becomes "5", 5.5 stays "5.5" - so search preview and details
+    /// never disagree about the part value for the same book.
+    /// </summary>
+    private static string? FormatSeriesPosition(JsonElement positionElement)
+    {
+        if (positionElement.ValueKind == JsonValueKind.Number)
+        {
+            var posValue = positionElement.GetSingle();
+            return posValue == Math.Floor(posValue)
+                ? ((int)posValue).ToString(CultureInfo.InvariantCulture)
+                : posValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (positionElement.ValueKind == JsonValueKind.String)
+        {
+            return positionElement.GetString();
+        }
+
+        return null;
     }
 
     private async Task<MetadataSearchResult> ParseBookDetails(JsonElement bookElement, string bookUrl)
@@ -1038,25 +1166,10 @@ public class HardcoverScraper : IScraper
                 continue;
             }
 
-            string? position = null;
-            if (bs.TryGetProperty("position", out var positionElement))
-            {
-                if (positionElement.ValueKind == JsonValueKind.Number)
-                {
-                    var posValue = positionElement.GetSingle();
-                    position = posValue == Math.Floor(posValue)
-                        ? ((int)posValue).ToString(CultureInfo.InvariantCulture)
-                        : posValue.ToString(CultureInfo.InvariantCulture);
-                }
-                else if (positionElement.ValueKind == JsonValueKind.String)
-                {
-                    position = positionElement.GetString();
-                }
-            }
-
             series.Add(new MetadataSeriesSearchResult(seriesName)
             {
-                SeriesPart = position
+                SeriesPart = FormatSeriesPosition(
+                    bs.TryGetProperty("position", out var positionElement) ? positionElement : default)
             });
         }
 

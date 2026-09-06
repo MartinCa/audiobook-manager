@@ -137,6 +137,263 @@ public class HardcoverScraperTests
         Assert.AreEqual(0, results.Count);
     }
 
+    // ---------- Search() series parsing ----------
+
+    // Shapes confirmed live against the API (2026-09): featured_series is an object with a
+    // nested series.name and a float position; absent is null or {} (box-set/compilation hits);
+    // series_names is a flat name list with no positions.
+    private const string _searchResponseWithSeriesJson = """
+        {
+          "data": {
+            "search": {
+              "results": {
+                "hits": [
+                  {
+                    "document": {
+                      "id": "123",
+                      "slug": "ashes-of-man",
+                      "title": "Ashes of Man",
+                      "author_names": ["Christopher Ruocchio"],
+                      "series_names": ["The Sun Eater"],
+                      "featured_series": {
+                        "collection": false,
+                        "featured": true,
+                        "id": 100075,
+                        "position": 5.0,
+                        "series": {
+                          "id": 6522,
+                          "name": "The Sun Eater",
+                          "slug": "the-sun-eater",
+                          "books_count": 18,
+                          "primary_books_count": 7
+                        }
+                      },
+                      "featured_series_position": 5.0
+                    }
+                  },
+                  {
+                    "document": {
+                      "id": "456",
+                      "title": "Sun Eater Series 5 Books Set",
+                      "author_names": ["Christopher Ruocchio"],
+                      "series_names": [],
+                      "featured_series": {},
+                      "featured_series_position": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """;
+
+    [TestMethod]
+    public async Task Search_ExtractsSeriesFromFeaturedSeriesInSearchDocument()
+    {
+        var target = CreateScraper(_searchResponseWithSeriesJson, out _);
+
+        var results = await target.Search("ashes of man");
+
+        var withSeries = results.Single(r => r.BookName == "Ashes of Man");
+        Assert.AreEqual(1, withSeries.Series!.Count);
+        Assert.AreEqual("The Sun Eater", withSeries.Series.Single().SeriesName);
+        Assert.AreEqual("5", withSeries.Series.Single().SeriesPart);
+    }
+
+    [TestMethod]
+    public async Task Search_EmptyFeaturedSeriesObject_YieldsNoSeries()
+    {
+        var target = CreateScraper(_searchResponseWithSeriesJson, out _);
+
+        var results = await target.Search("sun eater set");
+
+        // The box-set hit: featured_series is {} and series_names is [] - the
+        // "present but empty" shape the API returns instead of null.
+        var boxSet = results.Single(r => r.BookName == "Sun Eater Series 5 Books Set");
+        Assert.AreEqual(0, boxSet.Series!.Count);
+    }
+
+    [TestMethod]
+    public async Task Search_SeriesNamesWithoutFeaturedSeries_YieldsNameOnlyEntries()
+    {
+        var responseJson = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "789",
+                          "title": "Multi Series Book",
+                          "series_names": ["The Sun Eater", "Empire of Silence"]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(responseJson, out _);
+
+        var results = await target.Search("multi series book");
+
+        var series = results.Single().Series!;
+        Assert.AreEqual(2, series.Count);
+        Assert.AreEqual("The Sun Eater", series[0].SeriesName);
+        Assert.IsNull(series[0].SeriesPart);
+        Assert.AreEqual("Empire of Silence", series[1].SeriesName);
+        Assert.IsNull(series[1].SeriesPart);
+    }
+
+    [TestMethod]
+    public async Task Search_SeriesNames_DeduplicatesAgainstFeaturedSeries()
+    {
+        var responseJson = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "789",
+                          "title": "Dedup Book",
+                          "series_names": ["the sun eater", "Other Series"],
+                          "featured_series": {
+                            "position": 2,
+                            "series": { "id": 1, "name": "The Sun Eater" }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(responseJson, out _);
+
+        var results = await target.Search("dedup");
+
+        var series = results.Single().Series!;
+        Assert.AreEqual(2, series.Count);
+        // The featured entry wins - it carries the position; the flat name is dropped.
+        Assert.AreEqual("The Sun Eater", series[0].SeriesName);
+        Assert.AreEqual("2", series[0].SeriesPart);
+        Assert.AreEqual("Other Series", series[1].SeriesName);
+    }
+
+    [TestMethod]
+    public async Task Search_StringEncodedFeaturedSeries_IsParsed()
+    {
+        var responseJson = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "789",
+                          "title": "Encoded Series Book",
+                          "featured_series": "{\"position\":5.0,\"series\":{\"id\":6522,\"name\":\"The Sun Eater\"}}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(responseJson, out _);
+
+        var results = await target.Search("encoded");
+
+        var series = results.Single().Series!;
+        Assert.AreEqual(1, series.Count);
+        Assert.AreEqual("The Sun Eater", series.Single().SeriesName);
+        Assert.AreEqual("5", series.Single().SeriesPart);
+    }
+
+    [TestMethod]
+    public async Task Search_FractionalFeaturedSeriesPosition_KeepsDecimal()
+    {
+        var responseJson = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "789",
+                          "title": "Novella Book",
+                          "featured_series": {
+                            "position": 5.5,
+                            "series": { "id": 1, "name": "The Sun Eater" }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(responseJson, out _);
+
+        var results = await target.Search("novella");
+
+        Assert.AreEqual("5.5", results.Single().Series!.Single().SeriesPart);
+    }
+
+    [TestMethod]
+    public async Task Search_MapsAllSeriesThroughBookSeriesMapperInOneCall()
+    {
+        // Own scraper + mapper mock so the mapping call can be asserted on directly.
+        var handler = new FakeHardcoverHandler(_searchResponseWithSeriesJson);
+        var httpClient = new HttpClient(handler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(f => f.CreateClient("hardcover")).Returns(httpClient);
+
+        var mapper = new Mock<IBookSeriesMapper>();
+        mapper
+            .Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
+
+        var logger = new Mock<ILogger<HardcoverScraper>>();
+        var settings = Options.Create(new AudiobookManagerSettings { HardcoverApiKey = "test-api-key" });
+
+        var target = new HardcoverScraper(httpClientFactory.Object, mapper.Object, logger.Object, settings);
+
+        var results = await target.Search("sun eater");
+
+        // One call for the whole result set (not per hit), carrying both hits' series.
+        mapper.Verify(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()), Times.Once);
+        var passedList = mapper.Invocations[0].Arguments[0] as IList<MetadataSeriesSearchResult>;
+        Assert.IsNotNull(passedList);
+        Assert.AreEqual(1, passedList.Count);
+        Assert.AreEqual("The Sun Eater", passedList.Single().SeriesName);
+
+        // And the mapped entries are written back onto the results.
+        Assert.AreEqual("The Sun Eater", results.Single(r => r.BookName == "Ashes of Man").Series!.Single().SeriesName);
+        Assert.AreEqual(0, results.Single(r => r.BookName == "Sun Eater Series 5 Books Set").Series!.Count);
+    }
+
+    [TestMethod]
+    public async Task Search_NoSeriesFields_SeriesStaysEmpty()
+    {
+        var target = CreateScraper(_searchResponseJson, out _);
+
+        var results = await target.Search("hobbit");
+
+        // Both fixture hits carry no series fields at all.
+        Assert.IsTrue(results.All(r => r.Series is null || r.Series.Count == 0));
+    }
+
     // ---------- GetBookDetails() ----------
 
     private const string _bookDetailsResponseJson = """
