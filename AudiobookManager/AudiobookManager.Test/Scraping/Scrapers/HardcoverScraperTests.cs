@@ -361,8 +361,8 @@ public class HardcoverScraperTests
 
         var mapper = new Mock<IBookSeriesMapper>();
         mapper
-            .Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
-            .Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
+            .Setup(x => x.MapBookSeriesPerBook(It.IsAny<IList<IList<MetadataSeriesSearchResult>>>()))
+            .ReturnsAsync((IList<IList<MetadataSeriesSearchResult>> books) => books);
 
         var logger = new Mock<ILogger<HardcoverScraper>>();
         var settings = Options.Create(new AudiobookManagerSettings { HardcoverApiKey = "test-api-key" });
@@ -371,14 +371,17 @@ public class HardcoverScraperTests
 
         var results = await target.Search("sun eater");
 
-        // One call for the whole result set (not per hit), carrying both hits' series.
-        mapper.Verify(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()), Times.Once);
-        var passedList = mapper.Invocations[0].Arguments[0] as IList<MetadataSeriesSearchResult>;
-        Assert.IsNotNull(passedList);
-        Assert.AreEqual(1, passedList.Count);
-        Assert.AreEqual("The Sun Eater", passedList.Single().SeriesName);
+        // One call for the whole result set (not per hit), shaped per book: group 0 is the
+        // "Ashes of Man" hit's series, group 1 the box-set hit's (empty).
+        mapper.Verify(x => x.MapBookSeriesPerBook(It.IsAny<IList<IList<MetadataSeriesSearchResult>>>()), Times.Once);
+        var passedGroups = mapper.Invocations[0].Arguments[0] as IList<IList<MetadataSeriesSearchResult>>;
+        Assert.IsNotNull(passedGroups);
+        Assert.AreEqual(2, passedGroups.Count);
+        Assert.AreEqual(1, passedGroups[0].Count);
+        Assert.AreEqual("The Sun Eater", passedGroups[0].Single().SeriesName);
+        Assert.AreEqual(0, passedGroups[1].Count);
 
-        // And the mapped entries are written back onto the results.
+        // And the mapped groups are written back onto the matching results.
         Assert.AreEqual("The Sun Eater", results.Single(r => r.BookName == "Ashes of Man").Series!.Single().SeriesName);
         Assert.AreEqual(0, results.Single(r => r.BookName == "Sun Eater Series 5 Books Set").Series!.Count);
     }

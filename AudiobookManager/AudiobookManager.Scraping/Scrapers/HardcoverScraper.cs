@@ -96,18 +96,19 @@ public class HardcoverScraper : IScraper
         // One mapping call for the whole result set, not per hit: the mapper is scoped and
         // shared by the concurrent scrapers in SearchMultiple, and its own comments document
         // the DbContext single-operation constraint that a per-hit fan-out would stress
-        // (AudibleScraper.Search made exactly that mistake with one await per hit).
+        // (AudibleScraper.Search made exactly that mistake with one await per hit). The
+        // per-book overload returns group-for-group, so each book's series stays its own
+        // instead of being re-sliced out of a flattened result on trust.
         try
         {
-            var allSeries = results.SelectMany(r => r.Series ?? []).ToList();
-            var mapped = await _bookSeriesMapper.MapBookSeries(allSeries);
+            var perBookSeries = results
+                .Select(r => (IList<MetadataSeriesSearchResult>)(r.Series ?? []))
+                .ToList();
+            var mappedGroups = await _bookSeriesMapper.MapBookSeriesPerBook(perBookSeries);
 
-            var mappedIndex = 0;
-            foreach (var result in results)
+            for (var i = 0; i < results.Count; i++)
             {
-                var count = result.Series?.Count ?? 0;
-                result.Series = mapped.Skip(mappedIndex).Take(count).ToList();
-                mappedIndex += count;
+                results[i].Series = mappedGroups[i].ToList();
             }
         }
         catch (Exception ex)
