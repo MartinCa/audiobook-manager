@@ -69,8 +69,9 @@ describe("BookSearchDialog", () => {
   });
 
   it("omits duration and language when absent (e.g. Goodreads results)", async () => {
-    const { duration: _duration, language: _language, ...noExtras } = baseResult;
-    await searchWithResults([{ ...noExtras, source: "Goodreads" }]);
+    await searchWithResults([
+      { ...baseResult, source: "Goodreads", duration: undefined, language: undefined },
+    ]);
 
     expect(await screen.findByText("The Boy, the Mole, the Fox and the Horse")).toBeInTheDocument();
     expect(screen.queryByText(/hrs and \d+ mins/)).not.toBeInTheDocument();
