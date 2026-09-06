@@ -325,7 +325,6 @@ export function BookDetail() {
                         <div className="mt-2">
                           {issue.issueType === "TagMismatch" ? (
                             <TagMismatchDiffDisplay
-                              description={issue.description}
                               expected={issue.expectedValue}
                               actual={issue.actualValue}
                             />

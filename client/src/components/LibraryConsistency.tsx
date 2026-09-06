@@ -566,7 +566,6 @@ export function LibraryConsistency() {
                                     {issue.expectedValue && issue.actualValue ? (
                                       issue.issueType === "TagMismatch" ? (
                                         <TagMismatchDiffDisplay
-                                          description={issue.description}
                                           expected={issue.expectedValue}
                                           actual={issue.actualValue}
                                         />

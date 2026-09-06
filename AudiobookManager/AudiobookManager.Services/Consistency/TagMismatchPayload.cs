@@ -10,9 +10,9 @@ namespace AudiobookManager.Services;
 /// Description and Copyright are free-text and can legitimately contain a line that starts with
 /// e.g. <c>"Publisher: "</c>, so a reader that splits on those markers truncates one field's
 /// value and corrupts the next. JSON escapes newlines and any collision-prone text inside the
-/// string, so the per-field boundary is exact. Issues stored before this format keep the legacy
-/// blob in the database (they are only rewritten by the next consistency check); the frontend
-/// parser falls back to the line-based reading for those.
+/// string, so the per-field boundary is exact. JSON is the only supported serialization; the
+/// legacy line-based reader was removed once stored issues had been rewritten by a consistency
+/// check, and anything that does not parse as this payload renders as a single whole-value diff.
 /// </summary>
 public static class TagMismatchPayload
 {
@@ -25,7 +25,7 @@ public static class TagMismatchPayload
 
     /// <summary>
     /// Parses a value written by <see cref="Serialize"/>. Returns null for anything that is not a
-    /// JSON array of field records - callers treat that as the legacy line-based format.
+    /// JSON array of field records.
     /// </summary>
     public static List<FieldValue>? TryParse(string? serialized)
     {

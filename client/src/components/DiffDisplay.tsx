@@ -8,7 +8,6 @@ interface DiffDisplayProps {
 }
 
 interface TagMismatchDiffDisplayProps {
-  description: string;
   expected: string;
   actual: string;
 }
@@ -42,66 +41,22 @@ function parseJsonFields(serialized: string): SerializedField[] | null {
   }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Legacy format for issues stored before the JSON payload: newline-separated "Field: value"
-// lines. The marker scan is a heuristic - a free-text value can contain a line starting with
-// "Publisher: " - so it is only ever a fallback for rows the consistency check has not
-// rewritten yet; newly detected issues serialize as unambiguous JSON above.
-function parseSerializedFields(serialized: string, fieldNames: string[]): SerializedField[] {
-  const fields: Array<{ field: string; start: number; valueStart: number }> = [];
-  let searchFrom = 0;
-
-  for (const field of fieldNames) {
-    const marker = new RegExp(`(?:^|\\n)${escapeRegExp(field)}: ?`, "g");
-    marker.lastIndex = searchFrom;
-    const match = marker.exec(serialized);
-    if (!match) continue;
-
-    const markerStart = match.index + (serialized[match.index] === "\n" ? 1 : 0);
-    fields.push({ field, start: markerStart, valueStart: match.index + match[0].length });
-    searchFrom = match.index + match[0].length;
-  }
-
-  return fields.map((field, index) => ({
-    field: field.field,
-    value: serialized
-      .slice(field.valueStart, fields[index + 1]?.start ?? serialized.length)
-      .replace(/\n$/, ""),
-  }));
-}
-
+// The JSON payload is the only supported TagMismatch serialization. Anything else falls back to
+// a single whole-value diff below rather than being guessed at field by field.
 function parseTagMismatchFields(
-  description: string,
   expected: string,
   actual: string,
 ): Array<{ field: string; expected: string; actual: string }> {
-  const fieldList = description.match(/m4b tags do not match library metadata:\s*(.*)$/)?.[1];
-  if (!fieldList) return [];
+  const expectedFields = parseJsonFields(expected);
+  const actualFields = parseJsonFields(actual);
+  if (!expectedFields || !actualFields) return [];
 
-  const expectedJson = parseJsonFields(expected);
-  const actualJson = parseJsonFields(actual);
-
-  // Legacy line-based fallback: the description still names the fields, and the values are
-  // matched by their "Field: " markers.
-  const fieldNames = fieldList
-    .split(",")
-    .map((field) => field.trim())
-    .filter(Boolean);
-
-  const expectedFields = expectedJson ?? parseSerializedFields(expected, fieldNames);
-  const actualFields = actualJson ?? parseSerializedFields(actual, fieldNames);
-
-  // When both sides carry the JSON payload, field names come from it - the description is
-  // display text and must agree with the payload, but the payload is the source of truth.
-  const fields = expectedJson && actualJson ? expectedJson.map((f) => f.field) : fieldNames;
-
-  return fields.map((field) => ({
+  // Field names come from the payload, not the description - the description is display text and
+  // must agree with the payload, but the payload is the source of truth.
+  return expectedFields.map(({ field, value }) => ({
     field,
-    expected: expectedFields.find((value) => value.field === field)?.value ?? "",
-    actual: actualFields.find((value) => value.field === field)?.value ?? "",
+    expected: value,
+    actual: actualFields.find((entry) => entry.field === field)?.value ?? "",
   }));
 }
 
@@ -139,12 +94,8 @@ export function DiffDisplay({ expected, actual, original, modified }: DiffDispla
   );
 }
 
-export function TagMismatchDiffDisplay({
-  description,
-  expected,
-  actual,
-}: TagMismatchDiffDisplayProps) {
-  const fields = parseTagMismatchFields(description, expected, actual);
+export function TagMismatchDiffDisplay({ expected, actual }: TagMismatchDiffDisplayProps) {
+  const fields = parseTagMismatchFields(expected, actual);
 
   if (fields.length === 0) {
     return <DiffDisplay expected={expected} actual={actual} />;

@@ -88,6 +88,9 @@ type ConsistencyIssueFixture = {
   actualValue?: string;
 };
 
+// Mirrors the backend's TagMismatchPayload serialization.
+const tagMismatchPayload = (field: string, value: string) => JSON.stringify([{ field, value }]);
+
 describe("LibraryConsistency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -192,10 +195,10 @@ describe("LibraryConsistency", () => {
         bookName: "The Test Book",
         authors: ["Some Author"],
         issueType: "TagMismatch",
-        description: 'Tag mismatch: "bookName" differs',
+        description: "m4b tags do not match library metadata: bookName",
         detectedAt: "2026-09-01T10:00:00Z",
-        expectedValue: "The Test Book",
-        actualValue: "The Test Book 2",
+        expectedValue: tagMismatchPayload("bookName", "The Test Book"),
+        actualValue: tagMismatchPayload("bookName", "The Test Book 2"),
       },
     ]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
@@ -241,8 +244,8 @@ describe("LibraryConsistency", () => {
       issueType: "TagMismatch",
       description: "m4b tags do not match library metadata: Subtitle",
       detectedAt: "2026-09-01T10:00:00Z",
-      expectedValue: `Subtitle: value ${i}`,
-      actualValue: `Subtitle: other ${i}`,
+      expectedValue: tagMismatchPayload("Subtitle", `value ${i}`),
+      actualValue: tagMismatchPayload("Subtitle", `other ${i}`),
     }));
     mockPagedIssues(manyIssues);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
@@ -328,8 +331,8 @@ describe("LibraryConsistency", () => {
       issueType: "TagMismatch",
       description: "m4b tags do not match library metadata: Subtitle",
       detectedAt: "2026-09-01T10:00:00Z",
-      expectedValue: `Subtitle: value ${i}`,
-      actualValue: `Subtitle: other ${i}`,
+      expectedValue: tagMismatchPayload("Subtitle", `value ${i}`),
+      actualValue: tagMismatchPayload("Subtitle", `other ${i}`),
     }));
     mockPagedIssues(manyIssues);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
