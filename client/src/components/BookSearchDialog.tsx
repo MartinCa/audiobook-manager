@@ -292,6 +292,16 @@ export function BookSearchDialog({
                           {result.year && (
                             <span className="text-muted-foreground text-xs">({result.year})</span>
                           )}
+                          {result.duration && (
+                            <span className="text-muted-foreground text-xs">
+                              · {result.duration}
+                            </span>
+                          )}
+                          {result.language && (
+                            <span className="text-muted-foreground text-xs capitalize">
+                              {result.language}
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-muted-foreground space-y-0.5 text-xs">
