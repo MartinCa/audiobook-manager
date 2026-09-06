@@ -54,6 +54,18 @@ public class Client : IOrganize
         return Task.CompletedTask;
     }
 
+    public Task ConsistencyResolveProgress(ConsistencyResolveProgress progress)
+    {
+        Console.WriteLine($"Consistency resolve: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task ConsistencyResolveComplete(ConsistencyResolveComplete result)
+    {
+        Console.WriteLine($"Consistency resolve complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
+
     public Task SimilarValueAlignProgress(SimilarValueAlignProgress progress)
     {
         Console.WriteLine($"Similar value align: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");

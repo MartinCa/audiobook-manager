@@ -54,7 +54,21 @@ interface CompletePayload {
   totalIssuesFound: number;
 }
 
+interface ResolveProgressPayload {
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
+interface ResolveCompletePayload {
+  totalProcessed: number;
+  totalSucceeded: number;
+  totalFailed: number;
+}
+
 const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
+const CONSISTENCY_RESOLVE_OPERATION_KEY = "consistency-resolve";
 
 const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
 
@@ -80,8 +94,12 @@ export function LibraryConsistency() {
   // that is no longer loaded.
   const [selectedIssues, setSelectedIssues] = useState<Map<number, string>>(new Map());
   const [resolvingIds, setResolvingIds] = useState<Set<number>>(new Set());
-  const [resolvingTypes, setResolvingTypes] = useState<Set<string>>(new Set());
-  const [resolvingSelected, setResolvingSelected] = useState(false);
+
+  // Bulk resolve state. The endpoints are fire-and-forget: confirming only starts the
+  // background operation, and progress/completion arrive over SignalR - the dialog closes right
+  // away and the page shows the bar, mirroring the similar-value alignment flow.
+  const [bulkResolving, setBulkResolving] = useState(false);
+  const [resolveProgress, setResolveProgress] = useState<ResolveProgressPayload | null>(null);
 
   // Orphan dialog state
   const [orphanToDelete, setOrphanToDelete] = useState<OrphanDirectory | null>(null);
@@ -89,7 +107,6 @@ export function LibraryConsistency() {
 
   // Resolve confirmation state
   const [pendingResolve, setPendingResolve] = useState<PendingResolve | null>(null);
-  const [confirmingResolve, setConfirmingResolve] = useState(false);
 
   // Tag mismatch selective-resolution state
   const [tagMismatchIssue, setTagMismatchIssue] = useState<ConsistencyIssue | null>(null);
@@ -159,6 +176,36 @@ export function LibraryConsistency() {
     void queryClient.invalidateQueries({ queryKey: ["consistency"] });
   });
 
+  useSignalREvent<ResolveProgressPayload>("ConsistencyResolveProgress", (data) => {
+    setBulkResolving(true);
+    setResolveProgress(data);
+  });
+
+  useSignalREvent<ResolveCompletePayload>("ConsistencyResolveComplete", (data) => {
+    setBulkResolving(false);
+    setResolveProgress(null);
+    toast.success(`Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`);
+    // Re-read the authoritative list rather than reproducing the server's cascade rules
+    // client-side: resolving one issue routinely clears its siblings for the same book.
+    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+  });
+
+  // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, the same way the check state is recovered below.
+  useOperationResync(CONSISTENCY_RESOLVE_OPERATION_KEY, (status) => {
+    if (status.isRunning) {
+      setBulkResolving(true);
+      setResolveProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setBulkResolving(false);
+      setResolveProgress(null);
+    }
+  });
+
   // Recover from a missed check (started elsewhere, or events missed while disconnected) on
   // mount and after a SignalR reconnect, rather than looking idle while one is still running.
   useOperationResync(CONSISTENCY_CHECK_OPERATION_KEY, (status) => {
@@ -202,8 +249,10 @@ export function LibraryConsistency() {
         next.delete(issue.id);
         return next;
       });
+      return true;
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
+      return false;
     } finally {
       setResolvingIds((prev) => {
         const next = new Set(prev);
@@ -214,30 +263,25 @@ export function LibraryConsistency() {
   };
 
   const handleResolveSelected = async (issueIds: number[]) => {
-    if (issueIds.length === 0) return;
-    setResolvingSelected(true);
+    if (issueIds.length === 0) return false;
     try {
-      const res = await consistencyApi.resolveSelected(issueIds);
-      toast.success(`Resolved ${res.resolved} issues (${res.failed} failed)`);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      await consistencyApi.resolveSelected(issueIds);
+      // Started in the background - outcome and progress arrive over SignalR.
+      toast.success(`Resolution started for ${issueIds.length} selected issues`);
       setSelectedIssues(new Map());
+      return true;
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setResolvingSelected(false);
+      return false;
     }
   };
 
   const handleResolveByType = async (issueType: string) => {
-    setResolvingTypes((prev) => new Set(prev).add(issueType));
     try {
-      const res = await consistencyApi.resolveByType(issueType);
-      toast.success(`Resolved ${res.resolved} issues of type "${issueType}"`);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-      // The whole type is now resolved; drop any of its ids that were selected so
-      // hidden selections don't linger after the refetch resolves them away.
-      // The whole type is now resolved; drop its ids from the selection, including any that
-      // were selected on a page no longer loaded.
+      await consistencyApi.resolveByType(issueType);
+      toast.success(`Resolution started for all "${getIssueTypeLabel(issueType)}" issues`);
+      // The whole type is on its way to resolved; drop its ids from the selection, including
+      // any that were selected on a page no longer loaded, so hidden selections don't linger.
       setSelectedIssues((prev) => {
         const next = new Map(prev);
         for (const [id, type] of prev) {
@@ -245,14 +289,10 @@ export function LibraryConsistency() {
         }
         return next;
       });
+      return true;
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
-    } finally {
-      setResolvingTypes((prev) => {
-        const next = new Set(prev);
-        next.delete(issueType);
-        return next;
-      });
+      return false;
     }
   };
 
@@ -304,18 +344,18 @@ export function LibraryConsistency() {
 
   const confirmPendingResolve = async () => {
     if (!pendingResolve) return;
-    setConfirmingResolve(true);
-    try {
-      if (pendingResolve.kind === "single") {
-        await handleResolveSingle(pendingResolve.issue);
-      } else if (pendingResolve.kind === "selected") {
-        await handleResolveSelected(pendingResolve.issueIds);
-      } else {
-        await handleResolveByType(pendingResolve.issueType);
-      }
+    // Bulk resolves run in the background and report over SignalR, so the dialog closes as soon
+    // as the start request returns instead of sitting on a "Resolving..." button for the whole
+    // batch. Kept open only on failure (e.g. a 409 because another resolve is in progress).
+    const succeeded =
+      pendingResolve.kind === "single"
+        ? await handleResolveSingle(pendingResolve.issue)
+        : pendingResolve.kind === "selected"
+          ? await handleResolveSelected(pendingResolve.issueIds)
+          : await handleResolveByType(pendingResolve.issueType);
+
+    if (succeeded) {
       setPendingResolve(null);
-    } finally {
-      setConfirmingResolve(false);
     }
   };
 
@@ -387,6 +427,14 @@ export function LibraryConsistency() {
         />
       )}
 
+      {bulkResolving && resolveProgress && (
+        <OperationProgressBar
+          processed={resolveProgress.processed}
+          total={resolveProgress.total}
+          label={`Resolving issues (${resolveProgress.succeeded} resolved, ${resolveProgress.failed} failed)`}
+        />
+      )}
+
       {checkCompleteResult && (
         <div className="border-primary/20 bg-primary/10 text-foreground rounded-lg border p-3 text-xs">
           Check complete: {checkCompleteResult.totalBooksChecked} books checked,{" "}
@@ -417,7 +465,6 @@ export function LibraryConsistency() {
             <Accordion type="multiple" className="mt-3 space-y-3">
               {issueTypes.map((type) => {
                 const typeCount = countsByType[type] ?? 0;
-                const isResolvingType = resolvingTypes.has(type);
                 const visibleIssues = issuesForType(type);
                 const selectedIdsInGroup = new Set(
                   [...selectedIssues].filter(([, t]) => t === type).map(([id]) => id),
@@ -500,7 +547,7 @@ export function LibraryConsistency() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                disabled={resolvingSelected}
+                                disabled={bulkResolving}
                                 onClick={() => {
                                   onResolveSelectedClick(type, [...selectedIdsInGroup]);
                                 }}
@@ -512,14 +559,11 @@ export function LibraryConsistency() {
                             <Button
                               size="sm"
                               variant="secondary"
-                              disabled={isResolvingType}
+                              disabled={bulkResolving}
                               onClick={() => {
                                 onResolveByTypeClick(type, typeCount);
                               }}
                             >
-                              {isResolvingType ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : null}
                               Resolve All {typeCount}
                             </Button>
                           </div>
@@ -586,7 +630,7 @@ export function LibraryConsistency() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={isResolving}
+                                  disabled={isResolving || bulkResolving}
                                   onClick={() => {
                                     onResolveClick(issue);
                                   }}
@@ -767,18 +811,15 @@ export function LibraryConsistency() {
               <Button
                 variant="destructive"
                 className="w-full sm:w-auto"
-                disabled={confirmingResolve}
                 onClick={() => {
                   void confirmPendingResolve();
                 }}
               >
-                {confirmingResolve
-                  ? "Resolving..."
-                  : pendingResolve?.kind === "selected"
-                    ? "Resolve Selected"
-                    : pendingResolve?.kind === "byType"
-                      ? "Resolve All"
-                      : "Remove"}
+                {pendingResolve?.kind === "selected"
+                  ? "Resolve Selected"
+                  : pendingResolve?.kind === "byType"
+                    ? "Resolve All"
+                    : "Remove"}
               </Button>
             </div>
           </div>

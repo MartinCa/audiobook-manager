@@ -372,4 +372,134 @@ describe("LibraryConsistency", () => {
       expect(screen.queryByRole("button", { name: /Resolve Selected/ })).not.toBeInTheDocument();
     });
   });
+
+  // Regression: confirming a bulk resolve used to await the whole batch in the dialog, sitting
+  // on a "Resolving..." button with no progress for as long as the server rewrote tags. The
+  // endpoint is now fire-and-forget, so the dialog closes as soon as the start request returns.
+  it("closes the confirmation dialog as soon as a bulk resolve has started", async () => {
+    mockPagedIssues([
+      {
+        id: 7,
+        audiobookId: 3,
+        bookName: "Some Book",
+        authors: ["Some Author"],
+        issueType: "MissingDescTxt",
+        description: "desc.txt missing",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    // The endpoint is fire-and-forget now: the response carries no result, only that the
+    // background resolve started (the mock matches the runtime call, not the stale type).
+    vi.spyOn(consistencyApi, "resolveByType").mockResolvedValue(
+      undefined as unknown as { resolved: number; failed: number },
+    );
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const trigger = await screen.findByRole("button", { name: /Missing Description Files/ });
+    fireEvent.click(trigger);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Resolve All 1" }));
+    expect(await screen.findByText("Confirm Resolution")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve All" }));
+
+    await waitFor(() => {
+      expect(consistencyApi.resolveByType).toHaveBeenCalledWith("MissingDescTxt");
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Confirm Resolution")).not.toBeInTheDocument();
+    });
+    expect(toast.success).toHaveBeenCalledWith(
+      'Resolution started for all "Missing Description Files" issues',
+    );
+  });
+
+  it("keeps the confirmation dialog open and toasts the error when a bulk resolve is refused", async () => {
+    mockPagedIssues([
+      {
+        id: 7,
+        audiobookId: 3,
+        bookName: "Some Book",
+        authors: ["Some Author"],
+        issueType: "MissingDescTxt",
+        description: "desc.txt missing",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    // The server refuses a second bulk resolve with 409 while one is in progress.
+    vi.spyOn(consistencyApi, "resolveByType").mockRejectedValue(
+      new Error("An operation is already in progress."),
+    );
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const trigger = await screen.findByRole("button", { name: /Missing Description Files/ });
+    fireEvent.click(trigger);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Resolve All 1" }));
+    await screen.findByText("Confirm Resolution");
+
+    // The dialog stays open for the user to retry or cancel.
+    fireEvent.click(screen.getByRole("button", { name: "Resolve All" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Confirm Resolution")).toBeInTheDocument();
+  });
+
+  // The progress the dialog used to hide now renders on the page, driven by the SignalR events
+  // the background resolve broadcasts.
+  it("shows resolve progress from SignalR and refreshes the issues on completion", async () => {
+    mockPagedIssues([
+      {
+        id: 7,
+        audiobookId: 3,
+        bookName: "Some Book",
+        authors: ["Some Author"],
+        issueType: "MissingDescTxt",
+        description: "desc.txt missing",
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+
+    renderWithProviders(<LibraryConsistency />);
+    const trigger = await screen.findByRole("button", { name: /Missing Description Files/ });
+    fireEvent.click(trigger);
+    await screen.findByRole("button", { name: "Resolve All 1" });
+
+    // useSignalREvent registered the component's handlers through the mocked context.
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+
+    handlerFor("ConsistencyResolveProgress")({
+      processed: 2,
+      total: 5,
+      succeeded: 2,
+      failed: 0,
+    } as never);
+
+    expect(await screen.findByText("Resolving issues (2 resolved, 0 failed)")).toBeInTheDocument();
+    // The group buttons are disabled while the server-side gate holds a resolve.
+    expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeDisabled();
+
+    handlerFor("ConsistencyResolveComplete")({
+      totalProcessed: 5,
+      totalSucceeded: 5,
+      totalFailed: 0,
+    } as never);
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Resolved 5 issues (0 failed)");
+    });
+    expect(screen.queryByText(/Resolving issues/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeEnabled();
+  });
 });
