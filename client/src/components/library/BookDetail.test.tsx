@@ -227,9 +227,9 @@ describe("BookDetail", () => {
         bookName: "The Way of Kings",
         authors: ["Brandon Sanderson"],
         issueType: "TagMismatch",
-        description: "m4b tags do not match library metadata",
-        expectedValue: "Year: 2010",
-        actualValue: "Year: 2011",
+        description: "m4b tags do not match library metadata: Year",
+        expectedValue: JSON.stringify([{ field: "Year", value: "2010" }]),
+        actualValue: JSON.stringify([{ field: "Year", value: "2011" }]),
         detectedAt: "2026-09-01T10:00:00Z",
       },
     ]);

@@ -16,30 +16,13 @@ describe("DiffDisplay", () => {
     expect(screen.getByText("don")).toBeInTheDocument();
   });
 
-  it("renders a separate diff block for each TagMismatch field", () => {
-    const { container } = render(
-      <TagMismatchDiffDisplay
-        description="m4b tags do not match library metadata: Publisher, Rating"
-        expected="Publisher: Head of Zeus\nRating: 4.5"
-        actual="Publisher: Macmillan Audio\nRating: 4.4"
-      />,
-    );
-
-    expect(screen.getByText("Publisher")).toBeInTheDocument();
-    expect(screen.getByText("Rating")).toBeInTheDocument();
-    expect(container.querySelectorAll(".bg-muted\\/50")).toHaveLength(2);
-    expect(screen.queryByText(/Publisher:.*Rating/)).toBeNull();
-  });
-
   it("renders per-field diffs from the JSON payload without mistaking value text for labels", () => {
-    // Regression: the detector now stores a JSON array of field records, because the legacy
-    // "Field: value" line format was ambiguous for free-text values. A description containing a
-    // literal "Publisher: " line must render as Description's value, never as a field boundary.
-    const description = "m4b tags do not match library metadata: Description, Publisher";
+    // Regression: the detector stores a JSON array of field records, because a "Field: value"
+    // line format is ambiguous for free-text values. A description containing a literal
+    // "Publisher: " line must render as Description's value, never as a field boundary.
     const descriptionText = "A gripping tale.\nPublisher: reprinted by example press\nRead it now.";
     const { container } = render(
       <TagMismatchDiffDisplay
-        description={description}
         expected={JSON.stringify([
           { field: "Description", value: "" },
           { field: "Publisher", value: "Head of Zeus" },
@@ -56,5 +39,20 @@ describe("DiffDisplay", () => {
     expect(container.querySelectorAll(".bg-muted\\/50")).toHaveLength(2);
     expect(screen.getByText(/reprinted by example press/)).toBeInTheDocument();
     expect(screen.queryByText(/reprinted by example press.*Read it now.*Macmillan/)).toBeNull();
+  });
+
+  it("falls back to a single whole-value diff when the payload is not JSON", () => {
+    // Guard for the JSON-only contract: a value that is not a JSON field-record array is never
+    // split on "Field: " marker lines - it renders as one whole-value diff instead.
+    const { container } = render(
+      <TagMismatchDiffDisplay
+        expected="Publisher: Head of Zeus\nRating: 4.5"
+        actual="Publisher: Macmillan Audio\nRating: 4.4"
+      />,
+    );
+
+    expect(container.querySelectorAll(".bg-muted\\/50")).toHaveLength(1);
+    expect(screen.queryByText("Publisher")).toBeNull();
+    expect(screen.queryByText("Rating")).toBeNull();
   });
 });
