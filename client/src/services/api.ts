@@ -16,6 +16,11 @@ import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
+import type {
+  MetadataRefreshResult,
+  PendingMetadataRefresh,
+  PendingMetadataRefreshPage,
+} from "@/types/MetadataRefresh";
 import type { MetadataMultiSourceSearchResult } from "@/types/MetadataMultiSourceSearchResult";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInfo";
@@ -249,6 +254,37 @@ export const missingTagsApi = {
     }),
 
   startLanguageBackfill: () => api.post<void>("/missing-tags/backfill-language"),
+};
+
+// Metadata Refresh
+export const metadataRefreshApi = {
+  // Single book: synchronous (bounded by the scraper's own HTTP timeouts). All ordinary
+  // per-book failures are returned in the body (Success=false + Error), not thrown.
+  refreshAudiobook: (id: number) =>
+    api.post<MetadataRefreshResult>(`/metadata-refresh/${id}`, undefined),
+
+  // Fire-and-forget: starts the background bulk refresh. Progress/completion arrive over
+  // SignalR (MetadataRefreshProgress/Complete) and the GET /operations/metadata-refresh/status
+  // endpoint, which the page recovers from via useOperationResync.
+  startBulkRefresh: (olderThanUtc?: string) =>
+    api.post<void>("/metadata-refresh/bulk", {
+      olderThanUtc: olderThanUtc || undefined,
+    }),
+
+  // Paged server-side (bounded-list invariant). The unpaged response would return every book
+  // with a pending snapshot in one payload — the same unbounded shape UrlCleanupController
+  // replaced before this list.
+  getPendingPage: (page: number, pageSize: number) =>
+    api.get<PendingMetadataRefreshPage>("/metadata-refresh/pending", {
+      query: { page, pageSize },
+    }),
+
+  getPendingSummary: () => api.get<number[]>("/metadata-refresh/pending-summary"),
+
+  getPendingForAudiobook: (id: number) =>
+    api.get<PendingMetadataRefresh>(`/metadata-refresh/${id}/pending`),
+
+  dismissPending: (id: number) => api.post<void>(`/metadata-refresh/${id}/dismiss`, undefined),
 };
 
 // Url cleanup

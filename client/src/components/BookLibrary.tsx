@@ -18,12 +18,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
 import { LibraryToolsMenu } from "./library/LibraryToolsMenu";
-import { browseApi, consistencyApi } from "@/services/api";
+import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 import { Route } from "@/routes/library/index";
 
 /** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
 const NO_ISSUE_COUNTS: Record<number, number> = {};
+
+/** Pending-metadata ids only gain members through a refresh; an empty set is the safe fallback. */
+const NO_PENDING_IDS: number[] = [];
 
 export function BookLibrary() {
   const navigate = useNavigate();
@@ -65,7 +68,7 @@ export function BookLibrary() {
     queryKey: ["books", q, page, pageSize],
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
-      const [browseRes, issuesRes] = await Promise.all([
+      const [browseRes, issuesRes, pendingIds] = await Promise.all([
         q.trim()
           ? browseApi.searchAudiobooks(q.trim(), pageSize, offset)
           : browseApi.getAudiobooks(pageSize, offset),
@@ -73,12 +76,15 @@ export function BookLibrary() {
         // every issue and count them here - the whole table, including the metadata.opf and
         // description bodies stored on each row, to render a badge number per book.
         consistencyApi.getIssueSummary().catch(() => NO_ISSUE_COUNTS),
+        // Sparse id list of books with a pending metadata-refresh snapshot, for a soft badge.
+        metadataRefreshApi.getPendingSummary().catch(() => NO_PENDING_IDS),
       ]);
 
       return {
         books: browseRes.items,
         totalCount: browseRes.total,
         issueSummary: issuesRes,
+        pendingRefreshIds: new Set(pendingIds),
       };
     },
   });
@@ -111,6 +117,7 @@ export function BookLibrary() {
   const books = data?.books ?? [];
   const totalCount = data?.totalCount ?? 0;
   const issueSummary = data?.issueSummary ?? {};
+  const pendingRefreshIds = data?.pendingRefreshIds ?? new Set<number>();
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   return (
@@ -211,6 +218,7 @@ export function BookLibrary() {
         <div className="space-y-2">
           {books.map((book) => {
             const issueCount = issueSummary[book.id] ?? 0;
+            const hasPendingRefresh = pendingRefreshIds.has(book.id);
             return (
               <div
                 key={book.id}
@@ -252,6 +260,12 @@ export function BookLibrary() {
                         <Badge variant="destructive" className="h-5 gap-1 px-1.5 text-[10px]">
                           <AlertTriangle className="h-2.5 w-2.5" />
                           {issueCount} {issueCount === 1 ? "issue" : "issues"}
+                        </Badge>
+                      )}
+                      {hasPendingRefresh && (
+                        <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+                          <RefreshCw className="h-2.5 w-2.5" />
+                          Pending refresh
                         </Badge>
                       )}
                     </div>

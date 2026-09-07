@@ -49,9 +49,17 @@ vi.mock("@/services/api", () => ({
     getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
+  metadataRefreshApi: {
+    refreshAudiobook: vi.fn(),
+    startBulkRefresh: vi.fn().mockResolvedValue(undefined),
+    getPendingPage: vi.fn(),
+    getPendingSummary: vi.fn().mockResolvedValue([]),
+    getPendingForAudiobook: vi.fn(),
+    dismissPending: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
-import { browseApi, audiobookApi, consistencyApi } from "@/services/api";
+import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
 
 describe("BookDetail", () => {
   let queryClient: QueryClient;
@@ -257,5 +265,239 @@ describe("BookDetail", () => {
       expect(keys).toContainEqual(["consistency"]);
       expect(keys).toContainEqual(["books"]);
     });
+  });
+
+  it("shows the pending metadata banner when a snapshot exists for the book", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/pending metadata changes from goodreads/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /review changes/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
+  });
+
+  it("dismisses the pending snapshot when Dismiss is clicked", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    const dismissBtn = await screen.findByRole("button", { name: /dismiss/i });
+    fireEvent.click(dismissBtn);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.dismissPending).toHaveBeenCalledWith(42);
+    });
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Pending metadata changes discarded");
+    });
+  });
+
+  it("runs Refresh Now and opens the pending review when differences remain", async () => {
+    vi.mocked(metadataRefreshApi.refreshAudiobook).mockResolvedValue({
+      success: true,
+      hasDifferences: true,
+      differences: [{ field: "BookName", libraryValue: "Old", sourceValue: "New" }],
+      sourceName: "Goodreads",
+      error: null,
+    });
+    // After a refresh with differences a pending snapshot appears.
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook)
+      .mockResolvedValueOnce(undefined as never) // first (initial) fetch: no snapshot yet
+      .mockResolvedValue({
+        audiobookId: 42,
+        fetchedAt: "2026-09-01T10:00:00Z",
+        sourceName: "Goodreads",
+        sourceUrl: "https://example.com/book",
+        payload: {
+          url: "https://example.com/book",
+          source: "Goodreads",
+          authors: ["Brandon Sanderson"],
+          narrators: ["Michael Kramer"],
+          bookName: "The Way of Kings",
+          genres: ["Epic Fantasy"],
+        },
+      });
+
+    renderWithProviders();
+
+    const refreshBtn = await screen.findByRole("button", { name: /refresh now/i });
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.refreshAudiobook).toHaveBeenCalledWith(42);
+    });
+    // The applied snapshot refetches and the TagPreviewDialog (which doubles as the review step)
+    // opens with the diff table.
+    expect(await screen.findByText("Metadata Preview & Diff")).toBeInTheDocument();
+  });
+
+  it("shows an up-to-date toast when Refresh Now finds no differences", async () => {
+    vi.mocked(metadataRefreshApi.refreshAudiobook).mockResolvedValue({
+      success: true,
+      hasDifferences: false,
+      differences: [],
+      sourceName: "Goodreads",
+      error: null,
+    });
+
+    renderWithProviders();
+
+    const refreshBtn = await screen.findByRole("button", { name: /refresh now/i });
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.refreshAudiobook).toHaveBeenCalledWith(42);
+    });
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Metadata up to date (Goodreads)");
+    });
+  });
+
+  it("dismisses the pending snapshot only after the applying save completes", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    const reviewBtn = await screen.findByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    // Applying starts a save carrying the pending-refresh marker.
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ metadataAppliedFromSearch: true }),
+      );
+    });
+
+    // Simulate the save completing on the SignalR channel.
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.dismissPending).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it("never lets a failed or cancelled apply save dismiss the pending snapshot on a later save", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+    // The apply's save queueing fails (network/queue error) before a background save starts.
+    vi.mocked(audiobookApi.updateBook).mockRejectedValueOnce(new Error("queue refused"));
+
+    renderWithProviders();
+
+    const reviewBtn = await screen.findByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledTimes(1);
+    });
+    // The failed attempt must not arm the dismiss-after-completion flow.
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    // A later, unrelated save (from the edit form, no marker) completes; it must not dismiss the
+    // snapshot the user never applied.
+    expect(metadataRefreshApi.dismissPending).not.toHaveBeenCalled();
+  });
+
+  it("never dismisses a pending snapshot after an unrelated manual save", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+    await screen.findByText(/pending metadata changes from goodreads/i);
+
+    // An ordinary save (no pending-refresh marker) completes...
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    // ...and completes again later; neither should dismiss the untouched pending snapshot.
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).not.toHaveBeenCalled();
+    });
+    expect(metadataRefreshApi.dismissPending).not.toHaveBeenCalled();
   });
 });

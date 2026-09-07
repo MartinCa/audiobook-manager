@@ -17,3 +17,24 @@ export function formatFileSize(bytes: number | null | undefined): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
 }
+
+/**
+ * Formats a wire timestamp (ISO 8601 with an explicit offset, UTC on the wire — DESIGN.md
+ * section 7) for display the same way everywhere the metadata-refresh UI shows one.
+ * `toLocaleString` deliberately runs in the user's own locale/timezone; the ISO parse is the
+ * load-bearing part (new Date("...Z") handles UTC conversion correctly, a naive string would
+ * be read as local time).
+ */
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString();
+}
+
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString();
+}

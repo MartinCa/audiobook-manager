@@ -17,6 +17,7 @@ import { Route as LibraryIndexRouteImport } from './routes/library/index'
 import { Route as LibraryCleanUrlsRouteImport } from './routes/library/clean-urls'
 import { Route as LibraryConsistencyRouteImport } from './routes/library/consistency'
 import { Route as LibraryDiscoveredRouteImport } from './routes/library/discovered'
+import { Route as LibraryMetadataRefreshRouteImport } from './routes/library/metadata-refresh'
 import { Route as LibraryMissingTagsRouteImport } from './routes/library/missing-tags'
 import { Route as LibrarySimilarValuesRouteImport } from './routes/library/similar-values'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
@@ -65,6 +66,11 @@ const LibraryConsistencyRoute = LibraryConsistencyRouteImport.update({
 const LibraryDiscoveredRoute = LibraryDiscoveredRouteImport.update({
   id: '/library/discovered',
   path: '/library/discovered',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LibraryMetadataRefreshRoute = LibraryMetadataRefreshRouteImport.update({
+  id: '/library/metadata-refresh',
+  path: '/library/metadata-refresh',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryMissingTagsRoute = LibraryMissingTagsRouteImport.update({
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
+  '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/settings/library': typeof SettingsLibraryRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
+  '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/settings/library': typeof SettingsLibraryRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/library/clean-urls': typeof LibraryCleanUrlsRoute
   '/library/consistency': typeof LibraryConsistencyRoute
   '/library/discovered': typeof LibraryDiscoveredRoute
+  '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/settings/library': typeof SettingsLibraryRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
+    | '/library/metadata-refresh'
     | '/library/missing-tags'
     | '/library/similar-values'
     | '/settings/library'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
+    | '/library/metadata-refresh'
     | '/library/missing-tags'
     | '/library/similar-values'
     | '/settings/library'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/library/clean-urls'
     | '/library/consistency'
     | '/library/discovered'
+    | '/library/metadata-refresh'
     | '/library/missing-tags'
     | '/library/similar-values'
     | '/settings/library'
@@ -239,6 +251,7 @@ export interface RootRouteChildren {
   LibraryCleanUrlsRoute: typeof LibraryCleanUrlsRoute
   LibraryConsistencyRoute: typeof LibraryConsistencyRoute
   LibraryDiscoveredRoute: typeof LibraryDiscoveredRoute
+  LibraryMetadataRefreshRoute: typeof LibraryMetadataRefreshRoute
   LibraryMissingTagsRoute: typeof LibraryMissingTagsRoute
   LibrarySimilarValuesRoute: typeof LibrarySimilarValuesRoute
   SettingsLibraryRoute: typeof SettingsLibraryRoute
@@ -307,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/library/discovered'
       fullPath: '/library/discovered'
       preLoaderRoute: typeof LibraryDiscoveredRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library/metadata-refresh': {
+      id: '/library/metadata-refresh'
+      path: '/library/metadata-refresh'
+      fullPath: '/library/metadata-refresh'
+      preLoaderRoute: typeof LibraryMetadataRefreshRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library/missing-tags': {
@@ -383,6 +403,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibraryCleanUrlsRoute: LibraryCleanUrlsRoute,
   LibraryConsistencyRoute: LibraryConsistencyRoute,
   LibraryDiscoveredRoute: LibraryDiscoveredRoute,
+  LibraryMetadataRefreshRoute: LibraryMetadataRefreshRoute,
   LibraryMissingTagsRoute: LibraryMissingTagsRoute,
   LibrarySimilarValuesRoute: LibrarySimilarValuesRoute,
   SettingsLibraryRoute: SettingsLibraryRoute,

@@ -42,6 +42,13 @@ export interface Audiobook {
   // after the save that carried it; toAudiobookDto forwards it, toPathPreviewDto ignores it.
   metadataAppliedFromSearch?: boolean;
 
+  // Client-only, never sent to the server (toAudiobookDto ignores it): marks a save as "apply
+  // the stored metadata-refresh snapshot" so BookDetail can dismiss that snapshot after the
+  // save completes. Rides on the audiobook object (rather than component state) so it is
+  // discarded if the save is cancelled at the target-collision dialog instead of leaking into
+  // the next unrelated save.
+  pendingRefreshApplied?: boolean;
+
   fileInfo?: BookFileInfo;
 }
 

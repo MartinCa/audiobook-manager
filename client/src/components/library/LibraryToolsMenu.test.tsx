@@ -18,9 +18,19 @@ describe("LibraryToolsMenu", () => {
 
     expect(await screen.findByText("Consistency Check")).toBeInTheDocument();
     expect(screen.getByText("Missing Tags")).toBeInTheDocument();
+    expect(screen.getByText("Metadata Refresh")).toBeInTheDocument();
     expect(screen.getByText("Similar Values")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Consistency Check"));
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/library/consistency" });
+  });
+
+  it("navigates to the metadata refresh page", async () => {
+    render(<LibraryToolsMenu />);
+
+    fireEvent.click(screen.getByRole("button", { name: /tools/i }));
+    fireEvent.click(await screen.findByText("Metadata Refresh"));
+
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/library/metadata-refresh" });
   });
 });
