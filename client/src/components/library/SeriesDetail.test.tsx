@@ -82,7 +82,9 @@ describe("SeriesDetail", () => {
 
     renderWithProviders();
 
-    expect(await screen.findByText(/The Final Empire/)).toBeInTheDocument();
+    const ownedBookLink = await screen.findByRole("link", { name: /The Final Empire/ });
+    expect(ownedBookLink).toHaveAttribute("href", "/library/book/10");
+    expect(ownedBookLink).not.toHaveAttribute("target");
     expect(screen.getByText("Matched to Hardcover")).toBeInTheDocument();
     expect(screen.getByText(/The Alloy of Law/)).toBeInTheDocument();
     expect(screen.getByText("Ignore")).toBeInTheDocument();

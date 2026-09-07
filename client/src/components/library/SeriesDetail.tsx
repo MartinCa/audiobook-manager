@@ -469,12 +469,11 @@ export function SeriesDetail() {
         ) : (
           <div className="space-y-2">
             {ownedBooks.map((b) => (
-              <div
+              <Link
                 key={b.id}
-                onClick={() => {
-                  void navigate({ to: "/library/book/$bookId", params: { bookId: String(b.id) } });
-                }}
-                className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
+                to="/library/book/$bookId"
+                params={{ bookId: String(b.id) }}
+                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <BookOpen className="text-primary h-4 w-4 shrink-0" />
@@ -490,7 +489,7 @@ export function SeriesDetail() {
                   </div>
                 </div>
                 <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-              </div>
+              </Link>
             ))}
           </div>
         )}

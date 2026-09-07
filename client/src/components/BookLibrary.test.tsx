@@ -242,9 +242,10 @@ describe("BookLibrary", () => {
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
 
     // Click book row to navigate to book detail
-    const bookRow = screen.getByText("The Way of Kings").closest(".group");
-    expect(bookRow).toBeTruthy();
-    fireEvent.click(bookRow!);
+    const bookLink = screen.getByRole("link", { name: /The Way of Kings/i });
+    expect(bookLink).toHaveAttribute("href", "/library/book/1");
+    expect(bookLink).not.toHaveAttribute("target");
+    fireEvent.click(bookLink);
 
     // Expect to be on book detail page with book details loaded
     expect(await screen.findByDisplayValue("The Way of Kings")).toBeInTheDocument();
