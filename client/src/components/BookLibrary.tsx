@@ -212,15 +212,11 @@ export function BookLibrary() {
           {books.map((book) => {
             const issueCount = issueSummary[book.id] ?? 0;
             return (
-              <div
+              <Link
                 key={book.id}
-                onClick={() => {
-                  void navigate({
-                    to: "/library/book/$bookId",
-                    params: { bookId: String(book.id) },
-                  });
-                }}
-                className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
+                to="/library/book/$bookId"
+                params={{ bookId: String(book.id) }}
+                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
@@ -279,7 +275,7 @@ export function BookLibrary() {
                 </div>
 
                 <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-              </div>
+              </Link>
             );
           })}
         </div>

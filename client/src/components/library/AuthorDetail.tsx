@@ -74,27 +74,25 @@ export function AuthorDetail() {
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {series.map((s) => (
-              <Card
+              <Link
                 key={s.seriesName}
-                onClick={() => {
-                  void navigate({
-                    to: "/library/series/$seriesName",
-                    params: { seriesName: s.seriesName },
-                    search: { authorId: author.id },
-                  });
-                }}
-                className="hover:bg-muted/50 cursor-pointer transition-colors"
+                to="/library/series/$seriesName"
+                params={{ seriesName: s.seriesName }}
+                search={{ authorId: author.id }}
+                className="focus-visible:ring-ring block rounded-lg focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
-                <CardHeader className="p-4 pb-2">
-                  <CardTitle className="text-base font-semibold">{s.seriesName}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-muted-foreground flex items-center justify-between p-4 pt-0 text-xs">
-                  <span>
-                    {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
-                  </span>
-                  <ChevronRight className="h-4 w-4" />
-                </CardContent>
-              </Card>
+                <Card className="hover:bg-muted/50 cursor-pointer transition-colors">
+                  <CardHeader className="p-4 pb-2">
+                    <CardTitle className="text-base font-semibold">{s.seriesName}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-muted-foreground flex items-center justify-between p-4 pt-0 text-xs">
+                    <span>
+                      {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
+                    </span>
+                    <ChevronRight className="h-4 w-4" />
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         </div>
@@ -108,15 +106,11 @@ export function AuthorDetail() {
           </h2>
           <div className="space-y-2">
             {standaloneBooks.map((book) => (
-              <div
+              <Link
                 key={book.id}
-                onClick={() => {
-                  void navigate({
-                    to: "/library/book/$bookId",
-                    params: { bookId: String(book.id) },
-                  });
-                }}
-                className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
+                to="/library/book/$bookId"
+                params={{ bookId: String(book.id) }}
+                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <div className="min-w-0">
                   <div className="text-foreground font-semibold">
@@ -143,7 +137,7 @@ export function AuthorDetail() {
                 </div>
 
                 <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
-              </div>
+              </Link>
             ))}
           </div>
         </div>

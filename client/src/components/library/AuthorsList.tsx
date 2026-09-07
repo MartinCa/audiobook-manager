@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -129,15 +129,11 @@ export function AuthorsList() {
       ) : (
         <div className="space-y-2">
           {filteredAuthors.map((author) => (
-            <div
+            <Link
               key={author.id}
-              onClick={() => {
-                void navigate({
-                  to: "/library/authors/$authorId",
-                  params: { authorId: String(author.id) },
-                });
-              }}
-              className="group border-border bg-card hover:bg-muted/50 flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors"
+              to="/library/authors/$authorId"
+              params={{ authorId: String(author.id) }}
+              className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               <div className="flex items-center gap-3">
                 <BookOpen className="text-primary h-4 w-4" />
@@ -150,7 +146,7 @@ export function AuthorsList() {
               </div>
 
               <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
-            </div>
+            </Link>
           ))}
         </div>
       )}

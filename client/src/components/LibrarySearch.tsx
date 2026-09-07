@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { browseApi } from "@/services/api";
 
 export function LibrarySearch() {
-  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -36,22 +35,9 @@ export function LibrarySearch() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelectBook = (bookId: number) => {
+  const handleSelect = () => {
     setFocused(false);
     setQuery("");
-    void navigate({ to: "/library/book/$bookId", params: { bookId: String(bookId) } });
-  };
-
-  const handleSelectAuthor = (authorId: number) => {
-    setFocused(false);
-    setQuery("");
-    void navigate({ to: "/library/authors/$authorId", params: { authorId: String(authorId) } });
-  };
-
-  const handleSelectSeries = (seriesName: string) => {
-    setFocused(false);
-    setQuery("");
-    void navigate({ to: "/library/series/$seriesName", params: { seriesName } });
   };
 
   const hasResults =
@@ -98,10 +84,12 @@ export function LibrarySearch() {
                 Books
               </div>
               {results.books.map((b) => (
-                <div
+                <Link
                   key={`book-${b.id}`}
-                  onClick={() => handleSelectBook(b.id)}
-                  className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors"
+                  to="/library/book/$bookId"
+                  params={{ bookId: String(b.id) }}
+                  onClick={handleSelect}
+                  className="hover:bg-accent focus-visible:ring-ring flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <BookOpen className="text-primary h-3.5 w-3.5 shrink-0" />
                   <div className="truncate">
@@ -113,7 +101,7 @@ export function LibrarySearch() {
                       </span>
                     )}
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -124,10 +112,12 @@ export function LibrarySearch() {
                 Authors
               </div>
               {results.authors.map((a) => (
-                <div
+                <Link
                   key={`author-${a.id}`}
-                  onClick={() => handleSelectAuthor(a.id)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
+                  to="/library/authors/$authorId"
+                  params={{ authorId: String(a.id) }}
+                  onClick={handleSelect}
+                  className="hover:bg-accent focus-visible:ring-ring flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
                     <Users className="text-primary h-3.5 w-3.5 shrink-0" />
@@ -136,7 +126,7 @@ export function LibrarySearch() {
                   <span className="text-muted-foreground shrink-0 text-[10px]">
                     {a.bookCount} {a.bookCount === 1 ? "book" : "books"}
                   </span>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -147,10 +137,12 @@ export function LibrarySearch() {
                 Series
               </div>
               {results.series.map((s) => (
-                <div
+                <Link
                   key={`series-${s.name}`}
-                  onClick={() => handleSelectSeries(s.name)}
-                  className="hover:bg-accent flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors"
+                  to="/library/series/$seriesName"
+                  params={{ seriesName: s.name }}
+                  onClick={handleSelect}
+                  className="hover:bg-accent focus-visible:ring-ring flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
                     <BookMarked className="text-primary h-3.5 w-3.5 shrink-0" />
@@ -159,7 +151,7 @@ export function LibrarySearch() {
                   <span className="text-muted-foreground shrink-0 text-[10px]">
                     {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
                   </span>
-                </div>
+                </Link>
               ))}
             </div>
           )}
