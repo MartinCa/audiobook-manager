@@ -140,25 +140,31 @@ public class PersonRepository : IPersonRepository
         return rows.OrderBy(r => r.Name, StringComparer.InvariantCulture).ToList();
     }
 
-    public async Task<List<AuthorSummaryRow>> SearchAuthorSummariesAsync(string query, int limit)
+    public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
         var pattern = $"%{folded}%";
         var prefixPattern = $"{folded}%";
 
-        var rows = await _db.Persons
+        var dbQuery = _db.Persons
             .AsNoTracking()
-            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.NameFolded, pattern))
+            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.NameFolded, pattern));
+
+        var total = await dbQuery.CountAsync();
+
+        var rows = await dbQuery
             // Rank before the limit. This query is capped at `limit` rows, so ordering
             // alphabetically and re-ranking the survivors in the controller discarded the
             // prefix matches the user was most likely reaching for - see SearchAsync.
             .OrderByDescending(p => EF.Functions.Like(p.NameFolded, prefixPattern))
             .ThenBy(p => p.Name)
+            .ThenBy(p => p.Id)
+            .Skip(offset)
             .Take(limit)
             .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
             .ToListAsync();
 
-        return rows;
+        return (rows, total);
     }
 
     public async Task<AuthorSummaryRow?> GetAuthorSummaryAsync(long authorId)

@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 
@@ -9,6 +10,17 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class BrowseController : ControllerBase
 {
+    /// <summary>The largest page a caller may ask for on the paged author/series search endpoints.</summary>
+    private const int MaxSearchPageSize = 100;
+
+    /// <summary>
+    /// The furthest into a paged author/series search result a caller may ask to start. Mirrors
+    /// UrlCleanupController's MaxPageOffset: bounded so an offset near int.MaxValue cannot be
+    /// misread as a small/negative one, and so a caller cannot force SQLite to walk an enormous
+    /// OFFSET row by row.
+    /// </summary>
+    private const int MaxSearchOffset = 1_000_000;
+
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
 
@@ -38,8 +50,8 @@ public class BrowseController : ControllerBase
 
         var (books, _) = await _audiobookRepo.SearchAsync(
             q, limit, 0, includeTotal: false, includeNarratorsAndGenres: false);
-        var authors = await _personRepo.SearchAuthorSummariesAsync(q, limit);
-        var series = await _audiobookRepo.SearchSeriesAsync(q, limit);
+        var (authors, _) = await _personRepo.SearchAuthorSummariesAsync(q, limit, 0);
+        var (series, _) = await _audiobookRepo.SearchSeriesAsync(q, limit, 0);
 
         // No client-side re-ranking: the repositories now rank prefix matches in SQL, before
         // their LIMIT, so the rows that arrive are already the best ones in the right order. The
@@ -79,6 +91,71 @@ public class BrowseController : ControllerBase
         var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
+    }
+
+    [HttpGet("authors/search")]
+    public async Task<ActionResult<PaginatedResult<AuthorSummaryDto>>> SearchAuthors(
+        [FromQuery] string q, int limit = 20, int offset = 0)
+    {
+        var clampError = ValidateSearchPaging(limit, offset);
+        if (clampError != null)
+        {
+            return clampError;
+        }
+
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return new PaginatedResult<AuthorSummaryDto>(0, 0, []);
+        }
+
+        var (items, total) = await _personRepo.SearchAuthorSummariesAsync(q, limit, offset);
+        var dtos = items.Select(p => new AuthorSummaryDto(p.Id, p.Name, p.BookCount)).ToList();
+        return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
+    }
+
+    [HttpGet("series/search")]
+    public async Task<ActionResult<PaginatedResult<LibrarySeriesHitDto>>> SearchSeries(
+        [FromQuery] string q, int limit = 20, int offset = 0)
+    {
+        var clampError = ValidateSearchPaging(limit, offset);
+        if (clampError != null)
+        {
+            return clampError;
+        }
+
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return new PaginatedResult<LibrarySeriesHitDto>(0, 0, []);
+        }
+
+        var (items, total) = await _audiobookRepo.SearchSeriesAsync(q, limit, offset);
+        var dtos = items.Select(s => new LibrarySeriesHitDto(s.Series, s.BookCount)).ToList();
+        return new PaginatedResult<LibrarySeriesHitDto>(dtos.Count, total, dtos);
+    }
+
+    /// <summary>
+    /// Shared limit/offset validation for the paged author/series search endpoints. Mirrors the
+    /// clamping shape in UrlCleanupController.GetDirtyUrls.
+    /// </summary>
+    private ObjectResult? ValidateSearchPaging(int limit, int offset)
+    {
+        if (limit < 1 || limit > MaxSearchPageSize)
+        {
+            return Problem(
+                detail: $"limit must be between 1 and {MaxSearchPageSize}.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request");
+        }
+
+        if (offset < 0 || offset > MaxSearchOffset)
+        {
+            return Problem(
+                detail: $"offset must be between 0 and {MaxSearchOffset}.",
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request");
+        }
+
+        return null;
     }
 
     [HttpGet("authors")]

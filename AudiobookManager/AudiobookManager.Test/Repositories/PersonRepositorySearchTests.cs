@@ -108,7 +108,7 @@ public class PersonRepositorySearchTests
         }
         await SeedBookWithAuthorAsync("Book by sandra", "sandra Newman");
 
-        var results = await _repository.SearchAuthorSummariesAsync("san", 5);
+        var (results, _) = await _repository.SearchAuthorSummariesAsync("san", 5, 0);
 
         Assert.AreEqual(5, results.Count);
         Assert.AreEqual("sandra Newman", results[0].Name);
@@ -172,11 +172,12 @@ public class PersonRepositorySearchTests
         await SeedBookWithAuthorAsync("Mistborn", "Brandon Sanderson");
         await SeedBookWithAuthorAsync("Dune", "Frank Herbert");
 
-        var results = await _repository.SearchAuthorSummariesAsync("sander", 10);
+        var (results, total) = await _repository.SearchAuthorSummariesAsync("sander", 10, 0);
 
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual("Brandon Sanderson", results[0].Name);
         Assert.AreEqual(1, results[0].BookCount);
+        Assert.AreEqual(1, total);
     }
 
     [TestMethod]
@@ -184,9 +185,10 @@ public class PersonRepositorySearchTests
     {
         await _repository.GetOrCreatePerson("Orphan Author");
 
-        var results = await _repository.SearchAuthorSummariesAsync("orphan", 10);
+        var (results, total) = await _repository.SearchAuthorSummariesAsync("orphan", 10, 0);
 
         Assert.AreEqual(0, results.Count);
+        Assert.AreEqual(0, total);
     }
 
     [TestMethod]
@@ -194,9 +196,10 @@ public class PersonRepositorySearchTests
     {
         await SeedBookWithAuthorAsync("Dune", "Frank Herbert");
 
-        var results = await _repository.SearchAuthorSummariesAsync("nonexistent", 10);
+        var (results, total) = await _repository.SearchAuthorSummariesAsync("nonexistent", 10, 0);
 
         Assert.AreEqual(0, results.Count);
+        Assert.AreEqual(0, total);
     }
 
     [TestMethod]
@@ -206,8 +209,62 @@ public class PersonRepositorySearchTests
         // "rene" for "René" would otherwise return nothing - unfriendly for a name search.
         await SeedBookWithAuthorAsync("Le Petit Prince", "Antoine de Saint-Exupéry");
 
-        var results = await _repository.SearchAuthorSummariesAsync("exupery", 10);
+        var (results, _) = await _repository.SearchAuthorSummariesAsync("exupery", 10, 0);
 
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("Antoine de Saint-Exupéry", results[0].Name);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthorSummariesAsync_TotalCountsAllMatchesRegardlessOfLimit()
+    {
+        foreach (var name in new[] { "Alec Sanders", "Bo Sanchez", "Cy Sanford", "Di Sansom", "Ed Santos" })
+        {
+            await SeedBookWithAuthorAsync($"Book by {name}", name);
+        }
+
+        var (results, total) = await _repository.SearchAuthorSummariesAsync("san", 2, 0);
+
+        Assert.AreEqual(2, results.Count);
+        Assert.AreEqual(5, total);
+    }
+
+    // Offset paging must return the deterministic next slice - ThenBy(Id) after ThenBy(Name)
+    // gives the ordering a total order, so a fixed alphabetical set pages exactly.
+    [TestMethod]
+    public async Task SearchAuthorSummariesAsync_OffsetPaging_ReturnsTheDeterministicNextSlice()
+    {
+        foreach (var name in new[] { "Alec Sanders", "Bo Sanchez", "Cy Sanford", "Di Sansom", "Ed Santos" })
+        {
+            await SeedBookWithAuthorAsync($"Book by {name}", name);
+        }
+
+        var (page1, total1) = await _repository.SearchAuthorSummariesAsync("san", 2, 0);
+        var (page2, total2) = await _repository.SearchAuthorSummariesAsync("san", 2, 2);
+        var (page3, total3) = await _repository.SearchAuthorSummariesAsync("san", 2, 4);
+
+        Assert.AreEqual(5, total1);
+        Assert.AreEqual(5, total2);
+        Assert.AreEqual(5, total3);
+        CollectionAssert.AreEqual(
+            new[] { "Alec Sanders", "Bo Sanchez" }, page1.Select(r => r.Name).ToList());
+        CollectionAssert.AreEqual(
+            new[] { "Cy Sanford", "Di Sansom" }, page2.Select(r => r.Name).ToList());
+        CollectionAssert.AreEqual(
+            new[] { "Ed Santos" }, page3.Select(r => r.Name).ToList());
+    }
+
+    // Regression coverage for paging combined with accent folding: the offset must apply after
+    // the accent-folded LIKE filter, not before it.
+    [TestMethod]
+    public async Task SearchAuthorSummariesAsync_AccentFoldedQueryStillMatchesWhenPaged()
+    {
+        await SeedBookWithAuthorAsync("Le Petit Prince", "Antoine de Saint-Exupéry");
+        await SeedBookWithAuthorAsync("Book B", "Another Exupery Person");
+
+        var (results, total) = await _repository.SearchAuthorSummariesAsync("exupery", 1, 1);
+
+        Assert.AreEqual(2, total);
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual("Antoine de Saint-Exupéry", results[0].Name);
     }

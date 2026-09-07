@@ -201,25 +201,30 @@ public class AudiobookRepository : IAudiobookRepository
         return (items, total);
     }
 
-    public async Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit)
+    public async Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
         var pattern = $"%{folded}%";
         var prefixPattern = $"{folded}%";
 
-        var rows = await _db.Audiobooks
+        var matching = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern))
+            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern));
+
+        var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
+
+        var rows = await matching
             .GroupBy(a => a.Series!)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
             // Rank before the limit, not after it - see SearchAsync for what ranking the
             // survivors of an alphabetical Take costs.
             .OrderByDescending(g => EF.Functions.Like(AccentFolding.Fold(g.Series), prefixPattern))
             .ThenBy(g => g.Series)
+            .Skip(offset)
             .Take(limit)
             .ToListAsync();
 
-        return rows.Select(r => (r.Series, r.BookCount)).ToList();
+        return (rows.Select(r => (r.Series, r.BookCount)).ToList(), total);
     }
 
     public async Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId)

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { browseApi } from "@/services/api";
 
 export function LibrarySearch() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -40,6 +41,13 @@ export function LibrarySearch() {
     setQuery("");
   };
 
+  const goToSearchResults = (searchTerm: string) => {
+    const trimmed = searchTerm.trim();
+    if (!trimmed) return;
+    void navigate({ to: "/library/search", search: { q: trimmed } });
+    handleSelect();
+  };
+
   const hasResults =
     results &&
     (results.books.length > 0 || results.authors.length > 0 || results.series.length > 0);
@@ -58,6 +66,11 @@ export function LibrarySearch() {
             setFocused(true);
           }}
           onFocus={() => setFocused(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              goToSearchResults(query);
+            }
+          }}
           className="h-9 pr-8 pl-8 text-xs"
         />
         {loading ? (
@@ -155,6 +168,17 @@ export function LibrarySearch() {
               ))}
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => goToSearchResults(debouncedQuery)}
+            className="hover:bg-accent focus-visible:ring-ring border-border mt-2 flex w-full cursor-pointer items-center gap-2 rounded border-t px-2 py-1.5 pt-2.5 text-left text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <Search className="text-primary h-3.5 w-3.5 shrink-0" />
+            <span className="text-foreground truncate">
+              See all results for &quot;{debouncedQuery}&quot;
+            </span>
+          </button>
         </div>
       )}
     </div>

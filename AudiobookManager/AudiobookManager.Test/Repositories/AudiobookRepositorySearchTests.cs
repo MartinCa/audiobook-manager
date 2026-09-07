@@ -61,10 +61,11 @@ public class AudiobookRepositorySearchTests
         }
         await SeedBookAsync("charm school book", "charm school");
 
-        var results = await _repository.SearchSeriesAsync("charm", 5);
+        var (results, total) = await _repository.SearchSeriesAsync("charm", 5, 0);
 
         Assert.AreEqual(5, results.Count);
         Assert.AreEqual("charm school", results[0].Series);
+        Assert.AreEqual(6, total);
     }
 
     [TestMethod]
@@ -73,11 +74,12 @@ public class AudiobookRepositorySearchTests
         await SeedBookAsync("b", "The Sanderson Files");
         await SeedBookAsync("c", "Sanditon");
 
-        var results = await _repository.SearchSeriesAsync("sand", 5);
+        var (results, total) = await _repository.SearchSeriesAsync("sand", 5, 0);
 
         Assert.AreEqual(2, results.Count);
         Assert.AreEqual("Sanditon", results[0].Series);
         Assert.AreEqual("The Sanderson Files", results[1].Series);
+        Assert.AreEqual(2, total);
     }
 
     // Same truncation bug on the book search: the type-ahead asks for 5 rows, and ordering by
@@ -283,11 +285,12 @@ public class AudiobookRepositorySearchTests
         await SeedBookAsync("Elantris", null);
         await SeedBookAsync("Something Else", "Wheel of Time");
 
-        var results = await _repository.SearchSeriesAsync("mist", 10);
+        var (results, total) = await _repository.SearchSeriesAsync("mist", 10, 0);
 
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual("Mistborn", results[0].Series);
         Assert.AreEqual(2, results[0].BookCount);
+        Assert.AreEqual(1, total);
     }
 
     [TestMethod]
@@ -296,9 +299,10 @@ public class AudiobookRepositorySearchTests
         await SeedBookAsync("Elantris", null);
         await SeedBookAsync("Something Else", "Wheel of Time");
 
-        var results = await _repository.SearchSeriesAsync("nonexistent", 10);
+        var (results, total) = await _repository.SearchSeriesAsync("nonexistent", 10, 0);
 
         Assert.AreEqual(0, results.Count);
+        Assert.AreEqual(0, total);
     }
 
     [TestMethod]
@@ -308,10 +312,43 @@ public class AudiobookRepositorySearchTests
         // "cafe" for "Café" would otherwise return nothing.
         await SeedBookAsync("Café Noir 1", "Café Noir");
 
-        var results = await _repository.SearchSeriesAsync("cafe", 10);
+        var (results, _) = await _repository.SearchSeriesAsync("cafe", 10, 0);
 
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual("Café Noir", results[0].Series);
+    }
+
+    [TestMethod]
+    public async Task SearchSeriesAsync_TotalCountsDistinctSeriesRegardlessOfLimit()
+    {
+        foreach (var series in new[] { "Series Alpha", "Series Beta", "Series Gamma" })
+        {
+            await SeedBookAsync($"{series} Book", series);
+        }
+
+        var (results, total) = await _repository.SearchSeriesAsync("series", 1, 0);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(3, total);
+    }
+
+    // Offset paging must return the deterministic next slice of series.
+    [TestMethod]
+    public async Task SearchSeriesAsync_OffsetPaging_ReturnsTheDeterministicNextSlice()
+    {
+        await SeedBookAsync("Alpha Book", "Series Alpha");
+        await SeedBookAsync("Beta Book", "Series Beta");
+        await SeedBookAsync("Gamma Book", "Series Gamma");
+
+        var (page1, total1) = await _repository.SearchSeriesAsync("series", 2, 0);
+        var (page2, total2) = await _repository.SearchSeriesAsync("series", 2, 2);
+
+        Assert.AreEqual(3, total1);
+        Assert.AreEqual(3, total2);
+        CollectionAssert.AreEqual(
+            new[] { "Series Alpha", "Series Beta" }, page1.Select(r => r.Series).ToList());
+        CollectionAssert.AreEqual(
+            new[] { "Series Gamma" }, page2.Select(r => r.Series).ToList());
     }
 
     [TestMethod]
@@ -343,7 +380,7 @@ public class AudiobookRepositorySearchTests
         await SeedBookAsync("Book B", "Series Beta");
         await SeedBookAsync("Book C", "Series Gamma");
 
-        var results = await _repository.SearchSeriesAsync("series", 2);
+        var (results, _) = await _repository.SearchSeriesAsync("series", 2, 0);
 
         Assert.AreEqual(2, results.Count);
     }
