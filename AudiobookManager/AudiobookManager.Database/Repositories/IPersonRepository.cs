@@ -23,8 +23,8 @@ public interface IPersonRepository
     /// <summary>Every author that has at least one book, with its book count projected in SQL.</summary>
     Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync();
 
-    /// <summary>Name-matching authors, with the book count projected in SQL.</summary>
-    Task<List<AuthorSummaryRow>> SearchAuthorSummariesAsync(string query, int limit);
+    /// <summary>Name-matching authors, with the book count projected in SQL, paged with a total.</summary>
+    Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset);
 
     /// <summary>A single author's id/name/book-count, or null when the author does not exist.</summary>
     Task<AuthorSummaryRow?> GetAuthorSummaryAsync(long authorId);

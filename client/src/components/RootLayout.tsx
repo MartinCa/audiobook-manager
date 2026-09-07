@@ -39,7 +39,8 @@ export function RootLayout() {
     pathname === "/library" ||
     pathname.startsWith("/library/series") ||
     pathname.startsWith("/library/authors") ||
-    pathname.startsWith("/library/book");
+    pathname.startsWith("/library/book") ||
+    pathname.startsWith("/library/search");
 
   const isOrganizeActive = pathname === "/";
   const isDiscoveredActive = pathname === "/library/discovered";

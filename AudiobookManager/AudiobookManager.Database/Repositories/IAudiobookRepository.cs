@@ -31,7 +31,7 @@ public interface IAudiobookRepository
     /// </summary>
     Task<(List<Audiobook> Items, int Total)> SearchAsync(
         string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true);
-    Task<List<(string Series, int BookCount)>> SearchSeriesAsync(string query, int limit);
+    Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);

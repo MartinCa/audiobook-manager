@@ -13,7 +13,7 @@ import type {
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
-import type { LibrarySearchResult } from "@/types/LibrarySearchResult";
+import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type {
@@ -131,6 +131,16 @@ export const browseApi = {
   searchLibrary: (q: string, limit = 5) =>
     api.get<LibrarySearchResult>("/browse/library-search", {
       query: { q, limit },
+    }),
+
+  searchAuthors: (q: string, limit = 20, offset = 0) =>
+    api.get<PaginatedResult<AuthorSummary>>("/browse/authors/search", {
+      query: { q, limit, offset },
+    }),
+
+  searchSeries: (q: string, limit = 20, offset = 0) =>
+    api.get<PaginatedResult<LibrarySeriesHit>>("/browse/series/search", {
+      query: { q, limit, offset },
     }),
 
   getAuthors: () => api.get<AuthorSummary[]>("/browse/authors"),

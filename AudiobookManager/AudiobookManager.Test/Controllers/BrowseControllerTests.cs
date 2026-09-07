@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using Microsoft.AspNetCore.Mvc;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -46,10 +47,10 @@ public class BrowseControllerTests
 
         _audiobookRepo.Setup(r => r.SearchAsync("mist", 5, 0, false, false))
             .ReturnsAsync((new List<Audiobook> { book }, 1));
-        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("mist", 5))
-            .ReturnsAsync(new List<AuthorSummaryRow>());
-        _audiobookRepo.Setup(r => r.SearchSeriesAsync("mist", 5))
-            .ReturnsAsync(new List<(string Series, int BookCount)> { ("Mistborn", 3) });
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("mist", 5, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+        _audiobookRepo.Setup(r => r.SearchSeriesAsync("mist", 5, 0))
+            .ReturnsAsync((new List<(string Series, int BookCount)> { ("Mistborn", 3) }, 1));
 
         var result = await _controller.SearchLibrary("mist");
 
@@ -75,9 +76,9 @@ public class BrowseControllerTests
         var substringMatch = new AuthorSummaryRow(2, "Brandon Sanderson", 1);
 
         _audiobookRepo.Setup(r => r.SearchAsync("san", 5, 0, false, false)).ReturnsAsync((new List<Audiobook>(), 0));
-        _audiobookRepo.Setup(r => r.SearchSeriesAsync("san", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
-        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("san", 5))
-            .ReturnsAsync(new List<AuthorSummaryRow> { prefixMatch, substringMatch });
+        _audiobookRepo.Setup(r => r.SearchSeriesAsync("san", 5, 0)).ReturnsAsync((new List<(string Series, int BookCount)>(), 0));
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("san", 5, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow> { prefixMatch, substringMatch }, 2));
 
         var result = await _controller.SearchLibrary("san");
 
@@ -95,14 +96,134 @@ public class BrowseControllerTests
         var substringMatch = new AuthorSummaryRow(2, "Marie Irene", 1);
 
         _audiobookRepo.Setup(r => r.SearchAsync("rene", 5, 0, false, false)).ReturnsAsync((new List<Audiobook>(), 0));
-        _audiobookRepo.Setup(r => r.SearchSeriesAsync("rene", 5)).ReturnsAsync(new List<(string Series, int BookCount)>());
-        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("rene", 5))
-            .ReturnsAsync(new List<AuthorSummaryRow> { accentedPrefixMatch, substringMatch });
+        _audiobookRepo.Setup(r => r.SearchSeriesAsync("rene", 5, 0)).ReturnsAsync((new List<(string Series, int BookCount)>(), 0));
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("rene", 5, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow> { accentedPrefixMatch, substringMatch }, 2));
 
         var result = await _controller.SearchLibrary("rene");
 
         Assert.AreEqual(2, result.Authors.Count);
         Assert.AreEqual("Réne Girard", result.Authors[0].Name);
         Assert.AreEqual("Marie Irene", result.Authors[1].Name);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_BlankQuery_ReturnsEmptyPageAndNeverTouchesTheRepository()
+    {
+        var result = await _controller.SearchAuthors("   ");
+
+        Assert.AreEqual(0, result.Value!.Count);
+        Assert.AreEqual(0, result.Value!.Total);
+        _personRepo.Verify(
+            r => r.SearchAuthorSummariesAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_MapsRowsToDtosAndPassesLimitAndOffsetThrough()
+    {
+        _personRepo.Setup(r => r.SearchAuthorSummariesAsync("sand", 20, 40))
+            .ReturnsAsync((new List<AuthorSummaryRow> { new(1, "Brandon Sanderson", 5) }, 37));
+
+        var result = await _controller.SearchAuthors("sand", 20, 40);
+
+        Assert.AreEqual(1, result.Value!.Count);
+        Assert.AreEqual(37, result.Value!.Total);
+        Assert.AreEqual("Brandon Sanderson", result.Value!.Items[0].Name);
+        Assert.AreEqual(5, result.Value!.Items[0].BookCount);
+        _personRepo.Verify(r => r.SearchAuthorSummariesAsync("sand", 20, 40), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_LimitBelowOne_ReturnsBadRequestAndNeverTouchesTheRepository()
+    {
+        var result = await _controller.SearchAuthors("sand", 0, 0);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
+        _personRepo.Verify(
+            r => r.SearchAuthorSummariesAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_LimitAboveMax_ReturnsBadRequest()
+    {
+        var result = await _controller.SearchAuthors("sand", 101, 0);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_NegativeOffset_ReturnsBadRequest()
+    {
+        var result = await _controller.SearchAuthors("sand", 20, -1);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_OffsetAboveMax_ReturnsBadRequest()
+    {
+        var result = await _controller.SearchAuthors("sand", 20, 1_000_001);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task SearchSeries_BlankQuery_ReturnsEmptyPageAndNeverTouchesTheRepository()
+    {
+        var result = await _controller.SearchSeries("   ");
+
+        Assert.AreEqual(0, result.Value!.Count);
+        Assert.AreEqual(0, result.Value!.Total);
+        _audiobookRepo.Verify(
+            r => r.SearchSeriesAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchSeries_MapsRowsToDtosAndPassesLimitAndOffsetThrough()
+    {
+        _audiobookRepo.Setup(r => r.SearchSeriesAsync("mist", 20, 40))
+            .ReturnsAsync((new List<(string Series, int BookCount)> { ("Mistborn", 3) }, 22));
+
+        var result = await _controller.SearchSeries("mist", 20, 40);
+
+        Assert.AreEqual(1, result.Value!.Count);
+        Assert.AreEqual(22, result.Value!.Total);
+        Assert.AreEqual("Mistborn", result.Value!.Items[0].Name);
+        Assert.AreEqual(3, result.Value!.Items[0].BookCount);
+        _audiobookRepo.Verify(r => r.SearchSeriesAsync("mist", 20, 40), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchSeries_LimitAboveMax_ReturnsBadRequestAndNeverTouchesTheRepository()
+    {
+        var result = await _controller.SearchSeries("mist", 101, 0);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
+        _audiobookRepo.Verify(
+            r => r.SearchSeriesAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchSeries_NegativeOffset_ReturnsBadRequest()
+    {
+        var result = await _controller.SearchSeries("mist", 20, -1);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(400, objectResult!.StatusCode);
     }
 }

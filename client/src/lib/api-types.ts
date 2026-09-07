@@ -393,6 +393,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
+                        "application/json": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
+                        "text/json": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/series/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["LibrarySeriesHitDtoPaginatedResult"];
+                        "application/json": components["schemas"]["LibrarySeriesHitDtoPaginatedResult"];
+                        "text/json": components["schemas"]["LibrarySeriesHitDtoPaginatedResult"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/authors": {
         parameters: {
             query?: never;
@@ -3277,6 +3359,13 @@ export interface components {
             /** Format: int32 */
             bookCount?: number;
         };
+        AuthorSummaryDtoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["AuthorSummaryDto"][] | null;
+        };
         BulkImportDiscoveredDto: {
             paths?: string[] | null;
         };
@@ -3411,6 +3500,13 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             bookCount?: number;
+        };
+        LibrarySeriesHitDtoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["LibrarySeriesHitDto"][] | null;
         };
         LibrarySettingsDto: {
             initialsSpacing?: string | null;
