@@ -500,4 +500,81 @@ describe("BookDetail", () => {
     });
     expect(metadataRefreshApi.dismissPending).not.toHaveBeenCalled();
   });
+
+  // Regression test for Issue A: the old apply built and saved an Audiobook directly in BookDetail
+  // (applyPendingRefreshSelection), bypassing the mounted form, so the form kept showing the stale
+  // pre-apply values after the background save completed and the detail query refetched. The apply
+  // must land in the mounted form's own state, so the form displays the applied series the moment
+  // Apply All is clicked - before any save-complete SignalR event.
+  it("shows the pending snapshot's series in the mounted form immediately when Apply All is clicked", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        seriesName: "Different Series",
+        seriesPart: "5",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    // The book starts with the old series value.
+    expect(await screen.findByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
+
+    const reviewBtn = screen.getByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    // The form itself now reflects the applied snapshot - no save-complete event needed.
+    expect(await screen.findByDisplayValue("Different Series")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("The Stormlight Archive")).not.toBeInTheDocument();
+  });
+
+  // Regression test for the clearing semantics of a pending apply: the old
+  // applyPendingRefreshSelection only copied narrators when the source reported a non-empty list
+  // (result.narrators.length > 0), so a book whose source has no narrators kept the stale pair.
+  // The routed-through-form apply must honor an empty source array, so the save carries [].
+  it("clears narrators in the applying save when the pending snapshot reports none", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: [],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    // The book initially carries two narrators.
+    expect(await screen.findByText("Michael Kramer")).toBeInTheDocument();
+
+    const reviewBtn = screen.getByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    // The auto-submitted apply save must carry the cleared narrators, not the stale two.
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ narrators: [] }),
+      );
+    });
+  });
 });

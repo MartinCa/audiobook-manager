@@ -666,6 +666,156 @@ describe("BookEditForm", () => {
     ).toBeInTheDocument();
   });
 
+  // Regression test for Issue C: the backend differ reports an empty source list as a real
+  // diff (e.g. "Narrators: X -> (empty)") and TagPreviewDialog shows it as changed, but the old
+  // apply guard (`result.narrators.length > 0`) silently kept the stale value instead of
+  // clearing it - Apply All must actually clear a field the dialog displayed as blanked.
+  it("clears narrators when Apply All is used with a scraped result reporting no narrators", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, narrators: [{ name: "Michael Kramer" }] }}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByText("Michael Kramer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // The narrator chip is gone; the field, now empty, collapses back under "additional fields".
+    await waitFor(() => expect(screen.queryByText("Michael Kramer")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].narrators).toEqual([]);
+  });
+
+  // Regression test for Issue C: an empty series array from the source must clear both Series
+  // and Series Part, the same way the dialog displays "-> (empty)" for the field.
+  it("clears series and seriesPart when Apply All is used with a scraped result reporting no series", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive", seriesPart: "1" }}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("The Stormlight Archive")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByPlaceholderText("Series name")).toHaveValue("");
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].series).toBeUndefined();
+    expect(onSave.mock.calls[0]?.[0].seriesPart).toBeUndefined();
+  });
+
+  // Regression test for Issue C: a scalar text field (subtitle here) with no source value must
+  // be cleared too, not left at its stale current value - matches the dialog's own "-> (empty)".
+  it("clears subtitle when Apply All is used with a scraped result reporting no subtitle", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, subtitle: "A Great Subtitle" }}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByDisplayValue("A Great Subtitle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("A Great Subtitle")).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].subtitle).toBeUndefined();
+  });
+
   it("only displays File Location / Target Path when target differs from current path", async () => {
     const { audiobookApi } = await import("@/services/api");
     vi.mocked(audiobookApi.generateNewPath).mockImplementation((book) => {

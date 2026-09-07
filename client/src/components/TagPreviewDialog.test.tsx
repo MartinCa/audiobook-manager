@@ -85,4 +85,50 @@ describe("TagPreviewDialog", () => {
     expect(screen.getByText("Danish")).toBeInTheDocument();
     expect(screen.getByText("English")).toBeInTheDocument();
   });
+
+  // Regression test for the Year row fix: the source reporting no year must not be advertised as
+  // a change the apply will never make, so Year must not land in the diff-derived selection that
+  // "Apply Selected" hands to onApply. Uses Apply Selected (the set built from the diff), not
+  // Apply All - Apply All deliberately returns every field key regardless of whether it changed.
+  it("does not select Year when the source reports no year", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={{ ...currentInput, year: 2020 }}
+        searchResult={{ ...searchResult, year: undefined }}
+        onApply={onApply}
+      />,
+    );
+
+    const applySelectedBtn = screen.getByRole("button", { name: /apply selected/i });
+    fireEvent.click(applySelectedBtn);
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    expect(appliedKeys.has("year")).toBe(false);
+  });
+
+  it("selects Year when the source reports a different defined year", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={{ ...currentInput, year: 2020 }}
+        searchResult={{ ...searchResult, year: 2021 }}
+        onApply={onApply}
+      />,
+    );
+
+    const applySelectedBtn = screen.getByRole("button", { name: /apply selected/i });
+    fireEvent.click(applySelectedBtn);
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    expect(appliedKeys.has("year")).toBe(true);
+  });
 });
