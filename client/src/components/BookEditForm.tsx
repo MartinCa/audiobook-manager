@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -95,6 +95,7 @@ function buildAudiobook(
   cover: AudiobookImage | undefined,
   initialBook: Audiobook,
   metadataAppliedFromSearch = false,
+  pendingRefreshApplied = false,
 ): Audiobook {
   return {
     authors: (values.authors ?? []).map((name) => ({ name })),
@@ -116,6 +117,7 @@ function buildAudiobook(
     fileInfo: initialBook.fileInfo,
     durationInSeconds: initialBook.durationInSeconds,
     metadataAppliedFromSearch,
+    pendingRefreshApplied,
   };
 }
 
@@ -159,6 +161,17 @@ export interface BookEditFormProps {
    * hide it from Missing Tags.
    */
   defaultEmptyLanguage?: boolean;
+  /**
+   * A pending metadata-refresh snapshot to review/apply, and the dialog's open state — owned by
+   * the caller (BookDetail) so "Refresh Now" can open it. Routing the apply through this form's
+   * own TagPreviewDialog (rather than the caller building the saved Audiobook itself) means the
+   * apply lands in the mounted form's state and is what gets submitted, so the form displays
+   * exactly what was saved instead of going stale after the background save completes and the
+   * caller's data refetches.
+   */
+  pendingRefreshResult?: MetadataSearchResult | null;
+  pendingRefreshOpen?: boolean;
+  onPendingRefreshOpenChange?: (open: boolean) => void;
 }
 
 export function BookEditForm({
@@ -176,6 +189,9 @@ export function BookEditForm({
   toolbarActions,
   formActions,
   defaultEmptyLanguage = false,
+  pendingRefreshResult,
+  pendingRefreshOpen,
+  onPendingRefreshOpenChange,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   const [newPath, setNewPath] = useState<string | null>(null);
@@ -302,9 +318,22 @@ export function BookEditForm({
 
   const [tagPreviewOpen, setTagPreviewOpen] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<MetadataSearchResult | null>(null);
-  // Set once a search result's fields are applied; rides the next save as the one-shot
-  // metadataAppliedFromSearch signal (see buildAudiobook), then cleared. Reset drops it too.
-  const [metadataAppliedFromSearch, setMetadataAppliedFromSearch] = useState(false);
+  // One-shot signal set once a search result's fields are applied; rides the next save as the
+  // metadataAppliedFromSearch marker (see buildAudiobook), then cleared. Reset drops it too.
+  // A ref, not state: handleApplyPendingRefresh applies and then submits in the same
+  // synchronous handler (auto-submit on Apply All), and a state update wouldn't be visible to
+  // handleValidSubmit's closure until the next render - a ref reads the value set moments
+  // earlier, in the same tick. The interactive "Search Online Metadata" flow never hit this
+  // because Apply and Save are separate clicks with a render in between.
+  const metadataAppliedFromSearchRef = useRef(false);
+  // Same one-shot signal, for a pending-refresh-snapshot apply specifically: the caller
+  // (BookDetail) uses this marker on the saved object to know when to dismiss the stored
+  // snapshot, rather than assuming every save with metadataAppliedFromSearch came from there.
+  // A ref, not state: handleApplyPendingRefresh sets it and then immediately submits in the
+  // same synchronous handler (auto-submit on Apply All), and a state update wouldn't be visible
+  // to handleValidSubmit's closure until the next render - a ref reads the value set moments
+  // earlier, in the same tick.
+  const pendingRefreshAppliedRef = useRef(false);
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
@@ -336,21 +365,21 @@ export function BookEditForm({
 
   const handleApplyPreviewedTags = (result: MetadataSearchResult, selectedFields: Set<string>) => {
     if (selectedFields.size === 0) return;
-    setMetadataAppliedFromSearch(true);
+    metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
     }
-    if (selectedFields.has("subtitle") && result.subtitle) {
-      form.setValue("subtitle", result.subtitle, { shouldDirty: true });
+    if (selectedFields.has("subtitle")) {
+      form.setValue("subtitle", result.subtitle ?? "", { shouldDirty: true });
     }
-    if (selectedFields.has("authors") && result.authors && result.authors.length > 0) {
+    if (selectedFields.has("authors") && result.authors) {
       form.setValue(
         "authors",
         result.authors.map((a) => a.name),
         { shouldDirty: true, shouldValidate: true },
       );
     }
-    if (selectedFields.has("narrators") && result.narrators && result.narrators.length > 0) {
+    if (selectedFields.has("narrators") && result.narrators) {
       form.setValue(
         "narrators",
         result.narrators.map((n) => n.name),
@@ -359,38 +388,47 @@ export function BookEditForm({
     }
     if (selectedFields.has("series")) {
       const firstSeries = result.series?.[0];
-      const sName = firstSeries?.seriesName;
-      const sPart = firstSeries?.seriesPart;
-      if (sName !== undefined) form.setValue("series", sName || "", { shouldDirty: true });
-      if (sPart !== undefined) {
-        form.setValue("seriesPart", normalizeSeriesPart(sPart || ""), { shouldDirty: true });
+      if (firstSeries) {
+        const sName = firstSeries.seriesName;
+        const sPart = firstSeries.seriesPart;
+        if (sName !== undefined) form.setValue("series", sName || "", { shouldDirty: true });
+        if (sPart !== undefined) {
+          form.setValue("seriesPart", normalizeSeriesPart(sPart || ""), { shouldDirty: true });
+        }
+      } else if (result.series && result.series.length === 0) {
+        form.setValue("series", "", { shouldDirty: true });
+        form.setValue("seriesPart", "", { shouldDirty: true });
       }
     }
     if (selectedFields.has("year") && result.year) {
       form.setValue("year", String(result.year), { shouldDirty: true, shouldValidate: true });
     }
-    if (selectedFields.has("genres") && result.genres && result.genres.length > 0) {
+    if (selectedFields.has("genres") && result.genres) {
       form.setValue("genres", result.genres, { shouldDirty: true });
     }
-    if (selectedFields.has("description") && result.description) {
-      form.setValue("description", cleanDescription(result.description), { shouldDirty: true });
+    if (selectedFields.has("description")) {
+      form.setValue("description", result.description ? cleanDescription(result.description) : "", {
+        shouldDirty: true,
+      });
     }
-    if (selectedFields.has("copyright") && result.copyright) {
-      form.setValue("copyright", result.copyright, { shouldDirty: true });
+    if (selectedFields.has("copyright")) {
+      form.setValue("copyright", result.copyright ?? "", { shouldDirty: true });
     }
-    if (selectedFields.has("publisher") && result.publisher) {
-      form.setValue("publisher", result.publisher, { shouldDirty: true });
+    if (selectedFields.has("publisher")) {
+      form.setValue("publisher", result.publisher ?? "", { shouldDirty: true });
     }
     if (selectedFields.has("language") && result.language) {
       const normalizedLang =
         normalizeLanguage(result.language, languages) ?? result.language.trim();
       form.setValue("language", normalizedLang, { shouldDirty: true });
     }
-    if (selectedFields.has("rating") && result.rating) {
-      form.setValue("rating", String(result.rating), { shouldDirty: true });
+    if (selectedFields.has("rating")) {
+      form.setValue("rating", result.rating != null ? String(result.rating) : "", {
+        shouldDirty: true,
+      });
     }
-    if (selectedFields.has("asin") && result.asin) {
-      form.setValue("asin", result.asin, { shouldDirty: true });
+    if (selectedFields.has("asin")) {
+      form.setValue("asin", result.asin ?? "", { shouldDirty: true });
     }
     if (selectedFields.has("www") && result.cleanUrl) {
       form.setValue("www", result.cleanUrl, { shouldDirty: true });
@@ -431,10 +469,20 @@ export function BookEditForm({
   const handleValidSubmit = async (values: BookEditFormValues) => {
     setSaving(true);
     try {
-      await onSave(buildAudiobook(values, cover, initialBook, metadataAppliedFromSearch));
-      // The signal is one-shot: it must ride exactly the save that carried the applied search
-      // result. A later plain edit of the same book must not re-stamp the refresh timestamp.
-      setMetadataAppliedFromSearch(false);
+      await onSave(
+        buildAudiobook(
+          values,
+          cover,
+          initialBook,
+          metadataAppliedFromSearchRef.current,
+          pendingRefreshAppliedRef.current,
+        ),
+      );
+      // Both signals are one-shot: they must ride exactly the save that carried the applied
+      // result. A later plain edit of the same book must not re-stamp the refresh timestamp or
+      // re-arm the pending-snapshot dismiss flow.
+      metadataAppliedFromSearchRef.current = false;
+      pendingRefreshAppliedRef.current = false;
       // A newly-typed author/series is now a real value in the backend; refresh the cached
       // name lists so the next book's entry-time duplicate-prevention hint can see it.
       void queryClient.invalidateQueries({ queryKey: ["similarValueNames"] });
@@ -443,11 +491,28 @@ export function BookEditForm({
     }
   };
 
+  // Applying a pending metadata-refresh snapshot auto-submits (preserving today's one-click
+  // Apply behavior), routed through the form's own submit handler rather than built and saved
+  // directly by the caller. This fixes two things at once: the form displays exactly what was
+  // saved (no stale mounted defaultValues after the caller's data refetches), and zod validation
+  // guards an invalid result (e.g. a cleared authors list) the same way a manual edit would be.
+  //
+  // Tradeoff: if form.handleSubmit rejects the auto-submit on validation failure, the refs stay
+  // armed until a later successful submit. Currently unreachable - no real scraper result can
+  // leave the form with zero authors, the only field whose clearing would fail validation.
+  const handleApplyPendingRefresh = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+    if (selectedFields.size === 0) return;
+    handleApplyPreviewedTags(result, selectedFields);
+    pendingRefreshAppliedRef.current = true;
+    void form.handleSubmit(handleValidSubmit)();
+  };
+
   const handleReset = () => {
     form.reset(valuesFromBook(initialBook));
     setCover(initialBook.cover);
     setShowAllOptionalFields(false);
-    setMetadataAppliedFromSearch(false);
+    metadataAppliedFromSearchRef.current = false;
+    pendingRefreshAppliedRef.current = false;
     onReset?.();
   };
 
@@ -838,6 +903,16 @@ export function BookEditForm({
           currentInput={currentOrganizeInput}
           searchResult={pendingSearchResult}
           onApply={handleApplyPreviewedTags}
+        />
+      )}
+
+      {pendingRefreshResult && (
+        <TagPreviewDialog
+          open={pendingRefreshOpen ?? false}
+          onOpenChange={(open) => onPendingRefreshOpenChange?.(open)}
+          currentInput={currentOrganizeInput}
+          searchResult={pendingRefreshResult}
+          onApply={handleApplyPendingRefresh}
         />
       )}
     </form>

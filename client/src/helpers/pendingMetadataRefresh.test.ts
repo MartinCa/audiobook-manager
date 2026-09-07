@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  applyPendingRefreshSelection,
-  pendingSnapshotToSearchResult,
-} from "@/helpers/pendingMetadataRefresh";
-import type { Audiobook } from "@/types/Audiobook";
+import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 
 const snapshot = {
   url: "https://example.com/book/clean",
@@ -22,15 +18,6 @@ const snapshot = {
   copyright: "© 2010",
   publisher: "Tor",
   asin: "B003P2WO5E",
-};
-
-const currentBook: Audiobook = {
-  authors: [{ name: "Old Author" }],
-  narrators: [],
-  bookName: "Old Title",
-  genres: [],
-  year: 1999,
-  fileInfo: { fullPath: "/library/Old/Book.m4b", fileName: "Book.m4b", sizeInBytes: 100 },
 };
 
 describe("pendingSnapshotToSearchResult", () => {
@@ -86,42 +73,5 @@ describe("pendingSnapshotToSearchResult", () => {
     expect(result.narrators).toEqual([]);
     expect(result.genres).toEqual([]);
     expect(result.bookName).toBe("");
-  });
-});
-
-describe("applyPendingRefreshSelection", () => {
-  it("applies the selected fields onto a fresh book through the normal save shape", () => {
-    const result = pendingSnapshotToSearchResult(snapshot);
-    const applied = applyPendingRefreshSelection(
-      result,
-      new Set(["bookName", "authors", "year", "series", "description", "rating"]),
-      currentBook,
-    );
-
-    expect(applied.bookName).toBe("The Way of Kings");
-    expect(applied.authors).toEqual([{ name: "Brandon Sanderson" }]);
-    expect(applied.year).toBe(2010);
-    expect(applied.series).toBe("The Stormlight Archive");
-    expect(applied.seriesPart).toBe("1");
-    expect(applied.description).toBe("A story of kings.");
-    expect(applied.rating).toBe("4.82");
-    // Unselected fields survive untouched.
-    expect(applied.genres).toEqual([]);
-    expect(applied.narrators).toEqual([]);
-  });
-
-  it("leaves the current book untouched when nothing is selected", () => {
-    const result = pendingSnapshotToSearchResult(snapshot);
-    const applied = applyPendingRefreshSelection(result, new Set(), currentBook);
-    expect(applied).toEqual(currentBook);
-  });
-
-  it("normalizes a parsed series part the way the edit form does", () => {
-    const result = pendingSnapshotToSearchResult({
-      ...snapshot,
-      seriesPart: "Book 1",
-    });
-    const applied = applyPendingRefreshSelection(result, new Set(["series"]), currentBook);
-    expect(applied.seriesPart).toBe("1");
   });
 });

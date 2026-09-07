@@ -100,7 +100,10 @@ export function TagPreviewDialog({
         label: "Year",
         currentValue: cur.year?.toString() ?? "",
         newValue: res.year?.toString() ?? "",
-        changed: cur.year !== res.year,
+        // Year is deliberately never blanked (the backend differ excludes a null source year on
+        // purpose, and the apply guards keep the current value when the source has none) - so a
+        // missing source year must not be advertised as a change the apply will never make.
+        changed: res.year != null && cur.year !== res.year,
       },
       {
         key: "genres",

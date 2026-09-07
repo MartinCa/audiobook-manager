@@ -9,7 +9,6 @@ import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { TagPreviewDialog } from "../TagPreviewDialog";
 import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
@@ -17,10 +16,7 @@ import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
 import { formatDateTime } from "@/helpers/formatHelpers";
-import {
-  applyPendingRefreshSelection,
-  pendingSnapshotToSearchResult,
-} from "@/helpers/pendingMetadataRefresh";
+import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
 import { Route } from "@/routes/library/book.$bookId";
@@ -286,6 +282,9 @@ export function BookDetail() {
   }
 
   const initialAudiobook = toAudiobook(bookDetail);
+  const pendingRefreshResult = pending?.payload
+    ? pendingSnapshotToSearchResult(pending.payload)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -391,6 +390,9 @@ export function BookDetail() {
                 deleteDisabled={deleting}
                 submitLabel="Save Changes"
                 isSaving={saving}
+                pendingRefreshResult={pendingRefreshResult}
+                pendingRefreshOpen={pendingOpen}
+                onPendingRefreshOpenChange={setPendingOpen}
               />
             </CardContent>
           </Card>
@@ -483,43 +485,6 @@ export function BookDetail() {
       </div>
 
       {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
-
-      {pending && pending.payload && (
-        <TagPreviewDialog
-          open={pendingOpen}
-          onOpenChange={setPendingOpen}
-          currentInput={{
-            authors: initialAudiobook.authors?.map((a) => a.name).join(", ") ?? "",
-            narrators: initialAudiobook.narrators?.map((n) => n.name).join(", ") ?? "",
-            bookName: initialAudiobook.bookName,
-            subtitle: initialAudiobook.subtitle,
-            series: initialAudiobook.series,
-            seriesPart: initialAudiobook.seriesPart,
-            year: initialAudiobook.year,
-            genres: initialAudiobook.genres?.join("/") ?? "",
-            description: initialAudiobook.description,
-            copyright: initialAudiobook.copyright,
-            publisher: initialAudiobook.publisher,
-            language: initialAudiobook.language,
-            rating: initialAudiobook.rating ? Number(initialAudiobook.rating) : undefined,
-            asin: initialAudiobook.asin,
-            www: initialAudiobook.www,
-          }}
-          searchResult={pendingSnapshotToSearchResult(pending.payload)}
-          onApply={(result, selectedFields) => {
-            const applied = applyPendingRefreshSelection(result, selectedFields, initialAudiobook);
-            // Stamp the same "applied from a metadata search" marker BookEditForm sets after the
-            // interactive search apply, so the backend records this save as applied-from-source
-            // (lastMetadataRefreshedAt) rather than an ordinary edit. pendingRefreshApplied is
-            // client-only and tells proceedSave to dismiss the stored snapshot on completion.
-            void handleSave({
-              ...applied,
-              metadataAppliedFromSearch: true,
-              pendingRefreshApplied: true,
-            });
-          }}
-        />
-      )}
 
       <DeleteFileDialog
         open={deleteConfirmOpen}
