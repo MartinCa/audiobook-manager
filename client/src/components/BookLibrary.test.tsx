@@ -49,6 +49,14 @@ vi.mock("@/services/api", () => ({
     getAuthorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
   },
+  metadataRefreshApi: {
+    refreshAudiobook: vi.fn(),
+    startBulkRefresh: vi.fn().mockResolvedValue(undefined),
+    getPendingPage: vi.fn(),
+    getPendingSummary: vi.fn().mockResolvedValue([]),
+    getPendingForAudiobook: vi.fn(),
+    dismissPending: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 import { browseApi } from "@/services/api";

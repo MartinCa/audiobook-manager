@@ -1405,6 +1405,235 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metadata-refresh/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataRefreshResultDto"];
+                        "application/json": components["schemas"]["MetadataRefreshResultDto"];
+                        "text/json": components["schemas"]["MetadataRefreshResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkMetadataRefreshDto"];
+                    "text/json": components["schemas"]["BulkMetadataRefreshDto"];
+                    "application/*+json": components["schemas"]["BulkMetadataRefreshDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PendingMetadataRefreshPageDto"];
+                        "application/json": components["schemas"]["PendingMetadataRefreshPageDto"];
+                        "text/json": components["schemas"]["PendingMetadataRefreshPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/pending-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": number[];
+                        "application/json": number[];
+                        "text/json": number[];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/{id}/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PendingMetadataRefreshDto"];
+                        "application/json": components["schemas"]["PendingMetadataRefreshDto"];
+                        "text/json": components["schemas"]["PendingMetadataRefreshDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata-search/{sourceName}": {
         parameters: {
             query?: never;
@@ -2945,7 +3174,6 @@ export interface components {
             replaceExisting?: boolean | null;
             /** Format: date-time */
             lastMetadataRefreshedAt?: string | null;
-            metadataAppliedFromSearch?: boolean;
             fileInfo?: components["schemas"]["AudiobookFileInfo"];
         };
         AudiobookDetailDto: {
@@ -3056,6 +3284,10 @@ export interface components {
             /** Format: double */
             confidenceThreshold?: number;
             seriesNames?: string[] | null;
+        };
+        BulkMetadataRefreshDto: {
+            /** Format: date-time */
+            olderThanUtc?: string | null;
         };
         ConsistencyIssueDto: {
             /** Format: int64 */
@@ -3182,6 +3414,8 @@ export interface components {
         };
         LibrarySettingsDto: {
             initialsSpacing?: string | null;
+            /** Format: int32 */
+            metadataRefreshDelayMs?: number;
         };
         MatchSeriesDto: {
             sourceName?: string | null;
@@ -3197,6 +3431,18 @@ export interface components {
         MetadataMultiSourceSearchResult: {
             results?: components["schemas"]["MetadataSearchResult"][] | null;
             sourceStatuses?: components["schemas"]["MetadataSourceSearchStatus"][] | null;
+        };
+        MetadataRefreshDiffDto: {
+            field?: string | null;
+            libraryValue?: string | null;
+            sourceValue?: string | null;
+        };
+        MetadataRefreshResultDto: {
+            success?: boolean;
+            hasDifferences?: boolean;
+            differences?: components["schemas"]["MetadataRefreshDiffDto"][] | null;
+            sourceName?: string | null;
+            error?: string | null;
         };
         MetadataSearchResult: {
             url?: string | null;
@@ -3298,6 +3544,48 @@ export interface components {
         };
         PathDto: {
             path: string | null;
+        };
+        PendingMetadataRefreshDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            /** Format: date-time */
+            fetchedAt?: string;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
+            payload?: components["schemas"]["PendingRefreshSnapshotDto"];
+        };
+        PendingMetadataRefreshListItemDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            authors?: string[] | null;
+            /** Format: date-time */
+            fetchedAt?: string;
+            sourceName?: string | null;
+        };
+        PendingMetadataRefreshPageDto: {
+            items?: components["schemas"]["PendingMetadataRefreshListItemDto"][] | null;
+            /** Format: int32 */
+            total?: number;
+        };
+        PendingRefreshSnapshotDto: {
+            url?: string | null;
+            source?: string | null;
+            authors?: string[] | null;
+            narrators?: string[] | null;
+            bookName?: string | null;
+            subtitle?: string | null;
+            seriesName?: string | null;
+            seriesPart?: string | null;
+            /** Format: int32 */
+            year?: number | null;
+            genres?: string[] | null;
+            description?: string | null;
+            language?: string | null;
+            rating?: string | null;
+            copyright?: string | null;
+            publisher?: string | null;
+            asin?: string | null;
         };
         Person: {
             /** Format: int64 */
@@ -3415,6 +3703,8 @@ export interface components {
         };
         UpdateLibrarySettingsDto: {
             initialsSpacing?: string | null;
+            /** Format: int32 */
+            metadataRefreshDelayMs?: number | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

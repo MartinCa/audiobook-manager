@@ -9,12 +9,18 @@ import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { browseApi, audiobookApi, consistencyApi } from "@/services/api";
+import { TagPreviewDialog } from "../TagPreviewDialog";
+import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
+import { formatDateTime } from "@/helpers/formatHelpers";
+import {
+  applyPendingRefreshSelection,
+  pendingSnapshotToSearchResult,
+} from "@/helpers/pendingMetadataRefresh";
 import { toast } from "sonner";
 import type { Audiobook } from "@/types/Audiobook";
 import { Route } from "@/routes/library/book.$bookId";
@@ -52,6 +58,9 @@ export function BookDetail() {
   const [resolvingIssueId, setResolvingIssueId] = useState<number | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(false);
+  const [pendingApplied, setPendingApplied] = useState(false);
 
   const { data, isLoading: loading } = useQuery({
     queryKey: ["bookDetail", id],
@@ -62,6 +71,15 @@ export function BookDetail() {
       ]);
       return { detail, bookIssues };
     },
+    enabled: Boolean(id),
+  });
+
+  // Pending refreshed-metadata snapshot for this book (the "review changes" banner). Absent =
+  // nothing pending; a 404 from the endpoint means the same thing, and must not surface as an
+  // error — the refresh bookkeeping timestamp is what matters for display.
+  const { data: pending } = useQuery({
+    queryKey: ["metadataRefresh", "pending", id],
+    queryFn: () => metadataRefreshApi.getPendingForAudiobook(id),
     enabled: Boolean(id),
   });
 
@@ -83,6 +101,12 @@ export function BookDetail() {
       setSaveMessage(null);
       toast.success("Audiobook saved successfully");
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
+      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+      if (pendingApplied) {
+        setPendingApplied(false);
+        void metadataRefreshApi.dismissPending(id).catch(() => {});
+      }
     }
   });
 
@@ -188,6 +212,49 @@ export function BookDetail() {
     }
   };
 
+  // Metadata refresh (single book, from its own source URL). The endpoint is synchronous and is
+  // the backing surface for both "Refresh Now" and the consistency issue whose "resolve" means
+  // retrying.
+  const invalidateRefreshViews = () => {
+    void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
+    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+  };
+
+  const handleRefreshNow = async () => {
+    setRefreshing(true);
+    try {
+      const result = await metadataRefreshApi.refreshAudiobook(id);
+      if (!result.success) {
+        toast.error(result.error || "Metadata refresh failed");
+      } else if (result.hasDifferences) {
+        setPendingOpen(true);
+        void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
+      } else {
+        toast.success(`Metadata up to date (${result.sourceName ?? "source"})`);
+      }
+      invalidateRefreshViews();
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleDismissPending = async () => {
+    setPendingApplied(false);
+    try {
+      await metadataRefreshApi.dismissPending(id);
+      toast.success("Pending metadata changes discarded");
+      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
+      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["books"] });
+      setPendingOpen(false);
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
@@ -225,17 +292,75 @@ export function BookDetail() {
           <p className="text-muted-foreground text-sm">
             Edit metadata and examine audio file properties.
           </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Last refreshed from source:{" "}
+            {bookDetail.lastMetadataRefreshedAt
+              ? formatDateTime(bookDetail.lastMetadataRefreshedAt)
+              : "Never"}
+          </p>
         </div>
 
-        {saving && (
-          <div className="bg-muted text-muted-foreground flex items-center gap-2 rounded-md px-3 py-1.5 text-xs">
-            <Loader2 className="text-primary h-4 w-4 animate-spin" />
-            <span>
-              {saveMessage || "Saving..."} {saveProgress != null ? `(${saveProgress}%)` : ""}
-            </span>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void handleRefreshNow();
+            }}
+            disabled={refreshing || saving || !bookDetail.www}
+            className="text-xs"
+            title={
+              bookDetail.www
+                ? "Re-fetch this book's metadata from its online source"
+                : "This book has no source URL, so it cannot be refreshed"
+            }
+          >
+            {refreshing ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+            )}
+            {refreshing ? "Refreshing..." : "Refresh Now"}
+          </Button>
+
+          {saving && (
+            <div className="bg-muted text-muted-foreground flex items-center gap-2 rounded-md px-3 py-1.5 text-xs">
+              <Loader2 className="text-primary h-4 w-4 animate-spin" />
+              <span>
+                {saveMessage || "Saving..."} {saveProgress != null ? `(${saveProgress}%)` : ""}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {pending && (
+        <div className="border-border bg-primary/5 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div className="min-w-0">
+            <p className="font-semibold">
+              Pending metadata changes from {pending.sourceName ?? "online source"}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Refreshed {formatDateTime(pending.fetchedAt)} — review the changes and save, or
+              dismiss them.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button size="sm" onClick={() => setPendingOpen(true)}>
+              Review Changes
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void handleDismissPending();
+              }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <div className="space-y-6 lg:col-span-3">
@@ -346,6 +471,39 @@ export function BookDetail() {
       </div>
 
       {dialogProps && <DuplicateTargetDialog {...dialogProps} />}
+
+      {pending && pending.payload && (
+        <TagPreviewDialog
+          open={pendingOpen}
+          onOpenChange={setPendingOpen}
+          currentInput={{
+            authors: initialAudiobook.authors?.map((a) => a.name).join(", ") ?? "",
+            narrators: initialAudiobook.narrators?.map((n) => n.name).join(", ") ?? "",
+            bookName: initialAudiobook.bookName,
+            subtitle: initialAudiobook.subtitle,
+            series: initialAudiobook.series,
+            seriesPart: initialAudiobook.seriesPart,
+            year: initialAudiobook.year,
+            genres: initialAudiobook.genres?.join("/") ?? "",
+            description: initialAudiobook.description,
+            copyright: initialAudiobook.copyright,
+            publisher: initialAudiobook.publisher,
+            language: initialAudiobook.language,
+            rating: initialAudiobook.rating ? Number(initialAudiobook.rating) : undefined,
+            asin: initialAudiobook.asin,
+            www: initialAudiobook.www,
+          }}
+          searchResult={pendingSnapshotToSearchResult(pending.payload)}
+          onApply={(result, selectedFields) => {
+            setPendingApplied(true);
+            const applied = applyPendingRefreshSelection(result, selectedFields, initialAudiobook);
+            // Stamp the same "applied from a metadata search" marker BookEditForm sets after the
+            // interactive search apply, so the backend records this save as applied-from-source
+            // (lastMetadataRefreshedAt) rather than an ordinary edit.
+            void handleSave({ ...applied, metadataAppliedFromSearch: true });
+          }}
+        />
+      )}
 
       <DeleteFileDialog
         open={deleteConfirmOpen}
