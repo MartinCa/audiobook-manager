@@ -100,13 +100,13 @@ importers:
         specifier: 19.2.7
         version: 19.2.7(@types/react@19.2.18)
       '@vitejs/plugin-react':
-        specifier: ^6.1.1
+        specifier: 6.1.1
         version: 6.1.1(vite@8.2.2(@types/node@25.9.5)(jiti@2.7.0))
       '@vitest/ui':
         specifier: 5.0.0
         version: 5.0.0(vitest@4.1.11)
       eslint:
-        specifier: ^10.9.1
+        specifier: 10.9.1
         version: 10.9.1(jiti@2.7.0)(supports-color@10.2.2)
       jsdom:
         specifier: 30.0.1
@@ -115,10 +115,10 @@ importers:
         specifier: 7.13.0
         version: 7.13.0(typescript@6.0.3)
       prettier:
-        specifier: ^3.9.6
+        specifier: 3.9.6
         version: 3.9.6
       prettier-plugin-tailwindcss:
-        specifier: ^0.8.1
+        specifier: 0.8.1
         version: 0.8.1(prettier@3.9.6)
       tailwindcss:
         specifier: 4.3.3
