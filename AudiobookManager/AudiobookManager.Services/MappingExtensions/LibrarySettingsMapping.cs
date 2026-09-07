@@ -5,7 +5,11 @@ namespace AudiobookManager.Services.MappingExtensions;
 public static class LibrarySettingsMapping
 {
     public static Domain.LibrarySettings ToDomain(this Database.Models.LibrarySettings dbModel) =>
-        new() { InitialsSpacing = ToDomain(dbModel.InitialsSpacing) };
+        new()
+        {
+            InitialsSpacing = ToDomain(dbModel.InitialsSpacing),
+            MetadataRefreshDelayMs = dbModel.MetadataRefreshDelayMs,
+        };
 
     public static Database.Models.InitialsSpacing ToDb(this Domain.InitialsSpacing domain) => domain switch
     {

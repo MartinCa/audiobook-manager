@@ -8,4 +8,10 @@ namespace AudiobookManager.Domain;
 public class LibrarySettings
 {
     public InitialsSpacing InitialsSpacing { get; set; } = InitialsSpacing.Unspaced;
+
+    /// <summary>
+    /// Delay the bulk metadata-refresh loop waits between consecutive source requests
+    /// (milliseconds). Applies to the bulk loop only; a single-book refresh never waits.
+    /// </summary>
+    public int MetadataRefreshDelayMs { get; set; } = 1000;
 }

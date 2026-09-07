@@ -112,11 +112,20 @@ public class SettingsController : ControllerBase
                 $"{string.Join(", ", Enum.GetNames<InitialsSpacing>())}.");
         }
 
+        // Omitted keeps the stored value rather than resetting it: the settings page sends the
+        // whole object, but the DTO deliberately made the new field optional so an older client
+        // (or a narrow PUT) does not silently zero the delay.
+        var delayMs = dto.MetadataRefreshDelayMs ?? (await _settingsService.GetLibrarySettings()).MetadataRefreshDelayMs;
+        if (delayMs < 0 || delayMs > 60_000)
+        {
+            return this.InvalidRequest("MetadataRefreshDelayMs must be between 0 and 60000 milliseconds.");
+        }
+
         var updated = await _settingsService.UpdateLibrarySettings(
-            new Domain.LibrarySettings { InitialsSpacing = parsed });
+            new Domain.LibrarySettings { InitialsSpacing = parsed, MetadataRefreshDelayMs = delayMs });
         return Ok(ToDto(updated));
     }
 
     private static LibrarySettingsDto ToDto(Domain.LibrarySettings settings) =>
-        new(settings.InitialsSpacing.ToString());
+        new(settings.InitialsSpacing.ToString(), settings.MetadataRefreshDelayMs);
 }

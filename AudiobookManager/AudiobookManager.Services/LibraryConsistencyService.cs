@@ -301,15 +301,27 @@ public class LibraryConsistencyService : ILibraryConsistencyService
                 try
                 {
                     var (scope, _) = await ResolveLoadedIssue(issue);
-                    succeeded++;
 
-                    if (scope == ResolveScope.AllForAudiobook)
+                    if (scope == ResolveScope.NotResolved)
                     {
-                        cascadedAll.Add(issue.AudiobookId);
+                        // The resolve did not happen (e.g. the source's request budget is spent)
+                        // and the issue row is unchanged. Counting it as resolved would tell the
+                        // user a lie; it belongs in failed - and the loop continues, since the
+                        // condition can be per-source rather than batch-wide.
+                        failed++;
                     }
-                    else if (scope == ResolveScope.SidecarsForAudiobook)
+                    else
                     {
-                        cascadedByResolver.Add((issue.AudiobookId, resolver));
+                        succeeded++;
+
+                        if (scope == ResolveScope.AllForAudiobook)
+                        {
+                            cascadedAll.Add(issue.AudiobookId);
+                        }
+                        else if (scope == ResolveScope.SidecarsForAudiobook)
+                        {
+                            cascadedByResolver.Add((issue.AudiobookId, resolver));
+                        }
                     }
                 }
                 catch (Exception ex)

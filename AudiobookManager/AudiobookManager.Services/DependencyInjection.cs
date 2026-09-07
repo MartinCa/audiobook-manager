@@ -28,6 +28,7 @@ public static class DependencyInjection
         .AddScoped<IUrlCleanupService, UrlCleanupService>()
         .AddScoped<ILanguageBackfillService, LanguageBackfillService>()
         .AddScoped<ISeriesService, SeriesService>()
+        .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

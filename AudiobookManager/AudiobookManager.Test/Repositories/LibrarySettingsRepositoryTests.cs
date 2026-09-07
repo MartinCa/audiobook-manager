@@ -62,7 +62,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task GetOrCreateAsync_RowExists_ReturnsItWithoutInserting()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced);
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000);
 
         var settings = await _repository.GetOrCreateAsync();
 
@@ -73,7 +73,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_NoRowYet_CreatesRowWithTheRequestedValue()
     {
-        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced);
+        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000);
 
         Assert.AreEqual(DbInitialsSpacing.Spaced, settings.InitialsSpacing);
         using var freshContext = OpenNewContext();
@@ -83,8 +83,8 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_RowExists_UpdatesItInPlace()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced);
-        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced);
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000);
+        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, 1000);
 
         Assert.AreEqual(1, await _db.LibrarySettings.CountAsync());
         Assert.AreEqual(DbInitialsSpacing.Unspaced, (await _repository.GetOrCreateAsync()).InitialsSpacing);
@@ -127,7 +127,7 @@ public class LibrarySettingsRepositoryTests
             using var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
             var repository = new LibrarySettingsRepository(context);
             return await repository.UpdateAsync(
-                i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced);
+                i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced, 1000);
         }));
 
         await Task.WhenAll(tasks);

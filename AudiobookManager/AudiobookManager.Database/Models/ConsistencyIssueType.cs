@@ -44,5 +44,16 @@ public enum ConsistencyIssueType
     /// Resolving rewrites the person value on every book that carries it via
     /// <c>AudiobookService.UpdateAudiobook</c>, never a DB-only field update.
     /// </summary>
-    InitialsSpacingMismatch = 12
+    InitialsSpacingMismatch = 12,
+
+    /// <summary>
+    /// A metadata refresh (single or bulk) for this book failed - a network error, a scrape
+    /// error, a source that no longer answers. Bookkeeping-only: the book's files and tags were
+    /// never touched, so resolving means *retrying* the refresh (modeled on
+    /// <see cref="ConsistencyIssueType.UnreadableFile"/>, where resolving is also just looking
+    /// again). <see cref="ConsistencyIssue.ActualValue"/> carries the error message, and
+    /// resolving a stale issue is not a data loss risk because the pending-refresh snapshot, if
+    /// any, is separate state.
+    /// </summary>
+    MetadataRefreshFailed = 13
 }

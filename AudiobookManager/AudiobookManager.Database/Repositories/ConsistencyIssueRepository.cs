@@ -190,6 +190,26 @@ public class ConsistencyIssueRepository : IConsistencyIssueRepository
             .ToListAsync();
     }
 
+    public async Task UpdateAsync(ConsistencyIssue issue)
+    {
+        // Load-and-copy, never attach the handed-in graph: the caller typically passes an
+        // entity from an AsNoTracking read that Includes the Audiobook and its Authors, and a
+        // context-level Update()/Attach() would mark that entire reachable graph Modified -
+        // silently overwriting concurrent edits to the book or its people with the stale
+        // snapshot values, on top of the wasted per-row UPDATEs. SetValues copies scalar
+        // properties only; navigations are untouched.
+        var tracked = await _db.ConsistencyIssues
+            .FirstOrDefaultAsync(ci => ci.Id == issue.Id);
+
+        if (tracked is null)
+        {
+            throw new KeyNotFoundException($"Consistency issue {issue.Id} does not exist.");
+        }
+
+        _db.Entry(tracked).CurrentValues.SetValues(issue);
+        await _db.SaveChangesAsync();
+    }
+
     private void DetachTracked(Func<ConsistencyIssue, bool>? predicate = null)
     {
         foreach (var entry in _db.ChangeTracker.Entries<ConsistencyIssue>()

@@ -15,6 +15,7 @@ public static class DependencyInjection
             .AddScoped<IQueuedOrganizeTaskRepository, QueuedOrganizeTaskRepository>()
             .AddScoped<IDiscoveredAudiobookRepository, DiscoveredAudiobookRepository>()
             .AddScoped<IConsistencyIssueRepository, ConsistencyIssueRepository>()
+            .AddScoped<IPendingMetadataRefreshRepository, PendingMetadataRefreshRepository>()
             .AddScoped<IOrphanDirectoryRepository, OrphanDirectoryRepository>()
             .AddScoped<ISeriesRepository, SeriesRepository>()
             .AddScoped<IHardcoverQuotaRepository, HardcoverQuotaRepository>();

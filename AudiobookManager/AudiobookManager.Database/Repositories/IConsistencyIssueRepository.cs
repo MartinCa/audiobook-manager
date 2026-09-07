@@ -28,4 +28,7 @@ public interface IConsistencyIssueRepository
     Task<List<ConsistencyIssue>> GetByIdsAsync(IReadOnlyCollection<long> ids);
     Task<Dictionary<long, int>> GetIssueSummaryAsync();
     Task<List<ConsistencyIssue>> GetByAudiobookIdAsync(long audiobookId);
+
+    /// <summary>Saves changes to an already-tracked issue (an edit, not an insert or delete).</summary>
+    Task UpdateAsync(ConsistencyIssue issue);
 }

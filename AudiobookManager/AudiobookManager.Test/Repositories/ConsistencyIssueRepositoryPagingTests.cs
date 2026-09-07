@@ -78,6 +78,73 @@ public class ConsistencyIssueRepositoryPagingTests
     }
 
     [TestMethod]
+    public async Task UpdateAsync_DoesNotMarkTheIncludedBookGraphModified()
+    {
+        // Regression (PR #1380 review): the caller hands back an issue from an AsNoTracking read
+        // that Includes the Audiobook and its Authors. Update() used to walk that reachable graph
+        // and mark it all Modified, so a rename made between the read and the update was silently
+        // reverted by the stale snapshot. Only the issue row may be rewritten.
+        var book = await SeedBookAsync("Graph Victim");
+        await SeedIssuesAsync(book.Id, ConsistencyIssueType.MetadataRefreshFailed, 1);
+
+        var noTrackingContext = new DatabaseContext(
+            new DbContextOptions<DatabaseContext>(),
+            Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath }));
+        try
+        {
+            var detachedIssue = (await noTrackingContext.ConsistencyIssues
+                .AsNoTracking()
+                .Include(ci => ci.Audiobook).ThenInclude(a => a.Authors)
+                .SingleAsync(ci => ci.AudiobookId == book.Id));
+
+            // Concurrent edit between the no-tracking read and the update: the author gets
+            // renamed in the database by someone else.
+            var authorId = book.Authors.Single().Id;
+            await using var otherContext = new DatabaseContext(
+                new DbContextOptions<DatabaseContext>(),
+                Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath }));
+            var concurrentAuthor = await otherContext.Persons.SingleAsync(p => p.Id == authorId);
+            concurrentAuthor.Name = "Renamed Concurrently";
+            await otherContext.SaveChangesAsync();
+
+            detachedIssue.Description = "Metadata refresh failed";
+            detachedIssue.ActualValue = "the fresh error";
+            await _repository.UpdateAsync(detachedIssue);
+
+            // The concurrent rename survived; only the issue row changed.
+            await using var verify = new DatabaseContext(
+                new DbContextOptions<DatabaseContext>(),
+                Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath }));
+            Assert.AreEqual("Renamed Concurrently",
+                (await verify.Persons.SingleAsync(p => p.Id == authorId)).Name);
+
+            var reloaded = await verify.ConsistencyIssues.SingleAsync(ci => ci.AudiobookId == book.Id);
+            Assert.AreEqual("the fresh error", reloaded.ActualValue);
+        }
+        finally
+        {
+            await noTrackingContext.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task UpdateAsync_UnknownIssue_ThrowsKeyNotFound()
+    {
+        await SeedBookAsync("No Issue Book");
+        var phantom = new ConsistencyIssue
+        {
+            Id = 999999,
+            AudiobookId = 1,
+            IssueType = ConsistencyIssueType.MetadataRefreshFailed,
+            Description = "x",
+            DetectedAt = DateTime.UtcNow,
+        };
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _repository.UpdateAsync(phantom));
+    }
+
+    [TestMethod]
     public async Task GetPageWithAudiobookAsync_ReturnsTheRequestedSliceAndTheFullTotal()
     {
         var book = await SeedBookAsync("A Book");
