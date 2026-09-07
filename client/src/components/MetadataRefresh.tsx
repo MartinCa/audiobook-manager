@@ -69,9 +69,12 @@ export function MetadataRefresh() {
   });
 
   // Invalidate everything that reflects refresh state (the pending list, the book-detail pending
-  // banner, the library-list badges) after a completed bulk run.
+  // banner, the library-list badges) after a completed bulk run. The library-list query folds the
+  // pending-summary into its badge computation, so "metadataRefresh"-prefixed invalidation alone
+  // would leave stale badges.
   const invalidateRefreshViews = () => {
     void queryClient.invalidateQueries({ queryKey: ["metadataRefresh"] });
+    void queryClient.invalidateQueries({ queryKey: ["books"] });
   };
 
   useSignalREvent<RefreshProgressPayload>("MetadataRefreshProgress", (data) => {

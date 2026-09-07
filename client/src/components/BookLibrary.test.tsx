@@ -59,7 +59,7 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-import { browseApi } from "@/services/api";
+import { browseApi, metadataRefreshApi } from "@/services/api";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
 
@@ -170,6 +170,21 @@ describe("BookLibrary", () => {
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
     expect(screen.getByText("Words of Radiance")).toBeInTheDocument();
     expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0);
+  });
+
+  it("shows a pending-refresh badge for books with a stored snapshot", async () => {
+    vi.mocked(metadataRefreshApi.getPendingSummary).mockResolvedValue([1]);
+
+    renderWithRouter();
+
+    // The summary is folded into the list query, so the badge appears on the matching row only.
+    expect(await screen.findByText("Pending refresh")).toBeInTheDocument();
+    expect(screen.getByText("The Way of Kings").closest("div")!.textContent).toContain(
+      "Pending refresh",
+    );
+    expect(screen.getByText("Words of Radiance").closest("div")!.textContent).not.toContain(
+      "Pending refresh",
+    );
   });
 
   it("fits the whole cover inside the thumbnail without cropping", async () => {

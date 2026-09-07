@@ -379,4 +379,125 @@ describe("BookDetail", () => {
       expect(toast.success).toHaveBeenCalledWith("Metadata up to date (Goodreads)");
     });
   });
+
+  it("dismisses the pending snapshot only after the applying save completes", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+
+    const reviewBtn = await screen.findByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    // Applying starts a save carrying the pending-refresh marker.
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ metadataAppliedFromSearch: true }),
+      );
+    });
+
+    // Simulate the save completing on the SignalR channel.
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.dismissPending).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it("never lets a failed or cancelled apply save dismiss the pending snapshot on a later save", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+    // The apply's save queueing fails (network/queue error) before a background save starts.
+    vi.mocked(audiobookApi.updateBook).mockRejectedValueOnce(new Error("queue refused"));
+
+    renderWithProviders();
+
+    const reviewBtn = await screen.findByRole("button", { name: /review changes/i });
+    fireEvent.click(reviewBtn);
+    const applyBtn = await screen.findByRole("button", { name: /apply all/i });
+    fireEvent.click(applyBtn);
+
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledTimes(1);
+    });
+    // The failed attempt must not arm the dismiss-after-completion flow.
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    // A later, unrelated save (from the edit form, no marker) completes; it must not dismiss the
+    // snapshot the user never applied.
+    expect(metadataRefreshApi.dismissPending).not.toHaveBeenCalled();
+  });
+
+  it("never dismisses a pending snapshot after an unrelated manual save", async () => {
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      audiobookId: 42,
+      fetchedAt: "2026-09-01T10:00:00Z",
+      sourceName: "Goodreads",
+      sourceUrl: "https://example.com/book",
+      payload: {
+        url: "https://example.com/book",
+        source: "Goodreads",
+        authors: ["Brandon Sanderson"],
+        narrators: ["Michael Kramer"],
+        bookName: "The Way of Kings",
+        genres: ["Epic Fantasy"],
+      },
+    });
+
+    renderWithProviders();
+    await screen.findByText(/pending metadata changes from goodreads/i);
+
+    // An ordinary save (no pending-refresh marker) completes...
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    // ...and completes again later; neither should dismiss the untouched pending snapshot.
+    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).not.toHaveBeenCalled();
+    });
+    expect(metadataRefreshApi.dismissPending).not.toHaveBeenCalled();
+  });
 });

@@ -114,6 +114,9 @@ export function BookDetail() {
     if (payload.audiobookId === id) {
       setSaving(false);
       setSaveProgress(null);
+      // The save that carried an applied pending-refresh snapshot failed, so there is nothing
+      // to dismiss — clear the arm so a later unrelated save can't dismiss it either.
+      setPendingApplied(false);
       toast.error(`Save error: ${payload.error}`);
     }
   });
@@ -136,8 +139,14 @@ export function BookDetail() {
 
   const proceedSave = async (updated: Audiobook) => {
     setSaving(true);
+    // The pending-refresh marker rides on the audiobook object (survives the target-collision
+    // dialog, which keeps the same book), so only an actual apply save arms the dismiss-after-
+    // -completion flow. A cancelled dialog discards the object; a failed queue leaves the arm
+    // clear. Either way the next unrelated save can't silently dismiss the stored snapshot.
+    const applyingPendingRefresh = Boolean(updated.pendingRefreshApplied);
     try {
       await audiobookApi.updateBook(id, updated);
+      if (applyingPendingRefresh) setPendingApplied(true);
       toast.success("Update queued");
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
@@ -219,6 +228,9 @@ export function BookDetail() {
     void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
     void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
     void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+    // The library-list query folds the pending-summary into its badge computation, so a refresh
+    // here must also invalidate it — the same reason handleDismissPending invalidates it below.
+    void queryClient.invalidateQueries({ queryKey: ["books"] });
   };
 
   const handleRefreshNow = async () => {
@@ -495,12 +507,16 @@ export function BookDetail() {
           }}
           searchResult={pendingSnapshotToSearchResult(pending.payload)}
           onApply={(result, selectedFields) => {
-            setPendingApplied(true);
             const applied = applyPendingRefreshSelection(result, selectedFields, initialAudiobook);
             // Stamp the same "applied from a metadata search" marker BookEditForm sets after the
             // interactive search apply, so the backend records this save as applied-from-source
-            // (lastMetadataRefreshedAt) rather than an ordinary edit.
-            void handleSave({ ...applied, metadataAppliedFromSearch: true });
+            // (lastMetadataRefreshedAt) rather than an ordinary edit. pendingRefreshApplied is
+            // client-only and tells proceedSave to dismiss the stored snapshot on completion.
+            void handleSave({
+              ...applied,
+              metadataAppliedFromSearch: true,
+              pendingRefreshApplied: true,
+            });
           }}
         />
       )}
