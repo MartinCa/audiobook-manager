@@ -14,13 +14,32 @@ This project's directory structure, embedded m4b tags, and sidecar files are mea
 
 ## Sandbox tooling: .NET SDK location and bootstrapping
 
-**This repo's backend requires the .NET SDK (targets `net10.0`).** The OpenHands sandbox
-base image (agent-canvas all-in-one, `ghcr.io/openhands/agent-canvas`) does **not** ship
-`dotnet`, and anything under `$HOME` is on ephemeral overlay storage — it does **not**
-survive the sandbox container being recreated. A fresh session therefore starts **without
-dotnet**.
+**This subsection is OpenHands-specific. Confirm you are actually in OpenHands — not
+OpenCode — before following any of it.** Most agent work in this repo now runs in OpenCode,
+and nothing below applies there:
 
-### Persistent locations (survive container recreation)
+- **OpenCode markers** (check these first): env vars `$OPENCODE` / `$OPENCODE_PID` /
+  `$OPENCODE_SERVER_PASSWORD`, or config at `~/.config/opencode/`. If any of these are
+  present, you are in OpenCode — skip straight to "Common Commands" below. The `/projects`
+  volume and bootstrap script are OpenHands sandbox artifacts and will not exist; if
+  `dotnet` isn't already on `PATH`, that's a plain missing-dependency problem to solve
+  normally (e.g. an OS package), not a sign you need the OpenHands bootstrap flow.
+- **Do not infer OpenHands merely from `dotnet` being missing or `/projects` happening not
+  to exist** — that's also exactly what a non-OpenHands, non-OpenCode environment looks
+  like. Only treat this section as relevant once you can positively confirm OpenHands (e.g.
+  the sandbox is running the `ghcr.io/openhands/agent-canvas` image) and none of the
+  OpenCode markers above are present.
+
+**This repo's backend requires the .NET SDK (targets `net10.0`).** OpenHands sandbox images
+vary across sessions, and so does how `dotnet` gets there — **check `which dotnet` before
+assuming either path below.** Some images ship `dotnet` pre-installed system-wide (seen at
+`/usr/share/dotnet` with `DOTNET_ROOT` already exported); others are the OpenHands
+agent-canvas all-in-one image (`ghcr.io/openhands/agent-canvas`), which does **not** ship
+`dotnet`, and anything under `$HOME` there is on ephemeral overlay storage — it does **not**
+survive the sandbox container being recreated. Only the second case needs the bootstrap
+script below; if `dotnet` is already on `PATH`, skip straight to it and don't reinstall.
+
+### Persistent locations (survive container recreation, agent-canvas image only)
 
 The `.NET` SDK and NuGet cache are kept on the **persistent `/projects` volume** (ZFS,
 mounted into the sandbox), so they last across sandboxes/sessions:
@@ -57,6 +76,10 @@ What it does:
 > `DOTNET_ROOT=/projects/dotnet-sdk` and `NUGET_PACKAGES=/projects/dotnet-nuget`
 > (this repo's `~/.bashrc` does), interactive shells get it automatically.
 
+> If `/projects/dotnet-bootstrap.sh` does not exist at all, you are not on the agent-canvas
+> image — this almost always means `dotnet` is already installed system-wide (check `which
+> dotnet` / `dotnet --version` before concluding the environment is broken).
+
 ### Do NOT
 
 - **Do not install the SDK into `$HOME`** (e.g. `~/dotnet`). It is ephemeral; it looks like
@@ -68,8 +91,8 @@ What it does:
 ### TL;DR for agents
 
 ```bash
-source /projects/dotnet-bootstrap.sh  # ensure dotnet + env (idempotent, persistent)
-dotnet build                          # then work normally
+which dotnet || source /projects/dotnet-bootstrap.sh  # only bootstrap if dotnet isn't already there
+dotnet build                                           # then work normally
 ```
 
 ## Common Commands
