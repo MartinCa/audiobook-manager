@@ -72,3 +72,24 @@ public class SeriesMatchCandidate
     /// <summary>0..1 - how confidently this candidate is the same series as the library value.</summary>
     public double Confidence { get; set; }
 }
+
+/// <summary>
+/// A library audiobook suggested as a match for one missing expected book of a matched series.
+/// </summary>
+public class SeriesBookCandidate
+{
+    public long AudiobookId { get; set; }
+    public string BookName { get; set; } = string.Empty;
+
+    /// <summary>The candidate's current series value, if any - applying moves it to the target series.</summary>
+    public string? Series { get; set; }
+    public string? SeriesPart { get; set; }
+    public int Year { get; set; }
+    public List<string> Authors { get; set; } = new();
+
+    /// <summary>0..1 normalized similarity of the candidate's book name to the expected book's title.</summary>
+    public double TitleSimilarity { get; set; }
+
+    /// <summary>Whether a candidate author closely matches a known author of the series (tier-1 evidence).</summary>
+    public bool AuthorMatches { get; set; }
+}

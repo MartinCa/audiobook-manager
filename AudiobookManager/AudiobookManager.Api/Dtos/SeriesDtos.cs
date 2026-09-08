@@ -53,6 +53,17 @@ public record SeriesMatchCandidateDto(
     double Confidence
 );
 
+public record SeriesBookCandidateDto(
+    long AudiobookId,
+    string BookName,
+    string? Series,
+    string? SeriesPart,
+    int Year,
+    List<string> Authors,
+    double TitleSimilarity,
+    bool AuthorMatches
+);
+
 public class MatchSeriesDto
 {
     public string SourceName { get; set; } = string.Empty;
@@ -73,6 +84,20 @@ public class IncludeOmnibusEditionsDto
 public class ExpectedBookRefDto
 {
     public string? Position { get; set; }
+    public string? Title { get; set; }
+}
+
+/// <summary>
+/// Applies a missing expected book to a chosen library audiobook: the audiobook receives the
+/// series name and the roster entry's position. The roster entry is addressed by its natural key
+/// like <see cref="ExpectedBookRefDto"/> - row ids are not stable across a re-match or refresh.
+/// </summary>
+public class ApplyExpectedBookDto
+{
+    public long AudiobookId { get; set; }
+
+    public string? Position { get; set; }
+
     public string? Title { get; set; }
 }
 

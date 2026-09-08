@@ -33,6 +33,7 @@ public interface IAudiobookRepository
         string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true);
     Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
+    Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
     Task<List<(string Series, int BookCount)>> GetSeriesCountsByAuthorAsync(long authorId);
@@ -40,6 +41,16 @@ public interface IAudiobookRepository
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync();
+
+    /// <summary>
+    /// All audiobooks reduced to the fields the missing-book candidate search needs. Unlike
+    /// <see cref="GetSeriesGroupingDataAsync"/> this includes books with no series value - an
+    /// untagged book is a prime candidate for a missing series entry. Pre-filtered by title
+    /// similarity to <paramref name="title"/> (accent-insensitive LIKE), bounded to
+    /// <paramref name="limit"/> rows so the query never materializes the full table.
+    /// </summary>
+    Task<List<SeriesCandidateBook>> GetSeriesCandidateDataAsync(string title, int limit);
+
     Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync();
     Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
     Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);

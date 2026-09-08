@@ -24,6 +24,8 @@ public class SeriesControllerTests
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<ISeriesService> _seriesService = null!;
+    private AudiobookSaveGate _saveGate = null!;
+    private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<ILogger<SeriesController>> _logger = null!;
     private SeriesController _controller = null!;
 
@@ -75,6 +77,8 @@ public class SeriesControllerTests
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
         _seriesService = new Mock<ISeriesService>();
+        _saveGate = new AudiobookSaveGate();
+        _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _logger = new Mock<ILogger<SeriesController>>();
 
         var mockScope = new Mock<IServiceScope>();
@@ -88,6 +92,8 @@ public class SeriesControllerTests
             _serviceScopeFactory.Object,
             _statusRegistry.Object,
             _seriesService.Object,
+            _saveGate,
+            _libraryConsistencyService.Object,
             Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
@@ -419,5 +425,143 @@ public class SeriesControllerTests
         var finished = RegisterFinishedWaiter(SeriesController.RefreshOperationKey);
         release.SetResult();
         await AwaitOperationFinished(finished);
+    }
+
+    [TestMethod]
+    public async Task GetMissingBookCandidates_NoPositionOrTitle_ReturnsBadRequest()
+    {
+        var result = await _controller.GetMissingBookCandidates("Mistborn", " ", null);
+
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status400BadRequest, "Position or Title is required to identify the expected book.");
+    }
+
+    [TestMethod]
+    public async Task GetMissingBookCandidates_Success_ReturnsMappedList()
+    {
+        _seriesService.Setup(s => s.FindMissingBookCandidatesAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(new List<SeriesBookCandidate>
+            {
+                new()
+                {
+                    AudiobookId = 5, BookName = "Hero of Ages", Series = null, SeriesPart = null, Year = 2010,
+                    Authors = new List<string> { "Brandon Sanderson" }, TitleSimilarity = 0.75, AuthorMatches = true,
+                },
+            });
+
+        var result = await _controller.GetMissingBookCandidates("Mistborn", "3", "The Hero of Ages");
+
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual(1, result.Value!.Count);
+        var dto = result.Value[0];
+        Assert.AreEqual(5, dto.AudiobookId);
+        Assert.AreEqual("Hero of Ages", dto.BookName);
+        Assert.IsNull(dto.Series);
+        Assert.IsNull(dto.SeriesPart);
+        Assert.AreEqual(2010, dto.Year);
+        CollectionAssert.AreEqual(new List<string> { "Brandon Sanderson" }, dto.Authors);
+        Assert.AreEqual(0.75, dto.TitleSimilarity);
+        Assert.IsTrue(dto.AuthorMatches);
+    }
+
+    [TestMethod]
+    public async Task GetMissingBookCandidates_UnknownExpectedBook_Returns404()
+    {
+        _seriesService.Setup(s => s.FindMissingBookCandidatesAsync("Mistborn", "9", "Nope"))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.GetMissingBookCandidates("Mistborn", "9", "Nope");
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task GetMissingBookCandidates_ServiceThrows_Returns500()
+    {
+        _seriesService.Setup(s => s.FindMissingBookCandidatesAsync("Mistborn", "3", "The Hero of Ages"))
+            .ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.GetMissingBookCandidates("Mistborn", "3", "The Hero of Ages");
+
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_MissingAudiobookId_ReturnsBadRequest()
+    {
+        var result = await _controller.ApplyExpectedBook("Mistborn", new ApplyExpectedBookDto { AudiobookId = 0, Position = "3" });
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_NoPositionOrTitle_ReturnsBadRequest()
+    {
+        var result = await _controller.ApplyExpectedBook("Mistborn", new ApplyExpectedBookDto { AudiobookId = 5 });
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_SaveGateBusy_Returns409()
+    {
+        Assert.IsTrue(_saveGate.TryAcquire(5, out var existingLease));
+        try
+        {
+            var result = await _controller.ApplyExpectedBook(
+                "Mistborn", new ApplyExpectedBookDto { AudiobookId = 5, Position = "3", Title = "The Hero of Ages" });
+
+            ProblemAssert.HasDetail(
+                result, StatusCodes.Status409Conflict, "A save for audiobook 5 is already in progress.");
+            _seriesService.Verify(
+                s => s.ApplyMissingBookAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<long>()),
+                Times.Never);
+        }
+        finally
+        {
+            existingLease.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_Success_ReturnsOkAppliesRechecksAndReleasesGate()
+    {
+        var result = await _controller.ApplyExpectedBook(
+            "Mistborn", new ApplyExpectedBookDto { AudiobookId = 5, Position = "3", Title = "The Hero of Ages" });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _seriesService.Verify(s => s.ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 5), Times.Once);
+        _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Once);
+
+        // The controller must release the gate in its finally - prove it by taking the same
+        // book's gate again, which has to succeed now.
+        Assert.IsTrue(_saveGate.TryAcquire(5, out var reLease), "the apply endpoint must release the save gate");
+        reLease.Dispose();
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_UnknownExpectedBookOrAudiobook_Returns404()
+    {
+        _seriesService.Setup(s => s.ApplyMissingBookAsync("Mistborn", "9", "Nope", 5))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.ApplyExpectedBook(
+            "Mistborn", new ApplyExpectedBookDto { AudiobookId = 5, Position = "9", Title = "Nope" });
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task ApplyExpectedBook_UnexpectedException_Returns500()
+    {
+        _seriesService.Setup(s => s.ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 5))
+            .ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.ApplyExpectedBook(
+            "Mistborn", new ApplyExpectedBookDto { AudiobookId = 5, Position = "3", Title = "The Hero of Ages" });
+
+        ProblemAssert.HasDetail(
+            result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
     }
 }

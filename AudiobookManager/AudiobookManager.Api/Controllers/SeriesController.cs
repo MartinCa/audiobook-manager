@@ -33,6 +33,8 @@ public class SeriesController : ControllerBase
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly ISeriesService _seriesService;
+    private readonly IAudiobookSaveGate _saveGate;
+    private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<SeriesController> _logger;
 
@@ -41,6 +43,8 @@ public class SeriesController : ControllerBase
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         ISeriesService seriesService,
+        IAudiobookSaveGate saveGate,
+        ILibraryConsistencyService libraryConsistencyService,
         IHostApplicationLifetime appLifetime,
         ILogger<SeriesController> logger)
     {
@@ -48,6 +52,8 @@ public class SeriesController : ControllerBase
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _seriesService = seriesService;
+        _saveGate = saveGate;
+        _libraryConsistencyService = libraryConsistencyService;
         _appLifetime = appLifetime;
         _logger = logger;
     }
@@ -200,6 +206,91 @@ public class SeriesController : ControllerBase
     public IActionResult StartRefreshAllSeries()
     {
         return StartRefresh(service => service.RefreshAllSeriesAsync(RefreshProgressAction));
+    }
+
+    [HttpGet("expected-books/candidates")]
+    public async Task<ActionResult<List<SeriesBookCandidateDto>>> GetMissingBookCandidates(
+        [FromQuery] string seriesName,
+        [FromQuery] string? position,
+        [FromQuery] string? title)
+    {
+        if (string.IsNullOrWhiteSpace(position) && string.IsNullOrWhiteSpace(title))
+        {
+            return this.InvalidRequest("Position or Title is required to identify the expected book.");
+        }
+
+        try
+        {
+            var candidates = await _seriesService.FindMissingBookCandidatesAsync(seriesName, position, title);
+            return candidates.Select(c => new SeriesBookCandidateDto(
+                c.AudiobookId, c.BookName, c.Series, c.SeriesPart, c.Year, c.Authors, c.TitleSimilarity, c.AuthorMatches)).ToList();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error finding library candidates for expected book (position {Position}, title {Title}) of series {SeriesName}",
+                position, title, seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpPost("expected-books/apply")]
+    public async Task<IActionResult> ApplyExpectedBook([FromQuery] string seriesName, [FromBody] ApplyExpectedBookDto? dto)
+    {
+        if (dto is null || dto.AudiobookId <= 0)
+        {
+            return this.InvalidRequest("A valid AudiobookId is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Position) && string.IsNullOrWhiteSpace(dto.Title))
+        {
+            return this.InvalidRequest("Position or Title is required to identify the expected book.");
+        }
+
+        // Taken here rather than inside the service so the 409 - and the save-status endpoint that
+        // reads the same gate - are exact from the moment this action returns, exactly like the
+        // save PUT in AudiobookController. The lease is held across the apply and the follow-up
+        // recheck, and released in the finally below.
+        if (!_saveGate.TryAcquire(dto.AudiobookId, out var lease))
+        {
+            return this.ConflictingState($"A save for audiobook {dto.AudiobookId} is already in progress.", "Save in progress");
+        }
+
+        try
+        {
+            await _seriesService.ApplyMissingBookAsync(seriesName, dto.Position, dto.Title, dto.AudiobookId);
+
+            // Same tail as the save PUT: the assignment rewrote tags and possibly moved the file,
+            // so stored issues for this book are stale until rechecked. A recheck failure must not
+            // fail the request - the assignment itself succeeded.
+            try
+            {
+                await _libraryConsistencyService.RecheckAudiobookAsync(dto.AudiobookId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after applying a series assignment", dto.AudiobookId);
+            }
+
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying expected book (position {Position}, title {Title}) of series {SeriesName} to audiobook {AudiobookId}",
+                dto.Position, dto.Title, seriesName, dto.AudiobookId);
+            return this.UnexpectedError();
+        }
+        finally
+        {
+            lease.Dispose();
+        }
     }
 
     // Roster entries are addressed by their natural key (series name plus position and/or

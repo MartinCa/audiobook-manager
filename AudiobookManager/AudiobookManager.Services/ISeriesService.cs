@@ -6,9 +6,11 @@ namespace AudiobookManager.Services;
 /// Read-side series catalog: browsing series across the whole library and reporting which
 /// books of a matched series are missing.
 ///
-/// This service never writes Author/Series/SeriesPart/Year/BookName onto an audiobook. It
-/// only reads audiobooks and writes the parallel series catalog tables, so the "no DB-only
-/// field updates" binding invariant does not apply to any code path here.
+/// Series/SeriesPart change on an audiobook in exactly one place here: ApplyMissingBookAsync,
+/// which applies a series assignment to a chosen audiobook through AudiobookService.UpdateAudiobook
+/// - the path the "no DB-only field updates" binding invariant requires, so the m4b tags, library
+/// path, sidecars and the database all update together. Every other code path only reads
+/// audiobooks and writes the parallel series catalog tables.
 /// </summary>
 public interface ISeriesService
 {
@@ -60,4 +62,19 @@ public interface ISeriesService
     /// book by the time the call arrives.
     /// </summary>
     Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored);
+
+    /// <summary>
+    /// Library audiobooks that might be a given missing expected book, ranked: a close match on
+    /// author AND book name first, then a close match on book name alone. The expected book is
+    /// addressed by its natural key (position and/or title) like the ignore endpoints; the
+    /// returned list is capped at a small constant.
+    /// </summary>
+    Task<List<SeriesBookCandidate>> FindMissingBookCandidatesAsync(string seriesName, string? position, string? title);
+
+    /// <summary>
+    /// Applies the series name and the roster entry's position to a chosen audiobook, through
+    /// AudiobookService.UpdateAudiobook. The caller holds the per-audiobook save gate around this
+    /// call - the gate is non-reentrant, so this method must never take it itself.
+    /// </summary>
+    Task ApplyMissingBookAsync(string seriesName, string? position, string? title, long audiobookId);
 }

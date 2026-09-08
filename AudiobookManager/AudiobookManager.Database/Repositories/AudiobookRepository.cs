@@ -244,6 +244,21 @@ public class AudiobookRepository : IAudiobookRepository
         return await query.OrderBy(a => a.SeriesPart).ThenBy(a => a.Id).ToListAsync();
     }
 
+    public async Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName)
+    {
+        var names = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series == seriesName)
+            .SelectMany(a => a.Authors.Select(p => p.Name))
+            .Distinct()
+            .ToListAsync();
+
+        return names
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     /// <summary>
     /// Just the cover path for one book. The cover endpoint used to load the whole entity with
     /// its authors/narrators/genres - three extra split queries - to read this one column.
@@ -334,6 +349,146 @@ public class AudiobookRepository : IAudiobookRepository
         return rows
             .Select(r => new SeriesGroupingBook(r.Series, r.SeriesPart, r.BookName, r.Authors))
             .ToList();
+    }
+
+    /// <summary>
+    /// All audiobooks reduced to the candidate-search fields, projected in SQL rather than loaded
+    /// whole. Prefiltered by matching the title's tokens (accent-insensitive LIKE) against
+    /// BookName so the service ranking only works against a bounded set, not the entire table.
+    /// Bounded to <paramref name="limit"/> rows; final fuzzy ranking is performed in SeriesService.
+    /// </summary>
+    public async Task<List<SeriesCandidateBook>> GetSeriesCandidateDataAsync(string title, int limit)
+    {
+        // Patterns wrap each normalized token in %...% so LIKE is substring containment; the
+        // escape character keeps a literal '%' or '_' that a token carries from acting as a
+        // wildcard. Patterns are precomputed here - the LIKE shape has to reach EF as bound
+        // parameters, a string.Format inside the query lambda cannot be translated to SQL.
+        var patterns = GetNormalizedTokens(title).Select(t => $"%{t}%").ToList();
+
+        // The matches run against the precomputed BookNameFolded column (kept in sync with
+        // BookName by AccentFoldedColumnsInterceptor and backfilled by the
+        // AddAccentFoldedSearchColumns migration) rather than wrapping BookName in
+        // fold_accents() per row - exactly what SearchAsync/SearchSeriesAsync do, for the same
+        // reason: a scalar-function call on the column costs a callback into managed code for
+        // every row scanned, on every OR/AND term (#1303). BookNameFolded holds precisely
+        // FoldPlain(BookName), the accent fold with no lowercasing, and the token patterns are
+        // lowercase, so the swap is behavior-identical: SQLite's default LIKE is
+        // case-insensitive over ASCII, which is the same case-folding the old query-time fold
+        // relied on.
+
+        // Two-phase prefilter. Phase one: books whose name contains EVERY title token - the
+        // exact/near-exact matches the fuzzy ranker would score highest - get the cap's budget
+        // first. That order is what stops a generic token ("the") that matches thousands of rows
+        // from letting the alphabetical LIMIT starve the genuine match out of the set the ranker
+        // ever sees (the rows now sort by coverage, not only by code point). Phase two keeps
+        // rows sharing ANY single token - "Hero of Ages" must still surface for "The Hero of
+        // Ages" even though it has no "the" - which is exactly the recall the former single-OR
+        // query had, just ordered behind every full-coverage row.
+        var allMatch = _db.Audiobooks.AsNoTracking();
+        foreach (var pattern in patterns)
+        {
+            allMatch = allMatch.Where(a => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter));
+        }
+
+        var allMatchRows = await QueryCandidateRows(allMatch, limit);
+        if (allMatchRows.Count >= limit)
+        {
+            return allMatchRows;
+        }
+
+        // A single token collapses the all-match and broad predicates into the same LIKE, so
+        // every matching row already came back above and the broad query - identical predicate
+        // minus the ids just returned - is provably empty. Skip it rather than execute a wasted
+        // query. The skip must stay keyed on the single-token shape: with two or more tokens
+        // the broad (ANY) predicate is a strict superset of the all-match (ALL) one, and CAN
+        // surface rows the cap truncated.
+        if (patterns.Count == 1)
+        {
+            return allMatchRows;
+        }
+
+        var broad = _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => patterns.Any(pattern => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter)));
+
+        var allMatchIds = allMatchRows.Select(r => r.Id).ToList();
+        if (allMatchIds.Count > 0)
+        {
+            broad = broad.Where(a => !allMatchIds.Contains(a.Id));
+        }
+
+        var broadRows = await QueryCandidateRows(broad, limit - allMatchRows.Count);
+        var merged = new List<SeriesCandidateBook>();
+        merged.AddRange(allMatchRows);
+        merged.AddRange(broadRows);
+        return merged;
+    }
+
+    /// <summary>
+    /// Applies the candidate projection and the total-order tiebreaker (<c>BookName, then Id</c>)
+    /// to a prefiltered <see cref="Audiobook"/> query, capped at <paramref name="take"/> rows.
+    /// </summary>
+    private async Task<List<SeriesCandidateBook>> QueryCandidateRows(IQueryable<Audiobook> rows, int take)
+    {
+        var projected = await rows
+            .OrderBy(a => a.BookName)
+            .ThenBy(a => a.Id)
+            .Select(a => new
+            {
+                a.Id,
+                a.BookName,
+                a.Series,
+                a.SeriesPart,
+                a.Year,
+                Authors = a.Authors.Select(p => p.Name).ToList(),
+            })
+            .Take(take)
+            .ToListAsync();
+
+        return projected
+            .Select(r => new SeriesCandidateBook(r.Id, r.BookName, r.Series, r.SeriesPart, r.Year, r.Authors))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Normalize the input into LIKE-safe tokens using a local subset of NameNormalizer's behavior
+    /// (accent fold, lowercase, strip punctuation, split, discard short tokens, deduplicate).
+    /// This lives in the Database layer and does not import Services.
+    ///
+    /// A title carrying a literal '%' or '_' is kept as one whole escaped phrase instead of word
+    /// tokens: those characters are LIKE metacharacters, and splitting around them would either
+    /// drop them ("The % Book" would then search as "The Book" and match every 'The ? Book' in the
+    /// library) or leave a bare wildcard that matches broadly. Kept whole and escaped, the phrase
+    /// matches only the literal text.
+    /// </summary>
+    private static List<string> GetNormalizedTokens(string? title)
+    {
+        var folded = AccentFolding.FoldPlain(title) ?? string.Empty;
+        var lowered = folded.ToLowerInvariant();
+
+        if (lowered.Any(c => c == '%' || c == '_'))
+        {
+            return new List<string> { EscapeLikePattern(lowered) };
+        }
+
+        // Replace punctuation with spaces so "Dune:" tokenizes to "dune", matching library entries
+        // that lack the trailing colon. Mirrors NameNormalizer's punctuation stripping without
+        // importing the Services layer.
+        var stripped = new string(lowered.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
+
+        var tokens = stripped
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Length >= 3)
+            .Select(EscapeLikePattern)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (tokens.Count == 0)
+        {
+            tokens.Add(EscapeLikePattern(folded.ToLowerInvariant()));
+        }
+
+        return tokens;
     }
 
     /// <summary>

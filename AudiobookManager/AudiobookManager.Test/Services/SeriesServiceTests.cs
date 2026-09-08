@@ -1,3 +1,4 @@
+using AudiobookManager.Domain;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
@@ -8,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
 using DbPerson = AudiobookManager.Database.Models.Person;
+using DomainAudiobook = AudiobookManager.Domain.Audiobook;
+using DomainPerson = AudiobookManager.Domain.Person;
 
 namespace AudiobookManager.Test.Services;
 
@@ -16,6 +19,7 @@ public class SeriesServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SeriesService>> _logger = null!;
 
     [TestInitialize]
@@ -23,11 +27,12 @@ public class SeriesServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _seriesRepository = new Mock<ISeriesRepository>();
+        _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<SeriesService>>();
     }
 
     private SeriesService MakeService(params IScraper[] scrapers) =>
-        new(_audiobookRepository.Object, _seriesRepository.Object, scrapers, _logger.Object);
+        new(_audiobookRepository.Object, _seriesRepository.Object, _audiobookService.Object, scrapers, _logger.Object);
 
     private static DbAudiobook MakeDbAudiobook(
         long id,
@@ -287,9 +292,9 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task SuggestSeriesMatchesAsync_RanksCandidatesAndSkipsNonSeriesScrapers()
     {
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>
         {
-            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+            "Brandon Sanderson",
         });
 
         var seriesScraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>
@@ -314,9 +319,9 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task SearchSeriesMatchesAsync_WithPlainTextQuery_SearchesByQueryNotLibrarySeriesName()
     {
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>
         {
-            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+            "Brandon Sanderson",
         });
 
         var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>
@@ -334,9 +339,9 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task SearchSeriesMatchesAsync_WithUrl_ReturnsSingleCandidateFromMatchingScraper()
     {
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>
         {
-            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
+            "Brandon Sanderson",
         });
 
         var roster = new SeriesSearchResult("42", "Mistborn") { Authors = new List<string> { "Brandon Sanderson" } };
@@ -361,7 +366,7 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task SearchSeriesMatchesAsync_WithUrlNoScraperSupportsIt_ReturnsEmpty()
     {
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>());
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>());
 
         var scraper = new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>());
 
@@ -752,6 +757,184 @@ public class SeriesServiceTests
 
         Assert.IsTrue(withAuthor > withoutAuthor);
         Assert.IsTrue(wrongName < 0.6, $"author overlap should not rescue an unrelated name, got {wrongName}");
+    }
+
+    [TestMethod]
+    public async Task FindMissingBookCandidatesAsync_RanksAuthorAndTitleMatchAheadOfBetterTitleOnlyMatch()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>
+        {
+            "Brandon Sanderson",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesCandidateDataAsync("The Hero of Ages", 1000)).ReturnsAsync(new List<SeriesCandidateBook>
+        {
+            // Exact title, wrong author: the best tier-2 candidate.
+            new(2, "The Hero of Ages", null, null, 2010, new List<string> { "Someone Entirely Unrelated" }),
+            // Weaker title, right author: must rank ahead despite the lower title score.
+            new(3, "Hero of Ages", null, null, 2010, new List<string> { "Brandon Sanderson" }),
+            // Below the title threshold entirely.
+            new(4, "A Completely Different Book", null, null, 2001, new List<string> { "Brandon Sanderson" }),
+        });
+
+        var result = await MakeService().FindMissingBookCandidatesAsync("Mistborn", "3", "The Hero of Ages");
+
+        Assert.AreEqual(2, result.Count, "the below-threshold book must be excluded");
+        Assert.AreEqual("Hero of Ages", result[0].BookName, "the author+title match outranks the better title-only match");
+        Assert.IsTrue(result[0].AuthorMatches);
+        Assert.AreEqual(0.75, result[0].TitleSimilarity);
+        Assert.AreEqual("The Hero of Ages", result[1].BookName);
+        Assert.IsFalse(result[1].AuthorMatches);
+        Assert.AreEqual(1.0, result[1].TitleSimilarity);
+        _audiobookRepository.Verify(r => r.GetSeriesCandidateDataAsync("The Hero of Ages", 1000), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task FindMissingBookCandidatesAsync_AuthorMatchIsAccentAndInitialsTolerant()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Wizard School", "1", "The First Book"))
+            .ReturnsAsync(MakeExpected(21, "The First Book", "1"));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Wizard School")).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesCandidateDataAsync("The First Book", 1000)).ReturnsAsync(new List<SeriesCandidateBook>
+        {
+            new(2, "The First Book", null, null, 1997, new List<string> { "JK Rowling" }),
+            new(3, "The First Book", null, null, 1997, new List<string> { "Author McAuthorface" }),
+        });
+
+        var result = await MakeService().FindMissingBookCandidatesAsync("Wizard School", "1", "The First Book");
+
+        Assert.AreEqual(2, result.Count);
+        Assert.IsTrue(result.Single(c => c.AudiobookId == 2).AuthorMatches, "'JK Rowling' normalizes equal to 'J.K. Rowling'");
+        Assert.IsFalse(result.Single(c => c.AudiobookId == 3).AuthorMatches);
+    }
+
+    [TestMethod]
+    public async Task FindMissingBookCandidatesAsync_CapsTheResultList()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn")).ReturnsAsync(new List<string>
+        {
+            "Brandon Sanderson",
+        });
+        var many = Enumerable.Range(1, SeriesService.MaxMissingBookCandidates + 5)
+            .Select(i => new SeriesCandidateBook(i, "The Hero of Ages", null, null, 2010, new List<string>()))
+            .ToList();
+        _audiobookRepository.Setup(r => r.GetSeriesCandidateDataAsync("The Hero of Ages", 1000)).ReturnsAsync(many);
+
+        var result = await MakeService().FindMissingBookCandidatesAsync("Mistborn", "3", "The Hero of Ages");
+
+        Assert.AreEqual(SeriesService.MaxMissingBookCandidates, result.Count);
+    }
+
+    [TestMethod]
+    public async Task FindMissingBookCandidatesAsync_UnknownExpectedBook_Throws()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Mistborn", "9", "Nope")).ReturnsAsync((SeriesExpectedBook?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
+            MakeService().FindMissingBookCandidatesAsync("Mistborn", "9", "Nope"));
+    }
+
+    private static DomainAudiobook MakeDomainAudiobook(long id) => new(
+        new List<DomainPerson> { new("Brandon Sanderson") },
+        "The Hero of Ages",
+        2010,
+        new AudiobookFileInfo("/library/the-hero-of-ages.m4b", "the-hero-of-ages.m4b", 1000))
+    {
+        Id = id,
+        Description = "Original description",
+        Series = "Some Other Series",
+        SeriesPart = "7",
+    };
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_AppliesSeriesAndPartAndPreservesEverythingElse()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
+        var book = MakeDomainAudiobook(5);
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+
+        DomainAudiobook? captured = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Callback<long, DomainAudiobook, Func<string, int, Task>>((_, b, _) => captured = b)
+            .ReturnsAsync(book);
+
+        await MakeService().ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 5);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("Mistborn", captured!.Series);
+        Assert.AreEqual("3", captured.SeriesPart);
+        Assert.AreEqual("The Hero of Ages", captured.BookName, "the book keeps its own name");
+        Assert.AreEqual("Original description", captured.Description);
+        Assert.AreEqual("Brandon Sanderson", captured.Authors.Single().Name);
+        Assert.AreEqual(2010, captured.Year);
+        Assert.AreEqual("/library/the-hero-of-ages.m4b", captured.FileInfo.FullPath);
+        _audiobookService.Verify(
+            s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_PositionlessRosterEntry_ClearsThePart()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", null, "Secret History"))
+            .ReturnsAsync(MakeExpected(13, "Secret History", null));
+        var book = MakeDomainAudiobook(5);
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+
+        DomainAudiobook? captured = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Callback<long, DomainAudiobook, Func<string, int, Task>>((_, b, _) => captured = b)
+            .ReturnsAsync(book);
+
+        await MakeService().ApplyMissingBookAsync("Mistborn", null, "Secret History", 5);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("Mistborn", captured!.Series);
+        Assert.IsNull(captured.SeriesPart, "a roster entry with no position clears the part");
+    }
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_UnknownAudiobook_Throws()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
+        _audiobookService.Setup(s => s.GetAudiobookById(999)).ReturnsAsync((DomainAudiobook?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
+            MakeService().ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 999));
+    }
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_UnknownExpectedBook_Throws()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "9", "Nope")).ReturnsAsync((SeriesExpectedBook?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
+            MakeService().ApplyMissingBookAsync("Mistborn", "9", "Nope", 5));
+    }
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_ConflictingPositionAndTitle_ThrowsAndDoesNotUpdate()
+    {
+        // Position "3" maps to "The Hero of Ages", title "Secret History" maps to position "3.5".
+        // Strict matching requires both to match the same row — so this fails.
+        _seriesRepository
+            .Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "Secret History"))
+            .ReturnsAsync((SeriesExpectedBook?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
+            MakeService().ApplyMissingBookAsync("Mistborn", "3", "Secret History", 5));
+
+        _audiobookService.Verify(s => s.GetAudiobookById(It.IsAny<long>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()), Times.Never);
     }
 
     /// <summary>

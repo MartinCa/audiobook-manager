@@ -154,6 +154,56 @@ public class SeriesRepository : ISeriesRepository
             .Where(b => b.SeriesId == series.Id)
             .ToListAsync();
 
+        var book = MatchExpectedBook(books, position, title)
+            ?? throw new KeyNotFoundException(
+                $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+
+        book.IsIgnored = ignored;
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Read-side counterpart of <see cref="SetExpectedBookIgnoredAsync"/>'s entry lookup: the
+    /// same natural-key rule, but null instead of an exception so callers can choose how to
+    /// report a missing entry. Read-only - no tracking, the callers only read the result.
+    /// </summary>
+    public async Task<SeriesExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title)
+    {
+        var books = await GetExpectedBooksAsync(seriesName);
+        return books is null ? null : MatchExpectedBook(books, position, title);
+    }
+
+    /// <summary>
+    /// The roster of one series, read-only, or null when no row with that name exists. Shared by
+    /// the two read-side roster lookups so the identical series lookup + AsNoTracking fetch isn't
+    /// duplicated - a null result is how the callers report a missing series, and an empty list
+    /// (a matched series whose roster is empty) must stay distinct from it. Deliberately NOT used
+    /// by <see cref="SetExpectedBookIgnoredAsync"/>, which needs tracked entities to mutate
+    /// IsIgnored and save.
+    /// </summary>
+    private async Task<List<SeriesExpectedBook>?> GetExpectedBooksAsync(string seriesName)
+    {
+        var series = await _db.Series
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Name == seriesName);
+        if (series is null)
+        {
+            return null;
+        }
+
+        return await _db.SeriesExpectedBooks
+            .AsNoTracking()
+            .Where(b => b.SeriesId == series.Id)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// The natural-key matching rule shared by every roster-entry lookup: trim + case-insensitive
+    /// comparison, preferring an entry that matches both position and title, then either alone -
+    /// a source may report a roster entry without a position at all.
+    /// </summary>
+    private static SeriesExpectedBook? MatchExpectedBook(IEnumerable<SeriesExpectedBook> books, string? position, string? title)
+    {
         var hasPosition = !string.IsNullOrWhiteSpace(position);
         var hasTitle = !string.IsNullOrWhiteSpace(title);
 
@@ -163,16 +213,47 @@ public class SeriesRepository : ISeriesRepository
         bool TitleMatches(SeriesExpectedBook b) =>
             hasTitle && string.Equals(b.Title.Trim(), title!.Trim(), StringComparison.OrdinalIgnoreCase);
 
-        // Prefer an entry matching both parts of the key, then fall back to either one alone
-        // - a source may report a roster entry without a position at all.
-        var book = books.FirstOrDefault(b => PositionMatches(b) && TitleMatches(b))
+        return books.FirstOrDefault(b => PositionMatches(b) && TitleMatches(b))
             ?? books.FirstOrDefault(PositionMatches)
-            ?? books.FirstOrDefault(TitleMatches)
-            ?? throw new KeyNotFoundException(
-                $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+            ?? books.FirstOrDefault(TitleMatches);
+    }
 
-        book.IsIgnored = ignored;
-        await _db.SaveChangesAsync();
+    public async Task<SeriesExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title)
+    {
+        var books = await GetExpectedBooksAsync(seriesName);
+        return books is null ? null : MatchExpectedBookStrict(books, position, title);
+    }
+
+    /// <summary>
+    /// Strict variant: when both position and title are nonblank, a single row must match
+    /// both — no fallback to either alone. When only one is supplied, that field alone is
+    /// sufficient. This prevents the permissive fall-back from picking a wrong roster entry
+    /// when the caller supplied both parts of the key but they map to different rows.
+    /// </summary>
+    private static SeriesExpectedBook? MatchExpectedBookStrict(IEnumerable<SeriesExpectedBook> books, string? position, string? title)
+    {
+        var hasPosition = !string.IsNullOrWhiteSpace(position);
+        var hasTitle = !string.IsNullOrWhiteSpace(title);
+
+        bool PositionMatches(SeriesExpectedBook b) =>
+            hasPosition && string.Equals(b.Position?.Trim(), position!.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        bool TitleMatches(SeriesExpectedBook b) =>
+            hasTitle && string.Equals(b.Title.Trim(), title!.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        // When both parts are supplied, require both to match — no fallback.
+        if (hasPosition && hasTitle)
+        {
+            return books.FirstOrDefault(b => PositionMatches(b) && TitleMatches(b));
+        }
+
+        // Only one part supplied — match on whichever is present.
+        if (hasPosition)
+            return books.FirstOrDefault(PositionMatches);
+        if (hasTitle)
+            return books.FirstOrDefault(TitleMatches);
+
+        return null;
     }
 
     public Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions) =>
