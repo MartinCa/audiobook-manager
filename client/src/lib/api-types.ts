@@ -484,7 +484,11 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    q?: string;
+                    limit?: number;
+                    offset?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -497,9 +501,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["AuthorSummaryDto"][];
-                        "application/json": components["schemas"]["AuthorSummaryDto"][];
-                        "text/json": components["schemas"]["AuthorSummaryDto"][];
+                        "text/plain": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
+                        "application/json": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
+                        "text/json": components["schemas"]["AuthorSummaryDtoPaginatedResult"];
                     };
                 };
             };
@@ -521,7 +525,12 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    seriesLimit?: number;
+                    seriesOffset?: number;
+                    standaloneLimit?: number;
+                    standaloneOffset?: number;
+                };
                 header?: never;
                 path: {
                     authorId: number;
@@ -1963,6 +1972,9 @@ export interface paths {
             parameters: {
                 query?: {
                     fields?: string[];
+                    search?: string;
+                    page?: number;
+                    pageSize?: number;
                 };
                 header?: never;
                 path?: never;
@@ -1976,9 +1988,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["AudiobookMissingTagsDto"][];
-                        "application/json": components["schemas"]["AudiobookMissingTagsDto"][];
-                        "text/json": components["schemas"]["AudiobookMissingTagsDto"][];
+                        "text/plain": components["schemas"]["AudiobookMissingTagsPageDto"];
+                        "application/json": components["schemas"]["AudiobookMissingTagsPageDto"];
+                        "text/json": components["schemas"]["AudiobookMissingTagsPageDto"];
                     };
                 };
             };
@@ -2200,6 +2212,48 @@ export interface paths {
         };
         get: {
             parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                    search?: string;
+                    matched?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesOverviewPageDto"];
+                        "application/json": components["schemas"]["SeriesOverviewPageDto"];
+                        "text/json": components["schemas"]["SeriesOverviewPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
                 query?: never;
                 header?: never;
                 path?: never;
@@ -2213,9 +2267,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["SeriesOverviewDto"][];
-                        "application/json": components["schemas"]["SeriesOverviewDto"][];
-                        "text/json": components["schemas"]["SeriesOverviewDto"][];
+                        "text/plain": components["schemas"]["SeriesCountsDto"];
+                        "application/json": components["schemas"]["SeriesCountsDto"];
+                        "text/json": components["schemas"]["SeriesCountsDto"];
                     };
                 };
             };
@@ -2239,6 +2293,12 @@ export interface paths {
             parameters: {
                 query?: {
                     seriesName?: string;
+                    ownedPage?: number;
+                    ownedPageSize?: number;
+                    missingPage?: number;
+                    missingPageSize?: number;
+                    ignoredPage?: number;
+                    ignoredPageSize?: number;
                 };
                 header?: never;
                 path?: never;
@@ -2781,7 +2841,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/settings/series_mappings": {
+    "/api/settings/series_mappings/grouped": {
         parameters: {
             query?: never;
             header?: never;
@@ -2790,7 +2850,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    search?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2803,13 +2865,29 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["SeriesMapping"][];
-                        "application/json": components["schemas"]["SeriesMapping"][];
-                        "text/json": components["schemas"]["SeriesMapping"][];
+                        "text/plain": components["schemas"]["SeriesMappingGroupsDto"];
+                        "application/json": components["schemas"]["SeriesMappingGroupsDto"];
+                        "text/json": components["schemas"]["SeriesMappingGroupsDto"];
                     };
                 };
             };
         };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/series_mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         put?: never;
         post: {
             parameters: {
@@ -2982,7 +3060,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2995,9 +3076,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["SimilarValueGroupDto"][];
-                        "application/json": components["schemas"]["SimilarValueGroupDto"][];
-                        "text/json": components["schemas"]["SimilarValueGroupDto"][];
+                        "text/plain": components["schemas"]["SimilarValueGroupsPageDto"];
+                        "application/json": components["schemas"]["SimilarValueGroupsPageDto"];
+                        "text/json": components["schemas"]["SimilarValueGroupsPageDto"];
                     };
                 };
             };
@@ -3019,7 +3100,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3032,9 +3116,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["SimilarValueGroupDto"][];
-                        "application/json": components["schemas"]["SimilarValueGroupDto"][];
-                        "text/json": components["schemas"]["SimilarValueGroupDto"][];
+                        "text/plain": components["schemas"]["SimilarValueGroupsPageDto"];
+                        "application/json": components["schemas"]["SimilarValueGroupsPageDto"];
+                        "text/json": components["schemas"]["SimilarValueGroupsPageDto"];
                     };
                 };
             };
@@ -3399,6 +3483,11 @@ export interface components {
             authors?: string[] | null;
             missingFields?: string[] | null;
         };
+        AudiobookMissingTagsPageDto: {
+            items?: components["schemas"]["AudiobookMissingTagsDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
         AudiobookSaveStatusDto: {
             /** Format: int64 */
             audiobookId?: number;
@@ -3437,8 +3526,8 @@ export interface components {
         };
         AuthorDetailDto: {
             author?: components["schemas"]["AuthorSummaryDto"];
-            series?: components["schemas"]["SeriesInfo"][] | null;
-            standaloneBooks?: components["schemas"]["AudiobookSummaryDto"][] | null;
+            series?: components["schemas"]["SeriesInfoPaginatedResult"];
+            standaloneBooks?: components["schemas"]["AudiobookSummaryDtoPaginatedResult"];
         };
         AuthorSummaryDto: {
             /** Format: int64 */
@@ -3795,11 +3884,19 @@ export interface components {
             titleSimilarity?: number;
             authorMatches?: boolean;
         };
+        SeriesCountsDto: {
+            /** Format: int32 */
+            total?: number;
+            /** Format: int32 */
+            matched?: number;
+            /** Format: int32 */
+            unmatched?: number;
+        };
         SeriesDetailDto: {
             overview?: components["schemas"]["SeriesOverviewDto"];
-            ownedBooks?: components["schemas"]["SeriesOwnedBookDto"][] | null;
-            missingBooks?: components["schemas"]["SeriesExpectedBookDto"][] | null;
-            ignoredBooks?: components["schemas"]["SeriesExpectedBookDto"][] | null;
+            ownedBooks?: components["schemas"]["SeriesOwnedBookPageDto"];
+            missingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            ignoredBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
         };
         SeriesExpectedBookDto: {
             /** Format: int64 */
@@ -3811,10 +3908,22 @@ export interface components {
             sourceUrl?: string | null;
             isIgnored?: boolean;
         };
+        SeriesExpectedBookPageDto: {
+            items?: components["schemas"]["SeriesExpectedBookDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
         SeriesInfo: {
             seriesName?: string | null;
             /** Format: int32 */
             bookCount?: number;
+        };
+        SeriesInfoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["SeriesInfo"][] | null;
         };
         SeriesMapping: {
             /** Format: int64 */
@@ -3822,6 +3931,15 @@ export interface components {
             regex?: string | null;
             mappedSeries?: string | null;
             warnAboutPart?: boolean;
+        };
+        SeriesMappingGroupDto: {
+            mappedSeries?: string | null;
+            items?: components["schemas"]["SeriesMapping"][] | null;
+        };
+        SeriesMappingGroupsDto: {
+            items?: components["schemas"]["SeriesMappingGroupDto"][] | null;
+            /** Format: int32 */
+            total?: number;
         };
         SeriesMatchCandidateDto: {
             sourceName?: string | null;
@@ -3857,6 +3975,11 @@ export interface components {
             ignoredBookCount?: number;
             includeOmnibusEditions?: boolean;
         };
+        SeriesOverviewPageDto: {
+            items?: components["schemas"]["SeriesOverviewDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
         SeriesOwnedBookDto: {
             /** Format: int64 */
             id?: number;
@@ -3869,19 +3992,23 @@ export interface components {
             /** Format: int32 */
             durationInSeconds?: number | null;
         };
-        SimilarValueBookDto: {
-            /** Format: int64 */
-            id?: number;
-            bookName?: string | null;
+        SeriesOwnedBookPageDto: {
+            items?: components["schemas"]["SeriesOwnedBookDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
         SimilarValueCandidateDto: {
             value?: string | null;
             /** Format: int32 */
             bookCount?: number;
-            books?: components["schemas"]["SimilarValueBookDto"][] | null;
         };
         SimilarValueGroupDto: {
             candidates?: components["schemas"]["SimilarValueCandidateDto"][] | null;
+        };
+        SimilarValueGroupsPageDto: {
+            items?: components["schemas"]["SimilarValueGroupDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
         SystemInfoDto: {
             version?: string | null;

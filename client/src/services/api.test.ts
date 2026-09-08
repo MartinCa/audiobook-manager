@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  audiobookApi,
-  seriesApi,
-  settingsApi,
-  filesApi,
-  toAudiobookDto,
-  toPathPreviewDto,
-} from "./api";
+import { audiobookApi, seriesApi, filesApi, toAudiobookDto, toPathPreviewDto } from "./api";
 import type { Audiobook } from "@/types/Audiobook";
 
 describe("api service mappings and contracts", () => {
@@ -249,26 +242,6 @@ describe("api service mappings and contracts", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ audiobookId: 42 }),
-        }),
-      );
-    });
-  });
-
-  describe("Settings API endpoints", () => {
-    it("calls series_mappings with underscore endpoint", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-
-      await settingsApi.getSeriesMappings();
-
-      expect(fetchSpy).toHaveBeenCalledWith(
-        "/api/settings/series_mappings",
-        expect.objectContaining({
-          method: "GET",
         }),
       );
     });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookMarked,
   Search,
@@ -22,10 +22,13 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
-import { foldAccents } from "@/helpers/similarValueMatcher";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Route } from "@/routes/library/series/index";
+import type { SeriesOverview } from "@/types/Series";
+
+const PAGE_SIZE = 50;
 
 interface SeriesRefreshProgressPayload {
   processed: number;
@@ -47,6 +50,9 @@ export function SeriesOverviewPage() {
   const { q = "" } = Route.useSearch();
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
+  // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
+  // page at a time and the pager clamps it; a filter change drops back to page 0.
+  const [page, setPage] = useState(0);
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -59,6 +65,7 @@ export function SeriesOverviewPage() {
     const timer = setTimeout(() => {
       const trimmed = filter.trim();
       if (trimmed !== q) {
+        setPage(0);
         void navigate({
           to: "/library/series",
           search: (prev) => ({
@@ -74,6 +81,7 @@ export function SeriesOverviewPage() {
 
   const handleClearFilter = () => {
     setFilter("");
+    setPage(0);
     if (q) {
       void navigate({
         to: "/library/series",
@@ -90,14 +98,44 @@ export function SeriesOverviewPage() {
   const [refreshProgress, setRefreshProgress] = useState<SeriesRefreshProgressPayload | null>(null);
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
 
+  // The header badges need the whole-library counts; the page itself is one slice. The counts
+  // are cheap and long-lived, so they are cached separately and only invalidated by the match/
+  // refresh flows that change them.
+  const { data: counts } = useQuery({
+    queryKey: ["seriesCounts"],
+    queryFn: () => seriesApi.getSeriesCounts(),
+    staleTime: 30_000,
+  });
+
   const {
-    data: seriesList = [],
+    data: pageData,
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["series"],
-    queryFn: () => seriesApi.getAllSeries(),
+    // The page cursor is only clamped on display (below) - the total that sizes the pager comes
+    // from this very response, so the fetch cannot know in advance that the cursor outran a list
+    // that shrank. The pager stays rendered even when such a page comes back empty (its items
+    // count on totalCount, not on the items), so the user can page back instead of staring at a
+    // dead-end heading - the CleanBookUrls shape.
+    queryKey: ["series", q, page],
+    // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
+    // doesn't vanish on every navigation.
+    placeholderData: keepPreviousData,
+    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q),
   });
+
+  const seriesList = (pageData?.items ?? []) as SeriesOverview[];
+  const totalCount = pageData?.totalCount ?? 0;
+
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
+  // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
+  const currentPage = Math.min(page, pageCount - 1);
+
+  // A refresh-all or a bulk match can shrink the list while the user sits on a later page; pull
+  // the raw page back into range so the next fetch lands on a valid page rather than coming back
+  // empty (the pager here stays rendered even for an empty page, and the clamp finishes the job).
+  useClampedPage(page, pageCount, setPage);
 
   useSignalREvent<SeriesRefreshProgressPayload>("SeriesRefreshProgress", (data) => {
     setRefreshing(true);
@@ -113,7 +151,11 @@ export function SeriesOverviewPage() {
           arg.totalFailed > 0 ? ` (${arg.totalFailed} failed)` : ""
         }`;
     toast.success(msg);
+    // A refresh can match previously-unmatched series - i.e. shrink the list. Drop back to page
+    // 0 so the refetch below never asks for a page the smaller list no longer has.
+    setPage(0);
     void queryClient.invalidateQueries({ queryKey: ["series"] });
+    void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
   });
 
   const handleRefreshAll = async () => {
@@ -127,16 +169,8 @@ export function SeriesOverviewPage() {
     }
   };
 
-  const unmatchedSeries = seriesList.filter((s) => !s.isMatched);
-  const matchedCount = seriesList.filter((s) => s.isMatched).length;
-
-  const filteredSeries = seriesList.filter((s) => {
-    if (!filter.trim()) return true;
-    const q = foldAccents(filter.trim().toLowerCase());
-    const nameMatch = foldAccents(s.name.toLowerCase()).includes(q);
-    const authorMatch = (s.authors ?? []).some((a) => foldAccents(a.toLowerCase()).includes(q));
-    return nameMatch || authorMatch;
-  });
+  const unmatchedCount = counts?.unmatched ?? 0;
+  const matchedCount = counts?.matched ?? 0;
 
   return (
     <div className="space-y-6">
@@ -160,10 +194,10 @@ export function SeriesOverviewPage() {
             variant="outline"
             size="sm"
             onClick={() => setMatchDialogOpen(true)}
-            disabled={loading || refreshing || unmatchedSeries.length === 0}
+            disabled={loading || refreshing || unmatchedCount === 0}
           >
             <Sparkles className="mr-2 h-4 w-4" />
-            Bulk Match ({unmatchedSeries.length})
+            Bulk Match ({unmatchedCount})
           </Button>
 
           <Button
@@ -183,7 +217,7 @@ export function SeriesOverviewPage() {
       <div>
         <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
           <BookMarked className="text-primary h-6 w-6" />
-          Series ({seriesList.length})
+          Series ({counts?.total ?? totalCount})
         </h1>
         <p className="text-muted-foreground text-sm">
           Every series in your library. Match series to metadata providers to identify missing parts
@@ -209,6 +243,7 @@ export function SeriesOverviewPage() {
             if (e.key === "Enter") {
               const trimmed = filter.trim();
               if (trimmed !== q) {
+                setPage(0);
                 void navigate({
                   to: "/library/series",
                   search: (prev) => ({
@@ -239,19 +274,19 @@ export function SeriesOverviewPage() {
           <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
           <p className="text-sm">Loading series...</p>
         </div>
-      ) : filteredSeries.length === 0 ? (
+      ) : totalCount === 0 ? (
         <Card className="p-12 text-center">
           <BookMarked className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
           <h3 className="text-foreground text-lg font-medium">No series found</h3>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filter
+            {q.trim()
               ? "No series match your search filter."
               : "No audiobooks with series tags have been organized yet."}
           </p>
         </Card>
       ) : (
         <div className="space-y-2">
-          {filteredSeries.map((s) => (
+          {seriesList.map((s) => (
             <Link
               key={s.name}
               to="/library/series/$seriesName"
@@ -307,15 +342,46 @@ export function SeriesOverviewPage() {
               </div>
             </Link>
           ))}
+
+          {/* Stays rendered even if this page comes back empty while the count is non-zero, so the
+              user can page back instead of staring at a dead-end heading. Same shape as CleanBookUrls. */}
+          {pageCount > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+              <span className="text-muted-foreground text-xs">
+                Showing {currentPage * PAGE_SIZE + 1}–
+                {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <SeriesMatchDialog
         open={matchDialogOpen}
         onOpenChange={setMatchDialogOpen}
-        series={unmatchedSeries}
         onMatched={() => {
+          // Matching is the other shrink path (unmatched series disappear from the list).
+          setPage(0);
           void queryClient.invalidateQueries({ queryKey: ["series"] });
+          void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
         }}
       />
     </div>

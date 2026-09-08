@@ -13,6 +13,9 @@ public class BrowseController : ControllerBase
     /// <summary>The largest page a caller may ask for on the paged author/series search endpoints.</summary>
     private const int MaxSearchPageSize = 100;
 
+    /// <summary>Default page size for the paged browse lists.</summary>
+    private const int DefaultPageSize = 50;
+
     /// <summary>
     /// The furthest into a paged author/series search result a caller may ask to start. Mirrors
     /// UrlCleanupController's MaxPageOffset: bounded so an offset near int.MaxValue cannot be
@@ -159,15 +162,38 @@ public class BrowseController : ControllerBase
     }
 
     [HttpGet("authors")]
-    public async Task<List<AuthorSummaryDto>> GetAuthors()
+    public async Task<ActionResult<PaginatedResult<AuthorSummaryDto>>> GetAuthors(
+        [FromQuery] string? q = null,
+        int limit = DefaultPageSize,
+        int offset = 0)
     {
-        var authors = await _personRepo.GetAllAuthorSummariesAsync();
-        return authors.Select(a => new AuthorSummaryDto(a.Id, a.Name, a.BookCount)).ToList();
+        var clampError = ValidateSearchPaging(limit, offset);
+        if (clampError != null)
+        {
+            return clampError;
+        }
+
+        var search = string.IsNullOrWhiteSpace(q) ? null : q!.Trim();
+        var (items, total) = await _personRepo.GetAuthorSummariesPagedAsync(search, limit, offset);
+        var dtos = items.Select(p => new AuthorSummaryDto(p.Id, p.Name, p.BookCount)).ToList();
+        return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
     }
 
     [HttpGet("authors/{authorId}")]
-    public async Task<ActionResult<AuthorDetailDto>> GetAuthorDetail(long authorId)
+    public async Task<ActionResult<AuthorDetailDto>> GetAuthorDetail(
+        long authorId,
+        int seriesLimit = DefaultPageSize,
+        int seriesOffset = 0,
+        int standaloneLimit = DefaultPageSize,
+        int standaloneOffset = 0)
     {
+        var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
+            ?? ValidateSearchPaging(standaloneLimit, standaloneOffset);
+        if (clampError != null)
+        {
+            return clampError;
+        }
+
         // Three narrow queries rather than one that materializes the author's entire catalogue:
         // the series section only needs a name and a count, so those books are never loaded.
         var author = await _personRepo.GetAuthorSummaryAsync(authorId);
@@ -176,14 +202,19 @@ public class BrowseController : ControllerBase
             return NotFound();
         }
 
-        var seriesCounts = await _audiobookRepo.GetSeriesCountsByAuthorAsync(authorId);
-        var standalone = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(authorId);
+        var (seriesCounts, seriesTotal) = await _audiobookRepo.GetSeriesCountsByAuthorAsync(
+            authorId, seriesLimit, seriesOffset);
+        var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
+            authorId, standaloneLimit, standaloneOffset);
 
         var summary = new AuthorSummaryDto(author.Id, author.Name, author.BookCount);
-        var series = seriesCounts.Select(s => new SeriesInfo(s.Series, s.BookCount)).ToList();
-        var standaloneBooks = standalone.Select(MapToSummaryDto).ToList();
+        var seriesDtos = seriesCounts.Select(s => new SeriesInfo(s.Series, s.BookCount)).ToList();
+        var standaloneDtos = standalone.Select(MapToSummaryDto).ToList();
 
-        return new AuthorDetailDto(summary, series, standaloneBooks);
+        return new AuthorDetailDto(
+            summary,
+            new PaginatedResult<SeriesInfo>(seriesDtos.Count, seriesTotal, seriesDtos),
+            new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos));
     }
 
     [HttpGet("audiobooks/{id}")]

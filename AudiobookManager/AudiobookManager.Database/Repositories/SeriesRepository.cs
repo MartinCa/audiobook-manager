@@ -44,6 +44,62 @@ public class SeriesRepository : ISeriesRepository
     }
 
     /// <summary>
+    /// The catalog row's metadata only, no roster: the series detail loads this on every page
+    /// request and must not pull the expected-books collection along with it.
+    /// </summary>
+    public async Task<Series?> GetByNameAsync(string name)
+    {
+        return await _db.Series
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Name == name);
+    }
+
+    /// <summary>
+    /// The catalog row plus its roster, bounded to <paramref name="maxExpectedBooks"/> + 1 rows.
+    /// The reconciliation's fuzzy matcher is explicitly capped, so the roster read must not
+    /// materialize (or transfer) a pathological full roster just to learn it is too big: the
+    /// query returns at most cap+1 entries and the caller is told whether the cap was breached.
+    /// A roster at or under the cap comes back complete.
+    /// </summary>
+    public async Task<(Series? Series, bool Overflow)> GetByNameWithExpectedBooksBoundedAsync(
+        string name, int maxExpectedBooks)
+    {
+        var row = await _db.Series
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Name == name);
+
+        if (row is null)
+        {
+            return (null, false);
+        }
+
+        var books = await _db.SeriesExpectedBooks
+            .AsNoTracking()
+            .Where(b => b.SeriesId == row.Id)
+            .OrderBy(b => b.Id)
+            .Take(maxExpectedBooks + 1)
+            .ToListAsync();
+
+        row.ExpectedBooks = books;
+        return (row, books.Count > maxExpectedBooks);
+    }
+
+    public async Task<List<Series>> GetByNamesWithExpectedBooksAsync(List<string> names)
+    {
+        if (names.Count == 0)
+        {
+            return new List<Series>();
+        }
+
+        return await _db.Series
+            .AsNoTracking()
+            .Include(s => s.ExpectedBooks)
+            .AsSplitQuery()
+            .Where(s => names.Contains(s.Name))
+            .ToListAsync();
+    }
+
+    /// <summary>
     /// Inserts the series if no row with the same <see cref="Series.Name"/> exists,
     /// otherwise updates the match metadata on the existing row.
     /// </summary>

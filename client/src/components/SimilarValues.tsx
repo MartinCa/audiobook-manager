@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Layers, RefreshCw, ArrowRight, Loader2, Users, BookMarked } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,11 +11,14 @@ import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 
 const SIMILAR_VALUE_ALIGN_OPERATION_KEY = "similar-value-align";
+
+const PAGE_SIZE = 50;
 
 interface ProgressPayload {
   processed: number;
@@ -36,21 +39,36 @@ export function SimilarValues() {
   const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // The detected groups are paged server-side: the clustering still runs over the whole
+  // distinct-value set per request (detection is stateless by design), but only the requested
+  // page - with per-candidate book counts, not book lists - crosses the wire.
+  const [page, setPage] = useState(0);
+
   // Operation progress
   const [aligning, setAligning] = useState(false);
   const [alignProgress, setAlignProgress] = useState<ProgressPayload | null>(null);
 
   const {
-    data: groups = [],
+    data: pageData,
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["similarValues", activeTab],
+    queryKey: ["similarValues", activeTab, page],
+    placeholderData: keepPreviousData,
     queryFn: () =>
       activeTab === "author"
-        ? similarValuesApi.getSimilarAuthors()
-        : similarValuesApi.getSimilarSeries(),
+        ? similarValuesApi.getSimilarAuthors(page, PAGE_SIZE)
+        : similarValuesApi.getSimilarSeries(page, PAGE_SIZE),
   });
+
+  const groups = (pageData?.items ?? []) as SimilarValueGroup[];
+  const totalCount = pageData?.totalCount ?? 0;
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+
+  // An alignment folds groups together, shrinking the total while the user may sit on a later
+  // page; pull the raw page back into range so the next fetch lands on a valid page.
+  useClampedPage(page, pageCount, setPage);
 
   useSignalREvent<ProgressPayload>("SimilarValueAlignProgress", (data) => {
     setAligning(true);
@@ -63,6 +81,9 @@ export function SimilarValues() {
     toast.success(
       `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
     );
+    // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
+    // below never asks for a page the smaller detection result no longer has.
+    setPage(0);
     void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
   });
 
@@ -145,7 +166,13 @@ export function SimilarValues() {
         />
       )}
 
-      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "author" | "series")}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => {
+          setActiveTab(val as "author" | "series");
+          setPage(0);
+        }}
+      >
         <TabsList className="mb-4 grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
           <TabsTrigger value="author" className="flex items-center gap-2 text-xs">
             <Users className="h-4 w-4" />
@@ -158,12 +185,12 @@ export function SimilarValues() {
         </TabsList>
       </Tabs>
 
-      {loading ? (
+      {loading && groups.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">
           <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
           <p className="text-sm">Detecting near duplicates...</p>
         </div>
-      ) : groups.length === 0 ? (
+      ) : totalCount === 0 ? (
         <Card className="p-12 text-center">
           <Layers className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
           <h3 className="text-foreground text-lg font-medium">
@@ -175,13 +202,17 @@ export function SimilarValues() {
         </Card>
       ) : (
         <div className="space-y-4">
+          {/* The index bases on the whole detection result, but only the current page renders. */}
           {groups.map((group, index) => (
-            <Card key={index} className="p-4">
+            <Card
+              key={`${currentPage * PAGE_SIZE + index + 1}-${group.candidates[0]?.value ?? ""}`}
+              className="p-4"
+            >
               <CardContent className="p-0">
                 <div className="border-border flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-foreground text-sm font-semibold">
-                      Group #{index + 1}
+                      Group #{currentPage * PAGE_SIZE + index + 1}
                     </span>
                     <Badge variant="outline">{group.candidates.length} variants</Badge>
                   </div>
@@ -203,27 +234,41 @@ export function SimilarValues() {
                     >
                       <div className="text-foreground font-semibold break-words">{cand.value}</div>
                       <div className="text-muted-foreground mt-1">
-                        {cand.books.length} {cand.books.length === 1 ? "book" : "books"}:
+                        {cand.bookCount} {cand.bookCount === 1 ? "book" : "books"}
                       </div>
-                      <ul className="text-muted-foreground mt-1 max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 text-[11px]">
-                        {cand.books.map((b) => (
-                          <li key={b.id}>
-                            <Link
-                              to="/library/book/$bookId"
-                              params={{ bookId: String(b.id) }}
-                              className="break-words hover:underline"
-                            >
-                              {b.bookName}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
           ))}
+
+          {pageCount > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+              <span className="text-muted-foreground text-xs">
+                Showing {currentPage * PAGE_SIZE + 1}–
+                {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount} groups
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

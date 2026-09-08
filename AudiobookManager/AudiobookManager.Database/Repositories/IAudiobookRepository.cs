@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Database.Models;
+﻿using System.Linq.Expressions;
+using AudiobookManager.Database.Models;
 
 namespace AudiobookManager.Database.Repositories;
 public interface IAudiobookRepository
@@ -8,6 +9,43 @@ public interface IAudiobookRepository
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
     Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset);
     Task<int> CountAsync();
+
+    /// <summary>
+    /// One page of a series' owned books plus the full total, for the series detail's owned
+    /// section. Only the fields that section renders are projected, and the page is computed in
+    /// SQL with a total order (blank series parts last, then the part, then the book name, then
+    /// id) so paging stays stable.
+    /// </summary>
+    Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(string seriesName, int skip, int take);
+
+    /// <summary>
+    /// Every owned book of one series reduced to its (series part, book name) keys, for the fuzzy
+    /// roster reconciliation. Runs only when the per-series reconciliation cache needs refilling;
+    /// nothing the matcher does not read is carried. The fetch is bounded to
+    /// <paramref name="maxKeys"/> + 1 rows and the caller is told whether that bound was breached,
+    /// so a pathological owned set is detected without ever materializing the whole thing; a set
+    /// at or under the cap returns complete (its count is the exact owned count).
+    /// </summary>
+    Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetSeriesOwnedKeysAsync(string seriesName, int maxKeys);
+
+    /// <summary>
+    /// One page of the distinct series values in the library: every distinct non-empty
+    /// <see cref="Audiobook.Series"/> tag value, unioned with every row of the series catalog.
+    /// The catalog side keeps a series listed whose value no longer appears on any audiobook
+    /// (the last owned book was renamed or removed), exactly as the unpaged overview it replaces
+    /// did.
+    ///
+    /// The page and its total are computed in SQL with a single total order (the value itself,
+    /// which the UNION makes unique), so paging stays stable however the data shifts between
+    /// requests. <paramref name="search"/> folds accents on both sides (the audiobook side uses
+    /// the precomputed <c>SeriesFolded</c> column and also matches any author name, mirroring the
+    /// old client-side filter). <paramref name="matched"/> narrows to series with (or without) a
+    /// catalog row carrying a matched source.
+    /// </summary>
+    Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(string? search, bool? matched, int skip, int take);
+
+    /// <summary>Total distinct series values (catalog plus audiobook tags) and how many of those have a matched catalog source, for the overview header badges.</summary>
+    Task<(int Total, int Matched)> GetSeriesValueCountsAsync();
 
     /// <summary>
     /// One page of audiobooks with a *dirty* website URL - one whose query string or fragment
@@ -36,11 +74,27 @@ public interface IAudiobookRepository
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
-    Task<List<(string Series, int BookCount)>> GetSeriesCountsByAuthorAsync(long authorId);
-    Task<List<Audiobook>> GetStandaloneBooksByAuthorAsync(long authorId);
+    Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(long authorId, int limit, int offset);
+    Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync();
+    Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync(List<string> seriesValues);
+
+    /// <summary>
+    /// One page of the books missing at least one of the caller's selected fields plus the total
+    /// count of the same filtered set. The "missing" predicates arrive as SQL-expressible
+    /// expressions (built by <c>MissingTagService.Fields</c>, the single source of truth for what
+    /// "missing" means) and are applied as an OR of WHERE clauses, so only the page's rows are
+    /// projected - no entity graphs, no Description-size blobs. <paramref name="search"/> folds
+    /// accents on the precomputed <c>BookNameFolded</c> column; the page is ordered in SQL by
+    /// book name then id (a total order, at BINARY-collation cost per the paged-query rule).
+    /// </summary>
+    Task<(List<MissingTagRow> Items, int Total)> GetMissingTagRowsPageAsync(
+        IReadOnlyCollection<Expression<Func<Audiobook, bool>>> missingPredicates,
+        string? search,
+        int skip,
+        int take);
 
     /// <summary>
     /// All audiobooks reduced to the fields the missing-book candidate search needs. Unlike
@@ -51,7 +105,13 @@ public interface IAudiobookRepository
     /// </summary>
     Task<List<SeriesCandidateBook>> GetSeriesCandidateDataAsync(string title, int limit);
 
-    Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync();
+    /// <summary>
+    /// How many books carry each of only the given series values, for the similar-series
+    /// detection: the detection shows a book count per candidate, and the page only needs counts
+    /// for the candidates it actually returns. Loads no book rows - just a GROUP BY over the
+    /// series column.
+    /// </summary>
+    Task<Dictionary<string, int>> GetSeriesBookCountsAsync(IReadOnlyCollection<string> seriesValues);
     Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames);
     Task<List<Audiobook>> GetBooksBySeriesValuesAsync(IEnumerable<string> seriesValues);
 

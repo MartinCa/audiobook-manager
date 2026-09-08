@@ -54,6 +54,7 @@ public class LibraryConsistencyServiceTests
         {
             new MissingMediaFileResolver(
                 _audiobookRepository.Object, _issueRepository.Object, _fileHandler, detectionService,
+                new SeriesReconciliationCache(),
                 NullLogger<MissingMediaFileResolver>.Instance),
             new MetadataSidecarResolver(
                 _tagHandler.Object, _fileHandler, _issueRepository.Object,

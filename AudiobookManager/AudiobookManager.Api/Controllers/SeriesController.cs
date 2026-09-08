@@ -26,6 +26,17 @@ public class SeriesController : ControllerBase
     private static readonly SemaphoreSlim _matchLock = new(1, 1);
     private static readonly SemaphoreSlim _refreshLock = new(1, 1);
 
+    /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
+    private const int MaxPageSize = 200;
+
+    private const int DefaultPageSize = 50;
+
+    /// <summary>
+    /// The furthest into a paged list a caller may ask to start. See UrlCleanupController's
+    /// MaxPageOffset for the two reasons it is bounded.
+    /// </summary>
+    private const long MaxPageOffset = 1_000_000;
+
     public const string MatchOperationKey = "series-match";
     public const string RefreshOperationKey = "series-refresh";
 
@@ -59,16 +70,57 @@ public class SeriesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<List<SeriesOverviewDto>> GetAllSeries()
+    public async Task<ActionResult<SeriesOverviewPageDto>> GetSeries(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = DefaultPageSize,
+        [FromQuery] string? search = null,
+        [FromQuery] bool? matched = null)
     {
-        var overviews = await _seriesService.GetAllSeriesOverviewAsync();
-        return overviews.Select(ToDto).ToList();
+        var pagingError = ValidatePageSelection(page, pageSize, "series");
+        if (pagingError != null)
+        {
+            return pagingError;
+        }
+
+        var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(page, pageSize, search, matched);
+        return Ok(new SeriesOverviewPageDto(overviewPage.Items.Select(ToDto).ToList(), overviewPage.TotalCount));
+    }
+
+    [HttpGet("counts")]
+    public async Task<SeriesCountsDto> GetSeriesCounts()
+    {
+        var counts = await _seriesService.GetSeriesOverviewCountsAsync();
+        return new SeriesCountsDto(counts.Total, counts.Matched, counts.Unmatched);
     }
 
     [HttpGet("detail")]
-    public async Task<ActionResult<SeriesDetailDto>> GetSeriesDetail([FromQuery] string seriesName)
+    public async Task<ActionResult<SeriesDetailDto>> GetSeriesDetail(
+        [FromQuery] string seriesName,
+        [FromQuery] int ownedPage = 0,
+        [FromQuery] int ownedPageSize = DefaultPageSize,
+        [FromQuery] int missingPage = 0,
+        [FromQuery] int missingPageSize = DefaultPageSize,
+        [FromQuery] int ignoredPage = 0,
+        [FromQuery] int ignoredPageSize = DefaultPageSize)
     {
-        var detail = await _seriesService.GetSeriesDetailAsync(seriesName);
+        foreach (var check in new[]
+        {
+            ValidatePageSelection(ownedPage, ownedPageSize, "owned books"),
+            ValidatePageSelection(missingPage, missingPageSize, "missing books"),
+            ValidatePageSelection(ignoredPage, ignoredPageSize, "ignored books"),
+        })
+        {
+            if (check != null)
+            {
+                return check;
+            }
+        }
+
+        var detail = await _seriesService.GetSeriesDetailPageAsync(
+            seriesName,
+            ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,
+            missingSkip: (int)((long)missingPage * missingPageSize), missingTake: missingPageSize,
+            ignoredSkip: (int)((long)ignoredPage * ignoredPageSize), ignoredTake: ignoredPageSize);
         if (detail is null)
         {
             return NotFound();
@@ -76,10 +128,10 @@ public class SeriesController : ControllerBase
 
         return new SeriesDetailDto(
             ToDto(detail.Overview),
-            detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
-                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds)).ToList(),
-            detail.MissingBooks.Select(ToDto).ToList(),
-            detail.IgnoredBooks.Select(ToDto).ToList());
+            new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
+                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds)).ToList(), detail.OwnedBookTotal),
+            new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
+            new SeriesExpectedBookPageDto(detail.IgnoredBooks.Select(ToDto).ToList(), detail.IgnoredBookTotal));
     }
 
     [HttpGet("match-candidates")]
@@ -371,6 +423,32 @@ public class SeriesController : ControllerBase
         o.MissingBookCount,
         o.IgnoredBookCount,
         o.IncludeOmnibusEditions);
+
+    /// <summary>
+    /// Shared page/pageSize validation for this controller's paged endpoints, mirroring
+    /// UrlCleanupController.GetDirtyUrls (including the widened skip product so an overflowing
+    /// page cannot wrap negative and silently serve the first page).
+    /// </summary>
+    private ObjectResult? ValidatePageSelection(int page, int pageSize, string what)
+    {
+        if (page < 0)
+        {
+            return this.InvalidRequest($"page must be zero or greater for {what}.");
+        }
+
+        if (pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {MaxPageSize} for {what}.");
+        }
+
+        var skip = (long)page * pageSize;
+        if (skip > MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {MaxPageOffset} {what}.");
+        }
+
+        return null;
+    }
 
     private static SeriesExpectedBookDto ToDto(SeriesExpectedBookInfo b) => new(
         b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored);

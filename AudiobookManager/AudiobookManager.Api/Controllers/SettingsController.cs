@@ -60,10 +60,21 @@ public class SettingsController : ControllerBase
             Languages.DefaultCode);
     }
 
-    [HttpGet("series_mappings")]
-    public async Task<IList<SeriesMapping>> GetSeriesMappings()
+    /// <summary>
+    /// The Settings page's list: mappings pre-grouped by target series name (the client used to
+    /// group a flat table itself), optionally narrowed by an accent-insensitive search over both
+    /// the pattern and the target. Besides <c>total</c> there is no explicit bound - the table is
+    /// operator-curated, so the grouped shape plus server-side search is the list's bound. The
+    /// flat <c>GET series_mappings</c> that returned the whole table without bounds was removed.
+    /// </summary>
+    [HttpGet("series_mappings/grouped")]
+    public async Task<SeriesMappingGroupsDto> GetSeriesMappingGroups([FromQuery] string? search = null)
     {
-        return await _settingsService.GetSeriesMappings();
+        var groups = await _settingsService.GetSeriesMappingGroupsAsync(
+            string.IsNullOrWhiteSpace(search) ? null : search!.Trim());
+        return new SeriesMappingGroupsDto(
+            groups.Items.Select(g => new SeriesMappingGroupDto(g.MappedSeries, g.Mappings)).ToList(),
+            groups.Total);
     }
 
     [HttpPost("series_mappings")]

@@ -1,4 +1,5 @@
 ﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -34,9 +35,36 @@ public class SeriesMappingRepository : ISeriesMappingRepository
         return await _db.SeriesMappings.FindAsync(id);
     }
 
-    public async Task<IList<SeriesMapping>> GetSeriesMappings()
+    public async Task<(List<(string MappedSeries, List<SeriesMapping> Items)> Groups, int Total)> GetSeriesMappingGroupsAsync(
+        string? search)
     {
-        return await _db.SeriesMappings.ToListAsync();
+        var query = _db.SeriesMappings.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // Accent-insensitive over both the pattern and the target name, per the search
+            // invariant. The mappings table has no folded shadow column, so this folds per row -
+            // acceptable for an operator-curated table of well under a few thousand rows.
+            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
+            query = query.Where(m =>
+                EF.Functions.Like(AccentFolding.Fold(m.Regex), pattern) ||
+                EF.Functions.Like(AccentFolding.Fold(m.MappedSeries), pattern));
+        }
+
+        // Grouped in memory rather than as an EF GroupBy: aggregating a *list* of patterns per
+        // target is not expressible as a grouped query, and the input set is the curated
+        // mappings table, bounded by humans maintaining it.
+        var all = await query
+            .OrderBy(m => m.MappedSeries)
+            .ThenBy(m => m.Id)
+            .ToListAsync();
+
+        var groups = all
+            .GroupBy(m => m.MappedSeries, StringComparer.Ordinal)
+            .Select(g => (g.Key, g.ToList()))
+            .ToList();
+
+        return (groups, all.Count);
     }
 
     public async Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping)

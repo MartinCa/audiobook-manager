@@ -80,45 +80,89 @@ public class SimilarValuesControllerTests
         await OperationGate.WaitUntilReleasedAsync(typeof(SimilarValuesController));
     }
 
-    private static SimilarValueGroup MakeGroup() => new SimilarValueGroup
+    private static SimilarValueGroup MakeGroup(string value = "J.K. Rowling", int bookCount = 12) => new SimilarValueGroup
     {
         Candidates = new List<SimilarValueCandidate>
         {
-            new SimilarValueCandidate
-            {
-                Value = "J.K. Rowling",
-                Books = new List<SimilarValueBook> { new SimilarValueBook { Id = 1, BookName = "Book One" } }
-            },
-            new SimilarValueCandidate
-            {
-                Value = "JK Rowling",
-                Books = new List<SimilarValueBook> { new SimilarValueBook { Id = 2, BookName = "Book Two" } }
-            }
+            new SimilarValueCandidate { Value = value, BookCount = bookCount },
+            new SimilarValueCandidate { Value = $"{value} (alt)".Replace(" (alt)", "2"), BookCount = bookCount - 1 }
         }
     };
 
     [TestMethod]
-    public async Task GetSimilarAuthors_ReturnsMappedDtoList()
+    public async Task GetSimilarAuthors_ReturnsOnePageWithItemsAndTotal()
     {
-        _similarValueService.Setup(s => s.DetectSimilarAuthorsAsync()).ReturnsAsync(new List<SimilarValueGroup> { MakeGroup() });
+        _similarValueService
+            .Setup(s => s.DetectSimilarAuthorsAsync(skip: 0, take: 50))
+            .ReturnsAsync((new List<SimilarValueGroup> { MakeGroup("J.K. Rowling", 12) }, 7));
 
         var result = await _controller.GetSimilarAuthors();
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual(2, result[0].Candidates.Count);
-        Assert.AreEqual("J.K. Rowling", result[0].Candidates[0].Value);
-        Assert.AreEqual(1, result[0].Candidates[0].Books[0].Id);
+        var page = ((OkObjectResult)result.Result!).Value as SimilarValueGroupsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(7, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(2, page.Items[0].Candidates.Count);
+        Assert.AreEqual("J.K. Rowling", page.Items[0].Candidates[0].Value);
+        Assert.AreEqual(12, page.Items[0].Candidates[0].BookCount, "Candidates carry a book count, not a book list.");
     }
 
     [TestMethod]
-    public async Task GetSimilarSeries_ReturnsMappedDtoList()
+    public async Task GetSimilarAuthors_PassesPageAndPageSizeThrough()
     {
-        _similarValueService.Setup(s => s.DetectSimilarSeriesAsync()).ReturnsAsync(new List<SimilarValueGroup> { MakeGroup() });
+        _similarValueService
+            .Setup(s => s.DetectSimilarAuthorsAsync(skip: 100, take: 25))
+            .ReturnsAsync((new List<SimilarValueGroup>(), 4));
+
+        var result = await _controller.GetSimilarAuthors(page: 4, pageSize: 25);
+
+        var page = ((OkObjectResult)result.Result!).Value as SimilarValueGroupsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(4, page.TotalCount);
+        _similarValueService.Verify(s => s.DetectSimilarAuthorsAsync(skip: 100, take: 25), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetSimilarAuthors_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetSimilarAuthors(page: page, pageSize: pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _similarValueService.Verify(
+            s => s.DetectSimilarAuthorsAsync(It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    // Regression: the offset wraps negative on a huge page and SQLite reads a negative OFFSET as
+    // zero - silently serving the first page. Same guard as every other paged endpoint here.
+    [TestMethod]
+    public async Task GetSimilarAuthors_APageLargeEnoughToOverflowTheOffset_IsRefused()
+    {
+        var result = await _controller.GetSimilarAuthors(page: 11_000_000, pageSize: 200);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _similarValueService.Verify(
+            s => s.DetectSimilarAuthorsAsync(It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetSimilarSeries_ReturnsOnePageWithItemsAndTotal()
+    {
+        _similarValueService
+            .Setup(s => s.DetectSimilarSeriesAsync(skip: 0, take: 50))
+            .ReturnsAsync((new List<SimilarValueGroup> { MakeGroup("Mistborn", 3) }, 2));
 
         var result = await _controller.GetSimilarSeries();
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual(2, result[0].Candidates.Count);
+        var page = ((OkObjectResult)result.Result!).Value as SimilarValueGroupsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(2, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(2, page.Items[0].Candidates.Count);
     }
 
     [TestMethod]

@@ -114,14 +114,17 @@ public class PersonRepositorySearchTests
         Assert.AreEqual("sandra Newman", results[0].Name);
     }
 
-    private async Task SeedBookWithAuthorAsync(string bookName, string authorName)
+    private async Task SeedBookWithAuthorAsync(string bookName, string authorName) =>
+        await SeedBookWithAuthorAsync(bookName, new Person(default, authorName));
+
+    private async Task SeedBookWithAuthorAsync(string bookName, Person author)
     {
         var audiobook = new Audiobook(
             default, bookName, null, null, null, 2024,
             null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
-            Authors = new List<Person> { new Person(default, authorName) }
+            Authors = new List<Person> { author }
         };
 
         await _audiobookRepository.InsertAudiobook(audiobook);
@@ -348,5 +351,36 @@ public class PersonRepositorySearchTests
         var names = await _repository.GetAuthorNamesAsync();
 
         CollectionAssert.AreEqual(new List<string> { "Authoring Author" }, names);
+    }
+
+    // The similar-author detection shows a book count per candidate; the count query must be
+    // scoped to the names it is asked about (the returned page's candidates), not the library.
+    [TestMethod]
+    public async Task GetAuthorBookCountsAsync_CountsOnlyTheRequestedNames()
+    {
+        // persons.name is unique, so the same Person instance has to back both "J.K. Rowling" books.
+        var rowling = await _repository.GetOrCreatePerson("J.K. Rowling");
+        var rowlingAlt = await _repository.GetOrCreatePerson("JK Rowling");
+
+        await SeedBookWithAuthorAsync("Book One", rowling);
+        await SeedBookWithAuthorAsync("Book Two", rowling);
+        await SeedBookWithAuthorAsync("Book Three", rowlingAlt);
+        await SeedBookWithAuthorAsync("Book Four", "Untouched Author");
+
+        var counts = await _repository.GetAuthorBookCountsAsync(new List<string> { "J.K. Rowling", "JK Rowling" });
+
+        Assert.AreEqual(2, counts.Count);
+        Assert.AreEqual(2, counts["J.K. Rowling"]);
+        Assert.AreEqual(1, counts["JK Rowling"]);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBookCountsAsync_EmptyInputRequiresNoBookRows()
+    {
+        await SeedBookWithAuthorAsync("Book One", "Some Author");
+
+        var counts = await _repository.GetAuthorBookCountsAsync(new List<string>());
+
+        Assert.AreEqual(0, counts.Count);
     }
 }

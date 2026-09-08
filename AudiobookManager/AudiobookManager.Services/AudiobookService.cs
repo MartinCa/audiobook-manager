@@ -20,6 +20,7 @@ public class AudiobookService : IAudiobookService
     private readonly IPersonRepository _personRepository;
     private readonly IGenreRepository _genreRepository;
     private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly ISeriesReconciliationCache _seriesReconciliationCache;
 
     public AudiobookService(
         IAudiobookTagHandler tagHandler,
@@ -30,6 +31,7 @@ public class AudiobookService : IAudiobookService
         IPersonRepository personRepository,
         IGenreRepository genreRepository,
         IConsistencyIssueRepository issueRepository,
+        ISeriesReconciliationCache seriesReconciliationCache,
         ILogger<AudiobookService> logger)
     {
         _tagHandler = tagHandler;
@@ -40,6 +42,7 @@ public class AudiobookService : IAudiobookService
         _personRepository = personRepository;
         _genreRepository = genreRepository;
         _issueRepository = issueRepository;
+        _seriesReconciliationCache = seriesReconciliationCache;
         _logger = logger;
     }
 
@@ -307,6 +310,7 @@ public class AudiobookService : IAudiobookService
                         existingAudiobook.Id, existingAudiobook.BookName, newFullPath);
                     await _issueRepository.DeleteByAudiobookIdAsync(existingAudiobook.Id);
                     await _audiobookRepository.DeleteAudiobookAsync(existingAudiobook.Id);
+                    InvalidateSeriesReconciliation(existingAudiobook.Series);
                 }
             }
             else
@@ -404,6 +408,7 @@ public class AudiobookService : IAudiobookService
         _logger.LogInformation(
             "Added audiobook {AudiobookId} ('{Title}') to library at '{FilePath}'",
             result.Id, result.BookName, result.FileInfoFullPath);
+        InvalidateSeriesReconciliation(audiobook.Series);
         return FromDb(result);
     }
 
@@ -435,6 +440,10 @@ public class AudiobookService : IAudiobookService
         // Update DB record
         var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
+        // The book's Series/SeriesPart/BookName can all change here, so any series it previously
+        // recorded and any series it now records need a fresh reconciliation.
+        var previousSeries = existing.Series;
+
         existing.BookName = audiobook.BookName ?? string.Empty;
         existing.Subtitle = audiobook.Subtitle;
         existing.Series = audiobook.Series;
@@ -461,6 +470,9 @@ public class AudiobookService : IAudiobookService
             "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
             existing.Id, existing.BookName, existing.FileInfoFullPath);
 
+        InvalidateSeriesReconciliation(previousSeries);
+        InvalidateSeriesReconciliation(audiobook.Series);
+
         // Only the controller passes the online-search signal; consistency resolves and
         // similar-value alignment use the overload without it, so they never stamp.
         await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, id);
@@ -468,6 +480,20 @@ public class AudiobookService : IAudiobookService
         await progressAction("Done", 100);
 
         return FromDb(existing);
+    }
+
+    /// <summary>
+    /// Drops the cached series detail for <paramref name="series"/>, if any. The series detail
+    /// reconciles the matched series' roster against the owned books of that series; any book
+    /// write that can change which books belong to a series (or their SeriesPart/BookName) must
+    /// invalidate it, or the detail would keep reporting pre-change missing/ignored lists.
+    /// </summary>
+    private void InvalidateSeriesReconciliation(string? series)
+    {
+        if (!string.IsNullOrWhiteSpace(series))
+        {
+            _seriesReconciliationCache.Invalidate(series);
+        }
     }
 
     public async Task DeleteAudiobook(long id)
@@ -485,6 +511,8 @@ public class AudiobookService : IAudiobookService
 
         await _issueRepository.DeleteByAudiobookIdAsync(id);
         await _audiobookRepository.DeleteAudiobookAsync(id);
+
+        InvalidateSeriesReconciliation(existing.Series);
 
         if (File.Exists(existing.FileInfoFullPath))
         {

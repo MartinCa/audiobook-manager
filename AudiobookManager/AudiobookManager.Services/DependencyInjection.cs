@@ -12,6 +12,11 @@ public static class DependencyInjection
         // Singleton, and backed by process-static state: the per-audiobook save gate has to
         // exclude across request scopes, which is the whole point of it.
         .AddSingleton<IAudiobookSaveGate, AudiobookSaveGate>()
+        // Singletons: the near-duplicate group cache and the per-series detail reconciliation
+        // cache are shared across requests (that is what makes their computations bounded), and
+        // both sit behind a TTL plus explicit invalidation.
+        .AddSingleton<ISimilarValueDetectionCache, SimilarValueDetectionCache>()
+        .AddSingleton<ISeriesReconciliationCache, SeriesReconciliationCache>()
         // Stateless and cheap: a singleton avoids re-resolving it per request for what is
         // effectively a pure function over the bytes.
         .AddSingleton<ICoverImageProcessor, CoverImageProcessor>()

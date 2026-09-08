@@ -13,14 +13,19 @@ public class SimilarValueService : ISimilarValueService
     private readonly IPersonRepository _personRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
+    private readonly ISimilarValueDetectionCache _detectionCache;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<SimilarValueService> _logger;
+
+    private const string AuthorGroupsKind = "authors";
+    private const string SeriesGroupsKind = "series";
 
     public SimilarValueService(
         IAudiobookRepository audiobookRepository,
         IPersonRepository personRepository,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
+        ISimilarValueDetectionCache detectionCache,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<SimilarValueService> logger)
     {
@@ -28,47 +33,123 @@ public class SimilarValueService : ISimilarValueService
         _personRepository = personRepository;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
+        _detectionCache = detectionCache;
         _settings = settings.Value;
         _logger = logger;
     }
 
-    public async Task<List<SimilarValueGroup>> DetectSimilarAuthorsAsync()
+    public async Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarAuthorsAsync(int skip, int take)
     {
-        // Only the author names and each one's book id/title are needed, so this projects them
-        // rather than loading every audiobook entity the authors point at.
-        var booksByAuthorName = await _personRepository.GetAuthorBookRefsAsync();
-        var names = booksByAuthorName.Keys.ToList();
+        // Detection only needs the distinct author names - not the per-book references the old
+        // implementation loaded for every author on every request - and the clustered groups are
+        // cached, so paging through the results does not re-run the clustering per request.
+        var groups = await GetOrComputeGroupsAsync(AuthorGroupsKind, _personRepository.GetAuthorNamesAsync);
 
-        var clusters = SimilarityGrouper.GroupSimilarValues(names, _settings);
+        var (items, total) = Page(groups, skip, take);
 
-        return clusters.Select(cluster => new SimilarValueGroup
-        {
-            Candidates = cluster.Select(name => new SimilarValueCandidate
-            {
-                Value = name,
-                Books = booksByAuthorName.TryGetValue(name, out var books)
-                    ? books.Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }).ToList()
-                    : new List<SimilarValueBook>()
-            }).ToList()
-        }).ToList();
+        // Book counts are fetched only for the candidates the returned page shows, not for every
+        // value in the library.
+        await StampBookCountsAsync(items, _personRepository.GetAuthorBookCountsAsync);
+
+        return (items, total);
     }
 
-    public async Task<List<SimilarValueGroup>> DetectSimilarSeriesAsync()
+    public async Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarSeriesAsync(int skip, int take)
     {
-        var seriesMap = await _audiobookRepository.GetDistinctSeriesAsync();
-        var values = seriesMap.Keys.ToList();
+        var groups = await GetOrComputeGroupsAsync(SeriesGroupsKind, _audiobookRepository.GetSeriesNamesAsync);
 
+        var (items, total) = Page(groups, skip, take);
+
+        await StampBookCountsAsync(items, _audiobookRepository.GetSeriesBookCountsAsync);
+
+        return (items, total);
+    }
+
+    /// <summary>
+    /// The clustered groups for one value kind, computing them from the distinct values when the
+    /// cache is empty or stale. The cache stores name clusters only (book counts are read fresh
+    /// per page), so a returned page is never older than a few minutes in its grouping and never
+    /// stale in its counts.
+    ///
+    /// The version is captured before the compute starts and handed to
+    /// <see cref="ISimilarValueDetectionCache.Set"/>, so an alignment invalidation landing while
+    /// the distinct values are being read cannot let this method republish pre-alignment groups
+    /// for the TTL - the publish is dropped instead. Two callers racing a miss may both compute;
+    /// the result is identical and only the current-version publish wins.
+    ///
+    /// The stored graph is treated as read-only: <see cref="Page"/> returns copies of its groups
+    /// and candidates, so the per-page book-count stamping in <see cref="StampBookCountsAsync"/>
+    /// never writes through to the objects the cache holds.
+    /// </summary>
+    private async Task<List<SimilarValueGroup>> GetOrComputeGroupsAsync(
+        string kind, Func<Task<List<string>>> loadDistinctValues)
+    {
+        var versionAtStart = _detectionCache.GetVersion();
+        if (_detectionCache.Get(kind) is { } cached)
+        {
+            return cached;
+        }
+
+        var values = await loadDistinctValues();
         var clusters = SimilarityGrouper.GroupSimilarValues(values, _settings);
 
-        return clusters.Select(cluster => new SimilarValueGroup
-        {
-            Candidates = cluster.Select(value => new SimilarValueCandidate
+        var groups = clusters
+            .Select(cluster => new SimilarValueGroup
             {
-                Value = value,
-                Books = seriesMap[value].Select(b => new SimilarValueBook { Id = b.Id, BookName = b.BookName }).ToList()
-            }).ToList()
-        }).ToList();
+                Candidates = cluster.Select(value => new SimilarValueCandidate { Value = value }).ToList(),
+            })
+            // The deterministic key a group's page order sorts by; see FirstCandidate.
+            .OrderBy(g => FirstCandidate(g), StringComparer.Ordinal)
+            .ToList();
+
+        // The caller still gets this request's result either way (it is a consistent snapshot of
+        // what the read saw); a dropped publish just means the cache stays empty and the next
+        // request recomputes against the post-alignment data.
+        _detectionCache.Set(kind, groups, versionAtStart);
+        return groups;
     }
+
+    private static async Task StampBookCountsAsync(
+        List<SimilarValueGroup> items,
+        Func<IReadOnlyCollection<string>, Task<Dictionary<string, int>>> fetchCounts)
+    {
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var values = items.SelectMany(g => g.Candidates).Select(c => c.Value).ToList();
+        var counts = await fetchCounts(values);
+
+        foreach (var candidate in items.SelectMany(g => g.Candidates))
+        {
+            candidate.BookCount = counts.TryGetValue(candidate.Value, out var count) ? count : 0;
+        }
+    }
+
+    /// <summary>
+    /// The deterministic key a group's page order sorts by. Groups come from the cache or from a
+    /// deterministic clustering of the current distinct values, and are sorted here so the same
+    /// request always returns the same slice - otherwise paging could repeat or drop a group.
+    /// </summary>
+    private static string FirstCandidate(SimilarValueGroup group) => group.Candidates.FirstOrDefault()?.Value ?? string.Empty;
+
+    private static (List<SimilarValueGroup> Items, int Total) Page(List<SimilarValueGroup> groups, int skip, int take) =>
+        (groups.Skip(skip).Take(take).Select(CloneGroup).ToList(), groups.Count);
+
+    /// <summary>
+    /// A returned page is a copy, not a window, over the cached detection snapshot: book counts
+    /// are stamped onto the returned candidates (<see cref="StampBookCountsAsync"/>), and writing
+    /// through to the cache's objects would make the snapshot mutable - two concurrent reads of
+    /// the same group would race a plain field write against the other request's serialization.
+    /// </summary>
+    private static SimilarValueGroup CloneGroup(SimilarValueGroup group) =>
+        new()
+        {
+            Candidates = group.Candidates
+                .Select(c => new SimilarValueCandidate { Value = c.Value, BookCount = c.BookCount })
+                .ToList(),
+        };
 
     public async Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
@@ -86,7 +167,7 @@ public class SimilarValueService : ISimilarValueService
         var sourceSet = new HashSet<string>(namesToAlign, StringComparer.Ordinal);
         var books = await _audiobookRepository.GetBooksByAuthorNamesAsync(namesToAlign);
 
-        return await BulkOperationRunner.RunAsync(
+        var result = await BulkOperationRunner.RunAsync(
             books,
             async dbBook =>
             {
@@ -131,6 +212,12 @@ public class SimilarValueService : ISimilarValueService
             _logger,
             dbBook => $"Failed to align author for audiobook {dbBook.Id}",
             progressAction);
+
+        // The merge folds groups together; the cached detection must not keep serving the
+        // pre-merge grouping until its TTL runs out.
+        _detectionCache.Invalidate();
+
+        return result;
     }
 
     public async Task<(int Processed, int Succeeded, int Failed)> AlignSeriesAsync(
@@ -148,7 +235,7 @@ public class SimilarValueService : ISimilarValueService
 
         var books = await _audiobookRepository.GetBooksBySeriesValuesAsync(valuesToAlign);
 
-        return await BulkOperationRunner.RunAsync(
+        var result = await BulkOperationRunner.RunAsync(
             books,
             async dbBook =>
             {
@@ -164,5 +251,9 @@ public class SimilarValueService : ISimilarValueService
             _logger,
             dbBook => $"Failed to align series for audiobook {dbBook.Id}",
             progressAction);
+
+        _detectionCache.Invalidate();
+
+        return result;
     }
 }

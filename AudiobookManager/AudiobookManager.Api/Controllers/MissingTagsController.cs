@@ -11,6 +11,14 @@ public class MissingTagsController : ControllerBase
 {
     private static readonly SemaphoreSlim _backfillLock = new(1, 1);
 
+    /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
+    private const int MaxPageSize = 200;
+
+    private const int DefaultPageSize = 50;
+
+    /// <summary>See UrlCleanupController.MaxPageOffset for why the skip is bounded.</summary>
+    private const long MaxPageOffset = 1_000_000;
+
     public const string LanguageBackfillOperationKey = "language-backfill";
 
     private readonly IMissingTagService _missingTagService;
@@ -42,12 +50,37 @@ public class MissingTagsController : ControllerBase
     }
 
     [HttpGet("audiobooks")]
-    public async Task<List<AudiobookMissingTagsDto>> GetAudiobooksMissingTags([FromQuery] List<string> fields)
+    public async Task<ActionResult<AudiobookMissingTagsPageDto>> GetAudiobooksMissingTags(
+        [FromQuery] List<string> fields,
+        [FromQuery] string? search = null,
+        int page = 0,
+        int pageSize = DefaultPageSize)
     {
-        var results = await _missingTagService.FindAudiobooksMissingTagsAsync(fields);
-        return results
-            .Select(r => new AudiobookMissingTagsDto(r.AudiobookId, r.BookName, r.Authors, r.MissingFields))
-            .ToList();
+        if (page < 0)
+        {
+            return this.InvalidRequest("page must be zero or greater.");
+        }
+
+        if (pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {MaxPageSize}.");
+        }
+
+        // Widened before multiplying - see UrlCleanupController.GetDirtyUrls for why.
+        var skip = (long)page * pageSize;
+        if (skip > MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {MaxPageOffset} audiobooks.");
+        }
+
+        var (results, totalCount) = await _missingTagService.FindAudiobooksMissingTagsPageAsync(
+            fields, search, (int)skip, pageSize);
+
+        return Ok(new AudiobookMissingTagsPageDto(
+            results
+                .Select(r => new AudiobookMissingTagsDto(r.AudiobookId, r.BookName, r.Authors, r.MissingFields))
+                .ToList(),
+            totalCount));
     }
 
     /// <summary>

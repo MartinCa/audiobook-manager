@@ -24,6 +24,7 @@ public class AudiobookServiceTests
     private Mock<IConsistencyIssueRepository> _issueRepository = null!;
     private Mock<ILogger<AudiobookService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
+    private SeriesReconciliationCache _reconciliationCache = null!;
     private AudiobookService _service = null!;
 
     [TestInitialize]
@@ -41,6 +42,7 @@ public class AudiobookServiceTests
         {
             AudiobookLibraryPath = "/library"
         });
+        _reconciliationCache = new SeriesReconciliationCache();
 
         _service = new AudiobookService(
             _tagHandler.Object,
@@ -51,6 +53,7 @@ public class AudiobookServiceTests
             _personRepository.Object,
             _genreRepository.Object,
             _issueRepository.Object,
+            _reconciliationCache,
             _logger.Object);
     }
 
@@ -244,6 +247,7 @@ public class AudiobookServiceTests
             _personRepository.Object,
             _genreRepository.Object,
             _issueRepository.Object,
+            _reconciliationCache,
             _logger.Object);
     }
 

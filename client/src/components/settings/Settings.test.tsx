@@ -9,7 +9,22 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@/services/api", () => ({
   settingsApi: {
-    getSeriesMappings: vi.fn().mockResolvedValue([]),
+    getSeriesMappingGroups: vi.fn().mockResolvedValue({
+      items: [
+        {
+          mappedSeries: "The Wheel of Time",
+          items: [
+            {
+              id: 1,
+              regex: "^wheel of time.*$",
+              mappedSeries: "The Wheel of Time",
+              warnAboutPart: false,
+            },
+          ],
+        },
+      ],
+      total: 2,
+    }),
     getSystemInfo: vi.fn().mockResolvedValue({
       version: "0.9.0",
       commitHash: "abc1234",

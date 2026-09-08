@@ -152,4 +152,52 @@ public class SettingsControllerTests
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task GetSeriesMappingGroups_PassesTheSearchAndReturnsGroupedShapeWithTotal()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetSeriesMappingGroupsAsync("wheel"))
+            .ReturnsAsync(new Domain.SeriesMappingGroups
+            {
+                Total = 2,
+                Items = new List<Domain.SeriesMappingGroup>
+                {
+                    new Domain.SeriesMappingGroup
+                    {
+                        MappedSeries = "The Wheel of Time",
+                        Mappings = new List<Domain.SeriesMapping>
+                        {
+                            new Domain.SeriesMapping(1, "^wheel of time.*$", "The Wheel of Time", false),
+                        },
+                    },
+                },
+            });
+        var controller = new SettingsController(service.Object);
+
+        var result = await controller.GetSeriesMappingGroups("wheel");
+
+        service.Verify(s => s.GetSeriesMappingGroupsAsync("wheel"), Times.Once);
+        Assert.AreEqual(2, result.Total, "The total is the mapping row count, not the group count.");
+        Assert.AreEqual(1, result.Items.Count);
+        Assert.AreEqual("The Wheel of Time", result.Items[0].MappedSeries);
+        Assert.AreEqual(1, result.Items[0].Items.Count);
+        Assert.AreEqual("^wheel of time.*$", result.Items[0].Items[0].Regex);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesMappingGroups_BlankSearchIsPassedThroughAsNull()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetSeriesMappingGroupsAsync(null))
+            .ReturnsAsync(new Domain.SeriesMappingGroups { Items = new List<Domain.SeriesMappingGroup>(), Total = 0 });
+        var controller = new SettingsController(service.Object);
+
+        var result = await controller.GetSeriesMappingGroups("   ");
+
+        service.Verify(s => s.GetSeriesMappingGroupsAsync(null), Times.Once);
+        Assert.AreEqual(0, result.Total);
+    }
 }

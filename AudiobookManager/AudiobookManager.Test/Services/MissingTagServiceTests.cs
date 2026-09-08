@@ -1,8 +1,9 @@
+using System.Linq.Expressions;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Moq;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
-using DbPerson = AudiobookManager.Database.Models.Person;
 
 namespace AudiobookManager.Test.Services;
 
@@ -19,110 +20,209 @@ public class MissingTagServiceTests
         _service = new MissingTagService(_audiobookRepository.Object);
     }
 
-    private static DbAudiobook MakeDbAudiobook(
+    private static readonly Expression<Func<DbAudiobook, bool>> AnySqlPredicate = a => true;
+
+    /// <summary>
+    /// The number of SQL predicates the service must push for a selection of that many fields.
+    /// The repo tests pin each individual predicate against real SQLite; here the service is
+    /// pinned to forward exactly one expression per selected field.
+    /// </summary>
+    internal static IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>> SqlPredicates(int count) =>
+        Enumerable.Range(0, count).Select(_ => AnySqlPredicate).ToList();
+
+    /// <summary>
+    /// The compact per-book projection the repository now feeds the check (see MissingTagRow).
+    /// Defaults model a fully-tagged book; tests flip the flags they care about.
+    /// </summary>
+    private static MissingTagRow MakeRow(
         long id,
         string bookName,
-        int year = 2024,
-        string? series = null,
-        List<DbPerson>? authors = null,
-        string? description = null,
-        string? coverFilePath = null,
-        string? language = null,
-        string? copyright = null,
-        string? publisher = null,
-        string? rating = null,
-        string? asin = null,
-        string? www = null)
+        List<string>? authors = null,
+        bool hasNarrator = true,
+        bool hasGenre = true,
+        bool bookNameBlank = false,
+        bool yearZero = false,
+        bool seriesBlank = false,
+        bool seriesPartBlank = false,
+        bool subtitleBlank = false,
+        bool descriptionBlank = false,
+        bool languageBlank = false,
+        bool coverBlank = false,
+        bool copyrightBlank = false,
+        bool publisherBlank = false,
+        bool ratingBlank = false,
+        bool asinBlank = false,
+        bool wwwBlank = false)
     {
-        var audiobook = new DbAudiobook(id, bookName, null, series, null, year, description, copyright, publisher, language, rating, asin, www,
-            coverFilePath, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
-        {
-            Authors = authors ?? new List<DbPerson>()
-        };
-        return audiobook;
+        var hasRealAuthor = (authors ?? new List<string>()).Any(a => a != "" && a != null);
+        return new MissingTagRow(
+            id, bookName, authors ?? new List<string>(),
+            hasRealAuthor, hasNarrator, hasGenre,
+            bookNameBlank, yearZero, seriesBlank, seriesPartBlank,
+            subtitleBlank, descriptionBlank, languageBlank, coverBlank,
+            copyrightBlank, publisherBlank, ratingBlank, asinBlank, wwwBlank);
+    }
+
+    /// <summary>Set up the repository to answer the paged query for the given fields/search/page, returning the page rows and total.</summary>
+    private void StubPage(
+        List<MissingTagRow> rows,
+        int total,
+        string? search = null,
+        int skip = 0,
+        int take = 50)
+    {
+        _audiobookRepository
+            .Setup(r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                search, skip, take))
+            .ReturnsAsync((rows, total));
     }
 
     [TestMethod]
-    public void GetTaggableFields_MarksAuthorBookNameAndYearAsCriticalByDefault()
+    public async Task FindAudiobooksMissingTagsPageAsync_FlagsBooksWithNoAuthor()
     {
-        var fields = _service.GetTaggableFields();
-
-        var critical = fields.Where(f => f.IsCriticalByDefault).Select(f => f.Key).ToList();
-        CollectionAssert.AreEquivalent(new List<string> { "Authors", "BookName", "Year" }, critical);
-
-        Assert.IsTrue(fields.Any(f => f.Key == "Series" && !f.IsCriticalByDefault));
-        Assert.IsTrue(fields.Any(f => f.Key == "SeriesPart" && !f.IsCriticalByDefault));
-    }
-
-    [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_FlagsEmptyRequestedFields()
-    {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", authors: new List<DbPerson> { new(1, "Author One") }),
-            MakeDbAudiobook(2, "Book Two", authors: new List<DbPerson>())
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One", authors: new List<string> { "Author One" }),
+            MakeRow(2, "Book Two", authors: new List<string>()),
+        }, total: 1);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Authors" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Authors" }, null, skip: 0, take: 50);
 
+        Assert.AreEqual(1, total);
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual(2, results[0].AudiobookId);
         CollectionAssert.AreEquivalent(new List<string> { "Authors" }, results[0].MissingFields);
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_TreatsZeroYearAsMissing()
+    public async Task FindAudiobooksMissingTagsPageAsync_TreatsZeroYearAsMissing()
     {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", year: 0),
-            MakeDbAudiobook(2, "Book Two", year: 2020)
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One", yearZero: true),
+            MakeRow(2, "Book Two"),
+        }, total: 1);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Year" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, skip: 0, take: 50);
 
+        Assert.AreEqual(1, total);
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual(1, results[0].AudiobookId);
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_DoesNotFlagOptionalFieldsWhenNotRequested()
+    public async Task FindAudiobooksMissingTagsPageAsync_DoesNotFlagOptionalFieldsWhenNotRequested()
     {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", series: null, authors: new List<DbPerson> { new(1, "Author One") })
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One", authors: new List<string> { "Author One" }),
+        }, total: 0);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Authors", "BookName", "Year" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(
+            new[] { "Authors", "BookName", "Year" }, null, skip: 0, take: 50);
 
+        Assert.AreEqual(0, total);
         Assert.AreEqual(0, results.Count);
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_ReturnsMultipleMissingFieldsPerBook()
+    public async Task FindAudiobooksMissingTagsPageAsync_ReturnsMultipleMissingFieldsPerBook()
     {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", year: 0, description: null, authors: new List<DbPerson>())
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One", authors: new List<string>(), yearZero: true, descriptionBlank: true),
+        }, total: 1);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Authors", "Year", "Description" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(
+            new[] { "Authors", "Year", "Description" }, null, skip: 0, take: 50);
 
+        Assert.AreEqual(1, total);
         Assert.AreEqual(1, results.Count);
         CollectionAssert.AreEquivalent(new List<string> { "Authors", "Year", "Description" }, results[0].MissingFields);
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_ReturnsEmptyListWhenNoFieldsRequested()
+    public async Task FindAudiobooksMissingTagsPageAsync_ReportsOnlyTheSelectedFieldsPerRow()
     {
-        var results = await _service.FindAudiobooksMissingTagsAsync(Array.Empty<string>());
+        // The book is also missing an unselected field; the per-book list must stay the
+        // intersection with the selected fields.
+        StubPage(new List<MissingTagRow>
+        {
+            MakeRow(1, "Book One", yearZero: true, seriesBlank: true),
+        }, total: 1);
 
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, skip: 0, take: 50);
+
+        Assert.AreEqual(1, total);
+        CollectionAssert.AreEquivalent(new List<string> { "Year" }, results.Single().MissingFields);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_ReturnsEmptyWhenNoFieldsRequested()
+    {
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(Array.Empty<string>(), null, skip: 0, take: 50);
+
+        Assert.AreEqual(0, total);
         Assert.AreEqual(0, results.Count);
-        _audiobookRepository.Verify(r => r.GetAllWithIncludesAsync(), Times.Never);
+        _audiobookRepository.Verify(
+            r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_PushesOneSqlPredicatePerSelectedField()
+    {
+        IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>? captured = null;
+        _audiobookRepository
+            .Setup(r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                null, 0, 50))
+            .Callback((IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>> predicates, string? _, int _, int _) => captured = predicates)
+            .ReturnsAsync((new List<MissingTagRow>(), 0));
+
+        await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year", "Language", "Www" }, null, skip: 0, take: 50);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(3, captured!.Count, "each selected field contributes its SQL 'is missing' predicate to the WHERE clause");
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_PassesThePageThroughUnchanged()
+    {
+        var rows = new List<MissingTagRow>
+        {
+            MakeRow(11, "Zebra", yearZero: true),
+            MakeRow(12, "Apple", yearZero: true),
+        };
+        StubPage(rows, total: 321, skip: 40, take: 25);
+
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, skip: 40, take: 25);
+
+        Assert.AreEqual(321, total, "the matched-set total comes from SQL, not from the slice");
+        Assert.AreSequenceEqual(new List<long> { 11, 12 }, results.Select(r => r.AudiobookId),
+            "the page rows are mapped 1:1; ordering and slicing are the repository's job now");
+        CollectionAssert.AreEquivalent(new List<string> { "Year" }, results[0].MissingFields);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_AppliesTheSearchInTheRepository()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                "rene", 0, 50))
+            .ReturnsAsync((new List<MissingTagRow>(), 0));
+
+        await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, "rene", skip: 0, take: 50);
+
+        _audiobookRepository.Verify(
+            r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                "rene", 0, 50),
+            Times.Once);
     }
 
     [TestMethod]
@@ -138,37 +238,36 @@ public class MissingTagServiceTests
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_FlagsBooksWithNoLanguage()
+    public async Task FindAudiobooksMissingTagsPageAsync_FlagsBooksWithNoLanguage()
     {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", language: "en"),
-            MakeDbAudiobook(2, "Book Two", language: null),
-            MakeDbAudiobook(3, "Book Three", language: "  ")
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One"),
+            MakeRow(2, "Book Two", languageBlank: true),
+            MakeRow(3, "Book Three", languageBlank: true),
+        }, total: 2);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Language" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Language" }, null, skip: 0, take: 50);
 
+        Assert.AreEqual(2, total);
         CollectionAssert.AreEquivalent(
             new List<long> { 2, 3 },
             results.Select(r => r.AudiobookId).ToList());
-        CollectionAssert.AreEquivalent(new List<string> { "Language" }, results[0].MissingFields);
     }
 
     [TestMethod]
-    public async Task FindAudiobooksMissingTagsAsync_FlagsBooksMissingCopyrightPublisherRatingAsinOrWww()
+    public async Task FindAudiobooksMissingTagsPageAsync_FlagsBooksMissingCopyrightPublisherRatingAsinOrWww()
     {
-        var books = new List<DbAudiobook>
+        StubPage(new List<MissingTagRow>
         {
-            MakeDbAudiobook(1, "Book One", copyright: "2024 Author", publisher: "Acme", rating: "4.5", asin: "B00TEST", www: "https://example.com"),
-            MakeDbAudiobook(2, "Book Two")
-        };
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(books);
+            MakeRow(1, "Book One"),
+            MakeRow(2, "Book Two", copyrightBlank: true, publisherBlank: true, ratingBlank: true, asinBlank: true, wwwBlank: true),
+        }, total: 1);
 
-        var results = await _service.FindAudiobooksMissingTagsAsync(new[] { "Copyright", "Publisher", "Rating", "Asin", "Www" });
+        var (results, total) = await _service.FindAudiobooksMissingTagsPageAsync(
+            new[] { "Copyright", "Publisher", "Rating", "Asin", "Www" }, null, skip: 0, take: 50);
 
-        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(1, total);
         Assert.AreEqual(2, results[0].AudiobookId);
         CollectionAssert.AreEquivalent(
             new List<string> { "Copyright", "Publisher", "Rating", "Asin", "Www" },
@@ -176,7 +275,7 @@ public class MissingTagServiceTests
     }
 
     /// <summary>
-    /// Regression guard for the missing-tags binding invariant in CLAUDE.md: every field the tag
+    /// Regression guard for the missing-tags binding invariant in AGENTS.md: every field the tag
     /// writer (AudiobookTagHandler) persists to the m4b must have a corresponding checkable entry
     /// here, or a book missing that field becomes invisible to the Missing Tags feature. This list
     /// mirrors AudiobookTagHandler.SaveAudiobookTagsToFile's taggable, checkable fields (excluding

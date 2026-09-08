@@ -31,12 +31,41 @@ public class SeriesOverview
     public bool IncludeOmnibusEditions { get; set; }
 }
 
-public class SeriesDetail
+/// <summary>
+/// One paged slice of the series detail: the overview plus one page of each section and
+/// that section's full total, so the client can size every section's pager from a single response.
+/// The lists are already sorted with the tiebreakers that make paging stable. (The unpaged
+/// <c>SeriesDetail</c> model this replaced was removed with the response it served: there is no
+/// section request that should materialize a series' whole roster any more.)
+/// </summary>
+public class SeriesDetailPage
 {
     public SeriesOverview Overview { get; set; } = new();
     public List<SeriesOwnedBook> OwnedBooks { get; set; } = new();
+    public int OwnedBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> MissingBooks { get; set; } = new();
+    public int MissingBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> IgnoredBooks { get; set; } = new();
+    public int IgnoredBookTotal { get; set; }
+}
+
+/// <summary>One page of series overviews plus the total number of series matching the filters.</summary>
+public class SeriesOverviewPage
+{
+    public List<SeriesOverview> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+}
+
+/// <summary>
+/// The overview header numbers: how many distinct series values there are, and how many of those
+/// are matched to a metadata source. Unmatched is derived, not stored, so it always agrees with
+/// the other two.
+/// </summary>
+public class SeriesOverviewCounts
+{
+    public int Total { get; set; }
+    public int Matched { get; set; }
+    public int Unmatched { get; set; }
 }
 
 public class SeriesOwnedBook

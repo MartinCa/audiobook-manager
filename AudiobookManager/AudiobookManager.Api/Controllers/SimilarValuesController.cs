@@ -13,6 +13,14 @@ public class SimilarValuesController : ControllerBase
 {
     private static readonly SemaphoreSlim _alignLock = new(1, 1);
 
+    /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
+    private const int MaxPageSize = 200;
+
+    private const int DefaultPageSize = 50;
+
+    /// <summary>See UrlCleanupController.MaxPageOffset for why the skip is bounded.</summary>
+    private const long MaxPageOffset = 1_000_000;
+
     public const string OperationKey = "similar-value-align";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
@@ -45,17 +53,35 @@ public class SimilarValuesController : ControllerBase
     }
 
     [HttpGet("similar-authors")]
-    public async Task<List<SimilarValueGroupDto>> GetSimilarAuthors()
+    public async Task<ActionResult<SimilarValueGroupsPageDto>> GetSimilarAuthors(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = DefaultPageSize)
     {
-        var groups = await _similarValueService.DetectSimilarAuthorsAsync();
-        return ToDto(groups);
+        var error = ValidatePageSelection(page, pageSize);
+        if (error != null)
+        {
+            return error;
+        }
+
+        var groups = await _similarValueService.DetectSimilarAuthorsAsync(
+            skip: (int)((long)page * pageSize), take: pageSize);
+        return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items), groups.Total));
     }
 
     [HttpGet("similar-series")]
-    public async Task<List<SimilarValueGroupDto>> GetSimilarSeries()
+    public async Task<ActionResult<SimilarValueGroupsPageDto>> GetSimilarSeries(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = DefaultPageSize)
     {
-        var groups = await _similarValueService.DetectSimilarSeriesAsync();
-        return ToDto(groups);
+        var error = ValidatePageSelection(page, pageSize);
+        if (error != null)
+        {
+            return error;
+        }
+
+        var groups = await _similarValueService.DetectSimilarSeriesAsync(
+            skip: (int)((long)page * pageSize), take: pageSize);
+        return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items), groups.Total));
     }
 
     [HttpGet("author-names")]
@@ -114,12 +140,34 @@ public class SimilarValuesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    private ObjectResult? ValidatePageSelection(int page, int pageSize)
+    {
+        if (page < 0)
+        {
+            return this.InvalidRequest("page must be zero or greater.");
+        }
+
+        if (pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {MaxPageSize}.");
+        }
+
+        // Widened before multiplying - see UrlCleanupController.GetDirtyUrls for why.
+        var skip = (long)page * pageSize;
+        if (skip > MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {MaxPageOffset} groups.");
+        }
+
+        return null;
+    }
+
     private static List<SimilarValueGroupDto> ToDto(List<Domain.SimilarValueGroup> groups)
     {
         return groups.Select(g => new SimilarValueGroupDto(
             g.Candidates.Select(c => new SimilarValueCandidateDto(
                 c.Value,
-                c.Books.Select(b => new SimilarValueBookDto(b.Id, b.BookName)).ToList()
+                c.BookCount
             )).ToList()
         )).ToList();
     }

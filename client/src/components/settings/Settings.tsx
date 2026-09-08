@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -10,6 +10,8 @@ import {
   BookMarked,
   Info,
   ExternalLink,
+  Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +22,7 @@ import { settingsApi, similarValuesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 import { toast } from "sonner";
-import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
+import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroup } from "@/types/SeriesMapping";
 
 export function Settings() {
   const queryClient = useQueryClient();
@@ -33,10 +35,27 @@ export function Settings() {
   const [warnAboutPart, setWarnAboutPart] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const { data: mappings = [], isLoading: loading } = useQuery({
-    queryKey: ["seriesMappings"],
-    queryFn: () => settingsApi.getSeriesMappings(),
+  // The mapping list is grouped and filtered server-side now - the flat table used to be
+  // shipped whole and reduced into buckets client-side. Search is debounced into the query key.
+  const [mappingSearchQuery, setMappingSearchQuery] = useState("");
+  const [mappingSearch, setMappingSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = mappingSearchQuery.trim();
+      if (trimmed !== mappingSearch) {
+        setMappingSearch(trimmed);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [mappingSearchQuery, mappingSearch]);
+
+  const { data: grouped = null, isLoading: loading } = useQuery({
+    queryKey: ["seriesMappings", mappingSearch],
+    queryFn: () => settingsApi.getSeriesMappingGroups(mappingSearch),
   });
+
+  const mappings = (grouped?.items ?? []) as SeriesMappingGroup[];
 
   const { data: seriesNames = [] } = useQuery({
     queryKey: ["similarValueNames", "series"],
@@ -108,14 +127,6 @@ export function Settings() {
     }
   };
 
-  // Group by mappedSeries
-  const grouped = mappings.reduce<Record<string, SeriesMapping[]>>((acc, item) => {
-    const list = acc[item.mappedSeries] || [];
-    list.push(item);
-    acc[item.mappedSeries] = list;
-    return acc;
-  }, {});
-
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -143,34 +154,58 @@ export function Settings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <BookMarked className="text-primary h-5 w-5" />
-            Series Regex Mappings ({mappings.length})
+            Series Regex Mappings ({grouped?.total ?? mappings.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground mb-4 text-xs">
+          <p className="text-muted-foreground mb-3 text-xs">
             Regular expressions match scraped or embedded series names and normalize them to a
             standard canonical series title.
           </p>
+
+          <div className="relative mb-4 max-w-md">
+            <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
+            <Input
+              placeholder="Filter patterns or targets..."
+              value={mappingSearchQuery}
+              onChange={(e) => setMappingSearchQuery(e.target.value)}
+              className="pr-9 pl-9"
+            />
+            {mappingSearchQuery ? (
+              <button
+                type="button"
+                onClick={() => setMappingSearchQuery("")}
+                aria-label="Clear search"
+                className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
 
           {loading ? (
             <div className="text-muted-foreground flex items-center justify-center py-12">
               <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
               <span className="text-sm">Loading mappings...</span>
             </div>
-          ) : mappings.length === 0 ? (
+          ) : (grouped?.total ?? 0) === 0 ? (
             <div className="text-muted-foreground border-border rounded-lg border border-dashed p-8 text-center text-sm">
-              No series mappings configured yet.
+              {mappingSearch
+                ? "No series mappings match your filter."
+                : "No series mappings configured yet."}
             </div>
           ) : (
             <div className="space-y-4">
-              {Object.entries(grouped).map(([canonical, items]) => (
+              {mappings.map((group) => (
                 <div
-                  key={canonical}
+                  key={group.mappedSeries}
                   className="border-border bg-card space-y-2 rounded-lg border p-4"
                 >
-                  <div className="text-foreground text-sm font-semibold">Target: {canonical}</div>
+                  <div className="text-foreground text-sm font-semibold">
+                    Target: {group.mappedSeries}
+                  </div>
                   <div className="space-y-1.5 pl-2">
-                    {items.map((item) => (
+                    {(group.items as SeriesMapping[]).map((item) => (
                       <div
                         key={item.id}
                         className="bg-muted/40 flex flex-col justify-between gap-2 rounded px-3 py-2 text-xs sm:flex-row sm:items-center"

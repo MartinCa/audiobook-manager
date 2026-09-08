@@ -15,11 +15,31 @@ export type SeriesOverview = Require<
   | "includeOmnibusEditions"
 >;
 
+// AudiobookManager.Api/Dtos/SeriesDtos.cs: page records carry items/totalCount non-nullable.
+export type SeriesOverviewPage = Require<
+  components["schemas"]["SeriesOverviewPageDto"],
+  "items" | "totalCount"
+> & {
+  items: SeriesOverview[];
+};
+
+export type SeriesCounts = Require<
+  components["schemas"]["SeriesCountsDto"],
+  "total" | "matched" | "unmatched"
+>;
+
 // id/title/isIgnored are non-nullable; position/year/sourceUrl are genuinely nullable.
 export type SeriesExpectedBook = Require<
   components["schemas"]["SeriesExpectedBookDto"],
   "id" | "title" | "isIgnored"
 >;
+
+export type SeriesExpectedBookPage = Require<
+  components["schemas"]["SeriesExpectedBookPageDto"],
+  "items" | "totalCount"
+> & {
+  items: SeriesExpectedBook[];
+};
 
 // id/bookName/year/authors/narrators are non-nullable; seriesPart and durationInSeconds are
 // genuinely nullable.
@@ -28,11 +48,18 @@ export type SeriesOwnedBook = Require<
   "id" | "bookName" | "year" | "authors" | "narrators"
 >;
 
+export type SeriesOwnedBookPage = Require<
+  components["schemas"]["SeriesOwnedBookPageDto"],
+  "items" | "totalCount"
+> & {
+  items: SeriesOwnedBook[];
+};
+
 export interface SeriesDetail {
   overview: SeriesOverview;
-  ownedBooks: SeriesOwnedBook[];
-  missingBooks: SeriesExpectedBook[];
-  ignoredBooks: SeriesExpectedBook[];
+  ownedBooks: SeriesOwnedBookPage;
+  missingBooks: SeriesExpectedBookPage;
+  ignoredBooks: SeriesExpectedBookPage;
 }
 
 // sourceName/sourceId/seriesName/authors/confidence are non-nullable; sourceUrl and bookCount
