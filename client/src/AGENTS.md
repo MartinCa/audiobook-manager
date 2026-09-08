@@ -60,6 +60,24 @@ pass, it is a thing to fix. If a rule fires,
 fix the code rather than disabling the rule. If the rule is genuinely wrong,
 say so and change it upstream in `@martinrun/frontend-config`.
 
+## Display-date convention
+
+Every user-facing full date or date-time is formatted with `date-fns` in ISO calendar form —
+never `toLocaleString`/`toLocaleDateString`/`Intl` and never a locale-dependent format:
+
+- Full dates display as `yyyy-MM-dd`.
+- Full date-times display as `yyyy-MM-dd HH:mm:ss` (24-hour time).
+
+Route displays through the shared helpers `formatDate` / `formatDateTime` in
+`src/helpers/formatHelpers.ts` rather than formatting inline. They render in the user's local
+timezone; only the output _format_ is fixed. A date-only ISO value (`yyyy-MM-dd`) passed to
+`formatDate` is a calendar date, not a timestamp — it is read as local midnight, never parsed
+as UTC midnight (which would shift the displayed day off UTC) and never timezone-converted.
+A value carrying a time part or an explicit offset is parsed as an instant and shown in the
+user's timezone. When writing a `date-fns` token pattern, note the case: `yyyy`/`dd` are
+lowercase (calendar year and day-of-month); `YYYY`/`DD` are not accepted tokens — do not
+capitalize them.
+
 ## Do not
 
 - Add a state, data-fetching, or UI library. The stack is decided in `DESIGN.md`.
