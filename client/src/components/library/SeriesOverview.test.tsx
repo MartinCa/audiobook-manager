@@ -6,12 +6,15 @@ import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { seriesApi } from "@/services/api";
+import type { HubEventHandler, SignalRContextValue } from "@/context/SignalRContext";
 
 vi.mock("@/services/api", () => ({
   seriesApi: {
     getSeriesPage: vi.fn(),
     getSeriesCounts: vi.fn(),
     startRefreshAll: vi.fn(),
+    getMatchCandidates: vi.fn(),
+    startBulkMatch: vi.fn(),
   },
 }));
 
@@ -19,14 +22,31 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-const mockSignalRValue = {
-  connection: null,
-  isConnected: false,
-  on: vi.fn(),
-  off: vi.fn(),
-  onReconnected: vi.fn(),
-  offReconnected: vi.fn(),
-};
+function makeSignalR() {
+  const handlers = new Map<string, HubEventHandler<unknown>[]>();
+  return {
+    connection: null,
+    isConnected: false,
+    on: vi.fn((event: string, handler: HubEventHandler<unknown>) => {
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
+    }),
+    off: vi.fn((event: string, handler: HubEventHandler<unknown>) => {
+      handlers.set(
+        event,
+        (handlers.get(event) ?? []).filter((h) => h !== handler),
+      );
+    }),
+    onReconnected: vi.fn(),
+    offReconnected: vi.fn(),
+    emit: (event: string, data: unknown) => {
+      for (const handler of handlers.get(event) ?? []) handler(data);
+    },
+  };
+}
+
+let signalR: ReturnType<typeof makeSignalR>;
 
 function renderWithProviders(initialEntry = "/library/series") {
   const router = createRouter({
@@ -36,7 +56,7 @@ function renderWithProviders(initialEntry = "/library/series") {
 
   return render(
     <ThemeProvider defaultTheme="system" storageKey="theme">
-      <SignalRContext.Provider value={mockSignalRValue}>
+      <SignalRContext.Provider value={signalR as SignalRContextValue}>
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />
         </QueryClientProvider>
@@ -72,6 +92,7 @@ const page1 = { items: Array.from({ length: 50 }, (_, i) => makeSeries(i + 51)),
 describe("SeriesOverview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    signalR = makeSignalR();
     vi.mocked(seriesApi.getSeriesCounts).mockResolvedValue(counts);
     vi.mocked(seriesApi.getSeriesPage).mockResolvedValue(page0);
   });
@@ -114,5 +135,47 @@ describe("SeriesOverview", () => {
       // filtered page, from page 0.
       expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "mist");
     });
+  });
+
+  // Regression for the review finding: a refresh-all can match previously-unmatched series, i.e.
+  // shrink the list, while the user sits on a later page. Completion used to leave the fetch
+  // asking for a page that no longer exists - it came back empty and the section was stuck on a
+  // dead-end. Completion must drop back to page 0.
+  it("drops back to page 0 when the refresh-all completes", async () => {
+    const getSeriesPage = vi.mocked(seriesApi.getSeriesPage);
+    getSeriesPage.mockImplementation((page) =>
+      Promise.resolve(
+        page === 1 ? { ...page1, totalCount: page1Total } : { ...page0, totalCount: page0Total },
+      ),
+    );
+    let page0Total = 120;
+    let page1Total = 120;
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/Showing 1–50 of 120/)).toBeInTheDocument();
+    screen.getByRole("button", { name: "Next" }).click();
+    await waitFor(() => {
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "");
+    });
+    expect(screen.getByText(/Showing 51–100 of 120/)).toBeInTheDocument();
+
+    // The refresh matched most unmatched series: the list shrinks to 50, so page 1 no longer
+    // exists. The completion event arrives and the section must land back on page 0.
+    page0Total = 50;
+    page1Total = 50;
+    signalR.emit("SeriesRefreshComplete", {
+      totalProcessed: 100,
+      totalSucceeded: 70,
+      totalFailed: 0,
+    });
+
+    // Only the page-0 fetch is issued after completion...
+    await waitFor(() => {
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "");
+    });
+    // ...and its items render instead of a dead-end empty page.
+    expect(await screen.findByText("Series 01")).toBeInTheDocument();
+    expect(screen.queryByText(/Showing 51–100 of 120/)).not.toBeInTheDocument();
   });
 });

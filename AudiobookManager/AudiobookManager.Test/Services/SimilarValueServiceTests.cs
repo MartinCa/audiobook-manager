@@ -145,6 +145,36 @@ public class SimilarValueServiceTests
             new List<string> { "Brandon Sanderson", "Brandan Sanderson" }, countedValues!.ToList());
     }
 
+    // Regression for the cache-mutation review finding: pages were carved directly out of the
+    // cached detection snapshot, so stamping the per-page book counts wrote through to the very
+    // objects the cache holds. The stored graph has to stay a read-only snapshot - a page is a
+    // copy, and the copy carries the counts.
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_BookCountStampingDoesNotMutateTheCachedSnapshot()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling", "JK Rowling",
+            "Brandon Sanderson", "Brandan Sanderson",
+            "Marcel Proust", "Marcel.Proust",
+        });
+
+        // The first page (alphabetically the Sanderson group) is served counts.
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int> { ["Brandon Sanderson"] = 9, ["Brandan Sanderson"] = 3 });
+
+        var firstPage = (await _service.DetectSimilarAuthorsAsync(skip: 0, take: 1)).Items;
+
+        Assert.AreEqual(9, firstPage[0].Candidates.First(c => c.Value == "Brandon Sanderson").BookCount,
+            "the returned page must carry the freshly read counts");
+
+        var cached = _detectionCache.Get("authors");
+        Assert.IsNotNull(cached);
+        Assert.IsTrue(
+            cached!.SelectMany(g => g.Candidates).All(c => c.BookCount == 0),
+            "stamping counts onto a page must not write through to the objects the detection cache holds");
+    }
+
     // Alignment folds two values together, so the cached grouping (which still lists both) must
     // not survive it - otherwise the page would go on showing a group the user just merged.
     [TestMethod]

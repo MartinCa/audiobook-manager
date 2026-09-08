@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
@@ -103,5 +103,46 @@ describe("AuthorsList", () => {
     await waitFor(() => {
       expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "rene");
     });
+  });
+
+  // Regression for the review finding: sitting on a later page while the list shrinks (e.g. a
+  // scan elsewhere removes authors) used to leave the fetch asking for a page that no longer
+  // exists - it came back empty and the section was stuck on a dead-end empty page. The page
+  // state must be pulled back into range so the next fetch lands on the last valid page.
+  it("pulls the page back into range when the total shrinks under it", async () => {
+    // A fresh cache for this scenario: the module-level QueryClient is shared across tests.
+    queryClient.removeQueries({ queryKey: ["authors"] });
+
+    const getAuthorPage = vi.mocked(browseApi.getAuthorPage);
+    getAuthorPage.mockImplementation((_limit, offset) =>
+      offset === 50
+        ? Promise.resolve({ count: 1, total: 65, items: [makeAuthor(51)] })
+        : Promise.resolve({ count: 1, total: 65, items: [makeAuthor(1)] }),
+    );
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Author 01")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Next" }).click();
+    expect(await screen.findByText("Author 51")).toBeInTheDocument();
+
+    // The list shrinks to 50 entries while the user sits on page 1 (offset 50): that page no
+    // longer exists. A refetch of it now comes back empty with the smaller total.
+    getAuthorPage.mockImplementation((_limit, offset) =>
+      offset === 50
+        ? Promise.resolve({ count: 0, total: 50, items: [] })
+        : Promise.resolve({ count: 1, total: 50, items: [makeAuthor(1)] }),
+    );
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["authors"] });
+    });
+
+    // The page must be corrected back to the last valid page and its fetch re-issued there.
+    await waitFor(() => {
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "");
+    });
+    expect(await screen.findByText("Author 01")).toBeInTheDocument();
+    expect(await screen.findByText(/Authors \(50\)/)).toBeInTheDocument();
   });
 });

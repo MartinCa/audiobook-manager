@@ -5,6 +5,7 @@ import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2, Clock } 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { browseApi } from "@/services/api";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { formatDuration } from "@/helpers/formatHelpers";
 import { Route } from "@/routes/library/authors/$authorId";
 
@@ -21,21 +22,26 @@ export function AuthorDetail() {
   const [seriesPage, setSeriesPage] = useState(0);
   const [standalonePage, setStandalonePage] = useState(0);
 
-  const seriesQuery = useQuery({
-    queryKey: ["author", id, "series", seriesPage],
+  // Navigating between authors must not carry a previous author's page cursor along. Adjusted
+  // during render (React's documented pattern) rather than in an effect: the query key below
+  // already changes with the author, so this only resets the local paging state when it does.
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
+    setSeriesPage(0);
+    setStandalonePage(0);
+  }
+
+  // One combined detail query instead of two: the endpoint already computes both sections on
+  // every call and accepts both sections' cursors, so separate queries made every section
+  // change issue an extra backend call whose other section (computed with default paging) was
+  // thrown away. keepPreviousData keeps both sections rendered while one of them pages.
+  const detailQuery = useQuery({
+    queryKey: ["author", id, seriesPage, standalonePage],
     queryFn: () =>
       browseApi.getAuthorDetail(id, {
         seriesLimit: PAGE_SIZE,
         seriesOffset: seriesPage * PAGE_SIZE,
-      }),
-    enabled: Boolean(id),
-    placeholderData: keepPreviousData,
-  });
-
-  const standaloneQuery = useQuery({
-    queryKey: ["author", id, "standalone", standalonePage],
-    queryFn: () =>
-      browseApi.getAuthorDetail(id, {
         standaloneLimit: PAGE_SIZE,
         standaloneOffset: standalonePage * PAGE_SIZE,
       }),
@@ -43,15 +49,21 @@ export function AuthorDetail() {
     placeholderData: keepPreviousData,
   });
 
-  const author = seriesQuery.data?.author ?? standaloneQuery.data?.author;
-  const seriesSection = seriesQuery.data?.series ?? { items: [], total: 0 };
-  const standaloneSection = standaloneQuery.data?.standaloneBooks ?? { items: [], total: 0 };
+  const author = detailQuery.data?.author;
+  const seriesSection = detailQuery.data?.series ?? { items: [], total: 0 };
+  const standaloneSection = detailQuery.data?.standaloneBooks ?? { items: [], total: 0 };
 
   const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / PAGE_SIZE));
   const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / PAGE_SIZE));
   // Clamped so the fetched and the displayed page can never disagree.
   const currentSeriesPage = Math.min(seriesPage, seriesPageCount - 1);
   const currentStandalonePage = Math.min(standalonePage, standalonePageCount - 1);
+
+  // And the raw page states are pulled back into range once a response shows a section shrank
+  // under them (e.g. books moved between sections from another tab), so the next fetch - not
+  // just the display - lands on a valid page.
+  useClampedPage(seriesPage, seriesPageCount, setSeriesPage);
+  useClampedPage(standalonePage, standalonePageCount, setStandalonePage);
 
   const handleBack = () => {
     if (router.history.canGoBack()) {
@@ -61,7 +73,7 @@ export function AuthorDetail() {
     }
   };
 
-  if (!author && (seriesQuery.isLoading || standaloneQuery.isLoading)) {
+  if (!author && detailQuery.isLoading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
         <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />

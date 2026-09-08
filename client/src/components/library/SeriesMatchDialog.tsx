@@ -42,10 +42,12 @@ interface SeriesMatchDialogProps {
 
 export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatchDialogProps) {
   const [threshold, setThreshold] = useState(0.85);
-  // Selection is page-scoped like CleanBookUrls: null means "not customized yet" - defaults to
-  // everything on the loaded page selected - and once the user toggles a box we switch to an
-  // explicit set. The set is keyed by series name and persists across pages, so names selected
-  // on page 1 stay selected on page 2.
+  // Selection: null means "not customized yet" - everything on the loaded page is implicitly
+  // selected, as in CleanBookUrls. The first interaction (toggling a box, or navigating to
+  // another page) switches to an explicit set keyed by series name. That set persists across
+  // pages, so names selected on page 1 stay selected on page 2 - and navigating while the
+  // selection is still implicit materializes the current page's names into the set first (see
+  // goToPage), so the implicit selection of earlier pages is not silently dropped.
   const [customSelection, setCustomSelection] = useState<Set<string> | null>(null);
   const [page, setPage] = useState(0);
   const [suggestions, setSuggestions] = useState<Record<string, SeriesMatchCandidate | null>>({});
@@ -107,8 +109,27 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
     setCustomSelection(next);
   };
 
-  const selectAllOnPage = () => setCustomSelection(new Set(series.map((s) => s.name)));
+  // Unions with whatever was already selected rather than replacing the set: the selection is
+  // keyed by series name and persists across pages, so "select all" on page two must not drop
+  // the names checked on page one (it used to overwrite customSelection wholesale, silently
+  // losing every other page's picks).
+  const selectAllOnPage = () =>
+    setCustomSelection((prev) => new Set([...(prev ?? []), ...series.map((s) => s.name)]));
   const clearSelection = () => setCustomSelection(new Set());
+
+  // Navigating must not discard the implicit all-selected state. While customSelection is still
+  // null, "everything on the loaded page" is only implicit - there is no set holding those names
+  // yet - so leaving the page would leave a later "Select all on page" (or a Clear) without the
+  // earlier pages' names to preserve. Materialize the current page into the set before paging, so
+  // the first navigation switches to the explicit set exactly like the first toggle does. After
+  // this the selection is explicit for the rest of the dialog session, and the button on the
+  // next page correctly reads "Select all on page" (that page's rows are not yet in the set).
+  const goToPage = (next: number) => {
+    setCustomSelection((prev) =>
+      prev === null && series.length > 0 ? new Set(series.map((s) => s.name)) : prev,
+    );
+    setPage(next);
+  };
 
   // "Preview Suggestions" used to loop over every unmatched series - one sequential request per
   // row. With the list paged, only the current page is present; even a page can be large, so the
@@ -298,7 +319,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
                       variant="ghost"
                       className="h-6 px-1.5 text-[11px]"
                       disabled={currentPage === 0}
-                      onClick={() => setPage(currentPage - 1)}
+                      onClick={() => goToPage(currentPage - 1)}
                     >
                       Previous
                     </Button>
@@ -307,7 +328,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
                       variant="ghost"
                       className="h-6 px-1.5 text-[11px]"
                       disabled={currentPage >= pageCount - 1}
-                      onClick={() => setPage(currentPage + 1)}
+                      onClick={() => goToPage(currentPage + 1)}
                     >
                       Next
                     </Button>

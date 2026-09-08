@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
 import { toast } from "sonner";
@@ -60,6 +61,10 @@ export function MissingTags() {
   const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
 
+  // A backfill completion or an external change can shrink the result set while the user sits
+  // on a later page; pull the raw page back into range so the next fetch lands on a valid page.
+  useClampedPage(page, pageCount, setPage);
+
   const { data: backfillStatus } = useQuery({
     queryKey: ["languageBackfillStatus"],
     queryFn: () => operationsApi.getStatus("language-backfill"),
@@ -72,6 +77,9 @@ export function MissingTags() {
     const isRunning = Boolean(backfillStatus?.isRunning);
     if (prevRunningRef.current && !isRunning) {
       toast.success("Language backfill operation completed");
+      // A backfill fills in languages, so it can only shrink this list - drop back to page 0 so
+      // the refetch never asks for a page the smaller result set no longer has.
+      setPage(0);
       void queryClient.invalidateQueries({
         queryKey: ["missingTagsAudiobooks"],
       });

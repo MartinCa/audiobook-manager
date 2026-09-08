@@ -22,6 +22,7 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Route } from "@/routes/library/series/index";
@@ -131,6 +132,11 @@ export function SeriesOverviewPage() {
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentPage = Math.min(page, pageCount - 1);
 
+  // A refresh-all or a bulk match can shrink the list while the user sits on a later page; pull
+  // the raw page back into range so the next fetch lands on a valid page rather than coming back
+  // empty (the pager here stays rendered even for an empty page, and the clamp finishes the job).
+  useClampedPage(page, pageCount, setPage);
+
   useSignalREvent<SeriesRefreshProgressPayload>("SeriesRefreshProgress", (data) => {
     setRefreshing(true);
     setRefreshProgress(data);
@@ -145,6 +151,9 @@ export function SeriesOverviewPage() {
           arg.totalFailed > 0 ? ` (${arg.totalFailed} failed)` : ""
         }`;
     toast.success(msg);
+    // A refresh can match previously-unmatched series - i.e. shrink the list. Drop back to page
+    // 0 so the refetch below never asks for a page the smaller list no longer has.
+    setPage(0);
     void queryClient.invalidateQueries({ queryKey: ["series"] });
     void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
   });
@@ -369,6 +378,8 @@ export function SeriesOverviewPage() {
         open={matchDialogOpen}
         onOpenChange={setMatchDialogOpen}
         onMatched={() => {
+          // Matching is the other shrink path (unmatched series disappear from the list).
+          setPage(0);
           void queryClient.invalidateQueries({ queryKey: ["series"] });
           void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
         }}

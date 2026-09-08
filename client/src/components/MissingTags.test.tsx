@@ -95,6 +95,78 @@ describe("MissingTags", () => {
     });
   });
 
+  // Regression for the review finding: a language backfill can only shrink this list, so a user
+  // sitting on a later page was left fetching a page that no longer exists - it came back empty
+  // and the section showed a dead-end empty state. Completion drops back to page 0.
+  it("drops back to page 0 when the backfill completes", async () => {
+    const getBooks = vi.mocked(missingTagsApi.getAudiobooksMissingTags);
+    const book = (offset: number) => ({
+      audiobookId: 200 + offset,
+      bookName: `Book ${String(offset).padStart(2, "0")}`,
+      authors: ["Author A"],
+      missingFields: ["language"],
+    });
+    getBooks.mockImplementation((_fields, params) => {
+      const page = params?.page ?? 0;
+      return Promise.resolve({
+        items: Array.from({ length: page === 1 ? 10 : 50 }, (_, i) => book(page * 50 + i + 1)),
+        totalCount: 60,
+      });
+    });
+
+    renderComponent();
+
+    expect(await screen.findByText(/Book 01/)).toBeInTheDocument();
+    screen.getByRole("button", { name: "Next" }).click();
+
+    await waitFor(() => {
+      expect(getBooks).toHaveBeenLastCalledWith(expect.anything(), {
+        page: 1,
+        pageSize: 50,
+        search: "",
+      });
+    });
+    expect(await screen.findByText(/Book 51/)).toBeInTheDocument();
+
+    // The backfill closes the gap (a book gains its language, total shrinks to 50).
+    getBooks.mockImplementation((_fields, params) => {
+      const page = params?.page ?? 0;
+      return Promise.resolve({
+        items: page === 0 ? Array.from({ length: 50 }, (_, i) => book(i + 1)) : [],
+        totalCount: 50,
+      });
+    });
+
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 5,
+      total: 10,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+    // The running state must actually render (and flip prevRunningRef) before completing.
+    expect(await screen.findByText(/50%/)).toBeInTheDocument();
+
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 10,
+      total: 10,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Language backfill operation completed");
+    });
+    await waitFor(() => {
+      expect(getBooks).toHaveBeenLastCalledWith(expect.anything(), {
+        page: 0,
+        pageSize: 50,
+        search: "",
+      });
+    });
+    expect(await screen.findByText(/Audiobooks with Missing Tags \(50\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Book 01/)).toBeInTheDocument();
+  });
+
   it("runs language backfill and stops polling once complete without infinite loop", async () => {
     vi.mocked(missingTagsApi.startLanguageBackfill).mockResolvedValue();
 

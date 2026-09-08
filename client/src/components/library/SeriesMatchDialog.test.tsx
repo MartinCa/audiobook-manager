@@ -136,4 +136,93 @@ describe("SeriesMatchDialog", () => {
     });
     expect(await screen.findByText("Unmatched 51")).toBeInTheDocument();
   });
+
+  // Regression for the review finding: "Select all on page" used to overwrite the whole
+  // selection set with the current page's names, so picks made on other pages were silently
+  // dropped the moment the user clicked it on a later page.
+  it("unions page names with the existing selection instead of overwriting other pages", async () => {
+    vi.mocked(seriesApi.getSeriesPage)
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 50 }, (_, i) => makeUnmatched(i + 1)),
+        totalCount: 60,
+      })
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 10 }, (_, i) => makeUnmatched(i + 51)),
+        totalCount: 60,
+      });
+
+    renderDialog();
+
+    // Deselect "Unmatched 01" on page one, so the selection becomes an explicit 49-name set.
+    const checkboxes = await screen.findAllByRole("checkbox");
+    checkboxes[0]!.click();
+    expect(await screen.findByRole("button", { name: "Match Selected (49)" })).toBeInTheDocument();
+
+    // Page two: "Select all on page" must keep those 49 names and add the 10 on this page.
+    screen.getByRole("button", { name: "Next" }).click();
+    await screen.findByText("Unmatched 51");
+
+    screen.getByRole("button", { name: "Select all on page" }).click();
+
+    expect(await screen.findByRole("button", { name: "Match Selected (59)" })).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Match Selected (59)" }).click();
+
+    await waitFor(() => {
+      const [, seriesNames] = vi.mocked(seriesApi.startBulkMatch).mock.calls.at(-1)!;
+      expect(seriesNames).toHaveLength(59);
+      expect(seriesNames).toContain("Unmatched 02");
+      expect(seriesNames).toContain("Unmatched 51");
+      expect(seriesNames).toContain("Unmatched 60");
+      expect(seriesNames).not.toContain("Unmatched 01");
+    });
+  });
+
+  // Regression for the review finding: while the selection is still implicit (null - "everything
+  // on the loaded page selected"), paging used to leave the set null, so page 1's names were not
+  // held anywhere. On page 2 the button read "Clear Selection" (page 2's length matched itself),
+  // and either that or a "Select all on page" would have produced a bulk match without page 1.
+  // Navigating must materialize the implicit set, so page 1's default selection survives and
+  // "Select all on page" unions page 2's names into it.
+  it("keeps page one's implicit default selection when selecting all on a later page", async () => {
+    vi.mocked(seriesApi.getSeriesPage)
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 50 }, (_, i) => makeUnmatched(i + 1)),
+        totalCount: 60,
+      })
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 10 }, (_, i) => makeUnmatched(i + 51)),
+        totalCount: 60,
+      });
+
+    renderDialog();
+
+    // Page 1 loads with the implicit "all selected" default - no explicit selection yet.
+    expect(await screen.findByText("Unmatched 01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Match Selected (50)" })).toBeInTheDocument();
+
+    // Navigating materializes page 1's 50 names, so page 2's rows are not selected and the
+    // button honestly reads "Select all on page" instead of comparing page 2 against itself.
+    screen.getByRole("button", { name: "Next" }).click();
+
+    expect(await screen.findByText("Unmatched 51")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select all on page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Match Selected (50)" })).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Select all on page" }).click();
+
+    // Both pages are now in the selection: page 2's 10 unioned onto page 1's 50.
+    expect(await screen.findByRole("button", { name: "Match Selected (60)" })).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Match Selected (60)" }).click();
+
+    await waitFor(() => {
+      const [, seriesNames] = vi.mocked(seriesApi.startBulkMatch).mock.calls.at(-1)!;
+      expect(seriesNames).toHaveLength(60);
+      expect(seriesNames).toContain("Unmatched 01");
+      expect(seriesNames).toContain("Unmatched 25");
+      expect(seriesNames).toContain("Unmatched 51");
+      expect(seriesNames).toContain("Unmatched 60");
+    });
+  });
 });

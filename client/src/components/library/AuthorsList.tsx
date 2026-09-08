@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
 
 const PAGE_SIZE = 50;
@@ -70,6 +71,10 @@ export function AuthorsList() {
   const totalCount = pageData?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
+
+  // A filter change or an external shrink can leave the raw page out of range; pull it back so
+  // the next fetch lands on a valid page rather than coming back empty (see useClampedPage).
+  useClampedPage(page, pageCount, setPage);
 
   return (
     <div className="space-y-6">

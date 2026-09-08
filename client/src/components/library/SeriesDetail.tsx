@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   RefreshCw,
@@ -24,6 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "@/types/Series";
@@ -82,39 +83,35 @@ export function SeriesDetail() {
   const [missingPage, setMissingPage] = useState(0);
   const [ignoredPage, setIgnoredPage] = useState(0);
 
-  const ownedQuery = useQuery({
-    queryKey: ["seriesDetail", decodedSeriesName, authorId, "owned", ownedPage],
+  // One combined detail query instead of three: the endpoint already computes every section on
+  // each call and accepts all three page cursors, so separate queries made every section change
+  // issue an extra backend call whose other sections (computed with default paging) were thrown
+  // away. keepPreviousData keeps the other sections' items rendered while one section pages.
+  const seriesDetailQuery = useQuery({
+    queryKey: ["seriesDetail", decodedSeriesName, authorId, ownedPage, missingPage, ignoredPage],
     queryFn: () =>
-      seriesApi.getSeriesDetail(decodedSeriesName, { ownedPage, ownedPageSize: PAGE_SIZE }),
+      seriesApi.getSeriesDetail(decodedSeriesName, {
+        ownedPage,
+        ownedPageSize: PAGE_SIZE,
+        missingPage,
+        missingPageSize: PAGE_SIZE,
+        ignoredPage,
+        ignoredPageSize: PAGE_SIZE,
+      }),
     enabled: Boolean(decodedSeriesName),
+    placeholderData: keepPreviousData,
   });
 
-  const missingQuery = useQuery({
-    queryKey: ["seriesDetail", decodedSeriesName, authorId, "missing", missingPage],
-    queryFn: () =>
-      seriesApi.getSeriesDetail(decodedSeriesName, { missingPage, missingPageSize: PAGE_SIZE }),
-    enabled: Boolean(decodedSeriesName),
-  });
-
-  const ignoredQuery = useQuery({
-    queryKey: ["seriesDetail", decodedSeriesName, authorId, "ignored", ignoredPage],
-    queryFn: () =>
-      seriesApi.getSeriesDetail(decodedSeriesName, { ignoredPage, ignoredPageSize: PAGE_SIZE }),
-    enabled: Boolean(decodedSeriesName),
-  });
-
-  const overview =
-    ownedQuery.data?.overview ?? missingQuery.data?.overview ?? ignoredQuery.data?.overview;
-
-  const ownedSection = ownedQuery.data?.ownedBooks ?? {
+  const overview = seriesDetailQuery.data?.overview;
+  const ownedSection = seriesDetailQuery.data?.ownedBooks ?? {
     items: [] as SeriesOwnedBook[],
     totalCount: 0,
   };
-  const missingSection = missingQuery.data?.missingBooks ?? {
+  const missingSection = seriesDetailQuery.data?.missingBooks ?? {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
-  const ignoredSection = ignoredQuery.data?.ignoredBooks ?? {
+  const ignoredSection = seriesDetailQuery.data?.ignoredBooks ?? {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
@@ -127,6 +124,13 @@ export function SeriesDetail() {
   const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
   const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
+
+  // And the raw page states are corrected back into range once a response shows the total has
+  // shrunk under them (e.g. ignoring the last row of the last missing-books page), so the next
+  // fetch - not just the display - lands on a valid page.
+  useClampedPage(ownedPage, ownedPageCount, setOwnedPage);
+  useClampedPage(missingPage, missingPageCount, setMissingPage);
+  useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
 
   useSignalREvent<SeriesRefreshCompletePayload>("SeriesRefreshComplete", (arg) => {
     setRefreshing(false);
@@ -234,9 +238,14 @@ export function SeriesDetail() {
       if (ignored) {
         await seriesApi.ignoreExpectedBook(decodedSeriesName, book.position, book.title);
         toast.success(`Ignored "${book.title || "book"}"`);
+        // Ignoring moves a book out of the missing list; drop that section back to page 0 so
+        // the refetch below never asks for a page the shrunk section no longer has.
+        setMissingPage(0);
       } else {
         await seriesApi.unignoreExpectedBook(decodedSeriesName, book.position, book.title);
         toast.success(`Unignored "${book.title || "book"}"`);
+        // Unignoring moves a book out of the ignored list; same drop for the ignored section.
+        setIgnoredPage(0);
       }
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", decodedSeriesName, authorId],
@@ -248,7 +257,7 @@ export function SeriesDetail() {
     }
   };
 
-  if (!overview && (ownedQuery.isLoading || missingQuery.isLoading || ignoredQuery.isLoading)) {
+  if (!overview && seriesDetailQuery.isLoading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
         <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />

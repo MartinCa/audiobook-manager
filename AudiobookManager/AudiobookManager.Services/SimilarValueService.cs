@@ -76,6 +76,10 @@ public class SimilarValueService : ISimilarValueService
     /// the distinct values are being read cannot let this method republish pre-alignment groups
     /// for the TTL - the publish is dropped instead. Two callers racing a miss may both compute;
     /// the result is identical and only the current-version publish wins.
+    ///
+    /// The stored graph is treated as read-only: <see cref="Page"/> returns copies of its groups
+    /// and candidates, so the per-page book-count stamping in <see cref="StampBookCountsAsync"/>
+    /// never writes through to the objects the cache holds.
     /// </summary>
     private async Task<List<SimilarValueGroup>> GetOrComputeGroupsAsync(
         string kind, Func<Task<List<string>>> loadDistinctValues)
@@ -131,7 +135,21 @@ public class SimilarValueService : ISimilarValueService
     private static string FirstCandidate(SimilarValueGroup group) => group.Candidates.FirstOrDefault()?.Value ?? string.Empty;
 
     private static (List<SimilarValueGroup> Items, int Total) Page(List<SimilarValueGroup> groups, int skip, int take) =>
-        (groups.Skip(skip).Take(take).ToList(), groups.Count);
+        (groups.Skip(skip).Take(take).Select(CloneGroup).ToList(), groups.Count);
+
+    /// <summary>
+    /// A returned page is a copy, not a window, over the cached detection snapshot: book counts
+    /// are stamped onto the returned candidates (<see cref="StampBookCountsAsync"/>), and writing
+    /// through to the cache's objects would make the snapshot mutable - two concurrent reads of
+    /// the same group would race a plain field write against the other request's serialization.
+    /// </summary>
+    private static SimilarValueGroup CloneGroup(SimilarValueGroup group) =>
+        new()
+        {
+            Candidates = group.Candidates
+                .Select(c => new SimilarValueCandidate { Value = c.Value, BookCount = c.BookCount })
+                .ToList(),
+        };
 
     public async Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,

@@ -11,6 +11,7 @@ import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
@@ -65,6 +66,10 @@ export function SimilarValues() {
   const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
 
+  // An alignment folds groups together, shrinking the total while the user may sit on a later
+  // page; pull the raw page back into range so the next fetch lands on a valid page.
+  useClampedPage(page, pageCount, setPage);
+
   useSignalREvent<ProgressPayload>("SimilarValueAlignProgress", (data) => {
     setAligning(true);
     setAlignProgress(data);
@@ -76,6 +81,9 @@ export function SimilarValues() {
     toast.success(
       `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
     );
+    // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
+    // below never asks for a page the smaller detection result no longer has.
+    setPage(0);
     void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
   });
 
