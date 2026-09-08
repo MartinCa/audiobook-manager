@@ -754,12 +754,257 @@ public class HardcoverScraperTests
         AssertNoDisabledOperators(handler2.CapturedRequestBodies.Single());
     }
 
-    private static void AssertNoDisabledOperators(string requestBody)
+    // ---------- GetSeriesBooks() per-position dedupe ----------
+
+    // Translated editions are recorded as their own independent book rows at the same position
+    // (canonical_id null), so the roster must be deduped to the most popular book per position.
+
+    [TestMethod]
+    public async Task GetSeriesBooks_DeduplicatesTranslatedEditionsAtTheSamePosition()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Jack Reacher",
+                  "slug": "jack-reacher",
+                  "book_series": [
+                    { "position": 1, "compilation": false, "book": { "id": 1, "title": "Killing Floor", "slug": "killing-floor", "release_date": "2001-01-01", "compilation": false, "users_count": 50000 } },
+                    { "position": 2, "compilation": false, "book": { "id": 2, "title": "Die Trying", "slug": "die-trying", "release_date": "2002-01-01", "compilation": false, "users_count": 40000 } },
+                    { "position": 2, "compilation": false, "book": { "id": 3, "title": "Les caves de la Maison Blanche", "slug": "les-caves", "release_date": "2002-01-01", "compilation": false, "users_count": 200 } },
+                    { "position": 2, "compilation": false, "book": { "id": 4, "title": "ThaiTitle", "slug": "thai", "release_date": "2002-01-01", "compilation": false, "users_count": 50 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // Position 2 carries the English, French and Thai titles - only the most popular
+        // (Die Trying) is kept, alongside the sole position 1 entry.
+        Assert.IsNotNull(result);
+        CollectionAssert.AreEqual(
+            new[] { "Killing Floor", "Die Trying" },
+            result.Books.Select(b => b.Title).ToList());
+        Assert.AreEqual(2, result.Books.Count);
+        // BookCount reflects the deduped roster (mirrors how AudibleScraper counts).
+        Assert.AreEqual(2, result.BookCount);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_KeepsIndividualAndOmnibusButDedupesOmnibusAtTheSamePosition()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Reacher",
+                  "slug": "reacher",
+                  "book_series": [
+                    { "position": 1, "compilation": false, "book": { "id": 10, "title": "Killing Floor", "slug": "kf", "release_date": null, "compilation": false, "users_count": 100 } },
+                    { "position": 1, "compilation": true, "book": { "id": 20, "title": "Reacher 1-3 Box Set", "slug": "box", "release_date": null, "compilation": false, "users_count": 50 } },
+                    { "position": 2, "compilation": true, "book": { "id": 30, "title": "Reacher 4-6 Box Set", "slug": "box46", "release_date": null, "compilation": false, "users_count": 300 } },
+                    { "position": 2, "compilation": true, "book": { "id": 31, "title": "Reacher 4-6 Box Set Deluxe", "slug": "box46d", "release_date": null, "compilation": false, "users_count": 900 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // Position 1 keeps the individual book AND the omnibus (different partitions, so the
+        // per-series "Include omnibus editions" setting can still show both). Position 2 has two
+        // compilations - only the most popular one is kept.
+        Assert.IsNotNull(result);
+        CollectionAssert.AreEqual(
+            new[] { "Killing Floor", "Reacher 1-3 Box Set", "Reacher 4-6 Box Set Deluxe" },
+            result.Books.Select(b => b.Title).ToList());
+        Assert.AreEqual(2, result.Books.Count(b => b.IsCompilation));
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_NeverCollapsesNullOrUnnumberedPositions()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Misc",
+                  "slug": "misc",
+                  "book_series": [
+                    { "position": null, "compilation": false, "book": { "id": 1, "title": "Book A", "slug": "a", "release_date": null, "compilation": false, "users_count": 10 } },
+                    { "position": null, "compilation": false, "book": { "id": 2, "title": "Book B", "slug": "b", "release_date": null, "compilation": false, "users_count": 20 } },
+                    { "position": "Book One", "compilation": false, "book": { "id": 3, "title": "Book C", "slug": "c", "release_date": null, "compilation": false, "users_count": 30 } },
+                    { "position": "2a", "compilation": false, "book": { "id": 4, "title": "Book D", "slug": "d", "release_date": null, "compilation": false, "users_count": 40 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // An unnumbered entry is never grouped with another - neither one with a null position
+        // nor one with a non-numeric string label (which never parses as a number): emitting
+        // four separate rows (unlike SQL distinct_on: position, which would collapse these into
+        // one).
+        Assert.IsNotNull(result);
+        CollectionAssert.AreEqual(
+            new[] { "Book A", "Book B", "Book C", "Book D" },
+            result.Books.Select(b => b.Title).ToList());
+        Assert.AreEqual(4, result.Books.Count);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_TieOnUsersCount_KeepsLowerBookId()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Tie",
+                  "slug": "tie",
+                  "book_series": [
+                    { "position": 1, "compilation": false, "book": { "id": 100, "title": "Alpha", "slug": "alpha", "release_date": null, "compilation": false, "users_count": 500 } },
+                    { "position": 1, "compilation": false, "book": { "id": 200, "title": "Beta", "slug": "beta", "release_date": null, "compilation": false, "users_count": 500 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, result.Books.Count);
+        Assert.AreEqual("Alpha", result.Books.Single().Title);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_MissingUsersCountRanksBelowAnyPresent()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Reacher",
+                  "slug": "reacher",
+                  "book_series": [
+                    { "position": 1, "compilation": false, "book": { "id": 1, "title": "No Count", "slug": "no-count", "release_date": null, "compilation": false } },
+                    { "position": 1, "compilation": false, "book": { "id": 2, "title": "With Count", "slug": "with-count", "release_date": null, "compilation": false, "users_count": 8 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // Same position, one entry with no users_count property and one with a value: the entry
+        // WITH users_count wins (a missing count ranks below any present one).
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, result.Books.Count);
+        Assert.AreEqual("With Count", result.Books.Single().Title);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_MissingBookIdRanksLastOnEqualUsersCount()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Reacher",
+                  "slug": "reacher",
+                  "book_series": [
+                    { "position": 1, "compilation": false, "book": { "id": "not-a-number", "title": "No Usable Id", "slug": "no-id", "release_date": null, "compilation": false, "users_count": 500 } },
+                    { "position": 1, "compilation": false, "book": { "id": 200, "title": "Usable Id", "slug": "usable-id", "release_date": null, "compilation": false, "users_count": 500 } }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // Equal users_count: the entry with a usable numeric id wins; a missing id ranks last.
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, result.Books.Count);
+        Assert.AreEqual("Usable Id", result.Books.Single().Title);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_QueryRequestsPartialBookFilterAndUsersCount()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Reacher",
+                  "slug": "reacher",
+                  "book_series": []
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+        await target.GetSeriesBooks("1");
+
+        var query = ExtractGraphqlQuery(handler.CapturedRequestBodies.Single());
+        Assert.IsTrue(query.Contains("is_partial_book"), "id path should filter out partial editions");
+        Assert.IsTrue(query.Contains("users_count"), "id path should request users_count for the dedupe");
+
+        // And the slug-based path sends the same shape.
+        var slugResponse = """
+            {
+              "data": {
+                "series": [
+                  {
+                    "id": 1,
+                    "name": "Reacher",
+                    "slug": "reacher",
+                    "book_series": []
+                  }
+                ]
+              }
+            }
+            """;
+        var target2 = CreateScraper(slugResponse, out var handler2);
+        await target2.GetSeriesBooks("https://hardcover.app/series/reacher");
+
+        var query2 = ExtractGraphqlQuery(handler2.CapturedRequestBodies.Single());
+        Assert.IsTrue(query2.Contains("is_partial_book"), "slug path should filter out partial editions");
+        Assert.IsTrue(query2.Contains("users_count"), "slug path should request users_count for the dedupe");
+    }
+
+    private static string ExtractGraphqlQuery(string requestBody)
     {
         // Parse out just the "query" field so we inspect the actual GraphQL query text sent
         // over the wire (not variable values that might coincidentally contain the substring).
         var parsed = JsonDocument.Parse(requestBody);
-        var query = parsed.RootElement.GetProperty("query").GetString() ?? "";
+        return parsed.RootElement.GetProperty("query").GetString() ?? "";
+    }
+
+    private static void AssertNoDisabledOperators(string requestBody)
+    {
+        // Parse out just the "query" field so we inspect the actual GraphQL query text sent
+        // over the wire (not variable values that might coincidentally contain the substring).
+        var query = ExtractGraphqlQuery(requestBody);
 
         foreach (var op in _disabledOperators)
         {
