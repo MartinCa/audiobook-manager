@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, AlertCircle, Check, BookOpen, RefreshCcw } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -68,13 +68,10 @@ export function MissingBookCandidatesDialog({
     staleTime: 30_000,
   });
 
-  const rankedCandidates = useMemo(() => {
-    if (!candidates) return [];
-    return [...candidates].sort((a, b) => {
-      if (a.authorMatches !== b.authorMatches) return a.authorMatches ? -1 : 1;
-      return (b.titleSimilarity ?? 0) - (a.titleSimilarity ?? 0);
-    });
-  }, [candidates]);
+  // The backend returns candidates fully ranked (author+title tier above title-only, then title
+  // similarity, then author similarity, then name, then id), so the client renders them in the
+  // server's order without re-sorting - a client-side sort would duplicate the logic in a weaker
+  // form and could diverge on ties.
 
   const handleSelect = (candidate: SeriesBookCandidate) => {
     setSelectedCandidate(candidate);
@@ -131,7 +128,7 @@ export function MissingBookCandidatesDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto py-2">
-          {isFetching || !rankedCandidates ? (
+          {isFetching ? (
             <div className="space-y-2">
               <div className="bg-muted h-9 w-full animate-pulse rounded" />
               <div className="bg-muted h-9 w-full animate-pulse rounded" />
@@ -146,7 +143,7 @@ export function MissingBookCandidatesDialog({
                 Retry
               </Button>
             </div>
-          ) : rankedCandidates.length === 0 ? (
+          ) : !candidates || candidates.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <AlertCircle className="text-muted-foreground mb-2 h-6 w-6" />
               <p className="text-muted-foreground text-sm">
@@ -156,12 +153,12 @@ export function MissingBookCandidatesDialog({
           ) : (
             <div className="space-y-3">
               <p className="text-muted-foreground text-xs">
-                {rankedCandidates.length} candidate{rankedCandidates.length !== 1 ? "s" : ""} found,
-                ranked by match quality.
+                {candidates.length} candidate{candidates.length !== 1 ? "s" : ""} found, ranked by
+                match quality.
               </p>
 
               {!confirming ? (
-                rankedCandidates.map((c) => (
+                candidates.map((c) => (
                   <div
                     key={c.audiobookId}
                     className="border-border bg-muted/30 hover:bg-muted/50 flex flex-col justify-between gap-3 rounded-md border p-3 transition-colors sm:flex-row sm:items-center"

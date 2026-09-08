@@ -1,8 +1,10 @@
+using System.Data.Common;
 using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Settings;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
 namespace AudiobookManager.Test.Repositories;
@@ -13,13 +15,49 @@ public class AudiobookRepositorySearchTests
     private string _dbPath = null!;
     private DatabaseContext _db = null!;
     private AudiobookRepository _repository = null!;
+    private CountingCommandInterceptor _interceptor = null!;
+
+    /// <summary>Counts the SELECTs actually issued against the audiobooks table.</summary>
+    private class CountingCommandInterceptor : DbCommandInterceptor
+    {
+        private int _count;
+
+        public int AudiobookReads => _count;
+
+        public void Reset() => Interlocked.Exchange(ref _count, 0);
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+        {
+            Count(command);
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Count(command);
+            return ValueTask.FromResult(result);
+        }
+
+        private void Count(DbCommand command)
+        {
+            if (command.CommandText.Contains("audiobooks", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref _count);
+            }
+        }
+    }
 
     [TestInitialize]
     public void Setup()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"audiobookrepo-{Guid.NewGuid():N}.db");
         var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
-        _db = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+        _interceptor = new CountingCommandInterceptor();
+        var options = new DbContextOptionsBuilder<DatabaseContext>().AddInterceptors(_interceptor).Options;
+        _db = new DatabaseContext(options, settings);
         _db.Database.EnsureCreated();
         _repository = new AudiobookRepository(_db);
     }
@@ -600,5 +638,25 @@ public class AudiobookRepositorySearchTests
             "the exact-title match must be the first candidate, never truncated by the token flood");
         Assert.IsTrue(results.Any(r => r.BookName == "Xenophon Quest"),
             "the exact-title match must not be truncated by the token-flood cap");
+    }
+
+    // Regression: a single-token title collapses the all-match and broad prefilter phases into
+    // the same predicate. Every matching row already comes back from the all-match phase, so the
+    // broad phase - identical predicate minus the ids just returned - is provably empty, yet it
+    // used to always run (a second wasted SELECT per single-token candidate search). Fails
+    // against the pre-fix repository, which issues two SELECTs against audiobooks for a
+    // single-token title; with the skip it is exactly one.
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_SingleToken_SkipsTheBroadPhase()
+    {
+        await SeedBookAsync("Dune", null);
+        await SeedBookAsync("Dune Messiah", "Dune");
+
+        _interceptor.Reset();
+        var results = await _repository.GetSeriesCandidateDataAsync("Dune", 1000);
+
+        Assert.AreEqual(2, results.Count);
+        Assert.AreEqual(1, _interceptor.AudiobookReads,
+            "a single-token search must issue exactly one SELECT - the provably-empty broad phase must be skipped");
     }
 }

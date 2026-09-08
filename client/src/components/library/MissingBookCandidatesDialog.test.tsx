@@ -73,13 +73,19 @@ describe("MissingBookCandidatesDialog", () => {
     vi.clearAllMocks();
   });
 
-  it("shows candidates ranked by match quality when data loads", async () => {
-    vi.mocked(seriesApi.getMissingBookCandidates).mockResolvedValue([candidateB, candidateA]);
+  it("shows candidates in the server's ranked order when data loads", async () => {
+    // The client no longer re-sorts: it trusts the backend's ranking and renders the response
+    // unchanged, so feed the server-ranked order ([candidateA] first) and assert the rendered
+    // order preserves it. A client-side re-sort used to run here and could silently reorder
+    // ties differently than the server's more complete tie-breaker chain.
+    vi.mocked(seriesApi.getMissingBookCandidates).mockResolvedValue([candidateA, candidateB]);
 
     renderModal();
 
-    // candidateA has authorMatches and higher similarity so it renders first
-    expect(await screen.findByText("Candlekeep Chronicles")).toBeInTheDocument();
+    // candidateA is ranked first by the server, so its card appears before candidateB's.
+    const titleA = await screen.findByText("Candlekeep Chronicles");
+    const titleB = screen.getByText("Candlekeep Chronicles - Other");
+    expect(titleA.compareDocumentPosition(titleB) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(screen.getByText("Author + title match")).toBeInTheDocument();
     expect(screen.getByText("Title match")).toBeInTheDocument();
     expect(screen.getByText("2 candidates found, ranked by match quality.")).toBeInTheDocument();

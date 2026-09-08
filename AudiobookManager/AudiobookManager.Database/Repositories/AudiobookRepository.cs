@@ -361,11 +361,20 @@ public class AudiobookRepository : IAudiobookRepository
     {
         // Patterns wrap each normalized token in %...% so LIKE is substring containment; the
         // escape character keeps a literal '%' or '_' that a token carries from acting as a
-        // wildcard. The fold is applied on the column side only, so the match is accent-
-        // insensitive exactly like the other SQL searches in this codebase. Patterns are
-        // precomputed here - the LIKE shape has to reach EF as bound parameters, a string.Format
-        // inside the query lambda cannot be translated to SQL.
+        // wildcard. Patterns are precomputed here - the LIKE shape has to reach EF as bound
+        // parameters, a string.Format inside the query lambda cannot be translated to SQL.
         var patterns = GetNormalizedTokens(title).Select(t => $"%{t}%").ToList();
+
+        // The matches run against the precomputed BookNameFolded column (kept in sync with
+        // BookName by AccentFoldedColumnsInterceptor and backfilled by the
+        // AddAccentFoldedSearchColumns migration) rather than wrapping BookName in
+        // fold_accents() per row - exactly what SearchAsync/SearchSeriesAsync do, for the same
+        // reason: a scalar-function call on the column costs a callback into managed code for
+        // every row scanned, on every OR/AND term (#1303). BookNameFolded holds precisely
+        // FoldPlain(BookName), the accent fold with no lowercasing, and the token patterns are
+        // lowercase, so the swap is behavior-identical: SQLite's default LIKE is
+        // case-insensitive over ASCII, which is the same case-folding the old query-time fold
+        // relied on.
 
         // Two-phase prefilter. Phase one: books whose name contains EVERY title token - the
         // exact/near-exact matches the fuzzy ranker would score highest - get the cap's budget
@@ -378,7 +387,7 @@ public class AudiobookRepository : IAudiobookRepository
         var allMatch = _db.Audiobooks.AsNoTracking();
         foreach (var pattern in patterns)
         {
-            allMatch = allMatch.Where(a => EF.Functions.Like(AccentFolding.Fold(a.BookName), pattern, LikeEscapeCharacter));
+            allMatch = allMatch.Where(a => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter));
         }
 
         var allMatchRows = await QueryCandidateRows(allMatch, limit);
@@ -387,9 +396,20 @@ public class AudiobookRepository : IAudiobookRepository
             return allMatchRows;
         }
 
+        // A single token collapses the all-match and broad predicates into the same LIKE, so
+        // every matching row already came back above and the broad query - identical predicate
+        // minus the ids just returned - is provably empty. Skip it rather than execute a wasted
+        // query. The skip must stay keyed on the single-token shape: with two or more tokens
+        // the broad (ANY) predicate is a strict superset of the all-match (ALL) one, and CAN
+        // surface rows the cap truncated.
+        if (patterns.Count == 1)
+        {
+            return allMatchRows;
+        }
+
         var broad = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => patterns.Any(pattern => EF.Functions.Like(AccentFolding.Fold(a.BookName), pattern, LikeEscapeCharacter)));
+            .Where(a => patterns.Any(pattern => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter)));
 
         var allMatchIds = allMatchRows.Select(r => r.Id).ToList();
         if (allMatchIds.Count > 0)

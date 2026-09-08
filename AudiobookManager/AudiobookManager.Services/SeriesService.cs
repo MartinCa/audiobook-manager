@@ -428,6 +428,14 @@ public class SeriesService : ISeriesService
             ?? throw new KeyNotFoundException(
                 $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
 
+        // Deliberately sequential: GetAuthorNamesBySeriesAsync and GetSeriesCandidateDataAsync
+        // both go through the repo layer's single scoped DatabaseContext (AddDbContext in
+        // Database/DependencyInjection.cs), so firing "Task.WhenAll" at them would start a
+        // second query on the same context while the first is still in flight and throw EF's
+        // "A second operation was started on this context instance" InvalidOperationException.
+        // The concurrency would be real - the two reads share nothing - but the context's
+        // single-connection rule forbids it; the codebase keeps every such pair sequential for
+        // the same reason.
         var knownAuthors = await GetKnownAuthorsAsync(seriesName);
         var books = await _audiobookRepository.GetSeriesCandidateDataAsync(expected.Title, CandidatePrefilterLimit);
 

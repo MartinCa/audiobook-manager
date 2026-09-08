@@ -169,6 +169,20 @@ public class SeriesRepository : ISeriesRepository
     /// </summary>
     public async Task<SeriesExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title)
     {
+        var books = await GetExpectedBooksAsync(seriesName);
+        return books is null ? null : MatchExpectedBook(books, position, title);
+    }
+
+    /// <summary>
+    /// The roster of one series, read-only, or null when no row with that name exists. Shared by
+    /// the two read-side roster lookups so the identical series lookup + AsNoTracking fetch isn't
+    /// duplicated - a null result is how the callers report a missing series, and an empty list
+    /// (a matched series whose roster is empty) must stay distinct from it. Deliberately NOT used
+    /// by <see cref="SetExpectedBookIgnoredAsync"/>, which needs tracked entities to mutate
+    /// IsIgnored and save.
+    /// </summary>
+    private async Task<List<SeriesExpectedBook>?> GetExpectedBooksAsync(string seriesName)
+    {
         var series = await _db.Series
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Name == seriesName);
@@ -177,12 +191,10 @@ public class SeriesRepository : ISeriesRepository
             return null;
         }
 
-        var books = await _db.SeriesExpectedBooks
+        return await _db.SeriesExpectedBooks
             .AsNoTracking()
             .Where(b => b.SeriesId == series.Id)
             .ToListAsync();
-
-        return MatchExpectedBook(books, position, title);
     }
 
     /// <summary>
@@ -208,20 +220,8 @@ public class SeriesRepository : ISeriesRepository
 
     public async Task<SeriesExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title)
     {
-        var series = await _db.Series
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Name == seriesName);
-        if (series is null)
-        {
-            return null;
-        }
-
-        var books = await _db.SeriesExpectedBooks
-            .AsNoTracking()
-            .Where(b => b.SeriesId == series.Id)
-            .ToListAsync();
-
-        return MatchExpectedBookStrict(books, position, title);
+        var books = await GetExpectedBooksAsync(seriesName);
+        return books is null ? null : MatchExpectedBookStrict(books, position, title);
     }
 
     /// <summary>
