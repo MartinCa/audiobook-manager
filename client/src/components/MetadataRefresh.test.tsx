@@ -155,11 +155,18 @@ describe("MetadataRefresh", () => {
       expect(metadataRefreshApi.startBulkRefresh).toHaveBeenCalled();
     });
     const arg = vi.mocked(metadataRefreshApi.startBulkRefresh).mock.calls[0]![0];
-    // Local midnight on 2026-09-01, converted to UTC.
+    // `cutoffDateToUtcIso` builds `new Date("YYYY-MM-DDT00:00:00")`, i.e. local midnight, then
+    // converts to UTC. We round-trip that instant back through the *local* calendar because the
+    // user's chosen date is a local day: a UTC-day comparison only equals the chosen date when
+    // the runner itself is in UTC (which is why CI never caught it) — in any TZ ahead of UTC the
+    // UTC day is local-midnight minus the offset, i.e. the previous day.
     expect(cutoffDateToUtcIso("2026-09-01")).toBe(arg);
-    expect(new Date(cutoffDateToUtcIso("2026-09-01")!).toISOString().slice(0, 10)).toBe(
-      "2026-09-01",
-    );
+    const roundTrip = new Date(arg!);
+    expect(roundTrip.getFullYear()).toBe(2026);
+    expect(roundTrip.getMonth()).toBe(8); // September (0-based)
+    expect(roundTrip.getDate()).toBe(1);
+    expect(roundTrip.getHours()).toBe(0);
+    expect(roundTrip.getMinutes()).toBe(0);
   });
 
   it("converts the cut-off date to a UTC ISO timestamp at the user's local midnight", () => {
