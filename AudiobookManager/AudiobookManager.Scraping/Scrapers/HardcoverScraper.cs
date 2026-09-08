@@ -155,17 +155,37 @@ public class HardcoverScraper : IScraper
     // `search()` query used by Search() above, with query_type "Series" - see
     // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
 
-    // Both book_series(...) selections below exclude alternate-language/translated editions -
-    // these are frequently recorded as their own `book` row (rather than just an `edition` of
-    // the original) and linked into the series at the same position as the original;
-    // canonical_id is non-null on these variants and points back at the canonical
-    // (original-language) book, which is the row we keep.
+    // Both book_series(...) selections below exclude alternate-language/translated editions.
+    // The `canonical_id: {_is_null: true}` filter catches only the editions Hardcover explicitly
+    // records as duplicates: a translated edition whose `canonical_id` points back at the
+    // canonical (original-language) book row is dropped. That alone is not enough, though -
+    // translated editions are frequently their own independent `book` rows with `canonical_id`
+    // null, linked into the series at the same position as the original without pointing at
+    // anything, so they passed the filter and produced a roster with several entries per
+    // position (e.g. Jack Reacher Part 2 showing the English, French and Thai titles). The
+    // per-position dedupe in BuildSeriesResult/RetainMostPopularPerPosition closes that gap: it
+    // keeps only the most popular book per position, the recipe Hardcover documents in "Getting
+    // All Books in a Series" at
+    // https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/GettingBooksInSeries.mdx
+    // - filter canonical_id, filter is_partial_book, and keep the most popular book per position
+    // ordered by users_count desc. That is the same thing the hardcover.app series page shows.
     //
-    // Omnibus/box-set entries (e.g. a "Books 1-4" bundle, flagged by `compilation` on either the
-    // book_series link row or the book itself - contributors sometimes only tag one of the two)
-    // are deliberately NOT filtered out here: whether to keep them is a per-series choice some
-    // libraries genuinely own the omnibus rather than the individual books - so `compilation` is
-    // selected and left for the caller (SeriesService) to filter based on that series' setting.
+    // The dedupe is done in C# rather than SQL `distinct_on: position` on purpose: DISTINCT ON
+    // would collapse every null/unnumbered-position entry into a single row, and it would let a
+    // compilation evict the individual book at the same position - breaking the invariant that
+    // the full roster including compilations is always stored here, which the per-series
+    // "Include omnibus editions" setting (a SeriesService choice) depends on. So the C# dedupe
+    // keeps compilations and non-compilations as separate partitions, and never groups null
+    // positions. Omnibus/box-set entries (e.g. a "Books 1-4" bundle, flagged by `compilation`
+    // on either the book_series link row or the book itself - contributors sometimes only tag
+    // one of the two) are deliberately NOT filtered out: whether to keep them is a per-series
+    // choice, so `compilation` is selected and left for the caller (SeriesService).
+    //
+    // `is_partial_book: {_eq: false}` mirrors the website, which hides partial editions: per
+    // Hardcover's guide, a partial edition is a book that only contains part of the contents of
+    // another book. `_eq` and `_is_null` are plain equality filters, not any of the disabled
+    // pattern-matching operators (see the "Limitations" note above), so both where clauses are
+    // safe against the API's filter restrictions.
     private const string _seriesBooksQuery = """
         query GetSeriesBooks($id: Int!) {
           series_by_pk(id: $id) {
@@ -173,8 +193,8 @@ public class HardcoverScraper : IScraper
             name
             slug
             book_series(
-              order_by: {position: asc}
-              where: {book: {canonical_id: {_is_null: true}}}
+              order_by: [{position: asc}, {book: {users_count: desc}}]
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}}}
             ) {
               position
               compilation
@@ -184,14 +204,13 @@ public class HardcoverScraper : IScraper
                 slug
                 release_date
                 compilation
+                users_count
               }
             }
           }
         }
         """;
 
-    // `_eq` is a plain equality filter, not one of the disabled pattern-matching operators
-    // (see the "Limitations" note above), so this is safe against the API's filter restrictions.
     private const string _seriesBooksBySlugQuery = """
         query GetSeriesBooksBySlug($slug: String!) {
           series(where: {slug: {_eq: $slug}}, limit: 1) {
@@ -199,8 +218,8 @@ public class HardcoverScraper : IScraper
             name
             slug
             book_series(
-              order_by: {position: asc}
-              where: {book: {canonical_id: {_is_null: true}}}
+              order_by: [{position: asc}, {book: {users_count: desc}}]
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}}}
             ) {
               position
               compilation
@@ -210,6 +229,7 @@ public class HardcoverScraper : IScraper
                 slug
                 release_date
                 compilation
+                users_count
               }
             }
           }
@@ -314,6 +334,7 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        var roster = new List<SeriesRosterCandidate>();
         if (seriesElement.TryGetProperty("book_series", out var bookSeriesElement) &&
             bookSeriesElement.ValueKind == JsonValueKind.Array)
         {
@@ -321,10 +342,10 @@ public class HardcoverScraper : IScraper
             {
                 try
                 {
-                    var book = ParseSeriesRosterEntry(entry);
-                    if (book is not null)
+                    var candidate = ParseSeriesRosterEntry(entry);
+                    if (candidate is not null)
                     {
-                        result.Books.Add(book);
+                        roster.Add(candidate);
                     }
                 }
                 catch (Exception ex)
@@ -332,6 +353,14 @@ public class HardcoverScraper : IScraper
                     _logger.LogWarning(ex, "Failed to parse Hardcover series roster entry for series {SeriesIdOrUrl}", seriesIdOrUrl);
                 }
             }
+        }
+
+        // The roster can carry a translated edition per language at the same position (see the
+        // note above the series query constants), so keep only the most popular book per part -
+        // the same thing the hardcover.app series page shows.
+        foreach (var winner in RetainMostPopularPerPosition(roster))
+        {
+            result.Books.Add(winner.Book);
         }
 
         result.BookCount ??= result.Books.Count;
@@ -418,7 +447,125 @@ public class HardcoverScraper : IScraper
         return result;
     }
 
-    private static SeriesExpectedBookResult? ParseSeriesRosterEntry(JsonElement entry)
+    /// <summary>
+    /// A parsed series roster entry: the public <see cref="SeriesExpectedBookResult"/> plus the
+    /// book-level fields the per-position dedupe in
+    /// <see cref="RetainMostPopularPerPosition"/> needs to pick a winner - the book's popularity
+    /// (<c>users_count</c>), its numeric id (the tiebreak), and the normalized numeric position it
+    /// groups under. This is a private scrape-internal type; it is never exposed on any public model.
+    /// </summary>
+    private record SeriesRosterCandidate(
+        SeriesExpectedBookResult Book,
+        long? UsersCount,
+        long? BookId,
+        double? NumericPosition)
+    {
+    }
+
+    /// <summary>
+    /// Keeps only the most popular book per position - translated editions are usually recorded as
+    /// their own independent book rows at the same position (see the note above the series query
+    /// constants), and the user only wants one entry per part. See <see cref="RosterGroupKey"/> for
+    /// the exact grouping semantics and <see cref="IsStrictlyBetter"/> for how a winner is chosen.
+    /// </summary>
+    private static IList<SeriesRosterCandidate> RetainMostPopularPerPosition(IList<SeriesRosterCandidate> roster)
+    {
+        if (roster.Count <= 1)
+        {
+            return roster;
+        }
+
+        // Winner index per group key. Winners are chosen in wire order, replacing the current
+        // winner only when strictly better, so emitting in wire order below preserves the original
+        // relative order (no re-sort).
+        var winners = new Dictionary<string, int>();
+        for (var i = 0; i < roster.Count; i++)
+        {
+            var key = RosterGroupKey(roster[i], i);
+            if (!winners.ContainsKey(key) || IsStrictlyBetter(roster[i], roster[winners[key]]))
+            {
+                winners[key] = i;
+            }
+        }
+
+        var kept = new List<SeriesRosterCandidate>();
+        for (var i = 0; i < roster.Count; i++)
+        {
+            var key = RosterGroupKey(roster[i], i);
+            if (winners.ContainsKey(key) && winners[key] == i)
+            {
+                kept.Add(roster[i]);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// The dedupe group an entry falls into. Compilations and non-compilations are separate
+    /// partitions at the same position, so the per-series "Include omnibus editions" setting keeps
+    /// working - the full roster including one omnibus per position must still be stored. An entry
+    /// with no usable numeric position gets a unique group so it is never collapsed into a shared
+    /// row, deliberately unlike SQL distinct_on: position, which would collapse every
+    /// null-position entry into a single one. Numeric positions are formatted with the invariant
+    /// round-trip representation so the key does not depend on the process locale.
+    /// </summary>
+    private static string RosterGroupKey(SeriesRosterCandidate candidate, int index)
+    {
+        if (candidate.NumericPosition is null)
+        {
+            return $"__unnumbered__{index}";
+        }
+
+        return $"{candidate.NumericPosition.Value.ToString("R", CultureInfo.InvariantCulture)}|{candidate.Book.IsCompilation}";
+    }
+
+    /// <summary>
+    /// Is <paramref name="candidate"/> a strictly better pick than <paramref name="current"/> for
+    /// the same group? Higher users_count wins (a missing users_count ranks below any known one);
+    /// a tie is broken by the lower numeric book id (a missing id ranks last); a tie on both falls
+    /// back to the first-encountered entry.
+    /// </summary>
+    private static bool IsStrictlyBetter(SeriesRosterCandidate candidate, SeriesRosterCandidate current)
+    {
+        if (candidate.UsersCount is null && current.UsersCount is not null)
+        {
+            return false;
+        }
+        if (candidate.UsersCount is not null && current.UsersCount is null)
+        {
+            return true;
+        }
+        if (candidate.UsersCount is not null && current.UsersCount is not null)
+        {
+            var candidateUsers = (long)candidate.UsersCount;
+            var currentUsers = (long)current.UsersCount;
+            if (candidateUsers != currentUsers)
+            {
+                return candidateUsers > currentUsers;
+            }
+        }
+
+        if (candidate.BookId is null && current.BookId is not null)
+        {
+            return false;
+        }
+        if (candidate.BookId is not null && current.BookId is null)
+        {
+            return true;
+        }
+        if (candidate.BookId is not null && current.BookId is not null)
+        {
+            var candidateId = (long)candidate.BookId;
+            var currentId = (long)current.BookId;
+            return candidateId < currentId;
+        }
+
+        // Tie on users_count and id (including both missing) - keep the first-encountered.
+        return false;
+    }
+
+    private static SeriesRosterCandidate? ParseSeriesRosterEntry(JsonElement entry)
     {
         if (!entry.TryGetProperty("book", out var bookElement) ||
             bookElement.ValueKind != JsonValueKind.Object)
@@ -468,13 +615,44 @@ public class HardcoverScraper : IScraper
         var bookIsCompilation = bookElement.TryGetProperty("compilation", out var bookCompilationElement) &&
             bookCompilationElement.ValueKind == JsonValueKind.True;
 
-        return new SeriesExpectedBookResult(title)
+        var book = new SeriesExpectedBookResult(title)
         {
             Position = position,
             Year = year,
             SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
             IsCompilation = linkIsCompilation || bookIsCompilation,
         };
+
+        // Users_count is the book's popularity on Hardcover - the per-position dedupe keeps the
+        // most popular book. `Int!` in the schema, but Hasura may still deliver it as a string.
+        long? usersCount = null;
+        var usersCountRaw = GetScalarOrNull(bookElement, "users_count");
+        if (usersCountRaw is not null &&
+            long.TryParse(usersCountRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedUsersCount))
+        {
+            usersCount = parsedUsersCount;
+        }
+
+        // Numeric book id, the tiebreak when two entries are equally popular.
+        long? numericBookId = null;
+        if (bookId is not null &&
+            long.TryParse(bookId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedBookId))
+        {
+            numericBookId = parsedBookId;
+        }
+
+        // The numeric position this entry groups under for the dedupe. A null, non-numeric or
+        // non-finite position (some contributors use labels) means the entry is never grouped
+        // with another.
+        double? numericPosition = null;
+        if (position is not null &&
+            double.TryParse(position, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedPosition) &&
+            double.IsFinite(parsedPosition))
+        {
+            numericPosition = parsedPosition;
+        }
+
+        return new SeriesRosterCandidate(book, usersCount, numericBookId, numericPosition);
     }
 
     /// <summary>
