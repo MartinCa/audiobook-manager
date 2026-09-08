@@ -14,12 +14,14 @@ import {
   Search,
   Check,
   CheckCircle2,
+  BookPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
@@ -65,6 +67,11 @@ export function SeriesDetail() {
   const [matchingCandidate, setMatchingCandidate] = useState(false);
   const [updatingOmnibus, setUpdatingOmnibus] = useState(false);
   const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
+
+  // Missing book candidates dialog
+  const [missingCandidatesOpen, setMissingCandidatesOpen] = useState<
+    false | { id: number; position?: string | null; title?: string | null }
+  >(false);
 
   const { data: detail, isLoading: loading } = useQuery({
     queryKey: ["seriesDetail", decodedSeriesName, authorId],
@@ -532,6 +539,21 @@ export function SeriesDetail() {
                       </a>
                     )}
                     <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-6 text-[11px]"
+                      onClick={() => {
+                        setMissingCandidatesOpen({
+                          id: mb.id,
+                          position: mb.position,
+                          title: mb.title,
+                        });
+                      }}
+                    >
+                      <BookPlus className="mr-1 h-3 w-3" />
+                      Find in Library
+                    </Button>
+                    <Button
                       variant="ghost"
                       size="sm"
                       className="h-6 text-[11px]"
@@ -594,6 +616,27 @@ export function SeriesDetail() {
           </div>
         </div>
       )}
+
+      <MissingBookCandidatesDialog
+        open={typeof missingCandidatesOpen === "object"}
+        onOpenChange={(open) => {
+          setMissingCandidatesOpen(open ? missingCandidatesOpen : false);
+        }}
+        seriesName={decodedSeriesName}
+        missingBook={
+          typeof missingCandidatesOpen === "object"
+            ? {
+                id: missingCandidatesOpen.id,
+                position: missingCandidatesOpen.position,
+                title: missingCandidatesOpen.title,
+              }
+            : {
+                id: 0,
+                position: null,
+                title: null,
+              }
+        }
+      />
     </div>
   );
 }

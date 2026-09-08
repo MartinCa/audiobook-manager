@@ -41,3 +41,10 @@ export type SeriesMatchCandidate = Require<
   components["schemas"]["SeriesMatchCandidateDto"],
   "sourceName" | "sourceId" | "seriesName" | "authors" | "confidence"
 >;
+
+// AudiobookManager.Api/Dtos/SeriesDtos.cs: audiobookId/bookName/year/authors/titleSimilarity/
+// authorMatches are non-nullable; series and seriesPart are genuinely nullable.
+export type SeriesBookCandidate = Require<
+  components["schemas"]["SeriesBookCandidateDto"],
+  "audiobookId" | "bookName" | "year" | "authors" | "titleSimilarity" | "authorMatches"
+>;

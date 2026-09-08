@@ -27,7 +27,12 @@ import type { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInf
 import type { AudiobookMissingTags, MissingTagField } from "@/types/MissingTag";
 import type { OperationStatus } from "@/types/OperationStatus";
 import type { OrphanDirectory, OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
-import type { SeriesDetail, SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
+import type {
+  SeriesBookCandidate,
+  SeriesDetail,
+  SeriesMatchCandidate,
+  SeriesOverview,
+} from "@/types/Series";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
@@ -385,6 +390,29 @@ export const seriesApi = {
     api.post<void>(
       "/series/expected-books/unignore",
       { position: position || undefined, title: title || undefined },
+      {
+        query: { seriesName },
+      },
+    ),
+
+  getMissingBookCandidates: (seriesName: string, position?: string | null, title?: string | null) =>
+    api.get<SeriesBookCandidate[]>("/series/expected-books/candidates", {
+      query: { seriesName, position: position || undefined, title: title || undefined },
+    }),
+
+  applyMissingBook: (
+    seriesName: string,
+    audiobookId: number,
+    position?: string | null,
+    title?: string | null,
+  ) =>
+    api.post<void>(
+      "/series/expected-books/apply",
+      {
+        audiobookId,
+        position: position || undefined,
+        title: title || undefined,
+      },
       {
         query: { seriesName },
       },

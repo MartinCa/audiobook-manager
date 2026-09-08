@@ -510,4 +510,95 @@ public class AudiobookRepositorySearchTests
             }
         }
     }
+
+    // Regression: punctuation variants like "Dune:" vs "Dune" should match because tokens
+    // strip punctuation before building LIKE patterns.
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_TitleWithTrailingPunctuation_MatchesTitleWithoutPunctuation()
+    {
+        await SeedBookAsync("Dune", "Dune");
+        await SeedBookAsync("Dune Messiah", "Dune");
+
+        var results = await _repository.GetSeriesCandidateDataAsync("Dune:", 1000);
+
+        Assert.AreEqual(2, results.Count);
+        Assert.IsTrue(results.Any(r => r.BookName == "Dune"));
+        Assert.IsTrue(results.Any(r => r.BookName == "Dune Messiah"));
+    }
+
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_TitleWithVariousPunctuation_MatchesTitleWithout()
+    {
+        await SeedBookAsync("The Name of the Wind", "The Name of the Wind");
+
+        var results = await _repository.GetSeriesCandidateDataAsync("The Name of the Wind.", 1000);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("The Name of the Wind", results[0].BookName);
+    }
+
+    // LIKE wildcards in the title ("%_test") must not act as wildcards.
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_LikeWildcardInTitle_DoesNotActAsWildcard()
+    {
+        await SeedBookAsync("The % Book", null);
+        await SeedBookAsync("The _ Book", null);
+        await SeedBookAsync("The X Book", null);
+
+        var results = await _repository.GetSeriesCandidateDataAsync("The % Book", 1000);
+
+        Assert.AreEqual(1, results.Count, "only the literal match should return, not every 'The ? Book'");
+        Assert.AreEqual("The % Book", results[0].BookName);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_EmptyAfterNormalization_FallsBackToFullTitle()
+    {
+        await SeedBookAsync("The 1 2 3", null);
+
+        var results = await _repository.GetSeriesCandidateDataAsync("... !!!", 1000);
+
+        Assert.AreEqual(0, results.Count, "tokens like '.' are too short and the fallback '... !!!' won't match any book name");
+    }
+
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_CapsResultList()
+    {
+        for (int i = 0; i < 1500; i++)
+        {
+            await SeedBookAsync($"The Search Book {i}", null);
+        }
+
+        var results = await _repository.GetSeriesCandidateDataAsync("The Search Book", 1000);
+
+        Assert.AreEqual(1000, results.Count);
+    }
+
+    // Regression: the prefilter used to be a single OR-of-LIKEs query ordered alphabetically and
+    // capped at `limit`. A generic token that matches far more rows than the cap ("xenophon"
+    // here) let the alphabetical order truncate the exact-title match away before the in-memory
+    // fuzzy ranker ever saw it - "Xenophon 0".."Xenophon 1499" sort before "Xenophon Quest"
+    // under SQLite's BINARY collation, so the exact-title book was the 1501st row. The two-phase
+    // prefilter gives books containing every title token the budget first, so the full-coverage
+    // match survives (and leads) the flood. Fails against the pre-fix single-OR query, which
+    // returns 1000 of the "Xenophon N" rows and never the exact title.
+    [TestMethod]
+    public async Task GetSeriesCandidateDataAsync_ExactTitleMatchSurvivesGenericTokenFlood()
+    {
+        // 1500 books sharing only the leading generic token, all sorting before the exact-title
+        // book under SQLite's BINARY collation ('1' (0x31) sorts before 'Q' (0x51)).
+        for (int i = 0; i < 1500; i++)
+        {
+            await SeedBookAsync($"Xenophon {i}", null);
+        }
+        await SeedBookAsync("Xenophon Quest", null);
+
+        var results = await _repository.GetSeriesCandidateDataAsync("Xenophon Quest", 1000);
+
+        Assert.AreEqual(1000, results.Count);
+        Assert.AreEqual("Xenophon Quest", results[0].BookName,
+            "the exact-title match must be the first candidate, never truncated by the token flood");
+        Assert.IsTrue(results.Any(r => r.BookName == "Xenophon Quest"),
+            "the exact-title match must not be truncated by the token-flood cap");
+    }
 }

@@ -28,19 +28,53 @@ public class SeriesService : ISeriesService
     /// </summary>
     private const double PositionMatchTitleFloor = 0.5;
 
+    /// <summary>
+    /// Minimum normalized title similarity for a library book to surface as a candidate for a
+    /// missing expected book. Deliberately looser than <see cref="TitleMatchThreshold"/>: these
+    /// are advisory candidates a human confirms, and a subtitled or lightly renamed edition must
+    /// still surface - a false positive costs a glance, a false negative hides the very book the
+    /// user is looking for.
+    /// </summary>
+    private const double CandidateTitleSimilarityThreshold = 0.7;
+
+    /// <summary>
+    /// Author similarity that counts as an author match for candidate ranking - the same bar
+    /// <see cref="ScoreCandidate"/> applies inline when corroborating a series candidate with an
+    /// author overlap.
+    /// </summary>
+    private const double AuthorMatchSimilarityThreshold = 0.85;
+
+    /// <summary>
+    /// Cap on the missing-book candidate list - the endpoint's bound, per the repo's "no
+    /// unbounded lists over the wire" rule. Candidates are ranked, so anything past this many is
+    /// noise even for a generic title.
+    /// </summary>
+    public const int MaxMissingBookCandidates = 20;
+
+    /// <summary>
+    /// SQL LIKE pre-filter row cap for <see cref="IAudiobookRepository.GetSeriesCandidateDataAsync"/>.
+    /// The service ranking is authoritative; the pre-filter only reduces the set the fuzzy
+    /// scorer works against. Increased to 1000 to improve recall for multi-token titles while
+    /// final results remain capped at <see cref="MaxMissingBookCandidates"/>.
+    /// </summary>
+    private const int CandidatePrefilterLimit = 1000;
+
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly IAudiobookService _audiobookService;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
 
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        IAudiobookService audiobookService,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _audiobookService = audiobookService;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -154,10 +188,7 @@ public class SeriesService : ISeriesService
     }
 
     private async Task<List<string>> GetKnownAuthorsAsync(string seriesName) =>
-        (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null))
-            .SelectMany(b => b.Authors.Select(a => a.Name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        await _audiobookRepository.GetAuthorNamesBySeriesAsync(seriesName);
 
     /// <summary>
     /// Resolves a single series directly from a source URL the user pasted in, rather than
@@ -390,6 +421,73 @@ public class SeriesService : ISeriesService
 
     public Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored) =>
         _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
+
+    public async Task<List<SeriesBookCandidate>> FindMissingBookCandidatesAsync(string seriesName, string? position, string? title)
+    {
+        var expected = await _seriesRepository.FindExpectedBookAsync(seriesName, position, title)
+            ?? throw new KeyNotFoundException(
+                $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+
+        var knownAuthors = await GetKnownAuthorsAsync(seriesName);
+        var books = await _audiobookRepository.GetSeriesCandidateDataAsync(expected.Title, CandidatePrefilterLimit);
+
+        // A book already in the target series is deliberately NOT excluded: one with a wrong part
+        // or a slightly different title is exactly what leaves a roster entry reported as missing,
+        // and the candidate carries its current series/part so the UI can show it.
+        return books
+            .Select(book => (Book: book, TitleSimilarity: TitleSimilarity(book.BookName, expected.Title)))
+            .Where(b => b.TitleSimilarity >= CandidateTitleSimilarityThreshold)
+            .Select(b =>
+            {
+                // The roster carries no author of its own, so the series' known authors (the
+                // authors of its owned books) are the author evidence a candidate is compared
+                // against. Tier 1 needs a close match on one of them; without it the candidate is
+                // tier 2, a title-only match.
+                var authorSimilarity = knownAuthors
+                    .SelectMany(known => b.Book.Authors, (known, candidateAuthor) => TitleSimilarity(known, candidateAuthor))
+                    .DefaultIfEmpty(0)
+                    .Max();
+
+                return (b.Book, b.TitleSimilarity, AuthorSimilarity: authorSimilarity);
+            })
+            .OrderByDescending(b => b.AuthorSimilarity >= AuthorMatchSimilarityThreshold)
+            .ThenByDescending(b => b.TitleSimilarity)
+            .ThenByDescending(b => b.AuthorSimilarity)
+            .ThenBy(b => b.Book.BookName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(b => b.Book.Id)
+            .Take(MaxMissingBookCandidates)
+            .Select(b => new SeriesBookCandidate
+            {
+                AudiobookId = b.Book.Id,
+                BookName = b.Book.BookName,
+                Series = b.Book.Series,
+                SeriesPart = b.Book.SeriesPart,
+                Year = b.Book.Year,
+                Authors = b.Book.Authors,
+                TitleSimilarity = Math.Round(b.TitleSimilarity, 4),
+                AuthorMatches = b.AuthorSimilarity >= AuthorMatchSimilarityThreshold,
+            })
+            .ToList();
+    }
+
+    public async Task ApplyMissingBookAsync(string seriesName, string? position, string? title, long audiobookId)
+    {
+        var expected = await _seriesRepository.FindExpectedBookStrictAsync(seriesName, position, title)
+            ?? throw new KeyNotFoundException(
+                $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+
+        var audiobook = await _audiobookService.GetAudiobookById(audiobookId)
+            ?? throw new KeyNotFoundException($"Audiobook {audiobookId} not found");
+
+        // Only the series assignment changes - the book keeps its own name, authors and year. The
+        // write goes through UpdateAudiobook so the m4b tags, the recomputed library path (and any
+        // relocation it implies), the sidecars and the database all update together, per the
+        // binding invariant. A roster entry with no position clears the part.
+        audiobook.Series = seriesName;
+        audiobook.SeriesPart = expected.Position;
+
+        await _audiobookService.UpdateAudiobook(audiobookId, audiobook);
+    }
 
     private async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshManyAsync(
         List<string> seriesNames,

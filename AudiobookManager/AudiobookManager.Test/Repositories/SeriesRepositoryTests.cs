@@ -170,4 +170,50 @@ public class SeriesRepositoryTests
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _repository.SetExpectedBookIgnoredAsync("Unknown Series", "1", "Whatever", true));
     }
+
+    [TestMethod]
+    public async Task FindExpectedBookAsync_ResolvesByPositionAndTitle()
+    {
+        var series = await SeedSeriesAsync();
+
+        var book = await _repository.FindExpectedBookAsync("Mistborn", "1", "The Final Empire");
+
+        Assert.IsNotNull(book);
+        Assert.AreEqual("The Final Empire", book.Title);
+        Assert.AreEqual("1", book.Position);
+    }
+
+    [TestMethod]
+    public async Task FindExpectedBookAsync_ResolvesByPositionAlone()
+    {
+        var series = await SeedSeriesAsync();
+
+        var book = await _repository.FindExpectedBookAsync("Mistborn", "2", null);
+
+        Assert.IsNotNull(book);
+        Assert.AreEqual("The Well of Ascension", book.Title);
+    }
+
+    [TestMethod]
+    public async Task FindExpectedBookAsync_ResolvesByTitleAlone()
+    {
+        var series = await SeedSeriesAsync();
+
+        var book = await _repository.FindExpectedBookAsync("Mistborn", null, "Secret History");
+
+        Assert.IsNotNull(book);
+        Assert.AreEqual("3.5", book.Position);
+    }
+
+    [TestMethod]
+    public async Task FindExpectedBookAsync_ReturnsNullWhenNothingMatches()
+    {
+        var series = await SeedSeriesAsync();
+
+        var noEntry = await _repository.FindExpectedBookAsync("Mistborn", "9", "No Such Book");
+        var noSeries = await _repository.FindExpectedBookAsync("Unknown Series", "1", "The Final Empire");
+
+        Assert.IsNull(noEntry);
+        Assert.IsNull(noSeries);
+    }
 }

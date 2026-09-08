@@ -202,6 +202,56 @@ describe("api service mappings and contracts", () => {
         }),
       );
     });
+
+    it("calls expected-books/candidates with correct query params", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getMissingBookCandidates("Mistborn", "4", "Secret History");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/expected-books/candidates?seriesName=Mistborn&position=4&title=Secret+History",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("calls expected-books/apply with query param and body", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.applyMissingBook("Mistborn", 42, "4", "Secret History");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/expected-books/apply?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ audiobookId: 42, position: "4", title: "Secret History" }),
+        }),
+      );
+    });
+
+    it("omits null position and title from apply request body", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.applyMissingBook("Mistborn", 42, null, null);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/expected-books/apply?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ audiobookId: 42 }),
+        }),
+      );
+    });
   });
 
   describe("Settings API endpoints", () => {

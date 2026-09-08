@@ -2543,6 +2543,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/expected-books/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                    position?: string;
+                    title?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesBookCandidateDto"][];
+                        "application/json": components["schemas"]["SeriesBookCandidateDto"][];
+                        "text/json": components["schemas"]["SeriesBookCandidateDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/expected-books/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApplyExpectedBookDto"];
+                    "text/json": components["schemas"]["ApplyExpectedBookDto"];
+                    "application/*+json": components["schemas"]["ApplyExpectedBookDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/expected-books/ignore": {
         parameters: {
             query?: never;
@@ -3223,6 +3305,12 @@ export interface components {
             sourceValues?: string[] | null;
             targetValue?: string | null;
         };
+        ApplyExpectedBookDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            position?: string | null;
+            title?: string | null;
+        };
         ApplyUrlCleanupDto: {
             audiobookIds?: number[] | null;
         };
@@ -3693,6 +3781,19 @@ export interface components {
             fieldValues: {
                 [key: string]: string | null;
             };
+        };
+        SeriesBookCandidateDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            series?: string | null;
+            seriesPart?: string | null;
+            /** Format: int32 */
+            year?: number;
+            authors?: string[] | null;
+            /** Format: double */
+            titleSimilarity?: number;
+            authorMatches?: boolean;
         };
         SeriesDetailDto: {
             overview?: components["schemas"]["SeriesOverviewDto"];
