@@ -1,19 +1,22 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
-import { foldAccents } from "@/helpers/similarValueMatcher";
 import { Route } from "@/routes/library/authors/index";
+
+const PAGE_SIZE = 50;
 
 export function AuthorsList() {
   const navigate = useNavigate();
   const { q = "" } = Route.useSearch();
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
+  const [page, setPage] = useState(0);
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -26,6 +29,7 @@ export function AuthorsList() {
     const timer = setTimeout(() => {
       const trimmed = filter.trim();
       if (trimmed !== q) {
+        setPage(0);
         void navigate({
           to: "/library/authors",
           search: (prev) => ({
@@ -41,6 +45,7 @@ export function AuthorsList() {
 
   const handleClearFilter = () => {
     setFilter("");
+    setPage(0);
     if (q) {
       void navigate({
         to: "/library/authors",
@@ -53,16 +58,18 @@ export function AuthorsList() {
     }
   };
 
-  const { data: authors = [], isLoading: loading } = useQuery({
-    queryKey: ["authors"],
-    queryFn: () => browseApi.getAuthors(),
+  // The list is paged server-side: the filter also runs in SQL (accent-insensitive), so only the
+  // requested page crosses the wire - the old version sent every author in the library.
+  const { data: pageData, isLoading: loading } = useQuery({
+    queryKey: ["authors", q, page],
+    placeholderData: keepPreviousData,
+    queryFn: () => browseApi.getAuthorPage(PAGE_SIZE, page * PAGE_SIZE, q),
   });
 
-  const filteredAuthors = authors.filter((a) => {
-    if (!filter.trim()) return true;
-    const query = foldAccents(filter.trim().toLowerCase());
-    return foldAccents(a.name.toLowerCase()).includes(query);
-  });
+  const authors = pageData?.items ?? [];
+  const totalCount = pageData?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
 
   return (
     <div className="space-y-6">
@@ -73,7 +80,7 @@ export function AuthorsList() {
       <div>
         <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
           <Users className="text-primary h-6 w-6" />
-          Authors ({authors.length})
+          Authors ({totalCount})
         </h1>
         <p className="text-muted-foreground text-sm">Browse books and series grouped by author.</p>
       </div>
@@ -88,6 +95,7 @@ export function AuthorsList() {
             if (e.key === "Enter") {
               const trimmed = filter.trim();
               if (trimmed !== q) {
+                setPage(0);
                 void navigate({
                   to: "/library/authors",
                   search: (prev) => ({
@@ -113,22 +121,24 @@ export function AuthorsList() {
         ) : null}
       </div>
 
-      {loading ? (
+      {loading && authors.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">
           <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
           <p className="text-sm">Loading authors...</p>
         </div>
-      ) : filteredAuthors.length === 0 ? (
+      ) : totalCount === 0 ? (
         <Card className="p-12 text-center">
           <Users className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
           <h3 className="text-foreground text-lg font-medium">No authors found</h3>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filter ? "No authors match your search filter." : "No authors tracked in the library."}
+            {q.trim()
+              ? "No authors match your search filter."
+              : "No authors tracked in the library."}
           </p>
         </Card>
       ) : (
         <div className="space-y-2">
-          {filteredAuthors.map((author) => (
+          {authors.map((author) => (
             <Link
               key={author.id}
               to="/library/authors/$authorId"
@@ -148,6 +158,33 @@ export function AuthorsList() {
               <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
             </Link>
           ))}
+
+          {pageCount > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+              <span className="text-muted-foreground text-xs">
+                Showing {currentPage * PAGE_SIZE + 1}–
+                {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

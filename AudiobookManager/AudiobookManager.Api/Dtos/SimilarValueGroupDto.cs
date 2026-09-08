@@ -1,28 +1,14 @@
 namespace AudiobookManager.Api.Dtos;
 
-public class SimilarValueBookDto
-{
-    public long Id { get; set; }
-    public string BookName { get; set; }
-
-    public SimilarValueBookDto(long id, string bookName)
-    {
-        Id = id;
-        BookName = bookName;
-    }
-}
-
 public class SimilarValueCandidateDto
 {
     public string Value { get; set; }
     public int BookCount { get; set; }
-    public List<SimilarValueBookDto> Books { get; set; }
 
-    public SimilarValueCandidateDto(string value, List<SimilarValueBookDto> books)
+    public SimilarValueCandidateDto(string value, int bookCount)
     {
         Value = value;
-        BookCount = books.Count;
-        Books = books;
+        BookCount = bookCount;
     }
 }
 
@@ -35,6 +21,13 @@ public class SimilarValueGroupDto
         Candidates = candidates;
     }
 }
+
+/// <summary>
+/// One page of detected near-duplicate groups plus the total number of groups, so the client can
+/// size its pager. The unpaged response returned every group with every candidate's full book
+/// list; candidates now carry only their book count, and the groups are paged server-side.
+/// </summary>
+public record SimilarValueGroupsPageDto(List<SimilarValueGroupDto> Items, int TotalCount);
 
 public class AlignSimilarValuesDto
 {

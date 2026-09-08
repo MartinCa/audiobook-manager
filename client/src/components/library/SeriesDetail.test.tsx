@@ -56,28 +56,37 @@ describe("SeriesDetail", () => {
         ignoredBookCount: 0,
         includeOmnibusEditions: false,
       },
-      ownedBooks: [
-        {
-          id: 10,
-          bookName: "The Final Empire",
-          seriesPart: "1",
-          year: 2006,
-          authors: ["Brandon Sanderson"],
-          narrators: ["Michael Kramer"],
-          durationInSeconds: 88000,
-        },
-      ],
-      missingBooks: [
-        {
-          id: 20,
-          title: "The Alloy of Law",
-          position: "4",
-          year: 2011,
-          sourceUrl: null,
-          isIgnored: false,
-        },
-      ],
-      ignoredBooks: [],
+      ownedBooks: {
+        items: [
+          {
+            id: 10,
+            bookName: "The Final Empire",
+            seriesPart: "1",
+            year: 2006,
+            authors: ["Brandon Sanderson"],
+            narrators: ["Michael Kramer"],
+            durationInSeconds: 88000,
+          },
+        ],
+        totalCount: 3,
+      },
+      missingBooks: {
+        items: [
+          {
+            id: 20,
+            title: "The Alloy of Law",
+            position: "4",
+            year: 2011,
+            sourceUrl: null,
+            isIgnored: false,
+          },
+        ],
+        totalCount: 7,
+      },
+      ignoredBooks: {
+        items: [],
+        totalCount: 2,
+      },
     });
 
     renderWithProviders();
@@ -91,5 +100,8 @@ describe("SeriesDetail", () => {
     expect(
       screen.getByText("Include omnibus/box-set editions in missing books list"),
     ).toBeInTheDocument();
+    // Sections display their full totals, not just the loaded page.
+    expect(screen.getByText(/Owned Books \(3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Books \(7\)/)).toBeInTheDocument();
   });
 });

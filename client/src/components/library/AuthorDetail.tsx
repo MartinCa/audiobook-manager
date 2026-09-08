@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +8,50 @@ import { browseApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 import { Route } from "@/routes/library/authors/$authorId";
 
+const PAGE_SIZE = 50;
+
 export function AuthorDetail() {
   const { authorId } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
   const id = Number(authorId);
+
+  // Each section pages server-side; one has its own page state so paging series books doesn't
+  // move the standalone list. The unpaged version sent an author's entire catalogue at once.
+  const [seriesPage, setSeriesPage] = useState(0);
+  const [standalonePage, setStandalonePage] = useState(0);
+
+  const seriesQuery = useQuery({
+    queryKey: ["author", id, "series", seriesPage],
+    queryFn: () =>
+      browseApi.getAuthorDetail(id, {
+        seriesLimit: PAGE_SIZE,
+        seriesOffset: seriesPage * PAGE_SIZE,
+      }),
+    enabled: Boolean(id),
+    placeholderData: keepPreviousData,
+  });
+
+  const standaloneQuery = useQuery({
+    queryKey: ["author", id, "standalone", standalonePage],
+    queryFn: () =>
+      browseApi.getAuthorDetail(id, {
+        standaloneLimit: PAGE_SIZE,
+        standaloneOffset: standalonePage * PAGE_SIZE,
+      }),
+    enabled: Boolean(id),
+    placeholderData: keepPreviousData,
+  });
+
+  const author = seriesQuery.data?.author ?? standaloneQuery.data?.author;
+  const seriesSection = seriesQuery.data?.series ?? { items: [], total: 0 };
+  const standaloneSection = standaloneQuery.data?.standaloneBooks ?? { items: [], total: 0 };
+
+  const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / PAGE_SIZE));
+  const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / PAGE_SIZE));
+  // Clamped so the fetched and the displayed page can never disagree.
+  const currentSeriesPage = Math.min(seriesPage, seriesPageCount - 1);
+  const currentStandalonePage = Math.min(standalonePage, standalonePageCount - 1);
 
   const handleBack = () => {
     if (router.history.canGoBack()) {
@@ -21,13 +61,7 @@ export function AuthorDetail() {
     }
   };
 
-  const { data: detail, isLoading: loading } = useQuery({
-    queryKey: ["author", id],
-    queryFn: () => browseApi.getAuthorDetail(id),
-    enabled: Boolean(id),
-  });
-
-  if (loading) {
+  if (!author && (seriesQuery.isLoading || standaloneQuery.isLoading)) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
         <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
@@ -36,7 +70,7 @@ export function AuthorDetail() {
     );
   }
 
-  if (!detail) {
+  if (!author) {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Author not found</h2>
@@ -45,7 +79,8 @@ export function AuthorDetail() {
     );
   }
 
-  const { author, series, standaloneBooks } = detail;
+  const series = seriesSection.items;
+  const standaloneBooks = standaloneSection.items;
 
   return (
     <div className="space-y-6">
@@ -66,11 +101,11 @@ export function AuthorDetail() {
         </p>
       </div>
 
-      {series.length > 0 && (
+      {seriesSection.total > 0 && (
         <div className="space-y-3">
           <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
             <BookMarked className="text-primary h-5 w-5" />
-            Series ({series.length})
+            Series ({seriesSection.total})
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {series.map((s) => (
@@ -95,14 +130,41 @@ export function AuthorDetail() {
               </Link>
             ))}
           </div>
+          {seriesPageCount > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted-foreground text-xs">
+                Showing {currentSeriesPage * PAGE_SIZE + 1}–
+                {Math.min((currentSeriesPage + 1) * PAGE_SIZE, seriesSection.total)} of{" "}
+                {seriesSection.total}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentSeriesPage === 0}
+                  onClick={() => setSeriesPage(currentSeriesPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentSeriesPage >= seriesPageCount - 1}
+                  onClick={() => setSeriesPage(currentSeriesPage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {standaloneBooks.length > 0 && (
+      {standaloneSection.total > 0 && (
         <div className="space-y-3">
           <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
             <BookOpen className="text-primary h-5 w-5" />
-            Standalone Audiobooks ({standaloneBooks.length})
+            Standalone Audiobooks ({standaloneSection.total})
           </h2>
           <div className="space-y-2">
             {standaloneBooks.map((book) => (
@@ -140,6 +202,33 @@ export function AuthorDetail() {
               </Link>
             ))}
           </div>
+          {standalonePageCount > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+              <span className="text-muted-foreground text-xs">
+                Showing {currentStandalonePage * PAGE_SIZE + 1}–
+                {Math.min((currentStandalonePage + 1) * PAGE_SIZE, standaloneSection.total)} of{" "}
+                {standaloneSection.total}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentStandalonePage === 0}
+                  onClick={() => setStandalonePage(currentStandalonePage - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentStandalonePage >= standalonePageCount - 1}
+                  onClick={() => setStandalonePage(currentStandalonePage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

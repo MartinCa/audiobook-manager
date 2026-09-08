@@ -75,33 +75,6 @@ public class SettingsServiceTests
     }
 
     [TestMethod]
-    public async Task GetSeriesMappings_ReturnsAllMappedToDomain()
-    {
-        _repository.Setup(r => r.GetSeriesMappings()).ReturnsAsync(new List<DbSeriesMapping>
-        {
-            new DbSeriesMapping(1, "^A$", "A Series", false),
-            new DbSeriesMapping(2, "^B$", "B Series", true),
-        });
-
-        var result = await _service.GetSeriesMappings();
-
-        Assert.AreEqual(2, result.Count);
-        Assert.AreEqual("A Series", result[0].MappedSeries);
-        Assert.AreEqual("B Series", result[1].MappedSeries);
-        Assert.IsTrue(result[1].WarnAboutPart);
-    }
-
-    [TestMethod]
-    public async Task GetSeriesMappings_Empty_ReturnsEmptyList()
-    {
-        _repository.Setup(r => r.GetSeriesMappings()).ReturnsAsync(new List<DbSeriesMapping>());
-
-        var result = await _service.GetSeriesMappings();
-
-        Assert.AreEqual(0, result.Count);
-    }
-
-    [TestMethod]
     public async Task UpdateSeriesMapping_PersistsAndReturnsUpdatedValues()
     {
         var domainMapping = new DomainSeriesMapping(3, "^Updated$", "Updated Series", true);

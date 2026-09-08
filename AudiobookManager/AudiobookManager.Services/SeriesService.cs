@@ -1,7 +1,6 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
-using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services.Similarity;
@@ -59,9 +58,29 @@ public class SeriesService : ISeriesService
     /// </summary>
     private const int CandidatePrefilterLimit = 1000;
 
+    /// <summary>
+    /// The largest roster the reconciliation will classify in memory. The roster is stored from a
+    /// metadata source's series page, so this is a defensive floor far above any real source
+    /// (Hardcover returns one series at a time). It is enforced BEFORE materialization: the
+    /// repository fetch is bounded to cap + 1 rows, so a pathological roster is detected and
+    /// refused without ever being loaded whole. It is a hard bound on purpose - a series past it
+    /// indicates corrupted data, and failing loudly beats showing wrong missing counts.
+    /// </summary>
+    internal const int MaxReconciliationRosterEntries = 5_000;
+
+    /// <summary>
+    /// The largest owned-book key set (per series) the reconciliation will classify against. Same
+    /// rationale as <see cref="MaxReconciliationRosterEntries"/>: the fuzzy matching is
+    /// O(roster x owned), so both sides must be explicitly bounded for the computation to be
+    /// genuinely bounded rather than merely usually-small - and the owned-key fetch is bounded to
+    /// cap + 1 rows so an oversized set is detected without materializing it.
+    /// </summary>
+    internal const int MaxReconciliationOwnedKeys = 20_000;
+
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
     private readonly IAudiobookService _audiobookService;
+    private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
 
@@ -69,12 +88,14 @@ public class SeriesService : ISeriesService
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
         IAudiobookService audiobookService,
+        ISeriesReconciliationCache reconciliationCache,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
         _audiobookService = audiobookService;
+        _reconciliationCache = reconciliationCache;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -111,57 +132,147 @@ public class SeriesService : ISeriesService
         return overviews.OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public async Task<SeriesDetail?> GetSeriesDetailAsync(string seriesName)
+    public async Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
+        int page, int pageSize, string? search, bool? matched)
     {
-        var books = await _audiobookRepository.GetBooksBySeriesAsync(seriesName, null);
-        var catalogRow = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+        var (names, totalCount) = await _audiobookRepository.GetSeriesValuesPageAsync(
+            search, matched, skip: (int)((long)page * pageSize), take: pageSize);
 
-        if (books.Count == 0 && catalogRow is null)
+        if (names.Count == 0)
+        {
+            return new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = totalCount };
+        }
+
+        var booksBySeries = (await _audiobookRepository.GetSeriesGroupingDataAsync(names))
+            .ToLookup(b => b.Series, StringComparer.Ordinal);
+        var catalogByName = (await _seriesRepository.GetByNamesWithExpectedBooksAsync(names))
+            .ToDictionary(s => s.Name, StringComparer.Ordinal);
+
+        var items = names.Select(name =>
+        {
+            catalogByName.TryGetValue(name, out var catalogRow);
+            return BuildOverview(name, booksBySeries[name].ToList(), catalogRow);
+        }).ToList();
+
+        return new SeriesOverviewPage { Items = items, TotalCount = totalCount };
+    }
+
+    public async Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync()
+    {
+        var (total, matched) = await _audiobookRepository.GetSeriesValueCountsAsync();
+        return new SeriesOverviewCounts { Total = total, Matched = matched, Unmatched = total - matched };
+    }
+
+    public async Task<SeriesDetailPage?> GetSeriesDetailPageAsync(
+        string seriesName,
+        int ownedSkip, int ownedTake,
+        int missingSkip, int missingTake,
+        int ignoredSkip, int ignoredTake)
+    {
+        // The per-request reads are bounded: one catalog metadata row, one SQL page of owned
+        // books, and the cached reconciliation. The reconciliation itself - which classifies the
+        // whole roster against the series' owned keys via the fuzzy matcher - is computed once
+        // per series per change, never per page request (see GetOrComputeReconciliationAsync).
+        var catalogRow = await _seriesRepository.GetByNameAsync(seriesName);
+        var ownedPage = await _audiobookRepository.GetSeriesOwnedBooksPageAsync(seriesName, ownedSkip, ownedTake);
+
+        if (ownedPage.Total == 0 && catalogRow is null)
         {
             return null;
         }
 
-        var overview = BuildOverview(seriesName, ToGroupingBooks(books), catalogRow);
+        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
 
-        var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
-        var expected = (catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>())
-            .Where(e => includeOmnibusEditions || !e.IsCompilation)
-            .ToList();
-        var ownedBooks = new OwnedBookIndex(books.Select(b => BookKey.From(b.SeriesPart, b.BookName)));
-        var missing = expected
-            .Where(e => !e.IsIgnored && !IsOwned(e, ownedBooks))
-            .Select(ToExpectedInfo)
-            .OrderBy(e => PositionSortKey(e.Position))
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var ignored = expected
-            .Where(e => e.IsIgnored)
-            .Select(ToExpectedInfo)
-            .OrderBy(e => PositionSortKey(e.Position))
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        return new SeriesDetail
+        return new SeriesDetailPage
         {
-            Overview = overview,
-            OwnedBooks = books
+            Overview = BuildReconciledOverview(seriesName, catalogRow, reconciliation),
+            OwnedBooks = ownedPage.Items
                 .Select(b => new SeriesOwnedBook
                 {
                     Id = b.Id,
                     BookName = b.BookName,
                     SeriesPart = b.SeriesPart,
                     Year = b.Year,
-                    Authors = b.Authors.Select(a => a.Name).ToList(),
-                    Narrators = b.Narrators.Select(n => n.Name).ToList(),
+                    Authors = b.Authors,
+                    Narrators = b.Narrators,
                     DurationInSeconds = b.DurationInSeconds,
                 })
-                .OrderBy(b => PositionSortKey(b.SeriesPart))
-                .ThenBy(b => b.BookName, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            MissingBooks = missing,
-            IgnoredBooks = ignored,
+            OwnedBookTotal = ownedPage.Total,
+            MissingBooks = reconciliation.Missing.Skip(missingSkip).Take(missingTake).ToList(),
+            MissingBookTotal = reconciliation.Missing.Count,
+            IgnoredBooks = reconciliation.Ignored.Skip(ignoredSkip).Take(ignoredTake).ToList(),
+            IgnoredBookTotal = reconciliation.Ignored.Count,
         };
+    }
+
+    /// <summary>
+    /// The series' reconciliation, computed once per series per change and cached. The
+    /// computation classifies the full roster against the series' owned (position, title) keys -
+    /// the fuzzy ownership semantics demand the whole key set, which SQL cannot express - so it
+    /// is the one step that touches per-series data beyond the requested page, and it is bounded:
+    /// the roster is the metadata source's stored series page and both inputs sit under the
+    /// <see cref="MaxReconciliationRosterEntries"/>/<see cref="MaxReconciliationOwnedKeys"/>
+    /// caps. The single-flight gate, the version check and the capacity-bounded eviction all live
+    /// inside <see cref="ISeriesReconciliationCache"/>, so a page-flip stampede shares one
+    /// computation and the cache cannot grow with the library.
+    /// </summary>
+    private Task<SeriesReconciliation> GetOrComputeReconciliationAsync(string seriesName) =>
+        _reconciliationCache.GetOrComputeAsync(seriesName, () => ComputeReconciliationAsync(seriesName));
+
+    private async Task<SeriesReconciliation> ComputeReconciliationAsync(string seriesName)
+    {
+        // Both inputs are read through bounded repository queries (cap + 1 rows with an overflow
+        // flag), so a pathological roster or owned set is detected and refused BEFORE it is ever
+        // fully materialized or transferred - the service never sees the unbounded collection.
+        var (catalogRow, rosterOverflow) = await _seriesRepository.GetByNameWithExpectedBooksBoundedAsync(
+            seriesName, MaxReconciliationRosterEntries);
+        if (rosterOverflow)
+        {
+            throw new InvalidOperationException(
+                $"Series '{seriesName}' has at least {MaxReconciliationRosterEntries + 1} roster entries, exceeding the {MaxReconciliationRosterEntries} the detail view reconciles.");
+        }
+
+        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+
+        var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
+            seriesName, MaxReconciliationOwnedKeys);
+        if (ownedOverflow)
+        {
+            throw new InvalidOperationException(
+                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} the detail view reconciles.");
+        }
+
+        var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
+        var visible = expected
+            .Where(e => includeOmnibusEditions || !e.IsCompilation)
+            .ToList();
+
+        var ownedIndex = new OwnedBookIndex(ownedKeys.Select(k => BookKey.From(k.SeriesPart, k.BookName)));
+        var missing = visible
+            .Where(e => !e.IsIgnored && !IsOwned(e, ownedIndex))
+            .Select(ToExpectedInfo)
+            .OrderBy(e => PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Id)
+            .ToList();
+
+        var ignored = visible
+            .Where(e => e.IsIgnored)
+            .Select(ToExpectedInfo)
+            .OrderBy(e => PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Id)
+            .ToList();
+
+        var authors = await _audiobookRepository.GetAuthorNamesBySeriesAsync(seriesName);
+
+        return new SeriesReconciliation(
+            missing,
+            ignored,
+            ExpectedBookCount: visible.Count(e => !e.IsIgnored),
+            OwnedCount: ownedKeys.Count,
+            authors);
     }
 
     public async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName)
@@ -281,20 +392,23 @@ public class SeriesService : ISeriesService
     {
         var saved = await MatchSeriesCoreAsync(seriesName, sourceName, sourceSeriesId, confidence, includeOmnibusEditions);
 
-        // Only the single-series endpoint needs the full detail projection; bulk callers use
-        // MatchSeriesCoreAsync directly and would throw the result away.
-        var detail = await GetSeriesDetailAsync(seriesName);
-        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), saved);
+        // MatchSeriesCoreAsync invalidated the cache; rebuild the overview from a fresh
+        // reconciliation so the return value already reflects the newly-stored roster. Bulk
+        // callers use MatchSeriesCoreAsync directly and never render an overview.
+        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
+        return BuildReconciledOverview(seriesName, saved, reconciliation);
     }
 
     public async Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
     {
         // The full roster (compilations included) is always stored, so this is a pure display
-        // setting - no re-fetch from the source is needed to apply it.
+        // setting - no re-fetch from the source is needed to apply it. It does change which
+        // roster entries are visible, so the cached reconciliation must be dropped and rebuilt.
         var saved = await _seriesRepository.SetIncludeOmnibusEditionsAsync(seriesName, includeOmnibusEditions);
+        _reconciliationCache.Invalidate(seriesName);
 
-        var detail = await GetSeriesDetailAsync(seriesName);
-        return detail?.Overview ?? BuildOverview(seriesName, new List<SeriesGroupingBook>(), saved);
+        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
+        return BuildReconciledOverview(seriesName, saved, reconciliation);
     }
 
     /// <summary>
@@ -359,6 +473,9 @@ public class SeriesService : ISeriesService
 
         await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
 
+        // The roster was just replaced wholesale - the reconciled detail is stale by definition.
+        _reconciliationCache.Invalidate(seriesName);
+
         return saved;
     }
 
@@ -419,8 +536,11 @@ public class SeriesService : ISeriesService
         return await RefreshManyAsync(matchedNames, progressAction);
     }
 
-    public Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored) =>
-        _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
+    public async Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored)
+    {
+        await _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
+        _reconciliationCache.Invalidate(seriesName);
+    }
 
     public async Task<List<SeriesBookCandidate>> FindMissingBookCandidatesAsync(string seriesName, string? position, string? title)
     {
@@ -571,15 +691,6 @@ public class SeriesService : ISeriesService
         return (processed, succeeded, failed, stopReason);
     }
 
-    private static List<SeriesGroupingBook> ToGroupingBooks(IEnumerable<DbAudiobook> books) =>
-        books
-            .Select(b => new SeriesGroupingBook(
-                b.Series ?? string.Empty,
-                b.SeriesPart,
-                b.BookName,
-                b.Authors.Select(a => a.Name).ToList()))
-            .ToList();
-
     private static SeriesOverview BuildOverview(string seriesName, List<SeriesGroupingBook> ownedBooks, Series? catalogRow)
     {
         var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
@@ -589,16 +700,50 @@ public class SeriesService : ISeriesService
         var active = expected.Where(e => !e.IsIgnored).ToList();
         var ownedIndex = new OwnedBookIndex(ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)));
 
-        return new SeriesOverview
-        {
-            Id = catalogRow?.Id,
-            Name = seriesName,
-            Authors = ownedBooks
+        return BuildOverview(
+            seriesName,
+            catalogRow,
+            ownedBooks
                 .SelectMany(b => b.Authors)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            OwnedBookCount = ownedBooks.Count,
+            ownedBooks.Count,
+            active.Count,
+            expected.Count - active.Count,
+            active.Count(e => !IsOwned(e, ownedIndex)));
+    }
+
+    /// <summary>
+    /// The detail-path overview: the counts and authors come from the cached reconciliation
+    /// rather than a per-book grouping load, so the page renders from bounded data and the badge
+    /// counts always agree with the missing/ignored sections they summarize.
+    /// </summary>
+    private static SeriesOverview BuildReconciledOverview(
+        string seriesName, Series? catalogRow, SeriesReconciliation reconciliation) =>
+        BuildOverview(
+            seriesName,
+            catalogRow,
+            reconciliation.Authors.ToList(),
+            reconciliation.OwnedCount,
+            reconciliation.ExpectedBookCount,
+            reconciliation.IgnoredBookCount,
+            reconciliation.MissingBookCount);
+
+    private static SeriesOverview BuildOverview(
+        string seriesName,
+        Series? catalogRow,
+        List<string> authors,
+        int ownedBookCount,
+        int expectedBookCount,
+        int ignoredBookCount,
+        int missingBookCount) =>
+        new()
+        {
+            Id = catalogRow?.Id,
+            Name = seriesName,
+            Authors = authors,
+            OwnedBookCount = ownedBookCount,
             IsMatched = catalogRow is not null
                 && !string.IsNullOrEmpty(catalogRow.MatchedSourceName)
                 && !string.IsNullOrEmpty(catalogRow.MatchedSourceId),
@@ -607,12 +752,11 @@ public class SeriesService : ISeriesService
             MatchedSourceUrl = catalogRow?.MatchedSourceUrl,
             MatchConfidence = catalogRow?.MatchConfidence,
             LastRefreshedAt = catalogRow?.LastRefreshedAt,
-            ExpectedBookCount = active.Count,
-            IgnoredBookCount = expected.Count - active.Count,
-            MissingBookCount = active.Count(e => !IsOwned(e, ownedIndex)),
-            IncludeOmnibusEditions = includeOmnibusEditions,
+            ExpectedBookCount = expectedBookCount,
+            IgnoredBookCount = ignoredBookCount,
+            MissingBookCount = missingBookCount,
+            IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
         };
-    }
 
     private static SeriesExpectedBookInfo ToExpectedInfo(SeriesExpectedBook book) => new()
     {

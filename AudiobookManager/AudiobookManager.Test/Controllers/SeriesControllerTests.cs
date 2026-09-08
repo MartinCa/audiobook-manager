@@ -133,48 +133,137 @@ public class SeriesControllerTests
     };
 
     [TestMethod]
-    public async Task GetAllSeries_ReturnsMappedDtoList()
+    public async Task GetSeries_ReturnsOnePageWithItemsAndTotal()
     {
-        _seriesService.Setup(s => s.GetAllSeriesOverviewAsync()).ReturnsAsync(new List<SeriesOverview> { MakeOverview() });
+        _seriesService
+            .Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview> { MakeOverview() }, TotalCount = 211 });
 
-        var result = await _controller.GetAllSeries();
+        var result = await _controller.GetSeries();
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual("Mistborn", result[0].Name);
-        Assert.AreEqual(3, result[0].OwnedBookCount);
-        Assert.IsTrue(result[0].IsMatched);
+        var page = ((OkObjectResult)result.Result!).Value as SeriesOverviewPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(211, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual("Mistborn", page.Items[0].Name);
+        Assert.AreEqual(3, page.Items[0].OwnedBookCount);
+        Assert.IsTrue(page.Items[0].IsMatched);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetail_Found_ReturnsMappedDto()
+    public async Task GetSeries_PassesPagePageSizeSearchAndMatchedThrough()
     {
-        var detail = new SeriesDetail
-        {
-            Overview = MakeOverview(),
-            OwnedBooks = new List<SeriesOwnedBook> { new SeriesOwnedBook { Id = 1, BookName = "The Final Empire", Year = 2006, Authors = new List<string> { "Brandon Sanderson" }, Narrators = new List<string>() } },
-            MissingBooks = new List<SeriesExpectedBookInfo> { new SeriesExpectedBookInfo { Id = 10, Title = "Missing Book", Position = "4" } },
-            IgnoredBooks = new List<SeriesExpectedBookInfo>()
-        };
-        _seriesService.Setup(s => s.GetSeriesDetailAsync("Mistborn")).ReturnsAsync(detail);
+        _seriesService
+            .Setup(s => s.GetSeriesOverviewPageAsync(4, 25, "mist", false))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 3 });
+
+        var result = await _controller.GetSeries(page: 4, pageSize: 25, search: "mist", matched: false);
+
+        var page = ((OkObjectResult)result.Result!).Value as SeriesOverviewPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(3, page.TotalCount);
+        _seriesService.Verify(s => s.GetSeriesOverviewPageAsync(4, 25, "mist", false), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetSeries_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetSeries(page: page, pageSize: pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>()),
+            Times.Never);
+    }
+
+    // Regression mirroring UrlCleanupControllerTests: the offset is widened before multiplying so
+    // a huge page cannot wrap negative and silently serve the first page.
+    [TestMethod]
+    public async Task GetSeries_APageLargeEnoughToOverflowTheOffset_IsRefused()
+    {
+        var result = await _controller.GetSeries(page: 11_000_000, pageSize: 200);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesCounts_MapsCountsToDto()
+    {
+        _seriesService.Setup(s => s.GetSeriesOverviewCountsAsync())
+            .ReturnsAsync(new SeriesOverviewCounts { Total = 42, Matched = 18, Unmatched = 24 });
+
+        var result = await _controller.GetSeriesCounts();
+
+        Assert.AreEqual(42, result.Total);
+        Assert.AreEqual(18, result.Matched);
+        Assert.AreEqual(24, result.Unmatched);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetail_Found_ReturnsMappedMagesWithTotals()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50))
+            .ReturnsAsync(new SeriesDetailPage
+            {
+                Overview = MakeOverview(),
+                OwnedBooks = new List<SeriesOwnedBook>
+                {
+                    new SeriesOwnedBook { Id = 1, BookName = "The Final Empire", Year = 2006, Authors = new List<string> { "Brandon Sanderson" }, Narrators = new List<string>() }
+                },
+                OwnedBookTotal = 3,
+                MissingBooks = new List<SeriesExpectedBookInfo>
+                {
+                    new SeriesExpectedBookInfo { Id = 10, Title = "Missing Book", Position = "4" }
+                },
+                MissingBookTotal = 7,
+                IgnoredBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredBookTotal = 2
+            });
 
         var result = await _controller.GetSeriesDetail("Mistborn");
 
         Assert.IsNotNull(result.Value);
         var dto = result.Value!;
         Assert.AreEqual("Mistborn", dto.Overview.Name);
-        Assert.AreEqual(1, dto.OwnedBooks.Count);
-        Assert.AreEqual(1, dto.MissingBooks.Count);
-        Assert.AreEqual("Missing Book", dto.MissingBooks[0].Title);
+        Assert.AreEqual(1, dto.OwnedBooks.Items.Count);
+        Assert.AreEqual(3, dto.OwnedBooks.TotalCount);
+        Assert.AreEqual(1, dto.MissingBooks.Items.Count);
+        Assert.AreEqual(7, dto.MissingBooks.TotalCount);
+        Assert.AreEqual(0, dto.IgnoredBooks.Items.Count);
+        Assert.AreEqual(2, dto.IgnoredBooks.TotalCount);
+        Assert.AreEqual("Missing Book", dto.MissingBooks.Items[0].Title);
     }
 
     [TestMethod]
     public async Task GetSeriesDetail_NotFound_Returns404()
     {
-        _seriesService.Setup(s => s.GetSeriesDetailAsync("Unknown")).ReturnsAsync((SeriesDetail?)null);
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync((SeriesDetailPage?)null);
 
         var result = await _controller.GetSeriesDetail("Unknown");
 
         Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetail_AnOutOfRangeSectionPage_IsRefused()
+    {
+        var result = await _controller.GetSeriesDetail("Mistborn", missingPage: -1);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(
+            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
     }
 
     [TestMethod]

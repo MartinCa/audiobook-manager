@@ -260,6 +260,68 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
+    /// One page of a series' owned books plus the full total, for the series detail's owned
+    /// section. Only the fields that section renders are projected (author/narrator names as
+    /// correlated subqueries), and the page is computed in SQL with a total order - blank series
+    /// parts last, then the part, then the book name, then id - so paging stays stable while the
+    /// library grows. This replaced a per-section read of every owned book with its Genres and
+    /// Description for a view that shows a page at a time.
+    /// </summary>
+    public async Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(
+        string seriesName, int skip, int take)
+    {
+        var query = _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series == seriesName);
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(a => a.SeriesPart == null || a.SeriesPart.Trim() == "" ? 1 : 0)
+            .ThenBy(a => a.SeriesPart)
+            .ThenBy(a => a.BookName)
+            .ThenBy(a => a.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(a => new SeriesOwnedBookRow(
+                a.Id,
+                a.BookName,
+                a.SeriesPart,
+                a.Year,
+                a.Authors.Select(p => p.Name).ToList(),
+                a.Narrators.Select(p => p.Name).ToList(),
+                a.DurationInSeconds))
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    /// <summary>
+    /// Every owned book of one series reduced to its (series part, book name) keys. The series
+    /// detail reconciles a roster against these, but that reconciliation is cached per series;
+    /// this runs only when the cache needs refilling, and carries nothing the fuzzy matcher does
+    /// not read - no authors, no ids, no entity graph.
+    ///
+    /// The fetch is bounded to <paramref name="maxKeys"/> + 1 rows and returns whether that bound
+    /// was breached, so a pathological owned set is detected without ever materializing (or
+    /// transferring) the whole thing; a set at or under the cap comes back complete - the returned
+    /// count is then the exact owned count the reconciliation needs, no second query required.
+    /// </summary>
+    public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetSeriesOwnedKeysAsync(
+        string seriesName, int maxKeys)
+    {
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series == seriesName)
+            .OrderBy(a => a.Id)
+            .Take(maxKeys + 1)
+            .Select(a => new { a.SeriesPart, a.BookName })
+            .ToListAsync();
+
+        return (rows.Select(r => new SeriesOwnedKey(r.SeriesPart, r.BookName)).ToList(), rows.Count > maxKeys);
+    }
+
+    /// <summary>
     /// Just the cover path for one book. The cover endpoint used to load the whole entity with
     /// its authors/narrators/genres - three extra split queries - to read this one column.
     /// </summary>
@@ -273,41 +335,55 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
-    /// Per-series book counts for one author, aggregated in SQL. The author detail view only
-    /// renders a name and a count for each series, so the books themselves are never loaded.
+    /// One page of per-series book counts for one author, aggregated in SQL. The author detail
+    /// view only renders a name and a count for each series, so the books themselves are never
+    /// loaded. Paged with a total order (the series name, which the GROUP BY makes unique within
+    /// an author's series) so page boundaries stay stable.
     /// </summary>
-    public async Task<List<(string Series, int BookCount)>> GetSeriesCountsByAuthorAsync(long authorId)
+    public async Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(
+        long authorId, int limit, int offset)
     {
-        var rows = await _db.Audiobooks
+        var matching = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && a.Authors.Any(p => p.Id == authorId))
+            .Where(a => a.Series != null && a.Series != "" && a.Authors.Any(p => p.Id == authorId));
+
+        var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
+
+        var rows = await matching
             .GroupBy(a => a.Series!)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
+            .OrderBy(g => g.Series)
+            .Skip(offset)
+            .Take(limit)
             .ToListAsync();
 
-        return rows
-            .OrderBy(r => r.Series, StringComparer.InvariantCulture)
-            .Select(r => (r.Series, r.BookCount))
-            .ToList();
+        return (rows.Select(r => (r.Series, r.BookCount)).ToList(), total);
     }
 
-    /// <summary>The author's books that belong to no series - the only ones rendered in full.</summary>
-    public async Task<List<Audiobook>> GetStandaloneBooksByAuthorAsync(long authorId)
+    /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
+    public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
+        long authorId, int limit, int offset)
     {
-        var books = await _db.Audiobooks
+        var matching = _db.Audiobooks
             .AsNoTracking()
+            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId));
+
+        var total = await matching.CountAsync();
+
+        // Ordered in SQL because the query is paged - the documented tradeoff for a paged query
+        // is BINARY collation over the name; id is the tiebreaker that makes the order total.
+        var books = await matching
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
-            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId))
+            .OrderBy(a => a.BookName)
+            .ThenBy(a => a.Id)
+            .Skip(offset)
+            .Take(limit)
             .ToListAsync();
 
-        // Title order for a human, so sorted in memory rather than by SQL's BINARY collation.
-        return books
-            .OrderBy(a => a.BookName, StringComparer.InvariantCulture)
-            .ThenBy(a => a.Id)
-            .ToList();
+        return (books, total);
     }
 
     public async Task<Audiobook?> GetByIdWithIncludesAsync(long id)
@@ -332,6 +408,113 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// One page of books missing at least one of the fields the caller selected, plus the total
+    /// count of the same filtered set. Unlike the unpaged projection it replaces, the selected
+    /// fields' "is missing" predicates are applied as a WHERE clause in SQL (an OR of the
+    /// <see cref="Expression{TDelegate}"/>s <paramref name="missingPredicates"/> carries, which
+    /// Microsoft.EntityFrameworkCore translates into EXISTS/negated-EXISTS subqueries and blank
+    /// checks), so a library where half the books lack a Language tag never sends half the
+    /// audiobooks over the wire just to compute a page.
+    ///
+    /// The page is ordered in SQL, which means BINARY collation over the book name - the
+    /// documented tradeoff for a paged query (see the ordering rule in AGENTS.md); Id is the
+    /// tiebreaker that makes the order total. <paramref name="search"/> folds accents on the
+    /// precomputed <c>BookNameFolded</c> column.
+    /// </summary>
+    public async Task<(List<MissingTagRow> Items, int Total)> GetMissingTagRowsPageAsync(
+        IReadOnlyCollection<Expression<Func<Audiobook, bool>>> missingPredicates,
+        string? search,
+        int skip,
+        int take)
+    {
+        var query = _db.Audiobooks.AsNoTracking();
+
+        // No selected field means no book can be missing one of them - never an unfiltered pass
+        // over the whole library (the callers that reach this method always have at least one).
+        if (missingPredicates.Count == 0)
+        {
+            return (new List<MissingTagRow>(), 0);
+        }
+
+        query = query.Where(BuildOr(missingPredicates));
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
+            query = query.Where(a => EF.Functions.Like(a.BookNameFolded, pattern));
+        }
+
+        // The matching set is answered in SQL before any row is materialized: the total is a
+        // COUNT over the filtered query, and only the page's rows are projected (one boolean per
+        // taggable field, as EXISTS/negated-EXISTS subqueries in SQL - "non-blank" is a trimmed
+        // non-empty value, matching the IsNullOrWhiteSpace predicates MissingTagService.Fields
+        // runs against the row). A page never reads a Description-size blob or materializes a
+        // collection for a book the page doesn't show.
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(a => a.BookName)
+            .ThenBy(a => a.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(a => new MissingTagRow(
+                a.Id,
+                a.BookName,
+                a.Authors.Select(p => p.Name).ToList(),
+                a.Authors.Any(p => p.Name != null && p.Name.Trim() != ""),
+                a.Narrators.Any(p => p.Name != null && p.Name.Trim() != ""),
+                a.Genres.Any(),
+                a.BookName == null || a.BookName.Trim() == "",
+                a.Year == 0,
+                a.Series == null || a.Series.Trim() == "",
+                a.SeriesPart == null || a.SeriesPart.Trim() == "",
+                a.Subtitle == null || a.Subtitle.Trim() == "",
+                a.Description == null || a.Description.Trim() == "",
+                a.Language == null || a.Language.Trim() == "",
+                a.CoverFilePath == null || a.CoverFilePath.Trim() == "",
+                a.Copyright == null || a.Copyright.Trim() == "",
+                a.Publisher == null || a.Publisher.Trim() == "",
+                a.Rating == null || a.Rating.Trim() == "",
+                a.Asin == null || a.Asin.Trim() == "",
+                a.Www == null || a.Www.Trim() == ""))
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    /// <summary>
+    /// OR-combines an arbitrarily long set of <see cref="Expression{TDelegate}"/>s over the same
+    /// entity type into one <c>WHERE a OR b OR c</c>. The predicates come from the service (each
+    /// field's "is missing" test), so they cannot be handed to EF as a compiled delegate - it can
+    /// only translate expression trees. Every predicate's parameter is rebound to one shared
+    /// parameter so the subtree EF sees is a single lambda, not a call into a closure.
+    /// </summary>
+    private static Expression<Func<T, bool>> BuildOr<T>(IReadOnlyCollection<Expression<Func<T, bool>>> predicates)
+    {
+        var parameter = Expression.Parameter(typeof(T), "v");
+        var body = predicates
+            .Select(predicate => new ParameterRebinder(predicate.Parameters[0], parameter).Visit(predicate.Body))
+            .Aggregate(Expression.OrElse);
+
+        return Expression.Lambda<Func<T, bool>>(body, parameter);
+    }
+
+    private sealed class ParameterRebinder : ExpressionVisitor
+    {
+        private readonly ParameterExpression _from;
+        private readonly ParameterExpression _to;
+
+        public ParameterRebinder(ParameterExpression from, ParameterExpression to)
+        {
+            _from = from;
+            _to = to;
+        }
+
+        protected override Expression VisitParameter(ParameterExpression node) =>
+            node == _from ? _to : base.VisitParameter(node);
+    }
+
     public async Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync()
     {
         var rows = await _db.Audiobooks
@@ -349,6 +532,131 @@ public class AudiobookRepository : IAudiobookRepository
         return rows
             .Select(r => new SeriesGroupingBook(r.Series, r.SeriesPart, r.BookName, r.Authors))
             .ToList();
+    }
+
+    /// <summary>
+    /// <see cref="GetSeriesGroupingDataAsync()"/> bounded to one page of series values. The
+    /// unbounded variant materialized every audiobook row in the library - Authors included - to
+    /// build the overview the Series page has to render per series; paging the values first in
+    /// <see cref="GetSeriesValuesPageAsync"/> and hydrating only that page's books keeps the read
+    /// proportional to the rendered rows.
+    /// </summary>
+    public async Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync(List<string> seriesValues)
+    {
+        if (seriesValues.Count == 0)
+        {
+            return new List<SeriesGroupingBook>();
+        }
+
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => seriesValues.Contains(a.Series!))
+            .Select(a => new
+            {
+                Series = a.Series!,
+                a.SeriesPart,
+                a.BookName,
+                Authors = a.Authors.Select(p => p.Name).ToList(),
+            })
+            .ToListAsync();
+
+        return rows
+            .Select(r => new SeriesGroupingBook(r.Series, r.SeriesPart, r.BookName, r.Authors))
+            .ToList();
+    }
+
+    public async Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
+        string? search, bool? matched, int skip, int take)
+    {
+        var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
+        var pattern = folded is null ? null : $"%{folded}%";
+
+        var booksQuery = _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series != null && a.Series != "");
+
+        if (pattern is not null)
+        {
+            // Mirrors the filter the overview page used to apply client-side: the series value
+            // itself, or any author of the series' books, matched accent-insensitively. The
+            // precomputed folded column keeps the LIKE off a per-row fold call, like every other
+            // search in this repository. The matched condition is inlined (not factored into a
+            // helper) because EF can only translate conditions written inline in the lambda.
+            booksQuery = booksQuery.Where(a =>
+                EF.Functions.Like(a.SeriesFolded, pattern) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern)));
+        }
+
+        if (matched is not null)
+        {
+            var wantMatched = matched == true;
+            var matchedCatalog = _db.Series
+                .AsNoTracking()
+                .Where(s => s.MatchedSourceName != null && s.MatchedSourceName != ""
+                    && s.MatchedSourceId != null && s.MatchedSourceId != "")
+                .Select(s => s.Name);
+
+            booksQuery = booksQuery.Where(a =>
+                wantMatched ? matchedCatalog.Contains(a.Series!) : !matchedCatalog.Contains(a.Series!));
+        }
+
+        var fromBooks = booksQuery.Select(a => a.Series!).Distinct();
+
+        var catalogQuery = _db.Series.AsNoTracking();
+        if (pattern is not null)
+        {
+            catalogQuery = catalogQuery.Where(s => EF.Functions.Like(AccentFolding.Fold(s.Name), pattern));
+        }
+
+        if (matched is not null)
+        {
+            // Inline rather than factored into a helper: EF can only translate conditions
+            // written inline in the lambda.
+            catalogQuery = matched == true
+                ? catalogQuery.Where(s => s.MatchedSourceName != null && s.MatchedSourceName != ""
+                    && s.MatchedSourceId != null && s.MatchedSourceId != "")
+                : catalogQuery.Where(s => s.MatchedSourceName == null || s.MatchedSourceName == ""
+                    || s.MatchedSourceId == null || s.MatchedSourceId == "");
+        }
+
+        var fromCatalog = catalogQuery.Select(s => s.Name);
+
+        // The two value spaces are one: a catalog row's name is exactly the free-text tag value it
+        // documents, so a value present on both sides is the same series. UNION (not UNION ALL)
+        // therefore removes the overlap, and the value itself is the total-order tiebreaker -
+        // unique within the union, so ORDER BY the value alone keeps every page stable.
+        var union = fromBooks.Union(fromCatalog);
+
+        var total = await union.CountAsync();
+
+        var items = await union
+            .OrderBy(value => value)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync();
+
+        return (items, total);
+    }
+
+    public async Task<(int Total, int Matched)> GetSeriesValueCountsAsync()
+    {
+        var fromBooks = _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series != null && a.Series != "")
+            .Select(a => a.Series!)
+            .Distinct();
+        var fromCatalog = _db.Series.AsNoTracking().Select(s => s.Name);
+
+        var union = fromBooks.Union(fromCatalog);
+
+        var total = await union.CountAsync();
+        // Inline matched condition (see GetSeriesValuesPageAsync for why).
+        var matched = await _db.Series.AsNoTracking()
+            .Where(s => s.MatchedSourceName != null && s.MatchedSourceName != ""
+                && s.MatchedSourceId != null && s.MatchedSourceId != "")
+            .CountAsync();
+
+        return (total, matched);
     }
 
     /// <summary>
@@ -492,8 +800,7 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
-    /// Distinct series values only. The autocomplete name list needs no book rows behind them,
-    /// so it must not go through <see cref="GetDistinctSeriesAsync"/>.
+    /// Distinct series values only, for the detection of near-duplicate series values.
     /// </summary>
     public async Task<List<string>> GetSeriesNamesAsync()
     {
@@ -510,17 +817,21 @@ public class AudiobookRepository : IAudiobookRepository
         return series;
     }
 
-    public async Task<Dictionary<string, List<(long Id, string BookName)>>> GetDistinctSeriesAsync()
+    public async Task<Dictionary<string, int>> GetSeriesBookCountsAsync(IReadOnlyCollection<string> seriesValues)
     {
+        if (seriesValues.Count == 0)
+        {
+            return new Dictionary<string, int>();
+        }
+
         var rows = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "")
-            .Select(a => new { a.Id, a.BookName, Series = a.Series! })
+            .Where(a => a.Series != null && seriesValues.Contains(a.Series))
+            .GroupBy(a => a.Series!)
+            .Select(g => new { Series = g.Key, Count = g.Count() })
             .ToListAsync();
 
-        return rows
-            .GroupBy(r => r.Series)
-            .ToDictionary(g => g.Key, g => g.Select(r => (r.Id, r.BookName)).ToList());
+        return rows.ToDictionary(r => r.Series, r => r.Count, StringComparer.Ordinal);
     }
 
     public async Task<List<Audiobook>> GetBooksByAuthorNamesAsync(IEnumerable<string> authorNames)

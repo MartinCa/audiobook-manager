@@ -7,8 +7,6 @@ using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
-using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
-using DbPerson = AudiobookManager.Database.Models.Person;
 using DomainAudiobook = AudiobookManager.Domain.Audiobook;
 using DomainPerson = AudiobookManager.Domain.Person;
 
@@ -21,6 +19,7 @@ public class SeriesServiceTests
     private Mock<ISeriesRepository> _seriesRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SeriesService>> _logger = null!;
+    private SeriesReconciliationCache _reconciliationCache = null!;
 
     [TestInitialize]
     public void Setup()
@@ -29,44 +28,70 @@ public class SeriesServiceTests
         _seriesRepository = new Mock<ISeriesRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<SeriesService>>();
+        _reconciliationCache = new SeriesReconciliationCache();
     }
 
     private SeriesService MakeService(params IScraper[] scrapers) =>
-        new(_audiobookRepository.Object, _seriesRepository.Object, _audiobookService.Object, scrapers, _logger.Object);
-
-    private static DbAudiobook MakeDbAudiobook(
-        long id,
-        string bookName,
-        string? series = null,
-        string? seriesPart = null,
-        string? author = null)
-    {
-        var book = new DbAudiobook(id, bookName, null, series, seriesPart, 2024, null, null, null, null, null, null, null,
-            null, null, $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
-
-        if (author is not null)
-        {
-            book.Authors.Add(new DbPerson(id, author));
-        }
-
-        return book;
-    }
+        new(_audiobookRepository.Object, _seriesRepository.Object, _audiobookService.Object, _reconciliationCache, scrapers, _logger.Object);
 
     private static SeriesExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
         new() { Id = id, SeriesId = 1, Title = title, Position = position, IsIgnored = ignored };
+
+    private static SeriesGroupingBook MakeGrouping(string series, string? part, string bookName, string? author = "Brandon Sanderson") =>
+        new(series, part, bookName, author is null ? new List<string>() : new List<string> { author });
+
+    private static List<SeriesOwnedBookRow> ToOwnedRows(List<SeriesGroupingBook> grouping) =>
+        grouping
+            .Select((b, i) => new SeriesOwnedBookRow(i + 1, b.BookName, b.SeriesPart, 2024, b.Authors, new List<string>(), null))
+            .ToList();
+
+    /// <summary>
+    /// Stubs every read the paged detail makes for one series: the bound <c>GetByNameAsync</c>
+    /// catalog metadata and the SQL owned page (rendered rows) on every request, plus - for the
+    /// one-time reconciliation refill - the bounded roster read
+    /// (<c>GetByNameWithExpectedBooksBoundedAsync</c>), the bounded owned keys
+    /// (<c>GetSeriesOwnedKeysAsync</c>) and the author names. All the reconciliation inputs are
+    /// cheap projections that report no overflow; tests that need a distinct owned page, slice or
+    /// overflow scenario stub those themselves on top of this.
+    /// </summary>
+    private void StubSeries(string seriesName, List<SeriesGroupingBook> grouping, Series? catalogRow = null)
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync(seriesName)).ReturnsAsync(catalogRow);
+        _seriesRepository
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync(seriesName, It.IsAny<int>()))
+            .ReturnsAsync((catalogRow, Overflow: false));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync(seriesName, 0, 100))
+            .ReturnsAsync((ToOwnedRows(grouping), grouping.Count));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedKeysAsync(seriesName, It.IsAny<int>()))
+            .ReturnsAsync((
+                grouping.Select(b => new SeriesOwnedKey(b.SeriesPart, b.BookName)).ToList(),
+                Overflow: false));
+        _audiobookRepository
+            .Setup(r => r.GetAuthorNamesBySeriesAsync(seriesName))
+            .ReturnsAsync(
+                grouping.SelectMany(b => b.Authors)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+                    .ToList());
+    }
+
+    private Task<SeriesDetailPage?> GetDetailPageAsync(
+        string seriesName,
+        int ownedSkip = 0, int ownedTake = 100,
+        int missingSkip = 0, int missingTake = 100,
+        int ignoredSkip = 0, int ignoredTake = 100) =>
+        MakeService().GetSeriesDetailPageAsync(
+            seriesName, ownedSkip, ownedTake, missingSkip, missingTake, ignoredSkip, ignoredTake);
 
     // Regression test: a roster entry with no position must still be matched on title against
     // owned books that *do* have one. IsSameBook falls back to a fuzzy title comparison whenever
     // the positions don't settle it, so partitioning the owned books by position must not stop
     // those pairs from ever being compared - or a book the user owns is reported missing.
     [TestMethod]
-    public async Task GetSeriesDetailAsync_ExpectedBookWithNoPosition_MatchesAnOwnedBookThatHasOne()
+    public async Task GetSeriesDetailPageAsync_ExpectedBookWithNoPosition_MatchesAnOwnedBookThatHasOne()
     {
-        var owned = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
-        };
-
         var catalogRow = new Series
         {
             Id = 1,
@@ -80,26 +105,25 @@ public class SeriesServiceTests
             },
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "1", "The Final Empire") }, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
+        Assert.IsNotNull(page);
         CollectionAssert.AreEqual(
             new List<string>(),
-            detail.MissingBooks.Select(b => b.Title).ToList(),
+            page.MissingBooks.Select(b => b.Title).ToList(),
             "the owned book matches the positionless roster entry on title");
-        Assert.AreEqual(0, detail.Overview.MissingBookCount);
+        Assert.AreEqual(0, page.Overview.MissingBookCount);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_ReportsOnlyUnownedNonIgnoredBooksAsMissing()
+    public async Task GetSeriesDetailPageAsync_ReportsOnlyUnownedNonIgnoredBooksAsMissing()
     {
-        var owned = new List<DbAudiobook>
+        var grouping = new List<SeriesGroupingBook>
         {
-            MakeDbAudiobook(1, "The Final Empire", "Mistborn", "1", "Brandon Sanderson"),
-            MakeDbAudiobook(2, "The Well of Ascension", "Mistborn", "2", "Brandon Sanderson"),
+            MakeGrouping("Mistborn", "1", "The Final Empire"),
+            MakeGrouping("Mistborn", "2", "The Well of Ascension"),
         };
 
         var catalogRow = new Series
@@ -117,31 +141,26 @@ public class SeriesServiceTests
             }
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", grouping, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(2, detail.OwnedBooks.Count);
-        Assert.AreEqual(1, detail.MissingBooks.Count);
-        Assert.AreEqual("The Hero of Ages", detail.MissingBooks[0].Title);
-        Assert.AreEqual(1, detail.IgnoredBooks.Count);
-        Assert.AreEqual("Secret History", detail.IgnoredBooks[0].Title);
-        Assert.AreEqual(1, detail.Overview.MissingBookCount);
-        Assert.AreEqual(3, detail.Overview.ExpectedBookCount);
-        Assert.IsTrue(detail.Overview.IsMatched);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(2, page.OwnedBookTotal);
+        Assert.AreEqual(2, page.OwnedBooks.Count);
+        Assert.AreEqual(1, page.MissingBooks.Count);
+        Assert.AreEqual("The Hero of Ages", page.MissingBooks[0].Title);
+        Assert.AreEqual(1, page.IgnoredBooks.Count);
+        Assert.AreEqual("Secret History", page.IgnoredBooks[0].Title);
+        Assert.AreEqual(1, page.Overview.MissingBookCount);
+        Assert.AreEqual(3, page.Overview.ExpectedBookCount);
+        Assert.IsTrue(page.Overview.IsMatched);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_TreatsFuzzilyMatchingTitleAsOwned()
+    public async Task GetSeriesDetailPageAsync_TreatsFuzzilyMatchingTitleAsOwned()
     {
         // Position is absent on the owned book, so only the fuzzy title comparison can match it.
-        var owned = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "The Hero of Ages", "Mistborn"),
-        };
-
         var catalogRow = new Series
         {
             Id = 1,
@@ -154,25 +173,19 @@ public class SeriesServiceTests
             }
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", null, "The Hero of Ages") }, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(0, detail.MissingBooks.Count);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.MissingBooks.Count);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_DoesNotTreatAMatchingPositionOnAWildlyDifferentTitleAsOwned()
+    public async Task GetSeriesDetailPageAsync_DoesNotTreatAMatchingPositionOnAWildlyDifferentTitleAsOwned()
     {
         // The source numbers a novella at 2.5 and the user typed "2.5" on an unrelated book:
         // position alone must not hide the genuinely missing entry.
-        var owned = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "An Entirely Unrelated Story", "Mistborn", "2.5"),
-        };
-
         var catalogRow = new Series
         {
             Id = 1,
@@ -182,24 +195,18 @@ public class SeriesServiceTests
             ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "2.5", "An Entirely Unrelated Story") }, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(1, detail.MissingBooks.Count);
-        Assert.AreEqual("Secret History", detail.MissingBooks[0].Title);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.MissingBooks.Count);
+        Assert.AreEqual("Secret History", page.MissingBooks[0].Title);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_TreatsMatchingPositionWithASimilarTitleAsOwned()
+    public async Task GetSeriesDetailPageAsync_TreatsMatchingPositionWithASimilarTitleAsOwned()
     {
-        var owned = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "Secret History (Unabridged)", "Mistborn", "2.5"),
-        };
-
         var catalogRow = new Series
         {
             Id = 1,
@@ -209,24 +216,18 @@ public class SeriesServiceTests
             ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "2.5", "Secret History (Unabridged)") }, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(0, detail.MissingBooks.Count);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.MissingBooks.Count);
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_TreatsAVerySimilarTitleAtTheWrongPositionAsOwned()
+    public async Task GetSeriesDetailPageAsync_TreatsAVerySimilarTitleAtTheWrongPositionAsOwned()
     {
         // The user typed the wrong part number; the title still identifies the book.
-        var owned = new List<DbAudiobook>
-        {
-            MakeDbAudiobook(1, "The Hero of Ages", "Mistborn", "7"),
-        };
-
         var catalogRow = new Series
         {
             Id = 1,
@@ -236,13 +237,12 @@ public class SeriesServiceTests
             ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "The Hero of Ages", "3") },
         };
 
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(owned);
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(catalogRow);
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "7", "The Hero of Ages") }, catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Mistborn");
+        var page = await GetDetailPageAsync("Mistborn");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(0, detail.MissingBooks.Count);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.MissingBooks.Count);
     }
 
     [TestMethod]
@@ -259,14 +259,261 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_ReturnsNullForUnknownSeries()
+    public async Task GetSeriesDetailPageAsync_ReturnsNullForUnknownSeries()
     {
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
-            .ReturnsAsync(new List<DbAudiobook>());
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>()))
-            .ReturnsAsync((Series?)null);
+        _seriesRepository.Setup(r => r.GetByNameAsync("Nonexistent")).ReturnsAsync((Series?)null);
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync("Nonexistent", 0, 100))
+            .ReturnsAsync((new List<SeriesOwnedBookRow>(), 0));
 
-        Assert.IsNull(await MakeService().GetSeriesDetailAsync("Nonexistent"));
+        Assert.IsNull(await GetDetailPageAsync("Nonexistent"));
+    }
+
+    // The owned section is a SQL page; the slice parameters must reach the repository untouched
+    // so the page is sliced in SQL, not after materializing the series' whole owned projection.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_PassesTheOwnedSliceToTheRepository()
+    {
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "1", "Book One") }, catalogRow: null);
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 40, 25))
+            .ReturnsAsync((new List<SeriesOwnedBookRow>
+            {
+                new(1, "Book One", "1", 2024, new List<string> { "Brandon Sanderson" }, new List<string>(), null),
+            }, 27));
+
+        var page = await GetDetailPageAsync("Mistborn", ownedSkip: 40, ownedTake: 25);
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(27, page.OwnedBookTotal, "the total is the series' full owned count, not the slice");
+        Assert.AreEqual(1, page.OwnedBooks.Count);
+        _audiobookRepository.Verify(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 40, 25), Times.Once);
+    }
+
+    // The missing section is derived from the roster (bounded by the source's series page) plus
+    // the series' owned keys and sliced in the service; the slice boundaries must stay stable so
+    // every missing entry appears on exactly one page.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_PagesTheMissingSection_NoBookSkippedOrRepeated()
+    {
+        var roster = Enumerable.Range(1, 23)
+            .Select(i => MakeExpected(i, $"Expected Book {i:00}", (i % 7).ToString()))
+            .ToList();
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = roster,
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
+
+        var seen = new List<string>();
+        for (var skip = 0; skip < 23; skip += 10)
+        {
+            var page = await GetDetailPageAsync("Mistborn", missingSkip: skip, missingTake: 10);
+            seen.AddRange(page!.MissingBooks.Select(b => b.Title));
+        }
+
+        Assert.AreEqual(23, seen.Count, "no missing book may be dropped by paging");
+        Assert.AreEqual(23, seen.Distinct().Count(), "no missing book may appear on two pages");
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_PagesTheIgnoredSection_NoBookSkippedOrRepeated()
+    {
+        var roster = Enumerable.Range(1, 23)
+            .Select(i => MakeExpected(i, $"Ignored Book {i:00}", (i % 7).ToString(), ignored: true))
+            .ToList();
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = roster,
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
+
+        var seen = new List<string>();
+        for (var skip = 0; skip < 23; skip += 10)
+        {
+            var page = await GetDetailPageAsync("Mistborn", ignoredSkip: skip, ignoredTake: 10);
+            seen.AddRange(page!.IgnoredBooks.Select(b => b.Title));
+        }
+
+        Assert.AreEqual(23, seen.Count, "no ignored book may be dropped by paging");
+        Assert.AreEqual(23, seen.Distinct().Count(), "no ignored book may appear on two pages");
+    }
+
+    // The point of the reconciliation cache: many paged requests against one series must not each
+    // re-read the roster and every owned key. After the first request fills the cache the owned
+    // keys and the roster are never read again, and every page slices the same stable lists.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_ReconcilesOnceForManyPageLoads()
+    {
+        var roster = Enumerable.Range(1, 55)
+            .Select(i => MakeExpected(i, $"Expected {i:00}", (i % 7).ToString()))
+            .ToList();
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = roster,
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
+
+        var service = MakeService();
+        for (var skip = 0; skip < 55; skip += 10)
+        {
+            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10);
+            Assert.AreEqual(Math.Min(10, 55 - skip), page!.MissingBooks.Count);
+            Assert.AreEqual(55, page.MissingBookTotal, "the total is the full reconciled roster each time, not the slice");
+        }
+
+        _audiobookRepository.Verify(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()), Times.Once,
+            "the reconciliation must be computed once, not once per page request");
+        _seriesRepository.Verify(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()), Times.Once,
+            "the roster must be read once, not once per page request");
+    }
+
+    // The cache-contract wiring, not just the cache itself: flipping an ignore flag through the
+    // service must invalidate the reconciled detail so the next page loads the fresh state.
+    [TestMethod]
+    public async Task IgnoreExpectedBookAsync_InvalidatesTheCachedReconciliation()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "Secret History", "3.5") },
+        };
+        StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
+        _seriesRepository
+            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true))
+            .Callback(() => catalogRow.ExpectedBooks.Single().IsIgnored = true)
+            .Returns(Task.CompletedTask);
+
+        var service = MakeService();
+        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100);
+        Assert.IsNotNull(before);
+        Assert.AreEqual(1, before.MissingBookTotal);
+
+        await service.IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
+
+        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100);
+        Assert.IsNotNull(after);
+        Assert.AreEqual(0, after.MissingBookTotal, "the ignored entry must leave the missing section");
+        Assert.AreEqual(1, after.IgnoredBookTotal, "the ignored entry must appear under ignored");
+    }
+
+    // Same wiring proof for the omnibus toggle: flipping visibility through the service must
+    // invalidate the cache, so the newly-visible compilations are reported as missing on the next
+    // load rather than echoing the pre-toggle reconciliation.
+    [TestMethod]
+    public async Task SetIncludeOmnibusEditionsAsync_RefillsTheCachedReconciliation()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Thursday Murder Club",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "99",
+            IncludeOmnibusEditions = false,
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "The Thursday Murder Club", "1"),
+                new()
+                {
+                    Id = 2,
+                    Title = "The Thursday Murder Club / The Man Who Died Twice",
+                    Position = "1",
+                    IsCompilation = true,
+                },
+            },
+        };
+        StubSeries("Thursday Murder Club", new List<SeriesGroupingBook>(), catalogRow);
+        _seriesRepository
+            .Setup(r => r.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true))
+            .Callback(() => catalogRow.IncludeOmnibusEditions = true)
+            .ReturnsAsync(catalogRow);
+
+        var service = MakeService();
+        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100);
+        Assert.IsNotNull(before);
+        Assert.AreEqual(1, before.MissingBookTotal);
+
+        await service.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
+
+        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100);
+        Assert.IsNotNull(after);
+        Assert.AreEqual(2, after.MissingBookTotal, "the toggle must invalidate the cache so the detail refills");
+    }
+
+    // Regression for the materialization caps: the bounded roster read reports an oversized
+    // roster, and the reconciliation must fail clearly without ever fetching the owned keys (the
+    // second potentially-pathological input) - proving the cap is enforced before any further
+    // unbounded materialization can happen.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_RosterOverTheCap_FailsBeforeReadingOwnedKeys()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(
+            new Series { Id = 1, Name = "Mistborn", MatchedSourceName = "Hardcover", MatchedSourceId = "42" });
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
+            .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
+        _seriesRepository
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .ReturnsAsync((new Series { Id = 1, Name = "Mistborn" }, Overflow: true));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
+
+        _seriesRepository.Verify(
+            r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries),
+            Times.Once,
+            "the roster fetch is bounded to the reconciliation cap");
+        _audiobookRepository.Verify(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()), Times.Never,
+            "roster overflow must fail the request before the owned set is fetched");
+    }
+
+    // Same for the owned side: a normal roster plus an owned-key overflow fails clearly, and the
+    // owned fetch reaches the repository bounded to the owned cap.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_OwnedKeysOverTheCap_FailsClearly()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(catalogRow);
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
+            .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
+        _seriesRepository
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .ReturnsAsync((catalogRow, Overflow: false));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: true));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
+
+        _audiobookRepository.Verify(
+            r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys),
+            Times.Once,
+            "the owned-key fetch is bounded to the reconciliation cap");
     }
 
     [TestMethod]
@@ -392,7 +639,12 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null)).ReturnsAsync(new List<DbAudiobook>());
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((existing, Overflow: false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: false));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn"))
+            .ReturnsAsync(new List<string>());
 
         List<SeriesExpectedBook>? stored = null;
         _seriesRepository
@@ -431,7 +683,12 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Thursday Murder Club", It.IsAny<int>()))
+            .ReturnsAsync(((Series?)null, Overflow: false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Thursday Murder Club", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: false));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Thursday Murder Club"))
+            .ReturnsAsync(new List<string>());
 
         List<SeriesExpectedBook>? stored = null;
         _seriesRepository
@@ -463,7 +720,7 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
-    public async Task GetSeriesDetailAsync_HidesCompilationsUnlessIncludeOmnibusEditionsIsSet()
+    public async Task GetSeriesDetailPageAsync_HidesCompilationsUnlessIncludeOmnibusEditionsIsSet()
     {
         var catalogRow = new Series
         {
@@ -485,23 +742,26 @@ public class SeriesServiceTests
             },
         };
 
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync(catalogRow);
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
+        StubSeries("Thursday Murder Club", new List<SeriesGroupingBook>(), catalogRow);
 
-        var detail = await MakeService().GetSeriesDetailAsync("Thursday Murder Club");
+        var page = await GetDetailPageAsync("Thursday Murder Club");
 
-        Assert.IsNotNull(detail);
-        Assert.AreEqual(1, detail.MissingBooks.Count);
-        Assert.AreEqual("The Thursday Murder Club", detail.MissingBooks.Single().Title);
-        Assert.AreEqual(1, detail.Overview.MissingBookCount);
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.MissingBooks.Count);
+        Assert.AreEqual("The Thursday Murder Club", page.MissingBooks.Single().Title);
+        Assert.AreEqual(1, page.Overview.MissingBookCount);
 
+        // Flipping the visibility setting goes through SetIncludeOmnibusEditionsAsync, which
+        // invalidates the cached reconciliation; mirror that here so the second page load starts
+        // from a fresh read (the cache-contract test covers the invalidate call itself).
         catalogRow.IncludeOmnibusEditions = true;
+        _reconciliationCache.Invalidate("Thursday Murder Club");
 
-        var detailWithOmnibus = await MakeService().GetSeriesDetailAsync("Thursday Murder Club");
+        var pageWithOmnibus = await GetDetailPageAsync("Thursday Murder Club");
 
-        Assert.IsNotNull(detailWithOmnibus);
-        Assert.AreEqual(2, detailWithOmnibus.MissingBooks.Count);
-        Assert.AreEqual(2, detailWithOmnibus.Overview.MissingBookCount);
+        Assert.IsNotNull(pageWithOmnibus);
+        Assert.AreEqual(2, pageWithOmnibus.MissingBooks.Count);
+        Assert.AreEqual(2, pageWithOmnibus.Overview.MissingBookCount);
     }
 
     [TestMethod]
@@ -520,7 +780,12 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true))
             .Callback(() => existing.IncludeOmnibusEditions = true)
             .ReturnsAsync(existing);
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Thursday Murder Club", null)).ReturnsAsync(new List<DbAudiobook>());
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Thursday Murder Club", It.IsAny<int>()))
+            .ReturnsAsync((existing, Overflow: false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Thursday Murder Club", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: false));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Thursday Murder Club"))
+            .ReturnsAsync(new List<string>());
 
         // No scraper is registered at all - if the service tried to re-fetch the roster, this
         // would throw for lacking a series-capable source.
@@ -541,8 +806,6 @@ public class SeriesServiceTests
             new("Totally Different Value", "1", "Book B", new List<string> { "Someone Else" }),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
-            .ReturnsAsync(new List<DbAudiobook>());
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>())).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });
@@ -579,8 +842,6 @@ public class SeriesServiceTests
             new("Mistborn Two", "1", "Book B", new List<string>()),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
-            .ReturnsAsync(new List<DbAudiobook>());
 
         var scraper = new Mock<IScraper>();
         scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
@@ -610,8 +871,6 @@ public class SeriesServiceTests
             new("Mistborn Three", "1", "Book C", new List<string>()),
         });
         _seriesRepository.Setup(r => r.GetAllWithExpectedBooksAsync()).ReturnsAsync(new List<Series>());
-        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync(It.IsAny<string>(), null))
-            .ReturnsAsync(new List<DbAudiobook>());
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>())).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });

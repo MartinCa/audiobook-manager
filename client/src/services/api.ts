@@ -24,17 +24,19 @@ import type {
 import type { MetadataMultiSourceSearchResult } from "@/types/MetadataMultiSourceSearchResult";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInfo";
-import type { AudiobookMissingTags, MissingTagField } from "@/types/MissingTag";
+import type { AudiobookMissingTagsPage, MissingTagField } from "@/types/MissingTag";
 import type { OperationStatus } from "@/types/OperationStatus";
 import type { OrphanDirectory, OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 import type {
   SeriesBookCandidate,
+  SeriesCounts,
   SeriesDetail,
   SeriesMatchCandidate,
   SeriesOverview,
+  SeriesOverviewPage,
 } from "@/types/Series";
-import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
-import type { SimilarValueGroup } from "@/types/SimilarValue";
+import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroups } from "@/types/SeriesMapping";
+import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 import type { TagMismatchField } from "@/types/TagMismatchField";
@@ -148,9 +150,33 @@ export const browseApi = {
       query: { q, limit, offset },
     }),
 
-  getAuthors: () => api.get<AuthorSummary[]>("/browse/authors"),
+  // Paged server-side (bounded-list invariant): the unpaged version returned every author in the
+  // library and the page rendered them all into the DOM. q is the server-side, accent-insensitive
+  // filter.
+  getAuthorPage: (limit = 50, offset = 0, q?: string) =>
+    api.get<PaginatedResult<AuthorSummary>>("/browse/authors", {
+      query: { limit, offset, q: q || undefined },
+    }),
 
-  getAuthorDetail: (authorId: number) => api.get<AuthorDetail>(`/browse/authors/${authorId}`),
+  // The two sections are paged server-side too: an author owning hundreds of series/books used
+  // to have them all sent and rendered. Pass each section's own limit/offset.
+  getAuthorDetail: (
+    authorId: number,
+    params: {
+      seriesLimit?: number;
+      seriesOffset?: number;
+      standaloneLimit?: number;
+      standaloneOffset?: number;
+    } = {},
+  ) =>
+    api.get<AuthorDetail>(`/browse/authors/${authorId}`, {
+      query: {
+        seriesLimit: params.seriesLimit,
+        seriesOffset: params.seriesOffset,
+        standaloneLimit: params.standaloneLimit,
+        standaloneOffset: params.standaloneOffset,
+      },
+    }),
 
   getAudiobookDetail: (id: number) => api.get<AudiobookDetail>(`/browse/audiobooks/${id}`),
 
@@ -241,9 +267,17 @@ export const consistencyApi = {
 
 // Similar Values
 export const similarValuesApi = {
-  getSimilarAuthors: () => api.get<SimilarValueGroup[]>("/similar-values/similar-authors"),
+  // Paged server-side: groups no longer embed per-candidate book lists (book counts only), and
+  // only the requested page crosses the wire.
+  getSimilarAuthors: (page = 0, pageSize = 50) =>
+    api.get<SimilarValueGroupsPage>("/similar-values/similar-authors", {
+      query: { page, pageSize },
+    }),
 
-  getSimilarSeries: () => api.get<SimilarValueGroup[]>("/similar-values/similar-series"),
+  getSimilarSeries: (page = 0, pageSize = 50) =>
+    api.get<SimilarValueGroupsPage>("/similar-values/similar-series", {
+      query: { page, pageSize },
+    }),
 
   getAuthorNames: () => api.get<string[]>("/similar-values/author-names"),
 
@@ -263,9 +297,19 @@ export const similarValuesApi = {
 export const missingTagsApi = {
   getFields: () => api.get<MissingTagField[]>("/missing-tags/fields"),
 
-  getAudiobooksMissingTags: (fields: string[]) =>
-    api.get<AudiobookMissingTags[]>("/missing-tags/audiobooks", {
-      query: { fields },
+  // Paged server-side (bounded-list invariant): a book missing even one selected critical tag
+  // lands in this list, so the unpaged version returned thousands of rows to render into the DOM.
+  getAudiobooksMissingTags: (
+    fields: string[],
+    params: { page?: number; pageSize?: number; search?: string } = {},
+  ) =>
+    api.get<AudiobookMissingTagsPage>("/missing-tags/audiobooks", {
+      query: {
+        fields,
+        page: params.page,
+        pageSize: params.pageSize,
+        search: params.search,
+      },
     }),
 
   startLanguageBackfill: () => api.post<void>("/missing-tags/backfill-language"),
@@ -318,11 +362,30 @@ export const operationsApi = {
 
 // Series
 export const seriesApi = {
-  getAllSeries: () => api.get<SeriesOverview[]>("/series"),
+  // Paged server-side (bounded-list invariant): the union of every distinct series value in the
+  // library used to be computed and returned whole. search and matched are the server-side
+  // filters; the page's totals aren't the header badge counts (see getSeriesCounts).
+  getSeriesPage: (page: number, pageSize: number, search?: string, matched?: boolean) =>
+    api.get<SeriesOverviewPage>("/series", {
+      query: { page, pageSize, search: search || undefined, matched },
+    }),
 
-  getSeriesDetail: (seriesName: string) =>
+  /** Total/matched/unmatched series for the overview header badges, independent of any page. */
+  getSeriesCounts: () => api.get<SeriesCounts>("/series/counts"),
+
+  getSeriesDetail: (
+    seriesName: string,
+    params: {
+      ownedPage?: number;
+      ownedPageSize?: number;
+      missingPage?: number;
+      missingPageSize?: number;
+      ignoredPage?: number;
+      ignoredPageSize?: number;
+    } = {},
+  ) =>
     api.get<SeriesDetail>("/series/detail", {
-      query: { seriesName },
+      query: { seriesName, ...params },
     }),
 
   getMatchCandidates: (seriesName: string) =>
@@ -447,7 +510,12 @@ export const settingsApi = {
 
   getLanguages: () => api.get<LanguageOptions>("/settings/languages"),
 
-  getSeriesMappings: () => api.get<SeriesMapping[]>("/settings/series_mappings"),
+  // Grouped server-side (the client used to reduce the flat table into buckets itself), with an
+  // accent-insensitive server-side filter over pattern and target name.
+  getSeriesMappingGroups: (search?: string) =>
+    api.get<SeriesMappingGroups>("/settings/series_mappings/grouped", {
+      query: { search: search || undefined },
+    }),
 
   createSeriesMapping: (mapping: SeriesMappingBase) =>
     api.post<SeriesMapping>("/settings/series_mappings", mapping),

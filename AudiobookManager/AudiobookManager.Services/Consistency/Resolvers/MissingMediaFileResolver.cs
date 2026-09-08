@@ -13,6 +13,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookFileHandler _fileHandler;
     private readonly IAudiobookIssueDetectionService _detectionService;
+    private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly ILogger<MissingMediaFileResolver> _logger;
 
     public MissingMediaFileResolver(
@@ -20,12 +21,14 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
         IConsistencyIssueRepository issueRepository,
         IAudiobookFileHandler fileHandler,
         IAudiobookIssueDetectionService detectionService,
+        ISeriesReconciliationCache reconciliationCache,
         ILogger<MissingMediaFileResolver> logger)
     {
         _audiobookRepository = audiobookRepository;
         _issueRepository = issueRepository;
         _fileHandler = fileHandler;
         _detectionService = detectionService;
+        _reconciliationCache = reconciliationCache;
         _logger = logger;
     }
 
@@ -92,6 +95,13 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
 
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
         await _audiobookRepository.DeleteAudiobookAsync(audiobook.Id);
+
+        // This write path deletes the library record directly (no AudiobookService), so it must
+        // invalidate the series detail's owned set itself - same guarantee as every other delete.
+        if (!string.IsNullOrWhiteSpace(audiobook.Series))
+        {
+            _reconciliationCache.Invalidate(audiobook.Series);
+        }
 
         if (directoryPath != null)
         {

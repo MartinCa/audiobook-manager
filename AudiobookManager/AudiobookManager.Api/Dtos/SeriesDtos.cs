@@ -38,10 +38,34 @@ public record SeriesOwnedBookDto(
 
 public record SeriesDetailDto(
     SeriesOverviewDto Overview,
-    List<SeriesOwnedBookDto> OwnedBooks,
-    List<SeriesExpectedBookDto> MissingBooks,
-    List<SeriesExpectedBookDto> IgnoredBooks
+    SeriesOwnedBookPageDto OwnedBooks,
+    SeriesExpectedBookPageDto MissingBooks,
+    SeriesExpectedBookPageDto IgnoredBooks
 );
+
+/// <summary>
+/// One page of series overviews plus the total number of series matching the filters, so the
+/// client can size its pager without asking again.
+///
+/// Paged because the endpoint this replaces returned every distinct series value in the library
+/// at once - with a catalog holding one spelling per book that is every book row projected in
+/// memory - and the page rendered every row into the DOM.
+/// </summary>
+public record SeriesOverviewPageDto(
+    List<SeriesOverviewDto> Items,
+    int TotalCount
+);
+
+/// <summary>Total/matched/unmatched series counts for the overview header, independent of any page.</summary>
+public record SeriesCountsDto(
+    int Total,
+    int Matched,
+    int Unmatched
+);
+
+public record SeriesOwnedBookPageDto(List<SeriesOwnedBookDto> Items, int TotalCount);
+
+public record SeriesExpectedBookPageDto(List<SeriesExpectedBookDto> Items, int TotalCount);
 
 public record SeriesMatchCandidateDto(
     string SourceName,

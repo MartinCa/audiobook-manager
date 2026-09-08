@@ -89,7 +89,7 @@ public class AudiobookRepositoryOrderingTests
     }
 
     [TestMethod]
-    public async Task GetSeriesCountsByAuthorAsync_OrdersForAReaderAndCountsPerSeries()
+    public async Task GetSeriesCountsByAuthorAsync_CountsPerSeriesAndOrdersInSql()
     {
         var author = new Person(default, "Target Author");
         await SeedAsync("Book A", "alpha series", author);
@@ -97,18 +97,22 @@ public class AudiobookRepositoryOrderingTests
         await SeedAsync("Book C", "Zeta Series", author);
         await SeedAsync("Book D", "Elan Series", author);
 
-        var counts = await _repository.GetSeriesCountsByAuthorAsync(author.Id);
+        // Paged queries have to order in SQL, which means BINARY collation - the documented
+        // tradeoff in AGENTS.md's ordering rule. The order below is code-point order, not
+        // culture-aware.
+        var (counts, total) = await _repository.GetSeriesCountsByAuthorAsync(author.Id, limit: 10, offset: 0);
 
-        CollectionAssert.AreEqual(
-            new List<string> { "alpha series", "Elan Series", "Zeta Series" },
+        Assert.AreEqual(3, total);
+        Assert.AreSequenceEqual(
+            new List<string> { "Elan Series", "Zeta Series", "alpha series" },
             counts.Select(c => c.Series).ToList());
-        Assert.AreEqual(2, counts[0].BookCount);
+        Assert.AreEqual(1, counts[0].BookCount);
         Assert.AreEqual(1, counts[1].BookCount);
-        Assert.AreEqual(1, counts[2].BookCount);
+        Assert.AreEqual(2, counts[2].BookCount);
     }
 
     [TestMethod]
-    public async Task GetStandaloneBooksByAuthorAsync_OrdersByTitleForAReaderAndExcludesSeriesBooks()
+    public async Task GetStandaloneBooksByAuthorAsync_OrdersByTitleInSqlAndExcludesSeriesBooks()
     {
         var author = new Person(default, "Target Author");
         await SeedAsync("apple book", null, author);
@@ -116,10 +120,12 @@ public class AudiobookRepositoryOrderingTests
         await SeedAsync("Emile book", null, author);
         await SeedAsync("In A Series", "Some Series", author);
 
-        var books = await _repository.GetStandaloneBooksByAuthorAsync(author.Id);
+        var (books, total) = await _repository.GetStandaloneBooksByAuthorAsync(author.Id, limit: 10, offset: 0);
 
-        CollectionAssert.AreEqual(
-            new List<string> { "apple book", "Emile book", "Zebra book" },
+        Assert.AreEqual(3, total);
+        // BINARY collation, not culture-aware - see the test above.
+        Assert.AreSequenceEqual(
+            new List<string> { "Emile book", "Zebra book", "apple book" },
             books.Select(b => b.BookName).ToList());
     }
 

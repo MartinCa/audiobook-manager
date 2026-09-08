@@ -46,14 +46,17 @@ describe("MissingTags", () => {
       { key: "series", label: "Series", isCriticalByDefault: false },
     ]);
 
-    vi.mocked(missingTagsApi.getAudiobooksMissingTags).mockResolvedValue([
-      {
-        audiobookId: 101,
-        bookName: "Test Book Without Language",
-        authors: ["Author A"],
-        missingFields: ["language"],
-      },
-    ]);
+    vi.mocked(missingTagsApi.getAudiobooksMissingTags).mockResolvedValue({
+      items: [
+        {
+          audiobookId: 101,
+          bookName: "Test Book Without Language",
+          authors: ["Author A"],
+          missingFields: ["language"],
+        },
+      ],
+      totalCount: 1,
+    });
 
     vi.mocked(operationsApi.getStatus).mockResolvedValue({
       isRunning: false,
@@ -87,6 +90,7 @@ describe("MissingTags", () => {
     await waitFor(() => {
       expect(missingTagsApi.getAudiobooksMissingTags).toHaveBeenCalledWith(
         expect.arrayContaining(["language", "year", "series"]),
+        { page: 0, pageSize: 50, search: "" },
       );
     });
   });

@@ -7,6 +7,29 @@ public interface ISeriesRepository
     Task<List<Series>> GetAllWithExpectedBooksAsync();
     Task<Series?> GetByIdWithExpectedBooksAsync(long id);
     Task<Series?> GetByNameWithExpectedBooksAsync(string name);
+
+    /// <summary>
+    /// <see cref="GetByNameWithExpectedBooksAsync"/> for a page of names: the paged series
+    /// overview hydrates only the series values on the requested page, so the catalog read is
+    /// proportional to the rendered rows rather than the whole catalog.
+    /// </summary>
+    Task<List<Series>> GetByNamesWithExpectedBooksAsync(List<string> names);
+
+    /// <summary>
+    /// The catalog row's metadata only - no roster. The series detail loads this on every page
+    /// request for the overview header; the roster itself is only needed when the cached
+    /// reconciliation refills, so it must not ride along.
+    /// </summary>
+    Task<Series?> GetByNameAsync(string name);
+
+    /// <summary>
+    /// <see cref="GetByNameWithExpectedBooksAsync"/> for the detail reconciliation: the catalog row
+    /// plus its roster, with the roster fetch bounded to <paramref name="maxExpectedBooks"/> + 1
+    /// rows. A roster at or under the cap comes back complete; a larger one is detected (the
+    /// <c>Overflow</c> flag is set) without materializing/exceeding the cap, so the reconciliation
+    /// can fail clearly instead of loading an unbounded set.
+    /// </summary>
+    Task<(Series? Series, bool Overflow)> GetByNameWithExpectedBooksBoundedAsync(string name, int maxExpectedBooks);
     Task<Series> UpsertSeriesAsync(Series series);
     Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks);
     Task<SeriesExpectedBook?> GetExpectedBookAsync(long id);

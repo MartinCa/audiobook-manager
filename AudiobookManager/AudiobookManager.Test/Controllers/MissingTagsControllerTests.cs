@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -146,5 +147,68 @@ public class MissingTagsControllerTests
         Assert.AreEqual("Language", fields[0].Key);
         Assert.AreEqual("Language", fields[0].Label);
         Assert.IsFalse(fields[0].IsCriticalByDefault);
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_ReturnsOnePageWithItemsAndTotal()
+    {
+        _missingTagService
+            .Setup(s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Language" }, null, skip: 0, take: 50))
+            .ReturnsAsync((new List<AudiobookMissingTags>
+            {
+                new(7, "Book Without Language", new List<string> { "Author" }, new List<string> { "Language" }),
+            }, 321));
+
+        var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Language" });
+
+        var page = ((OkObjectResult)result.Result!).Value as AudiobookMissingTagsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(321, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(7, page.Items[0].AudiobookId);
+        Assert.AreEqual("Language", page.Items[0].MissingFields.Single());
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_PassesPagePageSizeAndSearchThrough()
+    {
+        _missingTagService
+            .Setup(s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, "rene", skip: 100, take: 25))
+            .ReturnsAsync((new List<AudiobookMissingTags>(), 9));
+
+        var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Year" }, search: "rene", page: 4, pageSize: 25);
+
+        var page = ((OkObjectResult)result.Result!).Value as AudiobookMissingTagsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(9, page.TotalCount);
+        _missingTagService.Verify(
+            s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, "rene", skip: 100, take: 25),
+            Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetAudiobooksMissingTags_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Year" }, page: page, pageSize: pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _missingTagService.Verify(
+            s => s.FindAudiobooksMissingTagsPageAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    // Regression: a huge page used to wrap the offset negative and silently serve the first page.
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_APageLargeEnoughToOverflowTheOffset_IsRefused()
+    {
+        var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Year" }, page: 11_000_000, pageSize: 200);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _missingTagService.Verify(
+            s => s.FindAudiobooksMissingTagsPageAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
     }
 }

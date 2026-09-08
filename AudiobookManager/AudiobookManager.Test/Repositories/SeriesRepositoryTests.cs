@@ -216,4 +216,71 @@ public class SeriesRepositoryTests
         Assert.IsNull(noEntry);
         Assert.IsNull(noSeries);
     }
+
+    // The detail page loads the catalog metadata (matched-source fields, omnibus setting) on
+    // every page request, but not the roster - the roster is only needed when the reconciliation
+    // refills. GetByNameAsync must therefore be the metadata-only projection.
+    [TestMethod]
+    public async Task GetByNameAsync_ReturnsMetadataWithoutTheRoster()
+    {
+        var series = await SeedSeriesAsync();
+
+        var row = await _repository.GetByNameAsync("Mistborn");
+
+        Assert.IsNotNull(row);
+        Assert.AreEqual("Hardcover", row!.MatchedSourceName);
+        Assert.AreEqual("42", row.MatchedSourceId);
+        Assert.AreEqual(0, row.ExpectedBooks.Count,
+            "the roster must not be loaded for a metadata-only request");
+        Assert.IsNull(await _repository.GetByNameAsync("Unknown Series"));
+    }
+
+    private async Task<(Series Series, List<SeriesExpectedBook> Books)> SeedRosterAsync(string name, int bookCount)
+    {
+        var series = await _repository.UpsertSeriesAsync(new Series { Name = name });
+        var books = Enumerable.Range(1, bookCount)
+            .Select(i => new SeriesExpectedBook { Title = $"Book {i:00}", Position = (i % 7).ToString() })
+            .ToList();
+        await _repository.ReplaceExpectedBooksAsync(series.Id, books);
+        return (series, books);
+    }
+
+    // Regression for the materialization cap: a pathological stored roster (more than the
+    // reconciliation's cap) must not be loaded whole. The query returns exactly cap+1 entries
+    // and the Overflow flag, proving SQL limits the fetch before entity materialization.
+    [TestMethod]
+    public async Task GetByNameWithExpectedBooksBoundedAsync_OverTheCap_ReturnsOnlyCapPlusOneAndFlagsOverflow()
+    {
+        await SeedRosterAsync("Big Series", bookCount: 25);
+
+        var (row, overflow) = await _repository.GetByNameWithExpectedBooksBoundedAsync("Big Series", maxExpectedBooks: 10);
+
+        Assert.IsTrue(overflow, "a roster larger than the cap must be detected");
+        Assert.IsNotNull(row);
+        Assert.AreEqual(11, row!.ExpectedBooks.Count,
+            "only cap+1 roster entries may be materialized - never the whole roster");
+        Assert.AreEqual("Big Series", row.Name, "the catalog metadata still comes back");
+    }
+
+    [TestMethod]
+    public async Task GetByNameWithExpectedBooksBoundedAsync_AtTheCap_ComesBackCompleteWithNoOverflow()
+    {
+        var (_, books) = await SeedRosterAsync("Small Series", bookCount: 5);
+
+        var (row, overflow) = await _repository.GetByNameWithExpectedBooksBoundedAsync("Small Series", maxExpectedBooks: 10);
+
+        Assert.IsFalse(overflow, "exactly-at-cap is a normal size");
+        Assert.IsNotNull(row);
+        Assert.AreEqual(5, row!.ExpectedBooks.Count);
+        CollectionAssert.AreEquivalent(books.Select(b => b.Title).ToList(), row.ExpectedBooks.Select(b => b.Title).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetByNameWithExpectedBooksBoundedAsync_UnknownSeries_ReturnsNullAndNoOverflow()
+    {
+        var (row, overflow) = await _repository.GetByNameWithExpectedBooksBoundedAsync("Nonexistent", maxExpectedBooks: 10);
+
+        Assert.IsNull(row);
+        Assert.IsFalse(overflow);
+    }
 }

@@ -502,10 +502,10 @@ them.
 
 ### Similar author/series detection & bulk alignment
 
-Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is stateless/computed — there is no persisted "issue" table like `ConsistencyIssue`; groups are detected fresh on every request.
+Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is computed, not persisted — there is no "issue" table like `ConsistencyIssue` — but the *grouping* is cached: `SimilarValueDetectionCache` (an in-memory TTL cache, invalidated by every alignment) stops a paged request from re-reading every distinct value and re-clustering the library once per page. Publish is **version-gated**: a compute that missed the cache and is still reading when an alignment invalidates cannot republish its pre-alignment groups for the TTL — the stale publish is dropped (`Set` takes the version captured at compute start and refuses if an invalidation intervened), and `Get` refuses any entry whose generation is stale. Book counts are never cached — they are re-read per page — so a stale slot can only delay group updates by the TTL, never show a wrong number. The same two-layer pattern backs the series detail's missing/ignored sections: `SeriesReconciliationCache` caches the per-series fuzzy roster reconciliation (computed once per series per change, not once per page request), invalidated by every roster write (match/refresh/ignore/omnibus toggle) and every book write that can change a book's `Series`/`SeriesPart`/`BookName` (`AudiobookService` and the one resolver that deletes directly). Both caches are **explicitly capacity-bounded**: `SeriesReconciliationCache` (capacity 1024, configurable for tests) LRU-evicts reconcile entries and prunes idle per-series version cells and single-flight gates when they overflow, the gates are *never disposed* (evicted = dereferenced, so no disposal race), and the version-check on publish and the invalidation bump run under the same lock so a stale publish can't slip through while an eviction is happening.
 
 - **Fuzzy matching** — `AudiobookManager.Services/Similarity/`: `NameNormalizer` (comparison-only normalization — lowercase, strip punctuation, merge initials — never written back to the DB), `LevenshteinDistance` (standalone edit-distance, no NuGet dependency), and `SimilarityGrouper` (clusters distinct values via normalized-equality or a length-scaled edit-distance threshold, using union-find with length-bucketed blocking). Thresholds live on `AudiobookManagerSettings`.
-- **Detection & alignment** — `ISimilarValueService`/`SimilarValueService`: `DetectSimilarAuthorsAsync()`/`DetectSimilarSeriesAsync()` read distinct values and cluster them; `AlignAuthorsAsync()`/`AlignSeriesAsync()` bulk-rewrite a chosen target value across all affected books. Alignment is **per-book**, wrapped in try/catch so one failure (e.g. a generated-path collision) never aborts the rest of the batch, and reports `(processed, total, succeeded, failed)` via a progress callback — mirroring `LibraryConsistencyService`'s bulk-resolve pattern.
+- **Detection & alignment** — `ISimilarValueService`/`SimilarValueService`: `DetectSimilarAuthorsAsync()`/`DetectSimilarSeriesAsync()` read the *distinct values only* (the same name lists the entry-time autocomplete uses — never per-book reference rows), cluster them (once per cache slot), and fetch book counts just for the returned page's candidates (`GetAuthorBookCountsAsync`/`GetSeriesBookCountsAsync`); `AlignAuthorsAsync()`/`AlignSeriesAsync()` bulk-rewrite a chosen target value across all affected books and invalidate the detection cache. Alignment is **per-book**, wrapped in try/catch so one failure (e.g. a generated-path collision) never aborts the rest of the batch, and reports `(processed, total, succeeded, failed)` via a progress callback — mirroring `LibraryConsistencyService`'s bulk-resolve pattern.
 - **API** — `SimilarValuesController` (`api/similar-values`): `GET similar-authors`/`similar-series` (synchronous — DB read + in-memory clustering), `POST align` (fire-and-forget with SignalR progress, mirroring `ConsistencyController`), and `GET author-names`/`series-names` (cheap flat lists for the entry-time autocomplete below).
 - **UI** — `SimilarValues.tsx`: review each group, pick a target value (existing candidate or free text), confirm, watch live progress.
 - **Entry-time duplicate prevention** — `BookEditForm.tsx` fetches the flat name lists (`similarValuesApi.getAuthorNames()`/`getSeriesNames()`, cached 5 minutes via TanStack Query) and, on blur of the Author/Series fields, shows a "similar existing entries" click-to-use hint using `findSimilarExisting` from `helpers/similarValueMatcher.ts` (accent-folded, near-match). This client-side matching is a separate, simpler implementation — it's advisory UI only and does not need to match the backend `SimilarityGrouper` byte-for-byte.
@@ -553,6 +553,22 @@ follows the same blueprint; new lists must start there instead of repeating the 
   helpers rather than a client-side `foldAccents` scan over every row.
 - A cheap **count endpoint** (or counts in the page DTO) supplies header badges ("Series (N)",
   "Bulk Match (N)", "X of Y") instead of fetching the full list to count it.
+
+Derived sections whose membership SQL cannot express (the series detail's missing/ignored
+roster reconciliation, the similar-values grouping) follow a **bounded+cached** blueprint: the
+computation runs against explicitly-capped inputs (roster = the source's stored series page,
+owned keys per series — both under documented limits) once per cache slot, the pages are sliced
+from the cached result so per-request cost stays page-sized, and every invalidation is
+write-driven (`SeriesReconciliationCache`, `SimilarValueDetectionCache`) with version-gated
+publish so an invalidation concurrent with an in-flight compute can never republish stale data
+for the TTL. The caps are enforced **before materialization**, at the query boundary: the
+reconciliation's repository reads (`GetByNameWithExpectedBooksBoundedAsync`,
+`GetSeriesOwnedKeysAsync`) fetch at most cap+1 rows and report an overflow flag, so a
+pathological roster or owned set is detected and refused without ever being transferred whole
+(the service throws rather than truncating). The caches themselves are capacity-bounded with
+eviction (LRU entries, idle version-cell/gate pruning) so none of their state grows with the
+library; eviction is always memory-lazy recompute on next access, never disposal of a resource
+a waiter may hold.
 
 Before adding a list endpoint or list view, name the bound (page size plus total-order
 tiebreaker, or the explicit `limit`) in the same change that adds it. Unbounded lists are

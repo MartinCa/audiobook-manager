@@ -15,7 +15,18 @@ export interface SeriesMapping extends SeriesMappingBase {
   id: number;
 }
 
-export interface GroupMapping {
-  mappedSeries: string;
-  mappings: SeriesMapping[];
-}
+// AudiobookManager.Api/Dtos/SeriesMappingGroupDtos.cs: grouping is done server-side now (the
+// client used to reduce the flat table into buckets itself).
+export type SeriesMappingGroup = Require<
+  components["schemas"]["SeriesMappingGroupDto"],
+  "mappedSeries" | "items"
+> & {
+  items: SeriesMapping[];
+};
+
+export type SeriesMappingGroups = Require<
+  components["schemas"]["SeriesMappingGroupsDto"],
+  "items" | "total"
+> & {
+  items: SeriesMappingGroup[];
+};

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,14 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
+
+// Cap on how many rows "Preview Suggestions" looks each source up for. The unmatched list is
+// paged, but a page can still hold a page-size worth of rows, and every row is one sequential
+// satellite request per configured source - so previewing is capped regardless of page size and
+// the dialog says so.
+const PREVIEW_SUGGESTION_CAP = 20;
+
+const PAGE_SIZE = 50;
 
 interface SeriesMatchProgressPayload {
   processed: number;
@@ -28,32 +37,48 @@ interface SeriesMatchCompletePayload {
 interface SeriesMatchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  series: SeriesOverview[];
   onMatched?: () => void;
 }
 
-export function SeriesMatchDialog({
-  open,
-  onOpenChange,
-  series,
-  onMatched,
-}: SeriesMatchDialogProps) {
+export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatchDialogProps) {
   const [threshold, setThreshold] = useState(0.85);
-  const [selected, setSelected] = useState<string[]>([]);
+  // Selection is page-scoped like CleanBookUrls: null means "not customized yet" - defaults to
+  // everything on the loaded page selected - and once the user toggles a box we switch to an
+  // explicit set. The set is keyed by series name and persists across pages, so names selected
+  // on page 1 stay selected on page 2.
+  const [customSelection, setCustomSelection] = useState<Set<string> | null>(null);
+  const [page, setPage] = useState(0);
   const [suggestions, setSuggestions] = useState<Record<string, SeriesMatchCandidate | null>>({});
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   const [matching, setMatching] = useState(false);
   const [matchProgress, setMatchProgress] = useState<SeriesMatchProgressPayload | null>(null);
 
+  const { data: pageData, isLoading: loadingPage } = useQuery({
+    queryKey: ["series", "unmatched", page],
+    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, undefined, false),
+    enabled: open,
+    placeholderData: keepPreviousData,
+  });
+
+  const series = (pageData?.items ?? []) as SeriesOverview[];
+  const totalCount = pageData?.totalCount ?? 0;
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
-      setSelected(series.map((s) => s.name));
+      // Opening defaults to "everything on the first page selected", exactly like CleanBookUrls.
+      setCustomSelection(null);
       setSuggestions({});
+      setPage(0);
     }
   }
+
+  const selectedIds = customSelection ?? new Set(series.map((s) => s.name));
+  const selectedCount = customSelection ? customSelection.size : series.length;
 
   useSignalREvent<SeriesMatchProgressPayload>("SeriesMatchProgress", (payload) => {
     setMatching(true);
@@ -72,20 +97,27 @@ export function SeriesMatchDialog({
     onMatched?.();
   });
 
-  const allSelected = series.length > 0 && selected.length === series.length;
-
-  const toggleAll = () => {
-    setSelected(allSelected ? [] : series.map((s) => s.name));
-  };
-
   const toggleOne = (name: string) => {
-    setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+    const next = new Set(selectedIds);
+    if (next.has(name)) {
+      next.delete(name);
+    } else {
+      next.add(name);
+    }
+    setCustomSelection(next);
   };
 
+  const selectAllOnPage = () => setCustomSelection(new Set(series.map((s) => s.name)));
+  const clearSelection = () => setCustomSelection(new Set());
+
+  // "Preview Suggestions" used to loop over every unmatched series - one sequential request per
+  // row. With the list paged, only the current page is present; even a page can be large, so the
+  // preview is capped explicitly and the cap is stated in the UI.
   const handleLoadSuggestions = async () => {
+    const previewable = series.slice(0, PREVIEW_SUGGESTION_CAP);
     setLoadingSuggestions(true);
     try {
-      for (const item of series) {
+      for (const item of previewable) {
         try {
           const candidates = await seriesApi.getMatchCandidates(item.name);
           setSuggestions((prev) => ({
@@ -102,10 +134,24 @@ export function SeriesMatchDialog({
   };
 
   const handleStartMatch = async () => {
-    if (selected.length === 0) return;
+    if (selectedCount === 0) return;
     setMatching(true);
     try {
-      await seriesApi.startBulkMatch(threshold, selected);
+      await seriesApi.startBulkMatch(threshold, Array.from(selectedIds));
+      toast.success("Bulk series matching started in background");
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+      setMatching(false);
+    }
+  };
+
+  // The one-click path for "just match everything": the backend's BulkMatchSeriesDto treats a
+  // missing SeriesNames list as "no subset given", so no client-side enumeration is needed.
+  const handleMatchAll = async () => {
+    if (totalCount === 0) return;
+    setMatching(true);
+    try {
+      await seriesApi.startBulkMatch(threshold);
       toast.success("Bulk series matching started in background");
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
@@ -167,13 +213,13 @@ export function SeriesMatchDialog({
                 size="sm"
                 className="w-full sm:w-auto"
                 disabled={matching}
-                onClick={toggleAll}
+                onClick={selectedCount === series.length ? clearSelection : selectAllOnPage}
               >
-                {allSelected ? "Deselect All" : "Select All"}
+                {selectedCount === series.length ? "Clear Selection" : "Select all on page"}
               </Button>
             </div>
             <span className="text-muted-foreground text-[11px] sm:text-xs">
-              {selected.length} of {series.length} selected
+              {selectedCount} of {totalCount} unmatched selected
             </span>
           </div>
 
@@ -185,14 +231,19 @@ export function SeriesMatchDialog({
             />
           )}
 
-          {series.length === 0 ? (
+          {loadingPage && series.length === 0 ? (
+            <div className="text-muted-foreground flex items-center justify-center py-8">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <span>Loading unmatched series...</span>
+            </div>
+          ) : totalCount === 0 ? (
             <div className="text-muted-foreground py-6 text-center">
               Every series is already matched.
             </div>
           ) : (
             <div className="border-border divide-y rounded-md border">
               {series.map((item) => {
-                const isSelected = selected.includes(item.name);
+                const isSelected = selectedIds.has(item.name);
                 const best = suggestions[item.name];
                 return (
                   <div
@@ -234,6 +285,42 @@ export function SeriesMatchDialog({
                   </div>
                 );
               })}
+
+              {pageCount > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5">
+                  <span className="text-muted-foreground text-[11px]">
+                    Showing {currentPage * PAGE_SIZE + 1}–
+                    {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-1.5 text-[11px]"
+                      disabled={currentPage === 0}
+                      onClick={() => setPage(currentPage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-1.5 text-[11px]"
+                      disabled={currentPage >= pageCount - 1}
+                      onClick={() => setPage(currentPage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {series.length > PREVIEW_SUGGESTION_CAP && (
+                <p className="text-muted-foreground px-2.5 py-2 italic">
+                  Suggestions are previewed for the first {PREVIEW_SUGGESTION_CAP} series per page
+                  to bound the lookups.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -248,8 +335,18 @@ export function SeriesMatchDialog({
             Close
           </Button>
           <Button
+            variant="outline"
             className="w-full sm:w-auto"
-            disabled={matching || selected.length === 0}
+            disabled={matching || totalCount === 0}
+            onClick={() => {
+              void handleMatchAll();
+            }}
+          >
+            Match All Unmatched ({totalCount})
+          </Button>
+          <Button
+            className="w-full sm:w-auto"
+            disabled={matching || selectedCount === 0}
             onClick={() => {
               void handleStartMatch();
             }}
@@ -259,7 +356,7 @@ export function SeriesMatchDialog({
             ) : (
               <Search className="mr-1.5 h-4 w-4" />
             )}
-            Match Selected ({selected.length})
+            Match Selected ({selectedCount})
           </Button>
         </div>
       </DialogContent>

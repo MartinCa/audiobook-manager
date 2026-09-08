@@ -7,6 +7,3 @@ namespace AudiobookManager.Database.Repositories;
 /// per author, so the count is projected in SQL instead.
 /// </summary>
 public record AuthorSummaryRow(long Id, string Name, int BookCount);
-
-/// <summary>A book reduced to the id/title pair the similar-value grouping needs.</summary>
-public record AuthorBookRef(long Id, string BookName);

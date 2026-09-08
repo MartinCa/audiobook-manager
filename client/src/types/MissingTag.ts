@@ -11,3 +11,10 @@ export type AudiobookMissingTags = Require<
   components["schemas"]["AudiobookMissingTagsDto"],
   "audiobookId" | "bookName" | "authors" | "missingFields"
 >;
+
+export type AudiobookMissingTagsPage = Require<
+  components["schemas"]["AudiobookMissingTagsPageDto"],
+  "items" | "totalCount"
+> & {
+  items: AudiobookMissingTags[];
+};

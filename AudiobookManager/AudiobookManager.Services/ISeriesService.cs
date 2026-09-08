@@ -16,7 +16,32 @@ public interface ISeriesService
 {
     Task<List<SeriesOverview>> GetAllSeriesOverviewAsync();
 
-    Task<SeriesDetail?> GetSeriesDetailAsync(string seriesName);
+    /// <summary>
+    /// One page of the series overview, in the total order the overview is displayed in. The
+    /// page and its total come from SQL; only the page's series values are hydrated into
+    /// overviews, so the read is proportional to the rendered rows, not the library. See
+    /// <see cref="AudiobookRepository.GetSeriesValuesPageAsync"/> for the search/matched filters.
+    /// </summary>
+    Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(int page, int pageSize, string? search, bool? matched);
+
+    /// <summary>Total/matched/unmatched series counts for the overview header badge.</summary>
+    Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync();
+
+    /// <summary>
+    /// One page per section of the series detail: the overview plus one page of owned, missing
+    /// and ignored books, each with its full total. Per request the reads are bounded: one catalog
+    /// metadata row, one SQL page of owned books, and the cached reconciliation. The
+    /// reconciliation itself (classifying the roster - the metadata source's stored series page,
+    /// hard-capped by <c>SeriesService.MaxReconciliationRosterEntries</c> - against the series'
+    /// owned position/title keys, capped too) is computed once per series per change by
+    /// <c>ISeriesReconciliationCache</c>, never per page request, so a section request never
+    /// materializes the roster plus every owned book of the series.
+    /// </summary>
+    Task<SeriesDetailPage?> GetSeriesDetailPageAsync(
+        string seriesName,
+        int ownedSkip, int ownedTake,
+        int missingSkip, int missingTake,
+        int ignoredSkip, int ignoredTake);
 
     Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName);
 

@@ -33,10 +33,19 @@ public class SettingsService : ISettingsService
         return dbModel?.ToDomain();
     }
 
-    public async Task<IList<Domain.SeriesMapping>> GetSeriesMappings()
+    public async Task<Domain.SeriesMappingGroups> GetSeriesMappingGroupsAsync(string? search)
     {
-        var dbModels = await _seriesMappingRepository.GetSeriesMappings();
-        return dbModels.Select(SeriesMappingMapping.ToDomain).ToList();
+        var (groups, total) = await _seriesMappingRepository.GetSeriesMappingGroupsAsync(search);
+
+        return new Domain.SeriesMappingGroups
+        {
+            Total = total,
+            Items = groups.Select(g => new Domain.SeriesMappingGroup
+            {
+                MappedSeries = g.MappedSeries,
+                Mappings = g.Items.Select(SeriesMappingMapping.ToDomain).ToList(),
+            }).ToList(),
+        };
     }
 
     public async Task<Domain.SeriesMapping> UpdateSeriesMapping(Domain.SeriesMapping seriesMapping)

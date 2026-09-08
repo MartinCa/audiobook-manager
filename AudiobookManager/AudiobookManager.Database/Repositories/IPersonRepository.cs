@@ -23,6 +23,13 @@ public interface IPersonRepository
     /// <summary>Every author that has at least one book, with its book count projected in SQL.</summary>
     Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync();
 
+    /// <summary>
+    /// One page of all authors, ordered by name (then book count, then id) with the total, for the
+    /// paged authors browse list. <paramref name="search"/> folds accents and filters on the
+    /// precomputed <c>NameFolded</c> column; a null or blank search disables the filter.
+    /// </summary>
+    Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(string? search, int limit, int offset);
+
     /// <summary>Name-matching authors, with the book count projected in SQL, paged with a total.</summary>
     Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset);
 
@@ -30,9 +37,10 @@ public interface IPersonRepository
     Task<AuthorSummaryRow?> GetAuthorSummaryAsync(long authorId);
 
     /// <summary>
-    /// Author name -> the id/title of each book they authored. Used by the similar-author
-    /// grouping, which needs nothing else off the audiobook rows. Authors recorded under
-    /// separate Person rows with the same name are merged into one entry.
+    /// How many books carry each of only the given author names, for the similar-author detection:
+    /// the detection shows a book count per candidate, and the page only needs counts for the
+    /// candidates it actually returns. Loads no per-book rows - just a GROUP BY over the
+    /// book/author link.
     /// </summary>
-    Task<Dictionary<string, List<AuthorBookRef>>> GetAuthorBookRefsAsync();
+    Task<Dictionary<string, int>> GetAuthorBookCountsAsync(IReadOnlyCollection<string> authorNames);
 }

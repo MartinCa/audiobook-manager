@@ -26,9 +26,11 @@ import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
-import type { SeriesMatchCandidate } from "@/types/Series";
+import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
 import { formatDate } from "@/helpers/formatHelpers";
+
+const PAGE_SIZE = 50;
 
 interface SeriesRefreshCompletePayload {
   totalProcessed: number;
@@ -73,11 +75,58 @@ export function SeriesDetail() {
     false | { id: number; position?: string | null; title?: string | null }
   >(false);
 
-  const { data: detail, isLoading: loading } = useQuery({
-    queryKey: ["seriesDetail", decodedSeriesName, authorId],
-    queryFn: () => seriesApi.getSeriesDetail(decodedSeriesName),
+  // Each section pages server-side: a matched series with a large roster (or a book-heavy
+  // series) used to send every owned and expected book over the wire and into the DOM at once.
+  // Each section has its own page state so paging one doesn't disturb the others.
+  const [ownedPage, setOwnedPage] = useState(0);
+  const [missingPage, setMissingPage] = useState(0);
+  const [ignoredPage, setIgnoredPage] = useState(0);
+
+  const ownedQuery = useQuery({
+    queryKey: ["seriesDetail", decodedSeriesName, authorId, "owned", ownedPage],
+    queryFn: () =>
+      seriesApi.getSeriesDetail(decodedSeriesName, { ownedPage, ownedPageSize: PAGE_SIZE }),
     enabled: Boolean(decodedSeriesName),
   });
+
+  const missingQuery = useQuery({
+    queryKey: ["seriesDetail", decodedSeriesName, authorId, "missing", missingPage],
+    queryFn: () =>
+      seriesApi.getSeriesDetail(decodedSeriesName, { missingPage, missingPageSize: PAGE_SIZE }),
+    enabled: Boolean(decodedSeriesName),
+  });
+
+  const ignoredQuery = useQuery({
+    queryKey: ["seriesDetail", decodedSeriesName, authorId, "ignored", ignoredPage],
+    queryFn: () =>
+      seriesApi.getSeriesDetail(decodedSeriesName, { ignoredPage, ignoredPageSize: PAGE_SIZE }),
+    enabled: Boolean(decodedSeriesName),
+  });
+
+  const overview =
+    ownedQuery.data?.overview ?? missingQuery.data?.overview ?? ignoredQuery.data?.overview;
+
+  const ownedSection = ownedQuery.data?.ownedBooks ?? {
+    items: [] as SeriesOwnedBook[],
+    totalCount: 0,
+  };
+  const missingSection = missingQuery.data?.missingBooks ?? {
+    items: [] as SeriesExpectedBook[],
+    totalCount: 0,
+  };
+  const ignoredSection = ignoredQuery.data?.ignoredBooks ?? {
+    items: [] as SeriesExpectedBook[],
+    totalCount: 0,
+  };
+  const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
+  const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
+  const ignoredPageCount = Math.max(1, Math.ceil(ignoredSection.totalCount / PAGE_SIZE));
+
+  // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
+  // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
+  const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
+  const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
+  const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
 
   useSignalREvent<SeriesRefreshCompletePayload>("SeriesRefreshComplete", (arg) => {
     setRefreshing(false);
@@ -145,7 +194,7 @@ export function SeriesDetail() {
         candidate.sourceName,
         candidate.sourceId,
         candidate.confidence,
-        detail?.overview.includeOmnibusEditions,
+        overview?.includeOmnibusEditions,
       );
       setCandidates([]);
       setCandidatesLoaded(false);
@@ -199,7 +248,7 @@ export function SeriesDetail() {
     }
   };
 
-  if (loading) {
+  if (!overview && (ownedQuery.isLoading || missingQuery.isLoading || ignoredQuery.isLoading)) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
         <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
@@ -208,7 +257,7 @@ export function SeriesDetail() {
     );
   }
 
-  if (!detail) {
+  if (!overview) {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Series not found</h2>
@@ -217,7 +266,9 @@ export function SeriesDetail() {
     );
   }
 
-  const { overview, ownedBooks, missingBooks, ignoredBooks } = detail;
+  const ownedBooks = ownedSection.items as SeriesOwnedBook[];
+  const missingBooks = missingSection.items as SeriesExpectedBook[];
+  const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
 
   return (
     <div className="space-y-6">
@@ -471,7 +522,9 @@ export function SeriesDetail() {
       </Card>
 
       <div className="space-y-4">
-        <h2 className="text-foreground text-lg font-bold">Owned Books ({ownedBooks.length})</h2>
+        <h2 className="text-foreground text-lg font-bold">
+          Owned Books ({ownedSection.totalCount})
+        </h2>
         {ownedBooks.length === 0 ? (
           <p className="text-muted-foreground text-sm">No books owned.</p>
         ) : (
@@ -501,12 +554,20 @@ export function SeriesDetail() {
             ))}
           </div>
         )}
+        {ownedPageCount > 1 && (
+          <SectionPager
+            currentPage={currentOwnedPage}
+            pageCount={ownedPageCount}
+            totalCount={ownedSection.totalCount}
+            onPageChange={setOwnedPage}
+          />
+        )}
       </div>
 
       {overview.isMatched && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-amber-600 dark:text-amber-400">
-            Missing Books ({missingBooks.length})
+            Missing Books ({missingSection.totalCount})
           </h2>
           {missingBooks.length === 0 ? (
             <p className="text-muted-foreground text-xs">
@@ -574,13 +635,21 @@ export function SeriesDetail() {
               ))}
             </div>
           )}
+          {missingPageCount > 1 && (
+            <SectionPager
+              currentPage={currentMissingPage}
+              pageCount={missingPageCount}
+              totalCount={missingSection.totalCount}
+              onPageChange={setMissingPage}
+            />
+          )}
         </div>
       )}
 
-      {overview.isMatched && ignoredBooks.length > 0 && (
+      {overview.isMatched && ignoredSection.totalCount > 0 && (
         <div className="space-y-4">
           <h2 className="text-muted-foreground text-lg font-bold">
-            Ignored Books ({ignoredBooks.length})
+            Ignored Books ({ignoredSection.totalCount})
           </h2>
           <div className="space-y-2">
             {ignoredBooks.map((ib) => (
@@ -614,6 +683,14 @@ export function SeriesDetail() {
               </div>
             ))}
           </div>
+          {ignoredPageCount > 1 && (
+            <SectionPager
+              currentPage={currentIgnoredPage}
+              pageCount={ignoredPageCount}
+              totalCount={ignoredSection.totalCount}
+              onPageChange={setIgnoredPage}
+            />
+          )}
         </div>
       )}
 
@@ -637,6 +714,46 @@ export function SeriesDetail() {
               }
         }
       />
+    </div>
+  );
+}
+
+/** The clamped pager each paged section renders, in the CleanBookUrls shape. */
+function SectionPager({
+  currentPage,
+  pageCount,
+  totalCount,
+  onPageChange,
+}: {
+  currentPage: number;
+  pageCount: number;
+  totalCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+      <span className="text-muted-foreground text-xs">
+        Showing {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, totalCount)}{" "}
+        of {totalCount}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={currentPage === 0}
+          onClick={() => onPageChange(currentPage - 1)}
+        >
+          Previous
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={currentPage >= pageCount - 1}
+          onClick={() => onPageChange(currentPage + 1)}
+        >
+          Next
+        </Button>
+      </div>
     </div>
   );
 }

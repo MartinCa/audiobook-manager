@@ -19,6 +19,7 @@ public class SimilarValueServiceTests
     private Mock<ILogger<SimilarValueService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private AudiobookSaveGate _saveGate = null!;
+    private SimilarValueDetectionCache _detectionCache = null!;
     private SimilarValueService _service = null!;
 
     [TestInitialize]
@@ -29,6 +30,7 @@ public class SimilarValueServiceTests
         _audiobookService = new Mock<IAudiobookService>();
         _logger = new Mock<ILogger<SimilarValueService>>();
         _saveGate = new AudiobookSaveGate();
+        _detectionCache = new SimilarValueDetectionCache();
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookImportPath = "/import",
@@ -40,6 +42,7 @@ public class SimilarValueServiceTests
             _personRepository.Object,
             _audiobookService.Object,
             _saveGate,
+            _detectionCache,
             _settings,
             _logger.Object);
     }
@@ -53,37 +56,190 @@ public class SimilarValueServiceTests
     [TestMethod]
     public async Task DetectSimilarAuthorsAsync_GroupsNearDuplicateAuthorNames()
     {
-        _personRepository.Setup(r => r.GetAuthorBookRefsAsync()).ReturnsAsync(
-            new Dictionary<string, List<AuthorBookRef>>
-            {
-                ["J.K. Rowling"] = new() { new AuthorBookRef(1, "Book One") },
-                ["JK Rowling"] = new() { new AuthorBookRef(2, "Book Two") },
-                ["Brandon Sanderson"] = new() { new AuthorBookRef(3, "Book Three") },
-            });
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling", "JK Rowling", "Brandon Sanderson",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int> { ["J.K. Rowling"] = 1, ["JK Rowling"] = 2 });
 
-        var groups = await _service.DetectSimilarAuthorsAsync();
+        var (groups, total) = await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
 
+        Assert.AreEqual(1, total);
         Assert.AreEqual(1, groups.Count);
         Assert.AreEqual(2, groups[0].Candidates.Count);
         var rowlingCandidate = groups[0].Candidates.First(c => c.Value == "J.K. Rowling");
-        CollectionAssert.AreEquivalent(new List<long> { 1 }, rowlingCandidate.Books.Select(b => b.Id).ToList());
+        Assert.AreEqual(1, rowlingCandidate.BookCount);
+    }
+
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_PagesTheGroupsAndReportsTheFullTotal()
+    {
+        // Three near-duplicate pairs (punctuation-folded equal, single-edit-distance in the long
+        // bucket, punctuation-folded equal) = three groups, so slicing by page actually slices.
+        // A lone name forms no cluster - the grouper only returns groups with more than one
+        // member - so every name below must be part of a pair.
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling", "JK Rowling",
+            "Brandon Sanderson", "Brandan Sanderson",
+            "Marcel Proust", "Marcel.Proust",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var (firstPage, total) = await _service.DetectSimilarAuthorsAsync(skip: 0, take: 2);
+        var (secondPage, _) = await _service.DetectSimilarAuthorsAsync(skip: 2, take: 2);
+
+        Assert.AreEqual(3, total, "The total is the number of groups, not the slice.");
+        Assert.AreEqual(2, firstPage.Count);
+        Assert.AreEqual(1, secondPage.Count);
+        var seen = firstPage.SelectMany(g => g.Candidates).Select(c => c.Value)
+            .Concat(secondPage.SelectMany(g => g.Candidates).Select(c => c.Value))
+            .ToHashSet();
+        Assert.AreEqual(6, seen.Count, "No candidate may appear on two pages; the group order has to be deterministic.");
+    }
+
+    // The point of the cache: paging through the results must not re-read the distinct values and
+    // re-cluster the whole library per request. Two paged requests share one clustering run.
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_ServesRepeatedPagesFromTheCache()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling", "JK Rowling",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Once,
+            "the second request must be served from the cached grouping");
+    }
+
+    // Book counts are the only number the page renders per candidate, so they are fetched only
+    // for the candidates the returned page shows - never for every value in the library.
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_FetchesCountsOnlyForTheReturnedPage()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "J.K. Rowling", "JK Rowling",
+            "Brandon Sanderson", "Brandan Sanderson",
+            "Marcel Proust", "Marcel.Proust",
+        });
+
+        IReadOnlyCollection<string>? countedValues = null;
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .Callback<IReadOnlyCollection<string>>(values => countedValues = values)
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        // Groups sort by their first candidate: the Sanderson pair is alphabetically first.
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 1);
+
+        Assert.IsNotNull(countedValues);
+        Assert.AreEqual(2, countedValues!.Count, "only the returned group's candidates are counted");
+        CollectionAssert.AreEquivalent(
+            new List<string> { "Brandon Sanderson", "Brandan Sanderson" }, countedValues!.ToList());
+    }
+
+    // Alignment folds two values together, so the cached grouping (which still lists both) must
+    // not survive it - otherwise the page would go on showing a group the user just merged.
+    [TestMethod]
+    public async Task AlignSeriesAsync_InvalidatesTheDetectionCache()
+    {
+        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Fantasy & Adventure", "Fantasy and Adventure",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.DetectSimilarSeriesAsync(skip: 0, take: 50);
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Fantasy & Adventure", "Fantasy and Adventure" },
+            "Fantasy & Adventure",
+            (_, _, _, _) => Task.CompletedTask);
+
+        await _service.DetectSimilarSeriesAsync(skip: 0, take: 50);
+
+        _audiobookRepository.Verify(r => r.GetSeriesNamesAsync(), Times.Exactly(2),
+            "alignment must invalidate the cached grouping so the merged value is re-detected");
+    }
+
+    // Regression for the stale-publication race: a request that missed the cache and is still
+    // reading the distinct values when an alignment invalidates must NOT publish its
+    // pre-alignment groups back into the cache for the TTL. The test coordinates the interleaving
+    // with tasks (the read blocks on a gate until the invalidate has run), so it is deterministic
+    // and has no sleeps: the in-flight compute started against the pre-merge library, its publish
+    // must be dropped, and the next request must re-read rather than be served the stale groups.
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_InvalidationDuringAnInFlightMiss_DoesNotPublishStaleGroups()
+    {
+        var readStarted = new TaskCompletionSource();
+        var releaseRead = new TaskCompletionSource();
+        var reads = 0;
+
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).Returns(async () =>
+        {
+            reads++;
+            if (reads == 1)
+            {
+                // The first request reads the pre-alignment library: the two-spelling pair.
+                readStarted.SetResult();
+                await releaseRead.Task;
+                return new List<string> { "J.K. Rowling", "JK Rowling" };
+            }
+
+            // Post-alignment: the two spellings have been merged into one, so no group remains.
+            return new List<string>();
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        // Call 1 misses the cache and blocks mid-read on the pre-alignment data.
+        var inFlight = _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+        await readStarted.Task;
+
+        // The alignment commits and invalidates while the compute is still reading.
+        _detectionCache.Invalidate();
+        releaseRead.SetResult();
+
+        var preAlignmentResult = await inFlight;
+        Assert.AreEqual(1, preAlignmentResult.Total,
+            "the in-flight request still returns the snapshot it read; the cache is where staleness is refused");
+
+        Assert.IsNull(_detectionCache.Get("authors"),
+            "the pre-alignment groups must not be republished after the invalidation");
+
+        // Call 2 must not be served the dropped (pre-alignment) grouping - it has to re-read.
+        var fresh = await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+        Assert.AreEqual(0, fresh.Total, "the re-read sees the merged single value, so nothing clusters");
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(2),
+            "call 2 must recompute - the stale publish was refused");
     }
 
     [TestMethod]
     public async Task DetectSimilarSeriesAsync_GroupsNearDuplicateSeriesValues()
     {
-        _audiobookRepository.Setup(r => r.GetDistinctSeriesAsync()).ReturnsAsync(
-            new Dictionary<string, List<(long Id, string BookName)>>
-            {
-                ["Fantasy & Adventure"] = new() { (1, "Book One"), (2, "Book Two") },
-                ["Fantasy and Adventure"] = new() { (3, "Book Three") },
-                ["Mystery"] = new() { (4, "Book Four") }
-            });
+        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Fantasy & Adventure", "Fantasy and Adventure", "Mystery",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int> { ["Fantasy & Adventure"] = 2, ["Fantasy and Adventure"] = 1 });
 
-        var groups = await _service.DetectSimilarSeriesAsync();
+        var (groups, total) = await _service.DetectSimilarSeriesAsync(skip: 0, take: 50);
 
+        Assert.AreEqual(1, total);
         Assert.AreEqual(1, groups.Count);
         Assert.AreEqual(2, groups[0].Candidates.Count);
+        Assert.AreEqual(2, groups[0].Candidates.First(c => c.Value == "Fantasy & Adventure").BookCount);
     }
 
     [TestMethod]

@@ -140,6 +140,40 @@ public class PersonRepository : IPersonRepository
         return rows.OrderBy(r => r.Name, StringComparer.InvariantCulture).ToList();
     }
 
+    public async Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(
+        string? search, int limit, int offset)
+    {
+        var dbQuery = _db.Persons
+            .AsNoTracking()
+            .Where(p => p.BooksAuthored.Any());
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // Folded on the precomputed NameFolded column like every other search in this
+            // repository; the page is ordered in SQL, so it gets BINARY collation (the
+            // documented tradeoff for a paged query - see the ordering rule in AGENTS.md).
+            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
+            dbQuery = dbQuery.Where(p => EF.Functions.Like(p.NameFolded, pattern));
+        }
+
+        var total = await dbQuery.CountAsync();
+
+        // BookCount (BooksAuthored.Count) is part of the total order too, defensively: persons
+        // names are unique, but the issue asked for it and a future without the unique index
+        // must not silently get a non-total order. Id is the final tiebreaker that makes the
+        // order total.
+        var rows = await dbQuery
+            .OrderBy(p => p.Name)
+            .ThenByDescending(p => p.BooksAuthored.Count)
+            .ThenBy(p => p.Id)
+            .Skip(offset)
+            .Take(limit)
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .ToListAsync();
+
+        return (rows, total);
+    }
+
     public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
@@ -176,23 +210,28 @@ public class PersonRepository : IPersonRepository
             .FirstOrDefaultAsync();
     }
 
-    public async Task<Dictionary<string, List<AuthorBookRef>>> GetAuthorBookRefsAsync()
+    /// <summary>
+    /// Author name -> how many books carry that author name, for only the names in
+    /// <paramref name="authorNames"/>. The similar-author detection pages its groups, so only
+    /// the current page's candidate names need counts - the old implementation loaded every
+    /// author's full book list to derive the same numbers.
+    /// </summary>
+    public async Task<Dictionary<string, int>> GetAuthorBookCountsAsync(IReadOnlyCollection<string> authorNames)
     {
-        var rows = await _db.Persons
+        if (authorNames.Count == 0)
+        {
+            return new Dictionary<string, int>();
+        }
+
+        var rows = await _db.Audiobooks
             .AsNoTracking()
-            .Where(p => p.BooksAuthored.Any())
-            .Select(p => new
-            {
-                p.Name,
-                Books = p.BooksAuthored.Select(b => new AuthorBookRef(b.Id, b.BookName)).ToList(),
-            })
+            .Where(a => a.Authors.Any(p => authorNames.Contains(p.Name)))
+            .SelectMany(a => a.Authors)
+            .Where(p => authorNames.Contains(p.Name))
+            .GroupBy(p => p.Name)
+            .Select(g => new { Name = g.Key, Count = g.Count() })
             .ToListAsync();
 
-        return rows
-            .GroupBy(r => r.Name, StringComparer.Ordinal)
-            .ToDictionary(
-                g => g.Key,
-                g => g.SelectMany(r => r.Books).DistinctBy(b => b.Id).ToList(),
-                StringComparer.Ordinal);
+        return rows.ToDictionary(r => r.Name, r => r.Count, StringComparer.Ordinal);
     }
 }

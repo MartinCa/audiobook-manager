@@ -1,4 +1,5 @@
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -225,5 +226,128 @@ public class BrowseControllerTests
         var objectResult = result.Result as ObjectResult;
         Assert.IsNotNull(objectResult);
         Assert.AreEqual(400, objectResult!.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_ReturnsOnePageWithItemsAndTotal()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow> { new(1, "Brandon Sanderson", 5) }, 91));
+
+        var result = await _controller.GetAuthors();
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok);
+        Assert.AreEqual(1, ok.Count);
+        Assert.AreEqual(91, ok.Total);
+        Assert.AreEqual("Brandon Sanderson", ok.Items[0].Name);
+        Assert.AreEqual(5, ok.Items[0].BookCount);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_PassesSearchLimitAndOffsetThrough()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummariesPagedAsync("sand", 25, 50))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(q: "sand", limit: 25, offset: 50);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok);
+        _personRepo.Verify(r => r.GetAuthorSummariesPagedAsync("sand", 25, 50), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_BlankSearchBecomesNoFilter()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummariesPagedAsync(null, 20, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(q: "   ", limit: 20);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok);
+        _personRepo.Verify(r => r.GetAuthorSummariesPagedAsync(null, 20, 0), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_AnOutOfRangeOffset_IsRefusedWithoutTouchingTheRepository()
+    {
+        var result = await _controller.GetAuthors(limit: 50, offset: 1_000_001);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_ReturnsPagedSectionsWithTheirTotals()
+    {
+        var authorRow = new AuthorSummaryRow(7, "Brandon Sanderson", 5);
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(authorRow);
+        _audiobookRepo.Setup(r => r.GetSeriesCountsByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<(string Series, int BookCount)> { ("Mistborn", 3) }, 2));
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 4));
+
+        var result = await _controller.GetAuthorDetail(7);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok);
+        Assert.AreEqual(7, ok.Author.Id);
+        Assert.AreEqual(1, ok.Series.Count);
+        Assert.AreEqual(2, ok.Series.Total);
+        Assert.AreEqual("Mistborn", ok.Series.Items[0].SeriesName);
+        Assert.AreEqual(3, ok.Series.Items[0].BookCount);
+        Assert.AreEqual(0, ok.StandaloneBooks.Count);
+        Assert.AreEqual(4, ok.StandaloneBooks.Total);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_PassesSectionPagingThrough()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _audiobookRepo.Setup(r => r.GetSeriesCountsByAuthorAsync(7, 25, 50))
+            .ReturnsAsync((new List<(string Series, int BookCount)>(), 0));
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 10, 20))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        var result = await _controller.GetAuthorDetail(
+            authorId: 7, seriesLimit: 25, seriesOffset: 50, standaloneLimit: 10, standaloneOffset: 20);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok);
+        _audiobookRepo.Verify(r => r.GetSeriesCountsByAuthorAsync(7, 25, 50), Times.Once);
+        _audiobookRepo.Verify(r => r.GetStandaloneBooksByAuthorAsync(7, 10, 20), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_AnInvalidSectionLimit_IsRefusedWithoutCallingTheRepository()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+
+        var result = await _controller.GetAuthorDetail(authorId: 7, standaloneLimit: 0);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+        _audiobookRepo.Verify(
+            r => r.GetSeriesCountsByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_UnknownAuthor_Returns404WithoutCallingTheSectionQueries()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(999)).ReturnsAsync((AuthorSummaryRow?)null);
+
+        var result = await _controller.GetAuthorDetail(999);
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+        _audiobookRepo.Verify(
+            r => r.GetSeriesCountsByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
+        _audiobookRepo.Verify(
+            r => r.GetStandaloneBooksByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
     }
 }
