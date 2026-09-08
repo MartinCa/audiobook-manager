@@ -12,36 +12,11 @@ Frontend guidelines are further detailed in `client/src/AGENTS.md` (project-loca
 
 This project's directory structure, embedded m4b tags, and sidecar files are meant to track what Audiobookshelf expects — see README.md's "Audiobookshelf compatibility" section for the specific doc pages, or [audiobookshelf/audiobookshelf-docs](https://github.com/audiobookshelf/audiobookshelf-docs/tree/master/docs/documentation/libraries/book-library) on GitHub directly. **Any change to directory/file naming, embedded tag conventions, or sidecar file formats that could be incompatible with (or diverge from) what Audiobookshelf expects must be raised to the user for explicit confirmation before being implemented** — do not decide this unilaterally, even if the change looks like a clear improvement.
 
-## Sandbox tooling: .NET SDK location and bootstrapping
-
-**This subsection is OpenHands-specific. Confirm you are actually in OpenHands — not
-OpenCode — before following any of it.** Most agent work in this repo now runs in OpenCode,
-and nothing below applies there:
-
-- **OpenCode markers** (check these first): env vars `$OPENCODE` / `$OPENCODE_PID` /
-  `$OPENCODE_SERVER_PASSWORD`, or config at `~/.config/opencode/`. If any of these are
-  present, you are in OpenCode — skip straight to "Common Commands" below. The `/projects`
-  volume and bootstrap script are OpenHands sandbox artifacts and will not exist; if
-  `dotnet` isn't already on `PATH`, that's a plain missing-dependency problem to solve
-  normally (e.g. an OS package), not a sign you need the OpenHands bootstrap flow.
-- **Do not infer OpenHands merely from `dotnet` being missing or `/projects` happening not
-  to exist** — that's also exactly what a non-OpenHands, non-OpenCode environment looks
-  like. Only treat this section as relevant once you can positively confirm OpenHands (e.g.
-  the sandbox is running the `ghcr.io/openhands/agent-canvas` image) and none of the
-  OpenCode markers above are present.
-
-**This repo's backend requires the .NET SDK (targets `net10.0`).** OpenHands sandbox images
-vary across sessions, and so does how `dotnet` gets there — **check `which dotnet` before
-assuming either path below.** Some images ship `dotnet` pre-installed system-wide (seen at
-`/usr/share/dotnet` with `DOTNET_ROOT` already exported); others are the OpenHands
-agent-canvas all-in-one image (`ghcr.io/openhands/agent-canvas`), which does **not** ship
-`dotnet`, and anything under `$HOME` there is on ephemeral overlay storage — it does **not**
-survive the sandbox container being recreated. Only the second case needs the bootstrap
-script below; if `dotnet` is already on `PATH`, skip straight to it and don't reinstall.
-
 ## Common Commands
 
 ### Backend (.NET)
+
+Requires the .NET SDK (`net10.0`). If `dotnet` is not on `PATH`, install it like any other missing dependency (OS package or `dotnet-install`) — there is no repo-specific bootstrap script.
 
 ```bash
 # Build
@@ -184,18 +159,16 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
   `Program.cs`, so the guard applies uniformly in development rather than being carved out for
   the environment it is developed in.
 - **Types**: `src/lib/api-types.ts` is generated from the backend's OpenAPI spec (`pnpm run generate-api-types`) and is vendored — never hand-edited. Most `src/types/*.ts` files are thin aliases over it (`type X = components["schemas"]["XDto"]`, or the narrowed `Require<Dto, "field1" | "field2">` form from `src/lib/dto.ts`) rather than independently hand-written interfaces. Every generated DTO property is optional *and* nullable regardless of what the C# type actually guarantees — Swashbuckle only populates the OpenAPI `required` array for types carrying explicit `[Required]` attributes, which in this codebase is only the request DTOs; this API's response DTOs are plain C# records, so their non-nullable positional properties get no such annotation and render as optional in `api-types.ts`. `Require<Dto, K>` restores that guarantee for the fields a type file's cited C# source confirms are non-nullable — re-check that source before widening a `Require<>` key list, the same way you'd re-check a hand-written type against the schema. A handful of `src/types/*.ts` files stay genuinely hand-written because they have no 1:1 wire counterpart (`Audiobook`/`AudiobookPerson` is the richer array-based editing-form model the flat DTO gets transformed to/from; `OrganizeAudiobookInput` is a client-only tag-preview shape; `PaginatedResult<T>` is a reusable generic where the backend emits one concrete schema per `T`) — each such file says so in a comment. `client/src/DESIGN.md` section 9 records this as the one remaining deviation from section 7's "never hand-write response interfaces," and why.
-- **Real-time**: SignalR via `@microsoft/signalr` directly, wired through `SignalRProvider`/`SignalRContext` (`src/context/SignalRContext.tsx`, `src/components/SignalRProvider.tsx`) and the `useSignalREvent`/`useSignalRReconnected` hooks (`src/hooks/useSignalR.ts`) — event names are plain strings matched against the backend's `IOrganize` interface, not typed tokens.
+- **Real-time**: SignalR via `@microsoft/signalr` directly, wired through `SignalRProvider`/`SignalRContext` (`src/context/SignalRContext.ts`, `src/components/SignalRProvider.tsx`) and the `useSignalREvent`/`useSignalRReconnected` hooks (`src/hooks/useSignalR.ts`) — event names are plain strings matched against the backend's `IOrganize` interface, not typed tokens.
 - **Components** (`src/components/`): `BookOrganize.tsx` (organization workflow), `BookLibrary.tsx` (library management + scan), `LibraryConsistency.tsx` (consistency checking). Library sub-views in `components/library/`. Vendored shadcn/ui primitives live in `components/ui/` — do not hand-edit them (see `client/src/DESIGN.md` section 3).
 - **Routing**: TanStack Router, file-based under `src/routes/` (one file per route, `$param` for dynamic segments, `index.tsx` for a directory's exact path). `src/routeTree.gen.ts` is generated by the `@tanstack/router-plugin` Vite plugin and is vendored — commit it, never hand-edit it. Routing is **browser (path-based)**, not hash-based; `Program.cs` serves `MapFallbackToFile("index.html")` so a direct load or refresh on a nested route (e.g. `/library/book/42`) still resolves — if you ever change the routing mode, check that fallback is still needed/present.
-
-### Communication
-
-Backend exposes REST API + SignalR hub. Frontend connects to both. SignalR messages: `ProgressUpdate`, `QueueError`, `LibraryScanProgress`, `LibraryScanComplete`, `ConsistencyCheckProgress`, `ConsistencyCheckComplete`.
 
 ### CI/CD
 
 - `docker-image.yml` — Build validation on push/PR to main
+- `tests.yml` — Backend and frontend test suites
 - `prettier_format_ci.yml` — Frontend formatting validation
+- `zizmor.yml` — GitHub Actions security analysis
 - `publish_to_dockerhub.yml` / `publish_to_github.yml` — Release publishing to Docker Hub and GHCR
 
 ## Key Patterns
@@ -772,12 +745,10 @@ Writing tests that actually catch regressions:
 ## Verification Checklist
 
 After making changes, run all six — including when a change looks backend- or
-frontend-only, since edits to shared files (e.g. `client/src/signalr/hub.ts`) can break
-the other side's tests too:
+frontend-only, since edits to shared-contract files (e.g. `client/src/components/SignalRProvider.tsx`,
+whose event names must match the backend's `IOrganize`) can break the other side's
+build or tests too:
 
-1. `cd AudiobookManager && dotnet build` — 0 errors
-2. `cd AudiobookManager && dotnet test` — all pass
-3. `cd client && pnpm run build` — type-check + build
-4. `cd client && pnpm test` — Vitest unit tests, all pass
-5. `cd client && pnpm run format-check` — Prettier formatting
-6. `cd client && pnpm run lint` — ESLint, `--max-warnings 0`
+1. `cd AudiobookManager && dotnet build && dotnet test` — 0 errors, all tests pass
+2. `cd client && pnpm run build && pnpm test` — type-check + build, Vitest all pass
+3. `cd client && pnpm run format-check && pnpm run lint` — Prettier + ESLint (`--max-warnings 0`)
