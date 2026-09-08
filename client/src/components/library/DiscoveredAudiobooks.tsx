@@ -39,7 +39,7 @@ import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
-import { formatDuration, formatFileSize } from "@/helpers/formatHelpers";
+import { formatDateTime, formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { pathsEqual } from "@/helpers/pathHelpers";
 import { toast } from "sonner";
@@ -445,9 +445,7 @@ export function DiscoveredAudiobooks() {
                   </div>
                   <div className="text-muted-foreground text-xs">
                     Failed {task.failureCount} time{task.failureCount === 1 ? "" : "s"}
-                    {task.lastFailureAt
-                      ? ` · last at ${new Date(task.lastFailureAt).toLocaleString()}`
-                      : ""}
+                    {task.lastFailureAt ? ` · last at ${formatDateTime(task.lastFailureAt)}` : ""}
                     {task.lastFailureReason ? ` · ${task.lastFailureReason}` : ""}
                   </div>
                 </div>

@@ -26,6 +26,7 @@ import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SeriesMatchCandidate } from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
+import { formatDate } from "@/helpers/formatHelpers";
 
 interface SeriesRefreshCompletePayload {
   totalProcessed: number;
@@ -319,7 +320,7 @@ export function SeriesDetail() {
               )}
               {overview.lastRefreshedAt && (
                 <span className="text-muted-foreground">
-                  Last refreshed: {new Date(overview.lastRefreshedAt).toLocaleDateString()}
+                  Last refreshed: {formatDate(overview.lastRefreshedAt)}
                 </span>
               )}
             </div>
