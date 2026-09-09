@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookList } from "./BookList";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 
@@ -88,7 +89,7 @@ describe("BookList", () => {
 
     // Send progress update
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: sampleBook.fullPath,
         progress: 45,
         progressMessage: "Saving tags",
@@ -100,7 +101,7 @@ describe("BookList", () => {
 
     // Send completion
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: sampleBook.fullPath,
         progress: 100,
         progressMessage: "Done",
@@ -124,7 +125,7 @@ describe("BookList", () => {
     expect(await screen.findByText("The Way of Kings.m4b")).toBeInTheDocument();
 
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: "\\data\\import\\Sanderson\\The Way of Kings.m4b",
         progress: 60,
         progressMessage: "Relocating",

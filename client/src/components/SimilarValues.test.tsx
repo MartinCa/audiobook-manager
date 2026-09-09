@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SimilarValues } from "./SimilarValues";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { similarValuesApi } from "@/services/api";
@@ -137,7 +138,7 @@ describe("SimilarValues", () => {
 
     // The alignment merges groups: the total shrinks and the completion event arrives.
     total = 60;
-    signalR.emit("SimilarValueAlignComplete", {
+    signalR.emit(SignalREvents.SimilarValueAlignComplete, {
       totalProcessed: 70,
       totalSucceeded: 70,
       totalFailed: 0,

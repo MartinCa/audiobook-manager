@@ -91,8 +91,10 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
  * state-changing endpoints here take no body at all (the "start this operation" POSTs, and
  * every DELETE), so Content-Type is not available as the signal.
  */
-const REQUESTED_WITH_HEADER = "X-Requested-With";
-const REQUESTED_WITH_VALUE = "XMLHttpRequest";
+/** The header name every request carries so the backend can identify this app's calls. */
+export const REQUESTED_WITH_HEADER = "X-Requested-With";
+/** The value paired with it; with the header unset the backend refuses the request. */
+export const REQUESTED_WITH_VALUE = "XMLHttpRequest";
 
 function buildHeaders(headers: HeadersInit | undefined, hasBody: boolean): Headers {
   const merged = new Headers({

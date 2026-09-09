@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
@@ -16,8 +17,6 @@ import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
-
-const SIMILAR_VALUE_ALIGN_OPERATION_KEY = "similar-value-align";
 
 interface ProgressPayload {
   processed: number;
@@ -69,12 +68,12 @@ export function SimilarValues() {
   // page; pull the raw page back into range so the next fetch lands on a valid page.
   useClampedPage(page, pageCount, setPage);
 
-  useSignalREvent<ProgressPayload>("SimilarValueAlignProgress", (data) => {
+  useSignalREvent<ProgressPayload>(SignalREvents.SimilarValueAlignProgress, (data) => {
     setAligning(true);
     setAlignProgress(data);
   });
 
-  useSignalREvent<AlignCompletePayload>("SimilarValueAlignComplete", (data) => {
+  useSignalREvent<AlignCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
     setAligning(false);
     setAlignProgress(null);
     toast.success(
@@ -88,7 +87,7 @@ export function SimilarValues() {
 
   // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
   // on mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(SIMILAR_VALUE_ALIGN_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.similarValueAlign, (status) => {
     if (status.isRunning) {
       setAligning(true);
       setAlignProgress(

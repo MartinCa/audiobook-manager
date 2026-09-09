@@ -10,6 +10,7 @@ import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
@@ -82,7 +83,7 @@ export function BookDetail() {
   const bookDetail = data?.detail ?? null;
   const issues = data?.bookIssues ?? [];
 
-  useSignalREvent<SaveProgressPayload>("AudiobookSaveProgress", (payload) => {
+  useSignalREvent<SaveProgressPayload>(SignalREvents.AudiobookSaveProgress, (payload) => {
     if (payload.audiobookId === id) {
       setSaving(true);
       setSaveProgress(payload.progress);
@@ -90,7 +91,7 @@ export function BookDetail() {
     }
   });
 
-  useSignalREvent<{ audiobookId: number }>("AudiobookSaveComplete", (payload) => {
+  useSignalREvent<{ audiobookId: number }>(SignalREvents.AudiobookSaveComplete, (payload) => {
     if (payload.audiobookId === id) {
       setSaving(false);
       setSaveProgress(null);
@@ -106,7 +107,7 @@ export function BookDetail() {
     }
   });
 
-  useSignalREvent<SaveErrorPayload>("AudiobookSaveError", (payload) => {
+  useSignalREvent<SaveErrorPayload>(SignalREvents.AudiobookSaveError, (payload) => {
     if (payload.audiobookId === id) {
       setSaving(false);
       setSaveProgress(null);

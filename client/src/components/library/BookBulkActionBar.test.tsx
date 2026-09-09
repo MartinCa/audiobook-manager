@@ -3,6 +3,7 @@ import { useState } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SignalRContext } from "@/context/SignalRContext";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { useBookSelection, type SelectedBookInfo } from "@/hooks/useBookSelection";
 import type * as SonnerModule from "sonner";
@@ -199,7 +200,7 @@ describe("BookBulkActionBar", () => {
 
   it("reports a running operation from the status registry and disables every action", async () => {
     const statuses: Record<string, { isRunning: boolean; processed: number; total: number }> = {
-      "bulk-edit": { isRunning: true, processed: 1, total: 3 },
+      [OperationKeys.bulkEdit]: { isRunning: true, processed: 1, total: 3 },
     };
     vi.mocked(operationsApi.getStatus).mockImplementation((key) =>
       Promise.resolve(statuses[key] ?? { isRunning: false, processed: 0, total: 0 }),
@@ -217,7 +218,7 @@ describe("BookBulkActionBar", () => {
 
   it("keeps progress visible after a disconnected browser misses the resume and re-subscribes", async () => {
     const statuses: Record<string, { isRunning: boolean; processed: number; total: number }> = {
-      "consistency-check-selected": { isRunning: true, processed: 4, total: 10 },
+      [OperationKeys.consistencyCheckSelected]: { isRunning: true, processed: 4, total: 10 },
     };
     vi.mocked(operationsApi.getStatus).mockImplementation((key) =>
       Promise.resolve(statuses[key] ?? { isRunning: false, processed: 0, total: 0 }),
@@ -232,7 +233,7 @@ describe("BookBulkActionBar", () => {
     const { invalidateSpy } = renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("BulkEditProgress")({
+    handlerFor(SignalREvents.BulkEditProgress)({
       processed: 1,
       total: 2,
       succeeded: 1,
@@ -240,7 +241,7 @@ describe("BookBulkActionBar", () => {
     } as never);
     expect(await screen.findByText("Bulk editing books...")).toBeInTheDocument();
 
-    handlerFor("BulkEditComplete")({ processed: 2, succeeded: 2, failed: 0 } as never);
+    handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 2, failed: 0 } as never);
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Bulk edit complete: 2 updated");
@@ -267,7 +268,7 @@ describe("BookBulkActionBar", () => {
     renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("BulkEditComplete")({ processed: 2, succeeded: 1, failed: 1 } as never);
+    handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 1, failed: 1 } as never);
 
     await waitFor(() => {
       expect(toast.warning).toHaveBeenCalledWith("Bulk edit complete: 1 updated, 1 failed");
@@ -281,7 +282,7 @@ describe("BookBulkActionBar", () => {
     const { invalidateSpy } = renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("MetadataRefreshProgress")({
+    handlerFor(SignalREvents.MetadataRefreshProgress)({
       processed: 1,
       total: 2,
       succeeded: 1,
@@ -289,7 +290,7 @@ describe("BookBulkActionBar", () => {
     } as never);
     expect(await screen.findByText("Refreshing metadata...")).toBeInTheDocument();
 
-    handlerFor("MetadataRefreshComplete")({
+    handlerFor(SignalREvents.MetadataRefreshComplete)({
       totalProcessed: 2,
       total: 2,
       totalSucceeded: 2,
@@ -312,7 +313,7 @@ describe("BookBulkActionBar", () => {
     renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("MetadataRefreshComplete")({
+    handlerFor(SignalREvents.MetadataRefreshComplete)({
       totalProcessed: 1,
       total: 2,
       totalSucceeded: 1,
@@ -331,7 +332,7 @@ describe("BookBulkActionBar", () => {
     const { invalidateSpy } = renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("ConsistencyCheckProgress")({
+    handlerFor(SignalREvents.ConsistencyCheckProgress)({
       message: "Checking books",
       booksChecked: 1,
       totalBooks: 2,
@@ -341,7 +342,7 @@ describe("BookBulkActionBar", () => {
     expect(await screen.findByText("Checking books (3 issues found)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Metadata" })).toBeDisabled();
 
-    handlerFor("ConsistencyCheckComplete")({
+    handlerFor(SignalREvents.ConsistencyCheckComplete)({
       totalBooksChecked: 2,
       totalIssuesFound: 3,
       scope: "selected",
@@ -366,7 +367,7 @@ describe("BookBulkActionBar", () => {
     const { invalidateSpy } = renderBar(books);
     await screen.findByText("2 selected");
 
-    handlerFor("ConsistencyCheckProgress")({
+    handlerFor(SignalREvents.ConsistencyCheckProgress)({
       message: "Checking library",
       booksChecked: 100,
       totalBooks: 500,
@@ -379,7 +380,7 @@ describe("BookBulkActionBar", () => {
     expect(screen.getByRole("button", { name: "Edit Metadata" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Check Consistency" })).toBeEnabled();
 
-    handlerFor("ConsistencyCheckComplete")({
+    handlerFor(SignalREvents.ConsistencyCheckComplete)({
       totalBooksChecked: 500,
       totalIssuesFound: 3,
       scope: "library",

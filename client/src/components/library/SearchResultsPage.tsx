@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { BROWSE_PAGE_SIZE, SEARCH_PREVIEW_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import type { AuthorSummary } from "@/types/AuthorSummary";
@@ -16,9 +17,6 @@ import type { LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import { Route } from "@/routes/library/search";
 
 type SearchTab = "all" | "books" | "authors" | "series";
-
-const PREVIEW_LIMIT = 5;
-const PAGE_SIZE = 20;
 
 function AuthorRow({ author }: { author: AuthorSummary }) {
   return (
@@ -177,12 +175,12 @@ export function SearchResultsPage() {
     });
   };
 
-  const booksLimit = tab === "books" ? PAGE_SIZE : PREVIEW_LIMIT;
-  const booksOffset = tab === "books" ? (page - 1) * PAGE_SIZE : 0;
-  const authorsLimit = tab === "authors" ? PAGE_SIZE : PREVIEW_LIMIT;
-  const authorsOffset = tab === "authors" ? (page - 1) * PAGE_SIZE : 0;
-  const seriesLimit = tab === "series" ? PAGE_SIZE : PREVIEW_LIMIT;
-  const seriesOffset = tab === "series" ? (page - 1) * PAGE_SIZE : 0;
+  const booksLimit = tab === "books" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
+  const booksOffset = tab === "books" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
+  const authorsLimit = tab === "authors" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
+  const authorsOffset = tab === "authors" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
+  const seriesLimit = tab === "series" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
+  const seriesOffset = tab === "series" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
 
   const booksQuery = useQuery({
     queryKey: ["searchResults", "books", q, tab === "books" ? page : 1, booksLimit, booksOffset],
@@ -228,9 +226,9 @@ export function SearchResultsPage() {
 
   const isLoading = booksQuery.isLoading || authorsQuery.isLoading || seriesQuery.isLoading;
 
-  const booksTotalPages = Math.ceil(booksTotal / PAGE_SIZE) || 1;
-  const authorsTotalPages = Math.ceil(authorsTotal / PAGE_SIZE) || 1;
-  const seriesTotalPages = Math.ceil(seriesTotal / PAGE_SIZE) || 1;
+  const booksTotalPages = Math.ceil(booksTotal / BROWSE_PAGE_SIZE) || 1;
+  const authorsTotalPages = Math.ceil(authorsTotal / BROWSE_PAGE_SIZE) || 1;
+  const seriesTotalPages = Math.ceil(seriesTotal / BROWSE_PAGE_SIZE) || 1;
 
   return (
     <div className="space-y-6">
@@ -343,7 +341,7 @@ export function SearchResultsPage() {
                       Select page
                     </label>
                   </div>
-                  {booksTotal > PREVIEW_LIMIT && (
+                  {booksTotal > SEARCH_PREVIEW_LIMIT && (
                     <Button
                       variant="link"
                       size="sm"
@@ -374,7 +372,7 @@ export function SearchResultsPage() {
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h2 className="text-foreground text-lg font-bold">Authors ({authorsTotal})</h2>
-                  {authorsTotal > PREVIEW_LIMIT && (
+                  {authorsTotal > SEARCH_PREVIEW_LIMIT && (
                     <Button
                       variant="link"
                       size="sm"
@@ -399,7 +397,7 @@ export function SearchResultsPage() {
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h2 className="text-foreground text-lg font-bold">Series ({seriesTotal})</h2>
-                  {seriesTotal > PREVIEW_LIMIT && (
+                  {seriesTotal > SEARCH_PREVIEW_LIMIT && (
                     <Button
                       variant="link"
                       size="sm"

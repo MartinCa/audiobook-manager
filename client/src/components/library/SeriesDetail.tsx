@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
@@ -160,7 +161,7 @@ export function SeriesDetail() {
   useClampedPage(missingPage, missingPageCount, setMissingPage);
   useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
 
-  useSignalREvent<SeriesRefreshCompletePayload>("SeriesRefreshComplete", (arg) => {
+  useSignalREvent<SeriesRefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (arg) => {
     setRefreshing(false);
     const msg = arg.stopReason
       ? `Refresh stopped: ${arg.stopReason}`

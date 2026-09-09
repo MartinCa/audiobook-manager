@@ -17,6 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
 
 export interface TagsInputProps {
@@ -76,7 +77,9 @@ export function TagsInput({
     if (suggestions.length === 0) return [];
     const trimmed = draft.trim();
     if (!trimmed) return [];
-    const matches = narrowByQuery(suggestions, trimmed, 6).filter((s) => !isDuplicate(s));
+    const matches = narrowByQuery(suggestions, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
+      (s) => !isDuplicate(s),
+    );
     if (matches.length === 1 && normalizeForMatch(matches[0]) === normalizeForMatch(trimmed)) {
       return [];
     }
@@ -90,7 +93,7 @@ export function TagsInput({
     if (suggestions.length === 0 || editingIndex === null) return [];
     const trimmed = editDraft.trim();
     if (!trimmed) return [];
-    const matches = narrowByQuery(suggestions, trimmed, 6).filter(
+    const matches = narrowByQuery(suggestions, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
       (s) => !isDuplicate(s, editingIndex),
     );
     if (matches.length === 1 && normalizeForMatch(matches[0]) === normalizeForMatch(trimmed)) {

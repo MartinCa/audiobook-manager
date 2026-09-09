@@ -1,3 +1,5 @@
+import { TYPEAHEAD_LIMIT } from "@/constants/paging";
+
 export function foldAccents(str: string | null | undefined): string {
   if (!str) return "";
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -40,7 +42,11 @@ export function isNearMatch(
   );
 }
 
-export function narrowByQuery(candidates: string[], query: string, limit: number = 5): string[] {
+export function narrowByQuery(
+  candidates: string[],
+  query: string,
+  limit: number = TYPEAHEAD_LIMIT,
+): string[] {
   if (!query.trim()) return [];
   const normQuery = normalizeForMatch(query);
   const foldedQuery = normalizedFolded(query);

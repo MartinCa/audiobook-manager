@@ -23,6 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
@@ -69,9 +70,6 @@ interface ResolveCompletePayload {
   totalSucceeded: number;
   totalFailed: number;
 }
-
-const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
-const CONSISTENCY_RESOLVE_OPERATION_KEY = "consistency-resolve";
 
 const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
 
@@ -166,13 +164,13 @@ export function LibraryConsistency() {
   const issuesForType = (type: string): ConsistencyIssue[] =>
     (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as ConsistencyIssue[];
 
-  useSignalREvent<ProgressPayload>("ConsistencyCheckProgress", (data) => {
+  useSignalREvent<ProgressPayload>(SignalREvents.ConsistencyCheckProgress, (data) => {
     if (data.scope !== "library") return;
     setChecking(true);
     setCheckProgress(data);
   });
 
-  useSignalREvent<CompletePayload>("ConsistencyCheckComplete", (data) => {
+  useSignalREvent<CompletePayload>(SignalREvents.ConsistencyCheckComplete, (data) => {
     if (data.scope !== "library") return;
     setChecking(false);
     setCheckProgress(null);
@@ -183,12 +181,12 @@ export function LibraryConsistency() {
     void queryClient.invalidateQueries({ queryKey: ["consistency"] });
   });
 
-  useSignalREvent<ResolveProgressPayload>("ConsistencyResolveProgress", (data) => {
+  useSignalREvent<ResolveProgressPayload>(SignalREvents.ConsistencyResolveProgress, (data) => {
     setBulkResolving(true);
     setResolveProgress(data);
   });
 
-  useSignalREvent<ResolveCompletePayload>("ConsistencyResolveComplete", (data) => {
+  useSignalREvent<ResolveCompletePayload>(SignalREvents.ConsistencyResolveComplete, (data) => {
     setBulkResolving(false);
     setResolveProgress(null);
     toast.success(`Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`);
@@ -199,7 +197,7 @@ export function LibraryConsistency() {
 
   // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
   // mount and after a SignalR reconnect, the same way the check state is recovered below.
-  useOperationResync(CONSISTENCY_RESOLVE_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.consistencyResolve, (status) => {
     if (status.isRunning) {
       setBulkResolving(true);
       setResolveProgress((prev) =>
@@ -215,7 +213,7 @@ export function LibraryConsistency() {
 
   // Recover from a missed check (started elsewhere, or events missed while disconnected) on
   // mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(CONSISTENCY_CHECK_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.consistencyCheck, (status) => {
     if (status.isRunning) {
       setChecking(true);
       setCheckProgress(

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { seriesApi } from "@/services/api";
@@ -164,7 +165,7 @@ describe("SeriesOverview", () => {
     // exists. The completion event arrives and the section must land back on page 0.
     page0Total = 50;
     page1Total = 50;
-    signalR.emit("SeriesRefreshComplete", {
+    signalR.emit(SignalREvents.SeriesRefreshComplete, {
       totalProcessed: 100,
       totalSucceeded: 70,
       totalFailed: 0,

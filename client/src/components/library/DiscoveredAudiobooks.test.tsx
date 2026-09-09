@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DiscoveredAudiobooks } from "./DiscoveredAudiobooks";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
@@ -293,7 +294,7 @@ describe("DiscoveredAudiobooks", () => {
 
     // SignalR sends progress update (e.g. saving tags at 38%)
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: discoveredBook.fullPath,
         progress: 38,
         progressMessage: "Saving tags",
@@ -305,7 +306,7 @@ describe("DiscoveredAudiobooks", () => {
 
     // SignalR sends saved tags at 70%
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: discoveredBook.fullPath,
         progress: 70,
         progressMessage: "Saved tags",
@@ -317,7 +318,7 @@ describe("DiscoveredAudiobooks", () => {
 
     // SignalR sends completion (100%)
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: discoveredBook.fullPath,
         progress: 100,
         progressMessage: "Done",
@@ -356,7 +357,7 @@ describe("DiscoveredAudiobooks", () => {
 
     // Backend sends path with backslashes instead of forward slashes
     act(() => {
-      capturedSignalRHandlers["UpdateProgress"]?.({
+      capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: "\\import\\Book Title\\book.m4b",
         progress: 38,
         progressMessage: "Saving tags",
@@ -485,7 +486,7 @@ describe("DiscoveredAudiobooks", () => {
         },
       ]);
       act(() => {
-        capturedSignalRHandlers["QueueError"]?.({
+        capturedSignalRHandlers[SignalREvents.QueueError]?.({
           originalFileLocation: "/import/corrupt.m4b",
           error: "not valid json",
         });

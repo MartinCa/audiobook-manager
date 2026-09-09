@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/accordion";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { BookOrganize } from "./BookOrganize";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { untaggedApi, queueApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { formatFileSize } from "@/helpers/formatHelpers";
@@ -66,7 +67,7 @@ export function BookList() {
   const books: BookFileInfo[] = data?.items ?? [];
   const totalCount = data?.total ?? 0;
 
-  useSignalREvent<ProgressUpdatePayload>("UpdateProgress", (payload) => {
+  useSignalREvent<ProgressUpdatePayload>(SignalREvents.UpdateProgress, (payload) => {
     setProgressOverrides((prev) => {
       const next = { ...prev };
       const matchedKey =
@@ -89,7 +90,7 @@ export function BookList() {
     }
   });
 
-  useSignalREvent<QueueErrorPayload>("QueueError", (payload) => {
+  useSignalREvent<QueueErrorPayload>(SignalREvents.QueueError, (payload) => {
     setProgressOverrides((prev) => {
       const next = { ...prev };
       const matchedKey =

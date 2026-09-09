@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibraryConsistency } from "./LibraryConsistency";
 import { SignalRContext } from "@/context/SignalRContext";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { PAGE_SIZE } from "@/constants/paging";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
@@ -518,7 +519,7 @@ describe("LibraryConsistency", () => {
       return call![1] as (data: never) => void;
     };
 
-    handlerFor("ConsistencyResolveProgress")({
+    handlerFor(SignalREvents.ConsistencyResolveProgress)({
       processed: 2,
       total: 5,
       succeeded: 2,
@@ -529,7 +530,7 @@ describe("LibraryConsistency", () => {
     // The group buttons are disabled while the server-side gate holds a resolve.
     expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeDisabled();
 
-    handlerFor("ConsistencyResolveComplete")({
+    handlerFor(SignalREvents.ConsistencyResolveComplete)({
       totalProcessed: 5,
       totalSucceeded: 5,
       totalFailed: 0,
@@ -559,7 +560,7 @@ describe("LibraryConsistency", () => {
       return call![1] as (data: never) => void;
     };
 
-    handlerFor("ConsistencyCheckProgress")({
+    handlerFor(SignalREvents.ConsistencyCheckProgress)({
       message: "Re-checking selected books",
       booksChecked: 1,
       totalBooks: 2,
@@ -574,7 +575,7 @@ describe("LibraryConsistency", () => {
       screen.queryByText("Re-checking selected books (1 issues found)"),
     ).not.toBeInTheDocument();
 
-    handlerFor("ConsistencyCheckComplete")({
+    handlerFor(SignalREvents.ConsistencyCheckComplete)({
       totalBooksChecked: 2,
       totalIssuesFound: 1,
       scope: "selected",

@@ -35,6 +35,7 @@ import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
@@ -149,7 +150,7 @@ export function DiscoveredAudiobooks() {
     queryFn: () => queueApi.getFailedTasks(),
   });
 
-  useOperationResync("discovered-import", (status) => {
+  useOperationResync(OperationKeys.discoveredImport, (status) => {
     setImporting(status.isRunning);
     if (status.isRunning) {
       setImportProgress((previous) => ({
@@ -164,7 +165,7 @@ export function DiscoveredAudiobooks() {
   });
 
   // SignalR scan events
-  useSignalREvent<ScanProgressPayload>("LibraryScanProgress", (data) => {
+  useSignalREvent<ScanProgressPayload>(SignalREvents.LibraryScanProgress, (data) => {
     setScanning(true);
     setScanProgress({
       message: data.message,
@@ -173,7 +174,7 @@ export function DiscoveredAudiobooks() {
     });
   });
 
-  useSignalREvent<ScanCompletePayload>("LibraryScanComplete", (data) => {
+  useSignalREvent<ScanCompletePayload>(SignalREvents.LibraryScanComplete, (data) => {
     setScanning(false);
     setScanProgress(null);
     setScanResult(data);
@@ -186,12 +187,12 @@ export function DiscoveredAudiobooks() {
   });
 
   // SignalR import events
-  useSignalREvent<ImportProgressPayload>("DiscoveredImportProgress", (data) => {
+  useSignalREvent<ImportProgressPayload>(SignalREvents.DiscoveredImportProgress, (data) => {
     setImporting(true);
     setImportProgress(data);
   });
 
-  useSignalREvent<ImportCompletePayload>("DiscoveredImportComplete", (data) => {
+  useSignalREvent<ImportCompletePayload>(SignalREvents.DiscoveredImportComplete, (data) => {
     setImporting(false);
     setImportProgress(null);
     setSelectedPaths(new Set());
@@ -202,7 +203,7 @@ export function DiscoveredAudiobooks() {
   });
 
   // SignalR single-item organize events (queued via "Import to Library" below)
-  useSignalREvent<OrganizeProgressPayload>("UpdateProgress", (payload) => {
+  useSignalREvent<OrganizeProgressPayload>(SignalREvents.UpdateProgress, (payload) => {
     setOrganizeOverrides((prev) => {
       const next = { ...prev };
       const matchedKey =
@@ -227,7 +228,7 @@ export function DiscoveredAudiobooks() {
     }
   });
 
-  useSignalREvent<OrganizeQueueErrorPayload>("QueueError", (payload) => {
+  useSignalREvent<OrganizeQueueErrorPayload>(SignalREvents.QueueError, (payload) => {
     setOrganizeOverrides((prev) => {
       const next = { ...prev };
       const matchedKey =

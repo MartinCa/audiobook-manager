@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
@@ -66,7 +67,7 @@ export function MissingTags() {
 
   const { data: backfillStatus } = useQuery({
     queryKey: ["languageBackfillStatus"],
-    queryFn: () => operationsApi.getStatus("language-backfill"),
+    queryFn: () => operationsApi.getStatus(OperationKeys.languageBackfill),
     refetchInterval: (query) => (query.state.data?.isRunning ? 1500 : false),
   });
 

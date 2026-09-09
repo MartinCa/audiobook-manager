@@ -30,14 +30,20 @@ public class CoverImageProcessor : ICoverImageProcessor
 
     /// <summary>
     /// The size above which a cover is re-encoded rather than stored as-is.
+    /// Mirrors the client's <c>COVER_MAX_BYTES</c> in <c>client/src/lib/coverImage.ts</c>: the two
+    /// layers enforce the same cap independently, and
+    /// <c>AudiobookManager.Test.Api.SignalREventParityTests</c> asserts they agree.
     /// </summary>
-    private const int MaxStoredBytes = 2 * 1024 * 1024;
+    public const int MaxStoredBytes = 2 * 1024 * 1024;
 
     /// <summary>
     /// The longest edge a stored cover may have. Audible tops out around 2400px square; 1500 is
     /// past what any player displays and keeps a re-encoded cover comfortably under the size cap.
+    /// Mirrors the client's <c>COVER_MAX_DIMENSION</c> in <c>client/src/lib/coverImage.ts</c>; the
+    /// layers enforce the cap independently and
+    /// <c>AudiobookManager.Test.Api.SignalREventParityTests</c> asserts they agree.
     /// </summary>
-    private const int MaxDimension = 1500;
+    public const int MaxDimension = 1500;
 
     private const int JpegQuality = 85;
 

@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -136,12 +137,12 @@ export function SeriesOverviewPage() {
   // empty (the pager here stays rendered even for an empty page, and the clamp finishes the job).
   useClampedPage(page, pageCount, setPage);
 
-  useSignalREvent<SeriesRefreshProgressPayload>("SeriesRefreshProgress", (data) => {
+  useSignalREvent<SeriesRefreshProgressPayload>(SignalREvents.SeriesRefreshProgress, (data) => {
     setRefreshing(true);
     setRefreshProgress(data);
   });
 
-  useSignalREvent<SeriesRefreshCompletePayload>("SeriesRefreshComplete", (arg) => {
+  useSignalREvent<SeriesRefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (arg) => {
     setRefreshing(false);
     setRefreshProgress(null);
     const msg = arg.stopReason

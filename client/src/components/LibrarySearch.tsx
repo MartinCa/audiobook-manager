@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { TYPEAHEAD_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
 
 export function LibrarySearch() {
@@ -21,7 +22,7 @@ export function LibrarySearch() {
 
   const { data: results = null, isLoading: loading } = useQuery({
     queryKey: ["quickSearch", debouncedQuery],
-    queryFn: () => browseApi.searchLibrary(debouncedQuery, 5),
+    queryFn: () => browseApi.searchLibrary(debouncedQuery, TYPEAHEAD_LIMIT),
     enabled: Boolean(debouncedQuery),
   });
 
