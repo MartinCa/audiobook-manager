@@ -205,8 +205,6 @@ export function BookLibrary() {
         </div>
       </div>
 
-      <BookBulkActionBar selection={selection} />
-
       {loading && books.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
           <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
@@ -241,6 +239,8 @@ export function BookLibrary() {
           })}
         </div>
       )}
+
+      <BookBulkActionBar selection={selection} />
 
       {totalPages > 1 && (
         <div className="border-border flex items-center justify-between border-t pt-4">

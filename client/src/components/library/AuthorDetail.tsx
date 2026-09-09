@@ -207,7 +207,6 @@ export function AuthorDetail() {
               Select page
             </label>
           </div>
-          <BookBulkActionBar selection={selection} />
           <div className="space-y-2">
             {standaloneBooks.map((book) => (
               <BookListRow
@@ -219,6 +218,7 @@ export function AuthorDetail() {
               />
             ))}
           </div>
+          <BookBulkActionBar selection={selection} />
           {standalonePageCount > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
               <span className="text-muted-foreground text-xs">
