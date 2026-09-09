@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibraryConsistency } from "./LibraryConsistency";
 import { SignalRContext } from "@/context/SignalRContext";
+import { PAGE_SIZE } from "@/constants/paging";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
@@ -67,7 +68,7 @@ function mockPagedIssues(all: ConsistencyIssueFixture[]) {
 
   vi.spyOn(consistencyApi, "getIssueCountsByType").mockResolvedValue(counts);
   vi.spyOn(consistencyApi, "getIssues").mockImplementation((params = {}) => {
-    const { issueType, page = 0, pageSize = 50 } = params;
+    const { issueType, page = 0, pageSize = PAGE_SIZE } = params;
     const matching = issueType ? all.filter((i) => i.issueType === issueType) : all;
     return Promise.resolve({
       items: matching.slice(page * pageSize, (page + 1) * pageSize),

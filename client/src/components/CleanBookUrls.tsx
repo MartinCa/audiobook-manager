@@ -5,12 +5,11 @@ import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
+import { PAGE_SIZE } from "@/constants/paging";
 import { urlCleanupApi } from "@/services/api";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
-
-const PAGE_SIZE = 50;
 
 export function CleanBookUrls() {
   const queryClient = useQueryClient();

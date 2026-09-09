@@ -10,20 +10,6 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class BrowseController : ControllerBase
 {
-    /// <summary>The largest page a caller may ask for on the paged author/series search endpoints.</summary>
-    private const int MaxSearchPageSize = 100;
-
-    /// <summary>Default page size for the paged browse lists.</summary>
-    private const int DefaultPageSize = 50;
-
-    /// <summary>
-    /// The furthest into a paged author/series search result a caller may ask to start. Mirrors
-    /// UrlCleanupController's MaxPageOffset: bounded so an offset near int.MaxValue cannot be
-    /// misread as a small/negative one, and so a caller cannot force SQLite to walk an enormous
-    /// OFFSET row by row.
-    /// </summary>
-    private const int MaxSearchOffset = 1_000_000;
-
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
 
@@ -142,18 +128,18 @@ public class BrowseController : ControllerBase
     /// </summary>
     private ObjectResult? ValidateSearchPaging(int limit, int offset)
     {
-        if (limit < 1 || limit > MaxSearchPageSize)
+        if (limit < 1 || limit > PagingLimits.MaxSearchPageSize)
         {
             return Problem(
-                detail: $"limit must be between 1 and {MaxSearchPageSize}.",
+                detail: $"limit must be between 1 and {PagingLimits.MaxSearchPageSize}.",
                 statusCode: StatusCodes.Status400BadRequest,
                 title: "Invalid request");
         }
 
-        if (offset < 0 || offset > MaxSearchOffset)
+        if (offset < 0 || offset > PagingLimits.MaxSearchOffset)
         {
             return Problem(
-                detail: $"offset must be between 0 and {MaxSearchOffset}.",
+                detail: $"offset must be between 0 and {PagingLimits.MaxSearchOffset}.",
                 statusCode: StatusCodes.Status400BadRequest,
                 title: "Invalid request");
         }
@@ -164,7 +150,7 @@ public class BrowseController : ControllerBase
     [HttpGet("authors")]
     public async Task<ActionResult<PaginatedResult<AuthorSummaryDto>>> GetAuthors(
         [FromQuery] string? q = null,
-        int limit = DefaultPageSize,
+        int limit = PagingLimits.DefaultPageSize,
         int offset = 0)
     {
         var clampError = ValidateSearchPaging(limit, offset);
@@ -182,9 +168,9 @@ public class BrowseController : ControllerBase
     [HttpGet("authors/{authorId}")]
     public async Task<ActionResult<AuthorDetailDto>> GetAuthorDetail(
         long authorId,
-        int seriesLimit = DefaultPageSize,
+        int seriesLimit = PagingLimits.DefaultPageSize,
         int seriesOffset = 0,
-        int standaloneLimit = DefaultPageSize,
+        int standaloneLimit = PagingLimits.DefaultPageSize,
         int standaloneOffset = 0)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)

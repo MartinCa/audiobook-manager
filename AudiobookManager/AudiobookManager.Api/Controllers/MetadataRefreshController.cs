@@ -12,18 +12,6 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class MetadataRefreshController : ControllerBase
 {
-    /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
-    private const int MaxPageSize = 200;
-
-    private const int DefaultPageSize = 50;
-
-    /// <summary>
-    /// The furthest into the list a caller may ask to start - the same overflow/negative-OFFSET
-    /// guard UrlCleanupController documents (page * pageSize overflows int past ~10.7M pages,
-    /// and SQLite reads a negative OFFSET as zero, silently serving the first page).
-    /// </summary>
-    private const long MaxPageOffset = 1_000_000;
-
     public const string BulkOperationKey = "metadata-refresh";
 
     private static readonly SemaphoreSlim _bulkLock = new(1, 1);
@@ -166,22 +154,22 @@ public class MetadataRefreshController : ControllerBase
     [HttpGet("pending")]
     public async Task<ActionResult<PendingMetadataRefreshPageDto>> GetPending(
         [FromQuery] int page = 0,
-        [FromQuery] int pageSize = DefaultPageSize)
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
     {
         if (page < 0)
         {
             return this.InvalidRequest("page must be zero or greater.");
         }
 
-        if (pageSize < 1 || pageSize > MaxPageSize)
+        if (pageSize < 1 || pageSize > PagingLimits.MaxPageSize)
         {
-            return this.InvalidRequest($"pageSize must be between 1 and {MaxPageSize}.");
+            return this.InvalidRequest($"pageSize must be between 1 and {PagingLimits.MaxPageSize}.");
         }
 
         var skip = (long)page * pageSize;
-        if (skip > MaxPageOffset)
+        if (skip > PagingLimits.MaxPageOffset)
         {
-            return this.InvalidRequest($"page and pageSize together may not skip more than {MaxPageOffset} entries.");
+            return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} entries.");
         }
 
         var (items, total) = await _metadataRefreshService.GetPendingPageAsync(page, pageSize);

@@ -5,14 +5,13 @@ import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2 } from "l
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { browseApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { Route } from "@/routes/library/authors/$authorId";
-
-const PAGE_SIZE = 50;
 
 export function AuthorDetail() {
   const { authorId } = Route.useParams();

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { PAGE_SIZE } from "@/constants/paging";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -27,8 +28,6 @@ import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
-
-const PAGE_SIZE = 50;
 
 interface SeriesRefreshProgressPayload {
   processed: number;

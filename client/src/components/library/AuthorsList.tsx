@@ -5,12 +5,11 @@ import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { PAGE_SIZE } from "@/constants/paging";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
-
-const PAGE_SIZE = 50;
 
 export function AuthorsList() {
   const navigate = useNavigate();

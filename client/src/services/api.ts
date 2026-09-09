@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { PAGE_SIZE } from "@/constants/paging";
 import type { Audiobook } from "@/types/Audiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
 import type { AuthorDetail } from "@/types/AuthorDetail";
@@ -164,7 +165,7 @@ export const browseApi = {
   // Paged server-side (bounded-list invariant): the unpaged version returned every author in the
   // library and the page rendered them all into the DOM. q is the server-side, accent-insensitive
   // filter.
-  getAuthorPage: (limit = 50, offset = 0, q?: string) =>
+  getAuthorPage: (limit: number = PAGE_SIZE, offset = 0, q?: string) =>
     api.get<PaginatedResult<AuthorSummary>>("/browse/authors", {
       query: { limit, offset, q: q || undefined },
     }),
@@ -285,12 +286,12 @@ export const consistencyApi = {
 export const similarValuesApi = {
   // Paged server-side: groups no longer embed per-candidate book lists (book counts only), and
   // only the requested page crosses the wire.
-  getSimilarAuthors: (page = 0, pageSize = 50) =>
+  getSimilarAuthors: (page = 0, pageSize: number = PAGE_SIZE) =>
     api.get<SimilarValueGroupsPage>("/similar-values/similar-authors", {
       query: { page, pageSize },
     }),
 
-  getSimilarSeries: (page = 0, pageSize = 50) =>
+  getSimilarSeries: (page = 0, pageSize: number = PAGE_SIZE) =>
     api.get<SimilarValueGroupsPage>("/similar-values/similar-series", {
       query: { page, pageSize },
     }),
