@@ -586,7 +586,6 @@ export function SeriesDetail() {
             Select page
           </label>
         </div>
-        <BookBulkActionBar selection={selection} />
         {ownedManagedBooks.length === 0 ? (
           <p className="text-muted-foreground text-sm">No books owned.</p>
         ) : (
@@ -604,6 +603,7 @@ export function SeriesDetail() {
             ))}
           </div>
         )}
+        <BookBulkActionBar selection={selection} />
         {ownedPageCount > 1 && (
           <SectionPager
             currentPage={currentOwnedPage}

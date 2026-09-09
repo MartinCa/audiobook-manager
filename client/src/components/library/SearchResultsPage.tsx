@@ -317,8 +317,6 @@ export function SearchResultsPage() {
             </TabsList>
           </Tabs>
 
-          <BookBulkActionBar selection={selection} />
-
           {tab === "all" && (
             <div className="space-y-8">
               <section className="space-y-2">
@@ -514,6 +512,7 @@ export function SearchResultsPage() {
                 />
               </div>
             ))}
+          <BookBulkActionBar selection={selection} />
         </>
       )}
     </div>
