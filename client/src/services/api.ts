@@ -4,6 +4,7 @@ import type { AudiobookDetail } from "@/types/AudiobookDetail";
 import type { AuthorDetail } from "@/types/AuthorDetail";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { BookFileInfo } from "@/types/BookFileInfo";
+import type { BulkEditAudiobooksRequest, BulkEditPreviewResponse } from "@/types/BulkEdit";
 import type { PaginatedResult } from "@/types/Common";
 import type {
   ConsistencyIssue,
@@ -121,6 +122,16 @@ export const audiobookApi = {
 
   getSaveStatus: (id: number) =>
     api.get<{ audiobookId: number; isSaving: boolean }>(`/audiobook/${id}/save-status`),
+};
+
+// Bulk selection (multi-select in the book lists)
+export const bulkEditApi = {
+  // Bounded by the backend's MaxBulkSelection=100; ids come from the user's explicit selection.
+  preview: (audiobookIds: number[]) =>
+    api.post<BulkEditPreviewResponse>("/audiobook/bulk-edit/preview", { audiobookIds }),
+
+  apply: (audiobookIds: number[], changes: BulkEditAudiobooksRequest) =>
+    api.post<void>("/audiobook/bulk-edit", { ...changes, audiobookIds }),
 };
 
 // Browse & Search
@@ -263,6 +274,11 @@ export const consistencyApi = {
     api.post<{ resolved: number; failed: number; retained: number }>(
       "/consistency/orphan-directories/resolve-all",
     ),
+
+  // Fire-and-forget re-check of only the explicitly selected books. Shares the full check's
+  // progress/complete events, so the client has one consistency-check surface to render.
+  checkSelected: (audiobookIds: number[]) =>
+    api.post<void>("/consistency/check-selected", { audiobookIds }),
 };
 
 // Similar Values
@@ -344,6 +360,11 @@ export const metadataRefreshApi = {
     api.get<PendingMetadataRefresh>(`/metadata-refresh/${id}/pending`),
 
   dismissPending: (id: number) => api.post<void>(`/metadata-refresh/${id}/dismiss`, undefined),
+
+  // Fire-and-forget refresh of only the explicitly selected books. Reuses the bulk-refresh
+  // operation key, so a selected refresh and the all-books sweep stay mutually exclusive.
+  refreshSelected: (audiobookIds: number[]) =>
+    api.post<void>("/metadata-refresh/bulk-selected", { audiobookIds }),
 };
 
 // Url cleanup

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { seriesApi } from "@/services/api";
-import type { SeriesDetail, SeriesExpectedBook } from "@/types/Series";
+import type { SeriesDetail, SeriesExpectedBook, SeriesOwnedBook } from "@/types/Series";
 
 const mockSignalRValue = {
   connection: null,
@@ -28,10 +28,20 @@ function missingBook(id: number, title: string, position?: string): SeriesExpect
   };
 }
 
+const defaultOwned: SeriesOwnedBook = {
+  id: 10,
+  bookName: "The Final Empire",
+  seriesPart: "1",
+  year: 2006,
+  authors: ["Brandon Sanderson"],
+  narrators: ["Michael Kramer"],
+  durationInSeconds: 88000,
+};
+
 function makeDetail(
   missingItems: SeriesExpectedBook[],
   missingTotal: number,
-  ownedTotal = 1,
+  ownedItems: SeriesOwnedBook[] = [defaultOwned],
   ignoredTotal = 0,
 ): SeriesDetail {
   return {
@@ -39,7 +49,7 @@ function makeDetail(
       id: 1,
       name: "Mistborn",
       authors: ["Brandon Sanderson"],
-      ownedBookCount: ownedTotal,
+      ownedBookCount: ownedItems.length,
       isMatched: true,
       matchedSourceName: "Hardcover",
       matchedSourceId: "123",
@@ -52,18 +62,8 @@ function makeDetail(
       includeOmnibusEditions: false,
     },
     ownedBooks: {
-      items: [
-        {
-          id: 10,
-          bookName: "The Final Empire",
-          seriesPart: "1",
-          year: 2006,
-          authors: ["Brandon Sanderson"],
-          narrators: ["Michael Kramer"],
-          durationInSeconds: 88000,
-        },
-      ],
-      totalCount: ownedTotal,
+      items: ownedItems,
+      totalCount: ownedItems.length,
     },
     missingBooks: {
       items: missingItems,
@@ -85,15 +85,18 @@ function renderWithProviders(initialEntry = "/library/series/Mistborn") {
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
   });
 
-  return render(
-    <ThemeProvider defaultTheme="system" storageKey="theme">
-      <SignalRContext.Provider value={mockSignalRValue}>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </SignalRContext.Provider>
-    </ThemeProvider>,
-  );
+  return {
+    router,
+    ...render(
+      <ThemeProvider defaultTheme="system" storageKey="theme">
+        <SignalRContext.Provider value={mockSignalRValue}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </SignalRContext.Provider>
+      </ThemeProvider>,
+    ),
+  };
 }
 
 describe("SeriesDetail", () => {
@@ -190,5 +193,99 @@ describe("SeriesDetail", () => {
     });
     expect(await screen.findByText(/Book 01/)).toBeInTheDocument();
     expect(screen.getByText(/Missing Books \(50\)/)).toBeInTheDocument();
+  });
+
+  it("selects owned books and reflects the page selection in the select-all checkbox", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [
+        { ...defaultOwned },
+        {
+          id: 11,
+          bookName: "The Well of Ascension",
+          seriesPart: "2",
+          year: 2007,
+          authors: ["Brandon Sanderson"],
+          narrators: ["Michael Kramer"],
+          durationInSeconds: 91000,
+        },
+      ]),
+    );
+
+    renderWithProviders();
+
+    const ownedBookLink = await screen.findByRole("link", { name: /The Final Empire/ });
+    expect(ownedBookLink).toHaveAttribute("href", "/library/book/10");
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select page" });
+    expect(selectAll).toHaveAttribute("aria-checked", "false");
+
+    // Picking just one of the two owned books makes the select-all indeterminate.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Final Empire" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+
+    // Both picked: select-all reads fully checked, and the row title carries the series-part
+    // prefix while the redundant "Series:" span stays hidden.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Well of Ascension" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByText("#1 The Final Empire")).toBeInTheDocument();
+    expect(screen.queryByText(/Series: Mistborn/)).not.toBeInTheDocument();
+
+    // Clearing the page through the select-all deselects every row.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select page" }));
+    expect(screen.getByRole("checkbox", { name: "Select The Final Empire" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(screen.getByRole("checkbox", { name: "Select The Well of Ascension" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+
+  // Regression for the review finding: the selection used to be reset only by comparing the
+  // prev-series during render, and no test actually changed the route param, so nothing proved
+  // the reset fired. Navigating to a second series whose roster reuses the same book ids is the
+  // exact case that would leak a wrong selection: the same id is now a different book.
+  it("clears the owned selection when navigating to a different series", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockImplementation((name) =>
+      Promise.resolve(
+        makeDetail(
+          [],
+          0,
+          name === "Mistborn"
+            ? [defaultOwned]
+            : [{ ...defaultOwned, bookName: "Words of Radiance" }],
+        ),
+      ),
+    );
+
+    const { router } = renderWithProviders();
+    await screen.findByRole("link", { name: /The Final Empire/ });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Final Empire" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await router.navigate({ href: "/library/series/Stormlight" });
+
+    // The new series' roster renders with the same book id (10): only a real reset of the
+    // selection - not the id changing out from under it - can leave it unchecked.
+    await screen.findByRole("link", { name: /Words of Radiance/ });
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(screen.getByRole("checkbox", { name: "Select Words of Radiance" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(
+      screen.queryByRole("checkbox", { name: "Select The Final Empire" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -44,13 +44,13 @@ public class Client : IOrganize
 
     public Task ConsistencyCheckProgress(ConsistencyCheckProgress progress)
     {
-        Console.WriteLine($"Consistency check: {progress.Message} ({progress.BooksChecked}/{progress.TotalBooks}), issues: {progress.IssuesFound}");
+        Console.WriteLine($"[{progress.Scope}] Consistency check: {progress.Message} ({progress.BooksChecked}/{progress.TotalBooks}), issues: {progress.IssuesFound}");
         return Task.CompletedTask;
     }
 
     public Task ConsistencyCheckComplete(ConsistencyCheckComplete result)
     {
-        Console.WriteLine($"Consistency check complete: {result.TotalBooksChecked} books, {result.TotalIssuesFound} issues");
+        Console.WriteLine($"[{result.Scope}] Consistency check complete: {result.TotalBooksChecked} books, {result.TotalIssuesFound} issues");
         return Task.CompletedTask;
     }
 
@@ -144,6 +144,18 @@ public class Client : IOrganize
     {
         var reason = result.StopReason is null ? "" : $", stopped early: {result.StopReason}";
         Console.WriteLine($"Metadata refresh complete: {result.TotalProcessed}/{result.Total} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
+        return Task.CompletedTask;
+    }
+
+    public Task BulkEditProgress(BulkEditProgress progress)
+    {
+        Console.WriteLine($"Bulk edit: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task BulkEditComplete(BulkEditComplete result)
+    {
+        Console.WriteLine($"Bulk edit complete: {result.Processed} processed, {result.Succeeded} succeeded, {result.Failed} failed");
         return Task.CompletedTask;
     }
 }

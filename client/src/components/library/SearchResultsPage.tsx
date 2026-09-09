@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Search, X, Loader2, BookOpen, Users, BookMarked, Clock, ChevronRight } from "lucide-react";
+import { Search, X, Loader2, BookOpen, Users, BookMarked, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BookListRow } from "./BookListRow";
+import { BookBulkActionBar } from "./BookBulkActionBar";
 import { browseApi } from "@/services/api";
-import { formatDuration } from "@/helpers/formatHelpers";
-import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
+import { useBookSelection } from "@/hooks/useBookSelection";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import { Route } from "@/routes/library/search";
@@ -17,64 +19,6 @@ type SearchTab = "all" | "books" | "authors" | "series";
 
 const PREVIEW_LIMIT = 5;
 const PAGE_SIZE = 20;
-
-function BookRow({ book }: { book: ManagedAudiobook }) {
-  return (
-    <Link
-      key={book.id}
-      to="/library/book/$bookId"
-      params={{ bookId: String(book.id) }}
-      className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
-          {book.coverFilePath ? (
-            <img
-              src={browseApi.getCoverUrl(book.id)}
-              alt={book.bookName ?? undefined}
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                (e.currentTarget as HTMLElement).style.display = "none";
-              }}
-            />
-          ) : (
-            <div className="text-muted-foreground flex h-full w-full items-center justify-center">
-              <BookOpen className="h-6 w-6" />
-            </div>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-foreground max-w-full min-w-0 truncate font-semibold">
-              {book.bookName}
-            </span>
-            {book.year && <span className="text-muted-foreground text-xs">({book.year})</span>}
-          </div>
-
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-            {book.authors && book.authors.length > 0 && (
-              <span>By {book.authors.join(", ")} &middot;</span>
-            )}
-            {book.series && (
-              <span>
-                Series: {book.series} {book.seriesPart && `#${book.seriesPart}`} &middot;
-              </span>
-            )}
-            {book.durationInSeconds != null && (
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {formatDuration(book.durationInSeconds)}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-    </Link>
-  );
-}
 
 function AuthorRow({ author }: { author: AuthorSummary }) {
   return (
@@ -164,6 +108,7 @@ function Pager({
 
 export function SearchResultsPage() {
   const navigate = useNavigate();
+  const selection = useBookSelection();
   const { q = "", tab = "all", page = 1 } = Route.useSearch();
   const [prevQ, setPrevQ] = useState(q);
   const [searchQuery, setSearchQuery] = useState(q);
@@ -372,11 +317,34 @@ export function SearchResultsPage() {
             </TabsList>
           </Tabs>
 
+          <BookBulkActionBar selection={selection} />
+
           {tab === "all" && (
             <div className="space-y-8">
               <section className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-foreground text-lg font-bold">Books ({booksTotal})</h2>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-foreground text-lg font-bold">Books ({booksTotal})</h2>
+                    <Checkbox
+                      id="select-books-page"
+                      disabled={books.length === 0}
+                      checked={books.length > 0 && selection.pageAllSelected(books)}
+                      indeterminate={books.length > 0 && selection.pageSomeSelected(books)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          selection.selectPage(books);
+                        } else {
+                          selection.deselectPage(books);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="select-books-page"
+                      className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+                    >
+                      Select page
+                    </label>
+                  </div>
                   {booksTotal > PREVIEW_LIMIT && (
                     <Button
                       variant="link"
@@ -393,7 +361,13 @@ export function SearchResultsPage() {
                 ) : (
                   <div className="space-y-2">
                     {books.map((book) => (
-                      <BookRow key={book.id} book={book} />
+                      <BookListRow
+                        key={book.id}
+                        book={book}
+                        selectable
+                        selected={selection.isSelected(book.id)}
+                        onSelectedChange={() => selection.toggle(book)}
+                      />
                     ))}
                   </div>
                 )}
@@ -460,8 +434,35 @@ export function SearchResultsPage() {
               </Card>
             ) : (
               <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="select-books-page"
+                    disabled={books.length === 0}
+                    checked={books.length > 0 && selection.pageAllSelected(books)}
+                    indeterminate={books.length > 0 && selection.pageSomeSelected(books)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        selection.selectPage(books);
+                      } else {
+                        selection.deselectPage(books);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="select-books-page"
+                    className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+                  >
+                    Select page
+                  </label>
+                </div>
                 {books.map((book) => (
-                  <BookRow key={book.id} book={book} />
+                  <BookListRow
+                    key={book.id}
+                    book={book}
+                    selectable
+                    selected={selection.isSelected(book.id)}
+                    onSelectedChange={() => selection.toggle(book)}
+                  />
                 ))}
                 <Pager
                   page={page}

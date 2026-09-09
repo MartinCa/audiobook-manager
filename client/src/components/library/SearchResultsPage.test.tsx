@@ -216,4 +216,47 @@ describe("SearchResultsPage", () => {
 
     expect(await screen.findByText("No authors matched your query.")).toBeInTheDocument();
   });
+
+  it("tracks book-row selection on the books tab and reflects it in the select-all checkbox", async () => {
+    const twoBooks: ManagedAudiobook[] = [
+      ...sampleBooks,
+      {
+        id: 2,
+        bookName: "The Well of Ascension",
+        year: 2007,
+        authors: ["Brandon Sanderson"],
+        series: "Mistborn",
+        seriesPart: "2",
+        narrators: ["Michael Kramer"],
+        genres: ["Fantasy"],
+        durationInSeconds: 47000,
+        coverFilePath: null,
+      },
+    ];
+    vi.mocked(browseApi.searchAudiobooks).mockResolvedValue(makePage(twoBooks, 45));
+    renderWithRouter("/library/search?q=mist&tab=books");
+
+    await screen.findByText("Mistborn: The Final Empire");
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select page" });
+    expect(selectAll).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Mistborn: The Final Empire" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Well of Ascension" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // Deselect the whole page through the select-all.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select page" }));
+    expect(
+      screen.getByRole("checkbox", { name: "Select Mistborn: The Final Empire" }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("checkbox", { name: "Select The Well of Ascension" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
 });

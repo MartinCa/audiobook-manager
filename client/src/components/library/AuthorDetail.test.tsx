@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
@@ -20,10 +20,11 @@ const mockSignalRValue = {
 function makeDetail(
   seriesCount: number,
   standaloneCount: number,
-  opts: { seriesItems?: number; standaloneItems?: number } = {},
+  opts: { seriesItems?: number; standaloneItems?: number; authorId?: number } = {},
 ): AuthorDetail {
+  const authorId = opts.authorId ?? 7;
   return {
-    author: { id: 7, name: "Brandon Sanderson", bookCount: seriesCount + standaloneCount },
+    author: { id: authorId, name: "Brandon Sanderson", bookCount: seriesCount + standaloneCount },
     series: {
       count: opts.seriesItems ?? Math.min(seriesCount, 50),
       total: seriesCount,
@@ -60,15 +61,18 @@ function renderWithProviders(initialEntry = "/library/authors/7") {
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
   });
 
-  return render(
-    <ThemeProvider defaultTheme="system" storageKey="theme">
-      <SignalRContext.Provider value={mockSignalRValue}>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </SignalRContext.Provider>
-    </ThemeProvider>,
-  );
+  return {
+    router,
+    ...render(
+      <ThemeProvider defaultTheme="system" storageKey="theme">
+        <SignalRContext.Provider value={mockSignalRValue}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </SignalRContext.Provider>
+      </ThemeProvider>,
+    ),
+  };
 }
 
 describe("AuthorDetail", () => {
@@ -127,5 +131,88 @@ describe("AuthorDetail", () => {
         standaloneOffset: 0,
       });
     });
+  });
+
+  it("selects standalone books and reflects the page selection in the select-all checkbox", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 2));
+
+    renderWithProviders();
+
+    await screen.findByText(/Standalone 01/);
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select page" });
+    expect(selectAll).toHaveAttribute("aria-checked", "false");
+
+    // Picking one of the two standalone books makes the select-all indeterminate.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 01" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+
+    // Both picked: fully checked.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 02" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // Deselect one: back to indeterminate.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 02" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "mixed",
+    );
+
+    // Deselect the last one: the page is cleared entirely.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 01" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+
+  // Regression for the review finding: the selection used to be reset only by comparing the
+  // prev-id during render, and no test actually changed the route param, so nothing proved the
+  // reset fired. Navigating to a second author whose catalogue reuses the same book ids is the
+  // exact case that would leak a wrong selection: the same id is now a different book.
+  it("clears the selection when navigating to a different author", async () => {
+    const getAuthorDetail = vi
+      .spyOn(browseApi, "getAuthorDetail")
+      .mockImplementation((id) => Promise.resolve(makeDetail(0, 2, { authorId: id })));
+    const { router } = renderWithProviders("/library/authors/7");
+    await screen.findByText(/Standalone 01/);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 01" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Standalone 02" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await router.navigate({ href: "/library/authors/8" });
+
+    await waitFor(() => {
+      expect(getAuthorDetail).toHaveBeenLastCalledWith(8, {
+        seriesLimit: 50,
+        seriesOffset: 0,
+        standaloneLimit: 50,
+        standaloneOffset: 0,
+      });
+    });
+
+    // Author 8's standalone books reuse ids 100/101: only a real reset of the selection - not
+    // the ids changing out from under it - can leave the new author's rows unchecked.
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+        "aria-checked",
+        "false",
+      );
+    });
+    expect(screen.getByRole("checkbox", { name: "Select Standalone 01" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(screen.getByRole("checkbox", { name: "Select Standalone 02" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 });

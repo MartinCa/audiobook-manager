@@ -104,12 +104,59 @@ public class MetadataRefreshController : ControllerBase
 
                 // RefreshAudiobookAsync never throws for an ordinary per-book failure (it records
                 // the MetadataRefreshFailed issue instead), so nothing here needs a per-item
-                // try/catch - the batch stops early only on the Hardcover budget exception.
-                var (processed, total, succeeded, failed) =
-                    await refreshService.RefreshStaleAudiobooksAsync(dto?.OlderThanUtc, ProgressAction);
+                // try/catch - the batch stops early only on the Hardcover budget exception, which
+                // the result's StopReason surfaces on the completion event.
+                var result = await refreshService.RefreshStaleAudiobooksAsync(dto?.OlderThanUtc, ProgressAction);
 
                 await _organizeHub.Clients.All.MetadataRefreshComplete(
-                    new MetadataRefreshComplete(processed, total, succeeded, failed));
+                    new MetadataRefreshComplete(
+                        result.Processed, result.Total, result.Succeeded, result.Failed, result.StopReason));
+            },
+            () => _organizeHub.Clients.All.MetadataRefreshComplete(
+                new MetadataRefreshComplete(0, 0, 0, 0, "The bulk refresh failed before it could run.")),
+            _appLifetime.ApplicationStopping);
+    }
+
+    /// <summary>
+    /// Refreshes only the explicitly selected books. Shaves the same <c>_bulkLock</c> and
+    /// operation key as <see cref="StartBulkRefresh"/> on purpose: a selected refresh and the
+    /// all-books refresh are the same operation - they hammer the same scrapers - and must be
+    /// mutually exclusive. Unlike the all-books sweep, a selected book that is not refreshable is
+    /// counted Failed rather than dropped, because the user explicitly picked it.
+    /// </summary>
+    [HttpPost("bulk-selected")]
+    public IActionResult StartSelectedRefresh([FromBody] BulkSelectionDto? dto)
+    {
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
+        if (error != null)
+        {
+            return error;
+        }
+
+        var audiobookIds = dto!.AudiobookIds;
+
+        return BackgroundOperationRunner.Start(
+            _bulkLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            BulkOperationKey,
+            async sp =>
+            {
+                var refreshService = sp.GetRequiredService<IMetadataRefreshService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(BulkOperationKey, processed, total);
+                    return _organizeHub.Clients.All.MetadataRefreshProgress(
+                        new MetadataRefreshProgress(processed, total, succeeded, failed));
+                }
+
+                var result = await refreshService.RefreshSelectedAudiobooksAsync(audiobookIds, ProgressAction);
+
+                await _organizeHub.Clients.All.MetadataRefreshComplete(
+                    new MetadataRefreshComplete(
+                        result.Processed, result.Total, result.Succeeded, result.Failed, result.StopReason));
             },
             () => _organizeHub.Clients.All.MetadataRefreshComplete(
                 new MetadataRefreshComplete(0, 0, 0, 0, "The bulk refresh failed before it could run.")),

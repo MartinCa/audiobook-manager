@@ -17,19 +17,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TagsInput } from "@/components/tags-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { AuthorsField } from "@/components/fields/AuthorsField";
+import { NarratorsField } from "@/components/fields/NarratorsField";
+import { SeriesField } from "@/components/fields/SeriesField";
+import { LanguageField } from "@/components/fields/LanguageField";
 import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
 import { TagPreviewDialog } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
-import { TypeaheadInput } from "./TypeaheadInput";
-import { audiobookApi, settingsApi, similarValuesApi } from "@/services/api";
+import { audiobookApi, settingsApi } from "@/services/api";
 import {
   joinList,
   cleanDescription,
@@ -37,8 +33,7 @@ import {
   DEFAULT_COLLAPSED_FIELDS,
   type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
-import { normalizeLanguage, languageSelectItems } from "@/helpers/languages";
-import { findSimilarExisting } from "@/helpers/similarValueMatcher";
+import { normalizeLanguage } from "@/helpers/languages";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -121,25 +116,6 @@ function buildAudiobook(
   };
 }
 
-// Applies a "similar existing value" hint's suggestion at a given index. A plain
-// current.map((v, i) => i === index ? suggestion : v) can silently create a duplicate: the
-// suggestion is, by construction, already very close to another entry, and is sometimes an
-// exact match for one already sitting elsewhere in the same array (e.g. two authors "Brandon
-// Sanderson" and "Brandon Sandersons" both present, with the hint on the typo suggesting the
-// exact name of the other). TagsInput itself refuses to create that duplicate through typing or
-// in-place editing, but a hint click bypasses TagsInput and calls form.setValue directly, so it
-// needs the same guard. When the suggestion already exists elsewhere, the flagged (typo'd) entry
-// is dropped instead of duplicated - the canonical entry is already present.
-function applyHintSuggestion(current: string[], index: number, suggestion: string): string[] {
-  const existsElsewhere = current.some(
-    (v, i) => i !== index && v.toLowerCase() === suggestion.toLowerCase(),
-  );
-  if (existsElsewhere) {
-    return current.filter((_, i) => i !== index);
-  }
-  return current.map((v, i) => (i === index ? suggestion : v));
-}
-
 export interface BookEditFormProps {
   initialBook: Audiobook;
   currentPath?: string;
@@ -200,24 +176,6 @@ export function BookEditForm({
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   const queryClient = useQueryClient();
 
-  // Entry-time duplicate prevention: flat name lists to check a typed Author/Series value
-  // against. Non-critical — the hint below just won't show if this fails to load.
-  const { data: authorNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "authors"],
-    queryFn: () => similarValuesApi.getAuthorNames(),
-    staleTime: 5 * 60 * 1000,
-  });
-  const { data: narratorNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "narrators"],
-    queryFn: () => similarValuesApi.getNarratorNames(),
-    staleTime: 5 * 60 * 1000,
-  });
-  const { data: seriesNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "series"],
-    queryFn: () => similarValuesApi.getSeriesNames(),
-    staleTime: 5 * 60 * 1000,
-  });
-
   const form = useForm<BookEditFormValues>({
     resolver: zodResolver(bookEditFormSchema),
     defaultValues: valuesFromBook(initialBook),
@@ -230,42 +188,6 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
-
-  // Derived, not event-driven: a hint exists for every entry (by index) that currently has a
-  // similar-but-not-identical existing name, recomputed on every relevant change. This covers
-  // every way an entry can get into the array - typed one at a time, bulk-applied from a scraped
-  // metadata search result, or already present when the book was loaded - not just the one chip
-  // most recently typed into the field. It also can't go stale: there's no separate "which chip
-  // triggered this" state to fall out of sync when an entry is edited, removed, or reordered.
-  const authorHints = useMemo(() => {
-    const hints = new Map<number, string>();
-    (watchedValues.authors ?? []).forEach((author, index) => {
-      if (!author?.trim()) return;
-      const matches = findSimilarExisting(author, authorNames);
-      if (matches[0] && matches[0] !== author) hints.set(index, matches[0]);
-    });
-    return hints;
-  }, [watchedValues.authors, authorNames]);
-
-  const narratorHints = useMemo(() => {
-    const hints = new Map<number, string>();
-    (watchedValues.narrators ?? []).forEach((narrator, index) => {
-      if (!narrator?.trim()) return;
-      const matches = findSimilarExisting(narrator, narratorNames);
-      if (matches[0] && matches[0] !== narrator) hints.set(index, matches[0]);
-    });
-    return hints;
-  }, [watchedValues.narrators, narratorNames]);
-
-  // Same derived approach as the author/narrator hints above, for the single Series field: a
-  // similar existing series is shown regardless of whether the value was typed, blurred into, or
-  // set in bulk via a scraped metadata-search apply.
-  const seriesHint = useMemo(() => {
-    const series = watchedValues.series?.trim();
-    if (!series) return null;
-    const matches = findSimilarExisting(series, seriesNames);
-    return matches[0] && matches[0] !== series ? matches[0] : null;
-  }, [watchedValues.series, seriesNames]);
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -561,80 +483,26 @@ export function BookEditForm({
 
         <div className="space-y-4 md:col-span-3">
           <div className="flex flex-col gap-4 sm:flex-row">
-            <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-xs font-medium">
-                Authors <span className="text-destructive">*</span>
-              </label>
-              <Controller
-                control={form.control}
-                name="authors"
-                render={({ field }) => (
-                  <TagsInput
-                    value={field.value ?? []}
-                    onValueChange={field.onChange}
-                    suggestions={authorNames}
-                    reorderable
-                    placeholder="Author Name, Second Author"
-                    aria-invalid={Boolean(form.formState.errors.authors)}
-                  />
-                )}
-              />
-              {form.formState.errors.authors && (
-                <p className="text-destructive mt-1 text-xs">
-                  {form.formState.errors.authors.message}
-                </p>
+            <Controller
+              control={form.control}
+              name="authors"
+              render={({ field }) => (
+                <AuthorsField
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  error={form.formState.errors.authors?.message}
+                />
               )}
-              {Array.from(authorHints.entries()).map(([index, suggestion]) => (
-                <button
-                  key={index}
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
-                  onClick={() => {
-                    const current = form.getValues("authors");
-                    form.setValue("authors", applyHintSuggestion(current, index, suggestion), {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    });
-                  }}
-                >
-                  Similar existing author: {suggestion} (click to use)
-                </button>
-              ))}
-            </div>
+            />
 
             {isFieldVisible("narrators") && (
-              <div className="min-w-0 flex-1">
-                <label className="mb-1 block text-xs font-medium">Narrators</label>
-                <Controller
-                  control={form.control}
-                  name="narrators"
-                  render={({ field }) => (
-                    <TagsInput
-                      value={field.value ?? []}
-                      onValueChange={field.onChange}
-                      suggestions={narratorNames}
-                      reorderable
-                      placeholder="Narrator Name"
-                    />
-                  )}
-                />
-                {Array.from(narratorHints.entries()).map(([index, suggestion]) => (
-                  <button
-                    key={index}
-                    type="button"
-                    className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
-                    onClick={() => {
-                      const current = form.getValues("narrators");
-                      form.setValue("narrators", applyHintSuggestion(current, index, suggestion), {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                    }}
-                  >
-                    Similar existing narrator: {suggestion} (click to use)
-                  </button>
-                ))}
-              </div>
+              <Controller
+                control={form.control}
+                name="narrators"
+                render={({ field }) => (
+                  <NarratorsField value={field.value ?? []} onChange={field.onChange} />
+                )}
+              />
             )}
           </div>
 
@@ -664,34 +532,18 @@ export function BookEditForm({
           </div>
 
           <div className="flex flex-col gap-4 sm:flex-row">
-            <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-xs font-medium">Series</label>
-              <Controller
-                control={form.control}
-                name="series"
-                render={({ field }) => (
-                  <TypeaheadInput
-                    ref={field.ref}
-                    value={field.value ?? ""}
-                    onValueChange={(val) => field.onChange(val)}
-                    candidates={seriesNames}
-                    placeholder="Series name"
-                    onBlur={field.onBlur}
-                  />
-                )}
-              />
-              {seriesHint && (
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
-                  onClick={() => {
-                    form.setValue("series", seriesHint, { shouldDirty: true });
-                  }}
-                >
-                  Similar existing series: {seriesHint} (click to use)
-                </button>
+            <Controller
+              control={form.control}
+              name="series"
+              render={({ field }) => (
+                <SeriesField
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                />
               )}
-            </div>
+            />
 
             <div className="min-w-0 flex-1">
               <label className="mb-1 block text-xs font-medium">Series Part / Book #</label>
@@ -743,34 +595,13 @@ export function BookEditForm({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium">Language</label>
-              <Controller
-                control={form.control}
-                name="language"
-                render={({ field }) => {
-                  const items = languageSelectItems(field.value, languages);
-                  return (
-                    <Select
-                      value={field.value || ""}
-                      onValueChange={(val) => field.onChange(val ?? "")}
-                      items={items.map((l) => ({ value: l.code, label: l.displayName }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select language..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {items.map((l) => (
-                          <SelectItem key={l.code} value={l.code}>
-                            {l.displayName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  );
-                }}
-              />
-            </div>
+            <Controller
+              control={form.control}
+              name="language"
+              render={({ field }) => (
+                <LanguageField value={field.value || ""} onChange={field.onChange} />
+              )}
+            />
 
             {isFieldVisible("publisher") && (
               <div>

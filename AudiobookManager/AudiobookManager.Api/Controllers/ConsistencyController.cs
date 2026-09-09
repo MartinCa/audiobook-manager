@@ -19,6 +19,7 @@ public class ConsistencyController : ControllerBase
 
     public const string OperationKey = "consistency-check";
     public const string ResolveOperationKey = "consistency-resolve";
+    public const string CheckSelectedOperationKey = "consistency-check-selected";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -84,15 +85,76 @@ public class ConsistencyController : ControllerBase
                 {
                     _statusRegistry.SetProgress(OperationKey, booksChecked, totalBooks);
                     return _organizeHub.Clients.All.ConsistencyCheckProgress(
-                        new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound));
+                        new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound, ConsistencyCheckScope.Library));
                 }
 
                 var (booksChecked, issuesFound) = await consistencyService.RunConsistencyCheck(ProgressAction);
 
                 await _organizeHub.Clients.All.ConsistencyCheckComplete(
-                    new ConsistencyCheckComplete(booksChecked, issuesFound));
+                    new ConsistencyCheckComplete(booksChecked, issuesFound, ConsistencyCheckScope.Library));
             },
-            () => _organizeHub.Clients.All.ConsistencyCheckComplete(new ConsistencyCheckComplete(0, 0)),
+            () => _organizeHub.Clients.All.ConsistencyCheckComplete(
+                new ConsistencyCheckComplete(0, 0, ConsistencyCheckScope.Library)),
+            _appLifetime.ApplicationStopping);
+    }
+
+    /// <summary>
+    /// Re-checks only the explicitly selected books, reusing the full check's progress/complete
+    /// events so the client has one consistency-check surface to render. Shares the full check's
+    /// <c>_checkLock</c> on purpose (they rewrite the same issue rows and read the same files), and
+    /// applies the same library-availability refusal, for the same reason
+    /// <see cref="StartConsistencyCheck"/> does: a missing library is the one refusal a user must
+    /// see synchronously, not as a zeroed completion event.
+    /// </summary>
+    [HttpPost("check-selected")]
+    public IActionResult StartSelectedConsistencyCheck([FromBody] BulkSelectionDto? dto)
+    {
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
+        if (error != null)
+        {
+            return error;
+        }
+
+        if (!SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
+        {
+            _logger.LogWarning(
+                "Refused selected consistency check: library directory '{LibraryPath}' is not available",
+                _settings.AudiobookLibraryPath);
+
+            return this.ConflictingState(
+                $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
+                + "would look missing. This is normally a volume mount - check it is mounted and readable "
+                + "by the user this application runs as, then run the check again.",
+                "Library unavailable");
+        }
+
+        var audiobookIds = dto!.AudiobookIds;
+
+        return BackgroundOperationRunner.Start(
+            _checkLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            CheckSelectedOperationKey,
+            async sp =>
+            {
+                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
+
+                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound)
+                {
+                    _statusRegistry.SetProgress(CheckSelectedOperationKey, booksChecked, totalBooks);
+                    return _organizeHub.Clients.All.ConsistencyCheckProgress(
+                        new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound, ConsistencyCheckScope.Selected));
+                }
+
+                var (booksChecked, issuesFound) =
+                    await consistencyService.RecheckAudiobooksAsync(audiobookIds, ProgressAction);
+
+                await _organizeHub.Clients.All.ConsistencyCheckComplete(
+                    new ConsistencyCheckComplete(booksChecked, issuesFound, ConsistencyCheckScope.Selected));
+            },
+            () => _organizeHub.Clients.All.ConsistencyCheckComplete(
+                new ConsistencyCheckComplete(0, 0, ConsistencyCheckScope.Selected)),
             _appLifetime.ApplicationStopping);
     }
 

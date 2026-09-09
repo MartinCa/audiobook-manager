@@ -540,4 +540,48 @@ describe("LibraryConsistency", () => {
     expect(screen.queryByText(/Resolving issues/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeEnabled();
   });
+
+  // The selection bar's re-check (consistency-check-selected) broadcasts the same
+  // ConsistencyCheckProgress/Complete events as the full library check. The full-check page must
+  // ignore the selected-scope events, or a live few-books re-check would spin up the full check's
+  // progress UI and toast a "Check complete: N books checked" that the user never asked for.
+  it("ignores a selected-scope consistency event and never toasts or flips the checking state", async () => {
+    mockPagedIssues([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+
+    renderWithProviders(<LibraryConsistency />);
+    expect(await screen.findByText("Run Consistency Check")).toBeInTheDocument();
+
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+
+    handlerFor("ConsistencyCheckProgress")({
+      message: "Re-checking selected books",
+      booksChecked: 1,
+      totalBooks: 2,
+      issuesFound: 1,
+      scope: "selected",
+    } as never);
+
+    // The selected run must not drive the full page: no progress state, button stays idle.
+    expect(screen.queryByRole("button", { name: "Running Check..." })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run Consistency Check" })).toBeEnabled();
+    expect(
+      screen.queryByText("Re-checking selected books (1 issues found)"),
+    ).not.toBeInTheDocument();
+
+    handlerFor("ConsistencyCheckComplete")({
+      totalBooksChecked: 2,
+      totalIssuesFound: 1,
+      scope: "selected",
+    } as never);
+
+    await waitFor(() => {
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByText(/Check complete:/)).not.toBeInTheDocument();
+  });
 });

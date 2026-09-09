@@ -24,10 +24,22 @@ public interface IMetadataRefreshService
     /// Refreshes every book that is eligible (has a URL a scraper supports, and is stale per
     /// <paramref name="olderThanUtc"/> - null meaning never-refreshed counts as stale) with the
     /// shared bulk contract: per-item try/catch, a (processed, total, succeeded, failed) progress
-    /// report after every item, and the configured inter-item delay.
+    /// report after every item, and the configured inter-item delay. The returned
+    /// <see cref="MetadataRefreshBatchResult.StopReason"/> is set when the loop stopped early
+    /// (the Hardcover daily request budget was exhausted).
     /// </summary>
-    Task<(int Processed, int Total, int Succeeded, int Failed)> RefreshStaleAudiobooksAsync(
+    Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(
         DateTime? olderThanUtc,
+        Func<int, int, int, int, Task> progressAction);
+
+    /// <summary>
+    /// Refreshes only the explicitly selected books, through the same per-book loop as
+    /// <see cref="RefreshStaleAudiobooksAsync"/> so the two cannot drift. Unlike the stale sweep,
+    /// every requested id counts toward Total: a book that did not resolve, or has no refreshable
+    /// source URL, is counted Failed rather than filtered out - the user explicitly picked it.
+    /// </summary>
+    Task<MetadataRefreshBatchResult> RefreshSelectedAudiobooksAsync(
+        IReadOnlyList<long> audiobookIds,
         Func<int, int, int, int, Task> progressAction);
 
     /// <summary>Deletes a book's pending snapshot, if any. Returns true when one was deleted.</summary>

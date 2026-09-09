@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2, Clock } from "lucide-react";
+import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BookListRow } from "./BookListRow";
+import { BookBulkActionBar } from "./BookBulkActionBar";
 import { browseApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
-import { formatDuration } from "@/helpers/formatHelpers";
+import { useBookSelection } from "@/hooks/useBookSelection";
 import { Route } from "@/routes/library/authors/$authorId";
 
 const PAGE_SIZE = 50;
@@ -21,15 +24,18 @@ export function AuthorDetail() {
   // move the standalone list. The unpaged version sent an author's entire catalogue at once.
   const [seriesPage, setSeriesPage] = useState(0);
   const [standalonePage, setStandalonePage] = useState(0);
+  const selection = useBookSelection();
 
   // Navigating between authors must not carry a previous author's page cursor along. Adjusted
   // during render (React's documented pattern) rather than in an effect: the query key below
   // already changes with the author, so this only resets the local paging state when it does.
+  // The book selection resets for the same reason - a different author owns a different roster.
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
     setPrevId(id);
     setSeriesPage(0);
     setStandalonePage(0);
+    selection.clear();
   }
 
   // One combined detail query instead of two: the endpoint already computes both sections on
@@ -174,44 +180,43 @@ export function AuthorDetail() {
 
       {standaloneSection.total > 0 && (
         <div className="space-y-3">
-          <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-            <BookOpen className="text-primary h-5 w-5" />
-            Standalone Audiobooks ({standaloneSection.total})
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
+              <BookOpen className="text-primary h-5 w-5" />
+              Standalone Audiobooks ({standaloneSection.total})
+            </h2>
+            <Checkbox
+              id="select-standalone-page"
+              disabled={standaloneBooks.length === 0}
+              checked={standaloneBooks.length > 0 && selection.pageAllSelected(standaloneBooks)}
+              indeterminate={
+                standaloneBooks.length > 0 && selection.pageSomeSelected(standaloneBooks)
+              }
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  selection.selectPage(standaloneBooks);
+                } else {
+                  selection.deselectPage(standaloneBooks);
+                }
+              }}
+            />
+            <label
+              htmlFor="select-standalone-page"
+              className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+            >
+              Select page
+            </label>
+          </div>
+          <BookBulkActionBar selection={selection} />
           <div className="space-y-2">
             {standaloneBooks.map((book) => (
-              <Link
+              <BookListRow
                 key={book.id}
-                to="/library/book/$bookId"
-                params={{ bookId: String(book.id) }}
-                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              >
-                <div className="min-w-0">
-                  <div className="text-foreground font-semibold">
-                    {book.bookName}
-                    {book.year && (
-                      <span className="text-muted-foreground text-xs font-normal">
-                        {" "}
-                        ({book.year})
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-                    {book.narrators && book.narrators.length > 0 && (
-                      <span>Narrated by {book.narrators.join(", ")}</span>
-                    )}
-                    {book.durationInSeconds != null && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatDuration(book.durationInSeconds)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
-              </Link>
+                book={book}
+                selectable
+                selected={selection.isSelected(book.id)}
+                onSelectedChange={() => selection.toggle(book)}
+              />
             ))}
           </div>
           {standalonePageCount > 1 && (

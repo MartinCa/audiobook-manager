@@ -67,3 +67,27 @@ export function findSimilarExisting(
     );
   });
 }
+
+// Applies a "similar existing value" hint's suggestion at a given index. A plain
+// current.map((v, i) => i === index ? suggestion : v) can silently create a duplicate: the
+// suggestion is, by construction, already very close to another entry, and is sometimes an
+// exact match for one already sitting elsewhere in the same array (e.g. two authors "Brandon
+// Sanderson" and "Brandon Sandersons" both present, with the hint on the typo suggesting the
+// exact name of the other). The input control itself refuses to create that duplicate through
+// typing or in-place editing, but a hint click bypasses it and calls the form's onChange
+// directly, so it needs the same guard. When the suggestion already exists elsewhere, the
+// flagged (typo'd) entry is dropped instead of duplicated - the canonical entry is already
+// present.
+export function applyHintSuggestion(
+  current: string[],
+  index: number,
+  suggestion: string,
+): string[] {
+  const existsElsewhere = current.some(
+    (v, i) => i !== index && v.toLowerCase() === suggestion.toLowerCase(),
+  );
+  if (existsElsewhere) {
+    return current.filter((_, i) => i !== index);
+  }
+  return current.map((v, i) => (i === index ? suggestion : v));
+}

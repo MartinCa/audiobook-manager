@@ -2200,6 +2200,50 @@ public class LibraryConsistencyServiceTests
     }
 
     [TestMethod]
+    public async Task RecheckAudiobooksAsync_MissingSelectedId_CountsItCheckedAndFailed_AndReportsTheRequestedTotal()
+    {
+        // Regression for the review finding: the loop used to iterate over what
+        // GetByIdsWithIncludesAsync returned, so a selected id that no longer resolved was
+        // neither processed nor failed, and the totals reported the found count instead of the
+        // requested one. The user explicitly picked every id, so the missing one must count as a
+        // checked and failed item and the total must be the requested count - the same honesty
+        // rule the selected-refresh path applies to books that do not resolve.
+        var found1 = MakeMissingFileBook(1, Path.Combine(_libraryPath, "Author One", "book.m4b"));
+        var found3 = MakeMissingFileBook(3, Path.Combine(_libraryPath, "Author Three", "book.m4b"));
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1, 2, 3 }))
+            .ReturnsAsync(new List<DbAudiobook> { found1, found3 });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(found1);
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(3)).ReturnsAsync(found3);
+
+        var progressCalls = new List<(string Message, int BooksChecked, int Total, int IssuesFound)>();
+        var (booksCheckedResult, issuesFound) = await _service.RecheckAudiobooksAsync(
+            new List<long> { 1, 2, 3 },
+            (message, booksChecked, totalBooks, foundIssues) =>
+            {
+                progressCalls.Add((message, booksChecked, totalBooks, foundIssues));
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual(3, booksCheckedResult, "every requested id counts, missing or not");
+        Assert.AreEqual(3, progressCalls.Count, "one progress event per requested id");
+        Assert.IsTrue(progressCalls.All(c => c.Total == 3),
+            "every progress event reports the requested total, not the found count");
+        Assert.AreEqual(1, progressCalls[0].BooksChecked);
+        Assert.AreEqual(2, progressCalls[1].BooksChecked);
+        Assert.AreEqual(3, progressCalls[2].BooksChecked);
+        // The missing id (2) resolves to no book, so no per-book reconnect happens for it.
+        Assert.AreEqual("Checking ''", progressCalls[1].Message);
+
+        // The two resolved books were actually re-checked (each reports a MissingMediaFile issue
+        // for its absent file); the missing id was never re-fetched - it was counted as the
+        // failed item instead of being silently dropped from the batch.
+        Assert.AreEqual(2, issuesFound);
+        _audiobookRepository.Verify(r => r.GetByIdWithIncludesAsync(1), Times.Once);
+        _audiobookRepository.Verify(r => r.GetByIdWithIncludesAsync(3), Times.Once);
+        _audiobookRepository.Verify(r => r.GetByIdWithIncludesAsync(2), Times.Never);
+    }
+
+    [TestMethod]
     public async Task ResolveIssue_NotFound_ThrowsKeyNotFound()
     {
         _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);

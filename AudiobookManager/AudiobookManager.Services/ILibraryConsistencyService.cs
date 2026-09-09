@@ -6,6 +6,18 @@ public interface ILibraryConsistencyService
 {
     Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction);
     Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId);
+
+    /// <summary>
+    /// Re-checks only the selected books, leaving every other row's stored issues alone. The
+    /// progress callback reports <c>(message, checked, total, issuesFound)</c> after every id,
+    /// the same shape as the full check's, with the total being the requested id count - an id
+    /// that no longer resolves counts as one checked and one failed item rather than silently
+    /// shrinking the batch. A book that disappears between the load and the recheck fails as one
+    /// item and the batch carries on.
+    /// </summary>
+    Task<(int BooksChecked, int IssuesFound)> RecheckAudiobooksAsync(
+        IReadOnlyList<long> audiobookIds,
+        Func<string, int, int, int, Task> progressAction);
     Task<List<TagMismatchField>> GetTagMismatchFieldsAsync(long issueId);
     Task<ConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues);
     Task<ConsistencyResolveResult> ResolveIssue(long issueId);

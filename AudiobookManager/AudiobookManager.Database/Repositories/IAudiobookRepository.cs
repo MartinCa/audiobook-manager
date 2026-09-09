@@ -77,6 +77,15 @@ public interface IAudiobookRepository
     Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(long authorId, int limit, int offset);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
+
+    /// <summary>
+    /// The audiobooks whose ids are in <paramref name="ids"/>, sorted by id, with the
+    /// Authors/Narrators/Genres graph loaded. The bulk edit/refresh/check flows select a set of
+    /// books and work on domain copies of them; <c>AsNoTracking</c> is deliberate - those flows
+    /// hold the per-audiobook save gate and hand every change to
+    /// <see cref="AudiobookService.UpdateAudiobook"/>, which reloads the tracked entity itself.
+    /// </summary>
+    Task<List<Audiobook>> GetByIdsWithIncludesAsync(IReadOnlyList<long> ids);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync();
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync(List<string> seriesValues);

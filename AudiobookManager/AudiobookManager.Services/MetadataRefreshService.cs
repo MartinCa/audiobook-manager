@@ -103,7 +103,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
     }
 
-    public async Task<(int Processed, int Total, int Succeeded, int Failed)> RefreshStaleAudiobooksAsync(
+    public async Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(
         DateTime? olderThanUtc,
         Func<int, int, int, int, Task> progressAction)
     {
@@ -113,19 +113,70 @@ public class MetadataRefreshService : IMetadataRefreshService
         // after the projection, so an unsupported URL costs a SupportsUrl call, not an entity load.
         var refreshable = eligible.Where(b => CanRefresh(b.Www)).ToList();
 
+        return await RunRefreshLoopAsync(
+            refreshable.Select(b => new RefreshTarget(b.Id, b.Www)).ToList(),
+            progressAction);
+    }
+
+    public async Task<MetadataRefreshBatchResult> RefreshSelectedAudiobooksAsync(
+        IReadOnlyList<long> audiobookIds,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var books = await _audiobookRepository.GetByIdsWithIncludesAsync(audiobookIds);
+
+        // The user explicitly picked every id, so every id is a target - nothing is silently
+        // dropped from the totals. Books that did not resolve become targets with no URL, and a
+        // book with no refreshable URL is counted Failed ("3 of 5 had no source URL" is the
+        // honest result) rather than filtered out the way the stale sweep below filters.
+        var foundIds = new HashSet<long>();
+        var targets = new List<RefreshTarget>();
+        foreach (var book in books)
+        {
+            foundIds.Add(book.Id);
+            targets.Add(new RefreshTarget(book.Id, book.Www));
+        }
+
+        foreach (var id in audiobookIds)
+        {
+            if (!foundIds.Contains(id))
+            {
+                targets.Add(new RefreshTarget(id, (string?)null));
+            }
+        }
+
+        return await RunRefreshLoopAsync(targets, progressAction);
+    }
+
+    /// <summary>The per-book workload both bulk refresh paths run; the two must not drift apart.</summary>
+    private sealed record RefreshTarget(long Id, string? Www);
+
+    private async Task<MetadataRefreshBatchResult> RunRefreshLoopAsync(
+        IReadOnlyList<RefreshTarget> targets,
+        Func<int, int, int, int, Task> progressAction)
+    {
         var delayMs = Math.Max(0, (await _librarySettingsRepository.GetOrCreateAsync()).MetadataRefreshDelayMs);
 
         var processed = 0;
         var succeeded = 0;
         var failed = 0;
-        var total = refreshable.Count;
+        var total = targets.Count;
         string? stopReason = null;
 
-        foreach (var book in refreshable)
+        foreach (var target in targets)
         {
             if (stopReason is not null)
             {
                 break;
+            }
+
+            if (!CanRefresh(target.Www))
+            {
+                // Not refreshable costs no HTTP request and no inter-item delay, but it still
+                // counts: the user explicitly picked this book, so "no source URL" is a result.
+                failed++;
+                processed++;
+                await progressAction(processed, total, succeeded, failed);
+                continue;
             }
 
             if (processed > 0 && delayMs > 0)
@@ -135,7 +186,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             try
             {
-                var result = await RefreshAudiobookAsync(book.Id);
+                var result = await RefreshAudiobookAsync(target.Id);
                 if (result.Success)
                 {
                     succeeded++;
@@ -159,7 +210,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             {
                 // RefreshAudiobookAsync already recorded the failure issue; an unexpected error
                 // here still counts as one failed book, not a batch abort.
-                _logger.LogWarning(ex, "Unexpected error refreshing audiobook {AudiobookId}", book.Id);
+                _logger.LogWarning(ex, "Unexpected error refreshing audiobook {AudiobookId}", target.Id);
                 failed++;
             }
 
@@ -167,7 +218,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             await progressAction(processed, total, succeeded, failed);
         }
 
-        return (processed, total, succeeded, failed);
+        return new MetadataRefreshBatchResult(processed, total, succeeded, failed, stopReason);
     }
 
     public async Task<bool> DismissPendingRefreshAsync(long audiobookId)

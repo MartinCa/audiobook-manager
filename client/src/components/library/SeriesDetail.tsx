@@ -7,8 +7,6 @@ import {
   Link as LinkIcon,
   ExternalLink,
   Loader2,
-  ChevronRight,
-  BookOpen,
   EyeOff,
   Eye,
   Search,
@@ -21,17 +19,37 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BookListRow } from "./BookListRow";
+import { BookBulkActionBar } from "./BookBulkActionBar";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
+import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
 import { formatDate } from "@/helpers/formatHelpers";
 
 const PAGE_SIZE = 50;
+
+// SeriesOwnedBookDto omits the summary-row fields BookListRow renders through its
+// ManagedAudiobook prop (no series, no cover, no genres); fill the gaps with the values the
+// owned row actually shows.
+function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
+  return {
+    id: b.id,
+    bookName: b.bookName,
+    year: b.year,
+    seriesPart: b.seriesPart ?? undefined,
+    authors: b.authors,
+    narrators: b.narrators,
+    genres: [],
+    durationInSeconds: b.durationInSeconds ?? undefined,
+  };
+}
 
 interface SeriesRefreshCompletePayload {
   totalProcessed: number;
@@ -46,7 +64,18 @@ export function SeriesDetail() {
   const navigate = useNavigate();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const selection = useBookSelection();
   const decodedSeriesName = decodeURIComponent(seriesName || "");
+
+  // A series change means a whole new roster of owned books; the selection must not carry a
+  // previous series' picks across the navigation. Reset during render so a stale selection can
+  // never render for the rows of a different series (the component stays mounted across param
+  // changes).
+  const [prevSeriesName, setPrevSeriesName] = useState(decodedSeriesName);
+  if (prevSeriesName !== decodedSeriesName) {
+    setPrevSeriesName(decodedSeriesName);
+    selection.clear();
+  }
 
   const handleBack = () => {
     if (router.history.canGoBack()) {
@@ -276,6 +305,7 @@ export function SeriesDetail() {
   }
 
   const ownedBooks = ownedSection.items as SeriesOwnedBook[];
+  const ownedManagedBooks = ownedBooks.map(toManagedBook);
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
 
@@ -531,35 +561,47 @@ export function SeriesDetail() {
       </Card>
 
       <div className="space-y-4">
-        <h2 className="text-foreground text-lg font-bold">
-          Owned Books ({ownedSection.totalCount})
-        </h2>
-        {ownedBooks.length === 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-foreground text-lg font-bold">
+            Owned Books ({ownedSection.totalCount})
+          </h2>
+          <Checkbox
+            id="select-owned-page"
+            disabled={ownedManagedBooks.length === 0}
+            checked={ownedManagedBooks.length > 0 && selection.pageAllSelected(ownedManagedBooks)}
+            indeterminate={
+              ownedManagedBooks.length > 0 && selection.pageSomeSelected(ownedManagedBooks)
+            }
+            onCheckedChange={(checked) => {
+              if (checked) {
+                selection.selectPage(ownedManagedBooks);
+              } else {
+                selection.deselectPage(ownedManagedBooks);
+              }
+            }}
+          />
+          <label
+            htmlFor="select-owned-page"
+            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+          >
+            Select page
+          </label>
+        </div>
+        <BookBulkActionBar selection={selection} />
+        {ownedManagedBooks.length === 0 ? (
           <p className="text-muted-foreground text-sm">No books owned.</p>
         ) : (
           <div className="space-y-2">
-            {ownedBooks.map((b) => (
-              <Link
+            {ownedManagedBooks.map((b) => (
+              <BookListRow
                 key={b.id}
-                to="/library/book/$bookId"
-                params={{ bookId: String(b.id) }}
-                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <BookOpen className="text-primary h-4 w-4 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <span className="text-foreground font-semibold break-words">
-                      {b.seriesPart ? `#${b.seriesPart} ` : ""}
-                      {b.bookName}
-                    </span>
-                    <div className="text-muted-foreground text-xs break-words">
-                      {b.authors.join(", ")}
-                      {b.year ? ` (${b.year})` : ""}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-              </Link>
+                book={b}
+                showSeriesPart
+                hideSeries
+                selectable
+                selected={selection.isSelected(b.id)}
+                onSelectedChange={() => selection.toggle(b)}
+              />
             ))}
           </div>
         )}
