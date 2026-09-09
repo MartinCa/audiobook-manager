@@ -272,4 +272,39 @@ describe("BookLibrary", () => {
     expect(input).toHaveValue("");
     expect(router.state.location.search).toEqual({});
   });
+
+  it("places the Books/Series/Authors tabs before the page heading", async () => {
+    renderWithRouter();
+
+    expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
+
+    const tabsList = screen.getByRole("tablist");
+    const heading = screen.getByRole("heading", { name: "Library Audiobooks" });
+
+    // The three tab triggers prove the tablist is the Books/Series/Authors switcher, not some
+    // other tab widget.
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    expect(tabsList.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    );
+  });
+
+  it("renders the Discovered Files link only in the nav bar", async () => {
+    renderWithRouter();
+
+    expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
+
+    // One match for the nav-bar link; the page-level "Discovered Files" button was removed.
+    expect(screen.getAllByText("Discovered Files")).toHaveLength(1);
+  });
+
+  it("renders no page-level Tools menu next to the nav dropdown", async () => {
+    renderWithRouter();
+
+    expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
+
+    // The single Tools trigger left on the page belongs to the nav bar; BookLibrary's own
+    // LibraryToolsMenu was removed.
+    expect(screen.getAllByRole("button", { name: /tools/i })).toHaveLength(1);
+  });
 });

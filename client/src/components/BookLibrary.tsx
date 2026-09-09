@@ -9,7 +9,6 @@ import {
   Clock,
   AlertTriangle,
   ChevronRight,
-  FolderSearch,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
-import { LibraryToolsMenu } from "./library/LibraryToolsMenu";
 import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 import { Route } from "@/routes/library/index";
@@ -123,26 +121,9 @@ export function BookLibrary() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
-            <Library className="text-primary h-6 w-6" />
-            Library Audiobooks
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Browse and manage organized audiobooks in your collection.
-          </p>
-        </div>
+        <LibraryViewTabs activeTab="books" />
 
         <div className="flex flex-wrap items-center gap-2">
-          <LibraryViewTabs activeTab="books" />
-
-          <Button variant="outline" size="sm" render={<Link to="/library/discovered" />}>
-            <FolderSearch className="mr-1.5 h-3.5 w-3.5" />
-            Discovered Files
-          </Button>
-
-          <LibraryToolsMenu />
-
           <Button
             variant="outline"
             size="sm"
@@ -155,6 +136,16 @@ export function BookLibrary() {
             Reload
           </Button>
         </div>
+      </div>
+
+      <div>
+        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
+          <Library className="text-primary h-6 w-6" />
+          Library Audiobooks
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Browse and manage organized audiobooks in your collection.
+        </p>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

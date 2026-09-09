@@ -14,6 +14,7 @@ import {
   Menu,
   BookMarked,
   Users,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +49,7 @@ export function RootLayout() {
   const isToolsActive =
     pathname.startsWith("/library/consistency") ||
     pathname.startsWith("/library/missing-tags") ||
+    pathname.startsWith("/library/metadata-refresh") ||
     pathname.startsWith("/library/similar-values") ||
     pathname.startsWith("/library/clean-urls");
 
@@ -152,6 +154,15 @@ export function RootLayout() {
                   >
                     <Tag className="text-primary mr-2 h-4 w-4" />
                     <span>Missing Tags</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/metadata-refresh" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <RefreshCw className="text-primary mr-2 h-4 w-4" />
+                    <span>Metadata Refresh</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
@@ -320,6 +331,15 @@ export function RootLayout() {
                   >
                     <Tag className="text-primary mr-2 h-4 w-4" />
                     <span>Missing Tags</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/metadata-refresh" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <RefreshCw className="text-primary mr-2 h-4 w-4" />
+                    <span>Metadata Refresh</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
