@@ -34,6 +34,7 @@ public static class DependencyInjection
         .AddScoped<ILanguageBackfillService, LanguageBackfillService>()
         .AddScoped<ISeriesService, SeriesService>()
         .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
+        .AddScoped<IBulkEditService, BulkEditService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

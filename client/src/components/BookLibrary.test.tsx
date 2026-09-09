@@ -307,4 +307,75 @@ describe("BookLibrary", () => {
     // LibraryToolsMenu was removed.
     expect(screen.getAllByRole("button", { name: /tools/i })).toHaveLength(1);
   });
+
+  it("tracks row selection and reflects it in the select-all checkbox", async () => {
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select page" });
+    expect(selectAll).toHaveAttribute("aria-checked", "false");
+
+    // Click the two rows' checkboxes: some (but not all) rows picked -> indeterminate.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Way of Kings" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Words of Radiance" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "true");
+
+    // Deselect one row: back to the mixed state.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Way of Kings" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+
+    // Deselect the remaining row: page fully cleared.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Words of Radiance" }));
+    expect(selectAll).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("selects and clears the whole page through the select-all checkbox", async () => {
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select page" }));
+    expect(screen.getByRole("checkbox", { name: "Select The Way of Kings" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("checkbox", { name: "Select Words of Radiance" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select page" }));
+    expect(screen.getByRole("checkbox", { name: "Select The Way of Kings" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+
+  it("keeps the selection when moving to the next page", async () => {
+    vi.mocked(browseApi.getAudiobooks).mockResolvedValue({
+      items: sampleBooks,
+      count: 2,
+      total: 40,
+    });
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Way of Kings" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 20);
+    });
+
+    // The pick survived the page change: book 1's row (rendered again on this mocked page) is
+    // still checked, and the new page's select-all reflects a single picked row.
+    expect(
+      await screen.findByRole("checkbox", { name: "Select The Way of Kings" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toHaveAttribute(
+      "aria-checked",
+      "mixed",
+    );
+  });
 });

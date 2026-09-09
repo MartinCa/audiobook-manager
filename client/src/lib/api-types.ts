@@ -173,6 +173,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audiobook/bulk-edit/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkSelectionDto"];
+                    "text/json": components["schemas"]["BulkSelectionDto"];
+                    "application/*+json": components["schemas"]["BulkSelectionDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BulkEditPreviewResponseDto"];
+                        "application/json": components["schemas"]["BulkEditPreviewResponseDto"];
+                        "text/json": components["schemas"]["BulkEditPreviewResponseDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audiobook/bulk-edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkEditAudiobooksRequestDto"];
+                    "text/json": components["schemas"]["BulkEditAudiobooksRequestDto"];
+                    "application/*+json": components["schemas"]["BulkEditAudiobooksRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audiobook/{id}": {
         parameters: {
             query?: never;
@@ -691,6 +773,45 @@ export interface paths {
                 cookie?: never;
             };
             requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/consistency/check-selected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkSelectionDto"];
+                    "text/json": components["schemas"]["BulkSelectionDto"];
+                    "application/*+json": components["schemas"]["BulkSelectionDto"];
+                };
+            };
             responses: {
                 /** @description OK */
                 200: {
@@ -1556,6 +1677,45 @@ export interface paths {
                     "application/json": components["schemas"]["BulkMetadataRefreshDto"];
                     "text/json": components["schemas"]["BulkMetadataRefreshDto"];
                     "application/*+json": components["schemas"]["BulkMetadataRefreshDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/bulk-selected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkSelectionDto"];
+                    "text/json": components["schemas"]["BulkSelectionDto"];
+                    "application/*+json": components["schemas"]["BulkSelectionDto"];
                 };
             };
             responses: {
@@ -3543,6 +3703,60 @@ export interface components {
             total?: number;
             items?: components["schemas"]["AuthorSummaryDto"][] | null;
         };
+        BulkEditAudiobooksRequestDto: {
+            audiobookIds: number[];
+            bookName?: components["schemas"]["BulkEditSingleValueDto"];
+            subtitle?: components["schemas"]["BulkEditSingleValueDto"];
+            series?: components["schemas"]["BulkEditSingleValueDto"];
+            seriesPart?: components["schemas"]["BulkEditSingleValueDto"];
+            description?: components["schemas"]["BulkEditSingleValueDto"];
+            copyright?: components["schemas"]["BulkEditSingleValueDto"];
+            publisher?: components["schemas"]["BulkEditSingleValueDto"];
+            language?: components["schemas"]["BulkEditSingleValueDto"];
+            rating?: components["schemas"]["BulkEditSingleValueDto"];
+            asin?: components["schemas"]["BulkEditSingleValueDto"];
+            www?: components["schemas"]["BulkEditSingleValueDto"];
+            year?: components["schemas"]["BulkEditYearValueDto"];
+            authors?: components["schemas"]["BulkEditMultiValueDto"];
+            narrators?: components["schemas"]["BulkEditMultiValueDto"];
+            genres?: components["schemas"]["BulkEditMultiValueDto"];
+        };
+        BulkEditMultiValueDto: {
+            action?: string | null;
+            values?: string[] | null;
+        };
+        BulkEditPreviewItemDto: {
+            /** Format: int64 */
+            id?: number;
+            bookName?: string | null;
+            subtitle?: string | null;
+            series?: string | null;
+            seriesPart?: string | null;
+            /** Format: int32 */
+            year?: number | null;
+            authors?: string[] | null;
+            narrators?: string[] | null;
+            genres?: string[] | null;
+            description?: string | null;
+            copyright?: string | null;
+            publisher?: string | null;
+            language?: string | null;
+            rating?: string | null;
+            asin?: string | null;
+            www?: string | null;
+        };
+        BulkEditPreviewResponseDto: {
+            books?: components["schemas"]["BulkEditPreviewItemDto"][] | null;
+        };
+        BulkEditSingleValueDto: {
+            action?: string | null;
+            value?: string | null;
+        };
+        BulkEditYearValueDto: {
+            action?: string | null;
+            /** Format: int32 */
+            value?: number | null;
+        };
         BulkImportDiscoveredDto: {
             paths?: string[] | null;
         };
@@ -3554,6 +3768,9 @@ export interface components {
         BulkMetadataRefreshDto: {
             /** Format: date-time */
             olderThanUtc?: string | null;
+        };
+        BulkSelectionDto: {
+            audiobookIds: number[];
         };
         ConsistencyIssueDto: {
             /** Format: int64 */

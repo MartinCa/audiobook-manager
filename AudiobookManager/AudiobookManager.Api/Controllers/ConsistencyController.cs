@@ -19,6 +19,7 @@ public class ConsistencyController : ControllerBase
 
     public const string OperationKey = "consistency-check";
     public const string ResolveOperationKey = "consistency-resolve";
+    public const string CheckSelectedOperationKey = "consistency-check-selected";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -96,8 +97,90 @@ public class ConsistencyController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    /// <summary>
+    /// Re-checks only the explicitly selected books, reusing the full check's progress/complete
+    /// events so the client has one consistency-check surface to render. Shares the full check's
+    /// <c>_checkLock</c> on purpose (they rewrite the same issue rows and read the same files), and
+    /// applies the same library-availability refusal, for the same reason
+    /// <see cref="StartConsistencyCheck"/> does: a missing library is the one refusal a user must
+    /// see synchronously, not as a zeroed completion event.
+    /// </summary>
+    [HttpPost("check-selected")]
+    public IActionResult StartSelectedConsistencyCheck([FromBody] BulkSelectionDto? dto)
+    {
+        var error = ValidateBulkSelection(dto?.AudiobookIds);
+        if (error != null)
+        {
+            return error;
+        }
+
+        if (!SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
+        {
+            _logger.LogWarning(
+                "Refused selected consistency check: library directory '{LibraryPath}' is not available",
+                _settings.AudiobookLibraryPath);
+
+            return this.ConflictingState(
+                $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
+                + "would look missing. This is normally a volume mount - check it is mounted and readable "
+                + "by the user this application runs as, then run the check again.",
+                "Library unavailable");
+        }
+
+        var audiobookIds = dto!.AudiobookIds;
+
+        return BackgroundOperationRunner.Start(
+            _checkLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            CheckSelectedOperationKey,
+            async sp =>
+            {
+                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
+
+                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound)
+                {
+                    _statusRegistry.SetProgress(CheckSelectedOperationKey, booksChecked, totalBooks);
+                    return _organizeHub.Clients.All.ConsistencyCheckProgress(
+                        new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound));
+                }
+
+                var (booksChecked, issuesFound) =
+                    await consistencyService.RecheckAudiobooksAsync(audiobookIds, ProgressAction);
+
+                await _organizeHub.Clients.All.ConsistencyCheckComplete(
+                    new ConsistencyCheckComplete(booksChecked, issuesFound));
+            },
+            () => _organizeHub.Clients.All.ConsistencyCheckComplete(new ConsistencyCheckComplete(0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
+    private ObjectResult? ValidateBulkSelection(IReadOnlyList<long>? audiobookIds)
+    {
+        if (audiobookIds == null || audiobookIds.Count == 0)
+        {
+            return this.InvalidRequest("At least one audiobook must be selected.");
+        }
+
+        if (audiobookIds.Count > MaxBulkSelection)
+        {
+            return this.InvalidRequest($"No more than {MaxBulkSelection} audiobooks can be selected at once.");
+        }
+
+        if (new HashSet<long>(audiobookIds).Count != audiobookIds.Count)
+        {
+            return this.InvalidRequest("AudiobookIds must not contain duplicates.");
+        }
+
+        return null;
+    }
+
     /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
     private const int MaxPageSize = 200;
+
+    /// <summary>The largest multi-select the selected-books check will accept; see AudiobookController for the cap's rationale.</summary>
+    private const int MaxBulkSelection = 100;
 
     private const int DefaultPageSize = 50;
 

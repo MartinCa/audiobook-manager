@@ -146,4 +146,16 @@ public class Client : IOrganize
         Console.WriteLine($"Metadata refresh complete: {result.TotalProcessed}/{result.Total} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed{reason}");
         return Task.CompletedTask;
     }
+
+    public Task BulkEditProgress(BulkEditProgress progress)
+    {
+        Console.WriteLine($"Bulk edit: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task BulkEditComplete(BulkEditComplete result)
+    {
+        Console.WriteLine($"Bulk edit complete: {result.Processed} processed, {result.Succeeded} succeeded, {result.Failed} failed");
+        return Task.CompletedTask;
+    }
 }

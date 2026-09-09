@@ -349,7 +349,7 @@ the second writes tags to a path that no longer exists (or fails with a spurious
 files.** It used to be a private set on `AudiobookController`, which meant it excluded only *other
 saves*: a consistency resolve and a similar-value alignment rewrite the same files through the same
 service and were gated against neither the save endpoint nor each other (`resolve-by-type` has no
-lock of its own at all). The four entry points that take it are:
+lock of its own at all). The five entry points that take it are:
 
 - `AudiobookController.UpdateAudiobook` — `TryAcquire`, returning `409 Conflict`, and hands the
   lease to its background task. `GET {id}/save-status` reads the same gate, so there is no second
@@ -359,6 +359,9 @@ lock of its own at all). The four entry points that take it are:
 - `SeriesController.ApplyExpectedBook` / `POST api/series/expected-books/apply` — controller-side
   `TryAcquire`, returns `409` when busy, and holds the shared gate through the audiobook assignment
   and consistency recheck.
+- `AudiobookController.StartBulkEdit` / `POST api/audiobook/bulk-edit` — per book, inside
+  `BulkEditService.ApplyAsync`'s `BulkOperationRunner` loop; a busy book fails just its own item
+  and the batch carries on.
 
 The gate is **non-reentrant**, so nothing below an entry point may take it again — in particular
 `AudiobookService.UpdateAudiobook` does *not*, because `ResolveTagMismatch` and the alignment

@@ -473,6 +473,56 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return await DetectIssuesForAudiobookAsync(audiobook);
     }
 
+    public async Task<(int BooksChecked, int IssuesFound)> RecheckAudiobooksAsync(
+        IReadOnlyList<long> audiobookIds,
+        Func<string, int, int, int, Task> progressAction)
+    {
+        var booksById = (await _audiobookRepository.GetByIdsWithIncludesAsync(audiobookIds))
+            .ToDictionary(b => b.Id);
+
+        // The user explicitly picked every id, so the total is the requested count, not the count
+        // that happened to resolve (same honesty rule the selected-refresh path applies): an id
+        // with no row is counted as one checked and one failed item rather than silently
+        // shrinking the batch the user is watching.
+        var issuesFound = 0;
+        var processed = 0;
+        var failed = 0;
+        var total = audiobookIds.Count;
+
+        foreach (var id in audiobookIds)
+        {
+            var bookLabel = "";
+            var issuesFoundForBook = 0;
+
+            try
+            {
+                var book = booksById[id];
+                bookLabel = book.BookName ?? $"#{book.Id}";
+                var issues = await RecheckAudiobookAsync(book.Id);
+                issuesFoundForBook = issues.Count;
+            }
+            catch (KeyNotFoundException)
+            {
+                // The user's pick no longer resolves - it was deleted between the selection and
+                // this run, or already gone when the batch loaded. Its stored issues are kept,
+                // and the item counts as failed, because "not found" is the honest answer.
+                _logger.LogWarning("Audiobook {AudiobookId} not found; its stored issues were kept", id);
+                failed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to re-check audiobook {AudiobookId}", id);
+                failed++;
+            }
+
+            issuesFound += issuesFoundForBook;
+            processed++;
+            await progressAction($"Checking '{bookLabel}'", processed, total, issuesFound);
+        }
+
+        return (processed, issuesFound);
+    }
+
     /// <summary>
     /// Replaces the stored issues for a single audiobook. Used by the single-book recheck, where
     /// the rest of the table must be left alone; the full check uses

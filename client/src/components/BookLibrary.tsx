@@ -1,23 +1,16 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Library,
-  Search,
-  X,
-  RefreshCw,
-  Clock,
-  AlertTriangle,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { Library, Search, X, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BookListRow } from "./library/BookListRow";
+import { BookBulkActionBar } from "./library/BookBulkActionBar";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
 import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
-import { formatDuration } from "@/helpers/formatHelpers";
+import { useBookSelection } from "@/hooks/useBookSelection";
 import { Route } from "@/routes/library/index";
 
 /** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
@@ -28,6 +21,7 @@ const NO_PENDING_IDS: number[] = [];
 
 export function BookLibrary() {
   const navigate = useNavigate();
+  const selection = useBookSelection();
   const { q = "", page = 1 } = Route.useSearch();
   const [prevQ, setPrevQ] = useState(q);
   const [searchQuery, setSearchQuery] = useState(q);
@@ -185,10 +179,33 @@ export function BookLibrary() {
           ) : null}
         </div>
 
-        <div className="text-muted-foreground text-xs">
-          Showing {books.length} of {totalCount} audiobooks
+        <div className="flex items-center gap-3">
+          <Checkbox
+            id="select-page"
+            disabled={books.length === 0}
+            checked={books.length > 0 && selection.pageAllSelected(books)}
+            indeterminate={books.length > 0 && selection.pageSomeSelected(books)}
+            onCheckedChange={(checked) => {
+              if (checked) {
+                selection.selectPage(books);
+              } else {
+                selection.deselectPage(books);
+              }
+            }}
+          />
+          <label
+            htmlFor="select-page"
+            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+          >
+            Select page
+          </label>
+          <div className="text-muted-foreground text-xs">
+            Showing {books.length} of {totalCount} audiobooks
+          </div>
         </div>
       </div>
+
+      <BookBulkActionBar selection={selection} />
 
       {loading && books.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
@@ -211,76 +228,15 @@ export function BookLibrary() {
             const issueCount = issueSummary[book.id] ?? 0;
             const hasPendingRefresh = pendingRefreshIds.has(book.id);
             return (
-              <Link
+              <BookListRow
                 key={book.id}
-                to="/library/book/$bookId"
-                params={{ bookId: String(book.id) }}
-                className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
-                    {book.coverFilePath ? (
-                      <img
-                        src={browseApi.getCoverUrl(book.id)}
-                        alt={book.bookName ?? undefined}
-                        className="h-full w-full object-contain"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div className="text-muted-foreground flex h-full w-full items-center justify-center">
-                        <Library className="h-6 w-6" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-foreground max-w-full min-w-0 truncate font-semibold">
-                        {book.bookName}
-                      </span>
-                      {book.year && (
-                        <span className="text-muted-foreground text-xs">({book.year})</span>
-                      )}
-                      {issueCount > 0 && (
-                        <Badge variant="destructive" className="h-5 gap-1 px-1.5 text-[10px]">
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {issueCount} {issueCount === 1 ? "issue" : "issues"}
-                        </Badge>
-                      )}
-                      {hasPendingRefresh && (
-                        <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
-                          <RefreshCw className="h-2.5 w-2.5" />
-                          Pending refresh
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-                      {book.authors && book.authors.length > 0 && (
-                        <span>By {book.authors.join(", ")} &middot;</span>
-                      )}
-                      {book.series && (
-                        <span>
-                          Series: {book.series} {book.seriesPart && `#${book.seriesPart}`} &middot;
-                        </span>
-                      )}
-                      {book.narrators && book.narrators.length > 0 && (
-                        <span>Narrated by {book.narrators.join(", ")} &middot;</span>
-                      )}
-                      {book.durationInSeconds != null && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {formatDuration(book.durationInSeconds)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-              </Link>
+                book={book}
+                issueCount={issueCount}
+                hasPendingRefresh={hasPendingRefresh}
+                selectable
+                selected={selection.isSelected(book.id)}
+                onSelectedChange={() => selection.toggle(book)}
+              />
             );
           })}
         </div>

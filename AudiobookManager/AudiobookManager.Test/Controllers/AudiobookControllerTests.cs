@@ -7,6 +7,7 @@ using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -19,7 +20,9 @@ public class AudiobookControllerTests
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<IQueuedOrganizeTaskService> _organizeTaskService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
+    private Mock<IBulkEditService> _bulkEditService = null!;
     private Mock<IOrganize> _organizeClient = null!;
+    private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<ILogger<AudiobookController>> _logger = null!;
     private ServiceProvider _serviceProvider = null!;
     private AudiobookController _controller = null!;
@@ -30,7 +33,9 @@ public class AudiobookControllerTests
         _audiobookService = new Mock<IAudiobookService>();
         _organizeTaskService = new Mock<IQueuedOrganizeTaskService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        _bulkEditService = new Mock<IBulkEditService>();
         _logger = new Mock<ILogger<AudiobookController>>();
+        _statusRegistry = new Mock<IOperationStatusRegistry>();
 
         _organizeClient = new Mock<IOrganize>();
         var clients = new Mock<IHubClients<IOrganize>>();
@@ -38,24 +43,29 @@ public class AudiobookControllerTests
         var organizeHub = new Mock<IHubContext<OrganizeHub, IOrganize>>();
         organizeHub.Setup(h => h.Clients).Returns(clients.Object);
 
-        // UpdateAudiobook is fire-and-forget: it resolves its own services from a fresh DI scope
-        // rather than the controller's constructor-injected (request-scoped) instances, so route
-        // the same mocks through a real ServiceProvider for it to resolve.
+        // UpdateAudiobook and the bulk-edit flow are fire-and-forget: they resolve their own
+        // services from a fresh DI scope rather than the controller's constructor-injected
+        // (request-scoped) instances, so route the same mocks through a real ServiceProvider for
+        // them to resolve.
         var services = new ServiceCollection();
         services.AddSingleton(_audiobookService.Object);
         services.AddSingleton(_libraryConsistencyService.Object);
+        services.AddSingleton(_bulkEditService.Object);
         _serviceProvider = services.BuildServiceProvider();
 
         _controller = new AudiobookController(
             _audiobookService.Object,
             _organizeTaskService.Object,
             _libraryConsistencyService.Object,
+            _bulkEditService.Object,
             organizeHub.Object,
             _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _statusRegistry.Object,
             new AudiobookSaveGate(),
             // The real processor, not a mock: these tests send real cover bytes through the
             // controller, and a mock would only assert that it was called.
             new CoverImageProcessor(NullLogger<CoverImageProcessor>.Instance),
+            Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
 
@@ -656,4 +666,305 @@ public class AudiobookControllerTests
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
     }
+
+    #region Bulk edit
+
+    private static BulkEditAudiobooksRequestDto MakeBulkEditRequest(List<long>? ids = null) => new()
+    {
+        AudiobookIds = ids ?? new List<long> { 1, 2 },
+        BookName = new BulkEditSingleValueDto { Action = "set", Value = "New Title" }
+    };
+
+    private static List<long> ManyIds(int count)
+    {
+        var ids = new List<long>();
+        for (var i = 0; i < count; i++)
+        {
+            ids.Add(i + 1);
+        }
+        return ids;
+    }
+
+    [TestMethod]
+    public async Task GetBulkEditPreview_EmptySelection_IsA400WithProblemDetails()
+    {
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long>() });
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "At least one audiobook must be selected.");
+        _bulkEditService.Verify(s => s.GetPreviewAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetBulkEditPreview_MoreThanTheCap_IsA400NamingTheCap()
+    {
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = ManyIds(101) });
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "No more than 100 audiobooks can be selected at once.");
+        _bulkEditService.Verify(s => s.GetPreviewAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetBulkEditPreview_DuplicateIds_IsA400()
+    {
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 5, 5 } });
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "AudiobookIds must not contain duplicates.");
+        _bulkEditService.Verify(s => s.GetPreviewAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetBulkEditPreview_HappyPath_ReturnsTheBooksCurrentValues()
+    {
+        var book = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Current Title",
+            2024,
+            new AudiobookFileInfo("/library/author/current.m4b", "current.m4b", 1000))
+        {
+            Id = 7,
+            Subtitle = "Current subtitle",
+            Series = "A Series",
+            Genres = new List<string> { "Fantasy" }
+        };
+
+        _bulkEditService.Setup(s => s.GetPreviewAsync(new List<long> { 7 }))
+            .ReturnsAsync(new List<Audiobook> { book });
+
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 7 } });
+
+        var ok = (OkObjectResult)result.Result!;
+        var dto = (BulkEditPreviewResponseDto)ok.Value!;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual(1, dto.Books.Count);
+        Assert.AreEqual(7, dto.Books[0].Id);
+        Assert.AreEqual("Current Title", dto.Books[0].BookName);
+        Assert.AreEqual("Current subtitle", dto.Books[0].Subtitle);
+        Assert.AreEqual("A Series", dto.Books[0].Series);
+        CollectionAssert.AreEqual(new List<string> { "Test Author" }, dto.Books[0].Authors);
+        CollectionAssert.AreEqual(new List<string> { "Fantasy" }, dto.Books[0].Genres);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_NoFieldChanges_IsA400_NothingStarts()
+    {
+        var result = _controller.StartBulkEdit(new BulkEditAudiobooksRequestDto { AudiobookIds = new List<long> { 1 } });
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Nothing to apply.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    [DataRow("bogus", "BookName action must be 'set' or 'clear'.")]
+    [DataRow("clear", "BookName cannot be cleared in bulk; set a new value instead.")]
+    public void StartBulkEdit_ABookNameRejection_IsA400WithProblemDetails(string action, string expectedMessage)
+    {
+        var dto = MakeBulkEditRequest();
+        dto.BookName = new BulkEditSingleValueDto { Action = action, Value = "New Title" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, expectedMessage);
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_BlankSetBookName_IsA400()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.BookName = new BulkEditSingleValueDto { Action = "set", Value = "   " };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "BookName must have a value to set.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_ClearYear_IsA400()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Year = new BulkEditYearValueDto { Action = "clear" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Year cannot be cleared in bulk; set a new value instead.");
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_NonPositiveYear_IsA400()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Year = new BulkEditYearValueDto { Action = "set", Value = 0 };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Year must be a positive number to set.");
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_ClearAuthors_IsA400()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Authors = new BulkEditMultiValueDto { Action = "clear" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        // Multi-value fields carry "replace", "add" and "clear" - but Authors refuses the clear,
+        // exactly like it refuses an empty replace: a bulk edit must never empty a book's author
+        // list in any way.
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Authors cannot be cleared in bulk; a book must keep at least one author.");
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_EmptyAuthorsReplace_IsA400NamingTheConsequence()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Authors = new BulkEditMultiValueDto { Action = "replace", Values = new List<string> { "  " } };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Replacing authors with an empty list would leave the books without an author.");
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_ClearNarrators_IsAcceptedAndMapsToAnEmptyList()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((AudiobookBulkChanges _, List<long> __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0);
+            });
+
+        var dto = MakeBulkEditRequest();
+        dto.Narrators = new BulkEditMultiValueDto { Action = "clear" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c =>
+                c.Narrators != null && c.Narrators.Clear && c.Narrators.Mode == null
+                    && c.Narrators.Values.Count == 0),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_ClearGenres_IsAcceptedAndMapsToAnEmptyList()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((AudiobookBulkChanges _, List<long> __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0);
+            });
+
+        var dto = MakeBulkEditRequest();
+        dto.Genres = new BulkEditMultiValueDto { Action = "clear" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c =>
+                c.Genres != null && c.Genres.Clear && c.Genres.Mode == null
+                    && c.Genres.Values.Count == 0),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_EmptyNarratorsReplace_IsA400NamingTheConsequence()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Narrators = new BulkEditMultiValueDto { Action = "replace", Values = new List<string> { "  " } };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        // Emptying via the ambiguous "replace with nothing" stays refused even though the same
+        // field accepts an explicit clear - the clear is the intent-bearing form.
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Replacing narrators with an empty list would remove every narrator.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_AnUnknownMultiAction_IsA400()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.Genres = new BulkEditMultiValueDto { Action = "append" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Genres action must be 'replace', 'add' or 'clear'.");
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_EmptyIds_IsA400_NothingStarts()
+    {
+        var result = _controller.StartBulkEdit(new BulkEditAudiobooksRequestDto { AudiobookIds = new List<long>() });
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "At least one audiobook must be selected.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_Valid_ReturnsOkAndWiresProgressAndCompletion()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((AudiobookBulkChanges _, List<long> __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 2, 1, 0).GetAwaiter().GetResult();
+                return (2, 1, 1);
+            });
+
+        var result = _controller.StartBulkEdit(MakeBulkEditRequest());
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        // The gate is process-static and now shared with nothing else on this controller: wait
+        // for the real release rather than a fixed sleep (see OperationGate's docstring).
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+
+        _organizeClient.Verify(c => c.BulkEditProgress(It.Is<BulkEditProgress>(p =>
+            p.Processed == 1 && p.Total == 2 && p.Succeeded == 1)), Times.Once);
+        _organizeClient.Verify(c => c.BulkEditComplete(It.Is<BulkEditComplete>(r =>
+            r.Processed == 2 && r.Succeeded == 1 && r.Failed == 1)), Times.Once);
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c => !c.IsEmpty && c.BookName != null && c.BookName.Value == "New Title"),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_ASecondEditWhileTheFirstRuns_IsA409()
+    {
+        var workMayFinish = new TaskCompletionSource();
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .Returns(async () =>
+            {
+                await workMayFinish.Task;
+                return (1, 1, 0);
+            });
+
+        var first = _controller.StartBulkEdit(MakeBulkEditRequest(new List<long> { 1 }));
+        Assert.IsInstanceOfType<OkResult>(first);
+
+        var second = _controller.StartBulkEdit(MakeBulkEditRequest(new List<long> { 2 }));
+        ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
+
+        // Let the first operation finish so the gate is free again for later tests.
+        workMayFinish.SetResult();
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+    }
+
+    #endregion
 }

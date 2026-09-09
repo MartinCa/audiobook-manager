@@ -396,6 +396,25 @@ public class AudiobookRepository : IAudiobookRepository
             .FirstOrDefaultAsync(a => a.Id == id);
     }
 
+    /// <inheritdoc cref="IAudiobookRepository.GetByIdsWithIncludesAsync"/>
+    public async Task<List<Audiobook>> GetByIdsWithIncludesAsync(IReadOnlyList<long> ids)
+    {
+        if (ids.Count == 0)
+        {
+            return new List<Audiobook>();
+        }
+
+        return await _db.Audiobooks
+            .AsNoTracking()
+            .Include(a => a.Authors)
+            .Include(a => a.Narrators)
+            .Include(a => a.Genres.OrderBy(g => g.Name))
+            .AsSplitQuery()
+            .Where(a => ids.Contains(a.Id))
+            .OrderBy(a => a.Id)
+            .ToListAsync();
+    }
+
     public async Task<List<Audiobook>> GetAllWithIncludesAsync()
     {
         return await _db.Audiobooks
