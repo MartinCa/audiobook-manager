@@ -33,7 +33,8 @@ public record SeriesOwnedBookDto(
     int Year,
     List<string> Authors,
     List<string> Narrators,
-    int? DurationInSeconds
+    int? DurationInSeconds,
+    string? CoverFilePath
 );
 
 public record SeriesDetailDto(

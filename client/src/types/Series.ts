@@ -41,8 +41,8 @@ export type SeriesExpectedBookPage = Require<
   items: SeriesExpectedBook[];
 };
 
-// id/bookName/year/authors/narrators are non-nullable; seriesPart and durationInSeconds are
-// genuinely nullable.
+// id/bookName/year/authors/narrators are non-nullable; seriesPart, durationInSeconds and
+// coverFilePath are genuinely nullable.
 export type SeriesOwnedBook = Require<
   components["schemas"]["SeriesOwnedBookDto"],
   "id" | "bookName" | "year" | "authors" | "narrators"

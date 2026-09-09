@@ -118,7 +118,7 @@ public class SeriesController : ControllerBase
         return new SeriesDetailDto(
             ToDto(detail.Overview),
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
-                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds)).ToList(), detail.OwnedBookTotal),
+                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredBooks.Select(ToDto).ToList(), detail.IgnoredBookTotal));
     }

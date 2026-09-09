@@ -54,11 +54,12 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
         string bookName,
         string series,
         string? seriesPart = null,
-        int year = 2024)
+        int year = 2024,
+        string? coverFilePath = null)
     {
         var audiobook = new Audiobook(
             default, bookName, null, series, seriesPart, year,
-            null, null, null, null, null, null, null, null, 7200,
+            null, null, null, null, null, null, null, coverFilePath, 7200,
             $"/library/{series}/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = new List<Person> { _author },
@@ -135,6 +136,20 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
         Assert.AreEqual(1, items.Count);
         Assert.AreSequenceEqual(new List<string> { "Brandon Sanderson" }, items.Single().Authors);
         Assert.AreSequenceEqual(new List<string> { "Michael Kramer" }, items.Single().Narrators);
+    }
+
+    // The series detail's owned section renders the cover from this row - a NULL here means the
+    // section can never show existing cover art. The projection must carry it exactly as stored.
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_ProjectsTheCoverFilePath()
+    {
+        const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
+        await SeedBookAsync("The Final Empire", "Mistborn", coverFilePath: coverPath);
+
+        var (items, _) = await _repository.GetSeriesOwnedBooksPageAsync("Mistborn", skip: 0, take: 10);
+
+        Assert.AreEqual(1, items.Count);
+        Assert.AreEqual(coverPath, items.Single().CoverFilePath);
     }
 
     // The reconciliation's input is deliberately minimal: series part and book name only, so the
