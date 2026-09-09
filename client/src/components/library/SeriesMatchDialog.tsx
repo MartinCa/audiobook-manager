@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -17,8 +18,6 @@ import type { SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
 // satellite request per configured source - so previewing is capped regardless of page size and
 // the dialog says so.
 const PREVIEW_SUGGESTION_CAP = 20;
-
-const PAGE_SIZE = 50;
 
 interface SeriesMatchProgressPayload {
   processed: number;

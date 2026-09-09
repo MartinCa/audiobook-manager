@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { PAGE_SIZE } from "@/constants/paging";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
@@ -17,8 +18,6 @@ import { toast } from "sonner";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 
 const SIMILAR_VALUE_ALIGN_OPERATION_KEY = "similar-value-align";
-
-const PAGE_SIZE = 50;
 
 interface ProgressPayload {
   processed: number;

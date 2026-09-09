@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
@@ -73,8 +74,6 @@ const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check";
 const CONSISTENCY_RESOLVE_OPERATION_KEY = "consistency-resolve";
 
 const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
-
-const PAGE_SIZE = 50;
 
 type PendingResolve =
   | { kind: "single"; issue: ConsistencyIssue }

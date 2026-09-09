@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { metadataRefreshApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -17,7 +18,6 @@ import { toast } from "sonner";
 import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
 
 const OPERATION_KEY = "metadata-refresh";
-const PAGE_SIZE = 50;
 
 interface RefreshProgressPayload {
   processed: number;

@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
@@ -32,8 +33,6 @@ import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
 import { formatDate } from "@/helpers/formatHelpers";
-
-const PAGE_SIZE = 50;
 
 // SeriesOwnedBookDto omits the summary-row fields BookListRow renders through its
 // ManagedAudiobook prop (no series, no cover, no genres); fill the gaps with the values the

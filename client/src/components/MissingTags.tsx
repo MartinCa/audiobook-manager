@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
@@ -13,8 +14,6 @@ import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
 import { toast } from "sonner";
-
-const PAGE_SIZE = 50;
 
 export function MissingTags() {
   const queryClient = useQueryClient();
