@@ -5,15 +5,12 @@ import { Button } from "@/components/ui/button";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BulkBookEditDialog } from "./BulkBookEditDialog";
 import { consistencyApi, metadataRefreshApi } from "@/services/api";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { BookSelection } from "@/hooks/useBookSelection";
-
-const BULK_EDIT_OPERATION_KEY = "bulk-edit";
-const METADATA_REFRESH_OPERATION_KEY = "metadata-refresh";
-const CONSISTENCY_CHECK_OPERATION_KEY = "consistency-check-selected";
 
 const TITLE_PREVIEW_LIMIT = 3;
 
@@ -89,9 +86,9 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     void queryClient.invalidateQueries({ queryKey: ["metadataRefresh"] });
   };
 
-  useSignalREvent<BulkEditProgressPayload>("BulkEditProgress", setBulkEditProgress);
+  useSignalREvent<BulkEditProgressPayload>(SignalREvents.BulkEditProgress, setBulkEditProgress);
 
-  useSignalREvent<BulkEditCompletePayload>("BulkEditComplete", (data) => {
+  useSignalREvent<BulkEditCompletePayload>(SignalREvents.BulkEditComplete, (data) => {
     setBulkEditProgress(null);
     if (data.failed > 0) {
       toast.warning(`Bulk edit complete: ${data.succeeded} updated, ${data.failed} failed`);
@@ -104,9 +101,12 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     selection.clear();
   });
 
-  useSignalREvent<RefreshProgressPayload>("MetadataRefreshProgress", setRefreshProgress);
+  useSignalREvent<RefreshProgressPayload>(
+    SignalREvents.MetadataRefreshProgress,
+    setRefreshProgress,
+  );
 
-  useSignalREvent<RefreshCompletePayload>("MetadataRefreshComplete", (data) => {
+  useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
     setRefreshProgress(null);
     if (data.stopReason) {
       toast.warning(
@@ -124,12 +124,12 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     invalidateCommonViews();
   });
 
-  useSignalREvent<CheckProgressPayload>("ConsistencyCheckProgress", (data) => {
+  useSignalREvent<CheckProgressPayload>(SignalREvents.ConsistencyCheckProgress, (data) => {
     if (data.scope !== "selected") return;
     setCheckProgress(data);
   });
 
-  useSignalREvent<CheckCompletePayload>("ConsistencyCheckComplete", (data) => {
+  useSignalREvent<CheckCompletePayload>(SignalREvents.ConsistencyCheckComplete, (data) => {
     if (data.scope !== "selected") return;
     setCheckProgress(null);
     toast.success(
@@ -141,7 +141,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   // Recover each in-flight operation (started here or elsewhere, or events missed while
   // disconnected) on mount and after a SignalR reconnect — the same pattern MetadataRefresh and
   // LibraryConsistency use for their own operations.
-  useOperationResync(BULK_EDIT_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.bulkEdit, (status) => {
     if (status.isRunning) {
       setBulkEditProgress((prev) =>
         prev && prev.total > 0
@@ -153,7 +153,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     }
   });
 
-  useOperationResync(METADATA_REFRESH_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.metadataRefresh, (status) => {
     if (status.isRunning) {
       setRefreshProgress((prev) =>
         prev && prev.total > 0
@@ -165,7 +165,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     }
   });
 
-  useOperationResync(CONSISTENCY_CHECK_OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.consistencyCheckSelected, (status) => {
     if (status.isRunning) {
       setCheckProgress(
         (prev) =>

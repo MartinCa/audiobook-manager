@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { metadataRefreshApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -16,8 +17,6 @@ import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
-
-const OPERATION_KEY = "metadata-refresh";
 
 interface RefreshProgressPayload {
   processed: number;
@@ -77,12 +76,12 @@ export function MetadataRefresh() {
     void queryClient.invalidateQueries({ queryKey: ["books"] });
   };
 
-  useSignalREvent<RefreshProgressPayload>("MetadataRefreshProgress", (data) => {
+  useSignalREvent<RefreshProgressPayload>(SignalREvents.MetadataRefreshProgress, (data) => {
     setRefreshing(true);
     setProgress(data);
   });
 
-  useSignalREvent<RefreshCompletePayload>("MetadataRefreshComplete", (data) => {
+  useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
     setRefreshing(false);
     setProgress(null);
     if (data.stopReason) {
@@ -100,7 +99,7 @@ export function MetadataRefresh() {
   // Recover an in-flight bulk refresh (started elsewhere, or events missed while disconnected)
   // on mount and after a SignalR reconnect, the same way LibraryConsistency recovers its check
   // and resolve state.
-  useOperationResync(OPERATION_KEY, (status) => {
+  useOperationResync(OperationKeys.metadataRefresh, (status) => {
     if (status.isRunning) {
       setRefreshing(true);
       setProgress((prev) =>

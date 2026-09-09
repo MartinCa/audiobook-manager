@@ -1,5 +1,5 @@
 import { api } from "@/lib/api";
-import { PAGE_SIZE } from "@/constants/paging";
+import { PAGE_SIZE, TYPEAHEAD_LIMIT } from "@/constants/paging";
 import type { Audiobook } from "@/types/Audiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
 import type { AuthorDetail } from "@/types/AuthorDetail";
@@ -147,7 +147,7 @@ export const browseApi = {
       query: { q, limit, offset },
     }),
 
-  searchLibrary: (q: string, limit = 5) =>
+  searchLibrary: (q: string, limit = TYPEAHEAD_LIMIT) =>
     api.get<LibrarySearchResult>("/browse/library-search", {
       query: { q, limit },
     }),

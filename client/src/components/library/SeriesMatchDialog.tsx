@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -81,12 +82,12 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
   const selectedIds = customSelection ?? new Set(series.map((s) => s.name));
   const selectedCount = customSelection ? customSelection.size : series.length;
 
-  useSignalREvent<SeriesMatchProgressPayload>("SeriesMatchProgress", (payload) => {
+  useSignalREvent<SeriesMatchProgressPayload>(SignalREvents.SeriesMatchProgress, (payload) => {
     setMatching(true);
     setMatchProgress(payload);
   });
 
-  useSignalREvent<SeriesMatchCompletePayload>("SeriesMatchComplete", (payload) => {
+  useSignalREvent<SeriesMatchCompletePayload>(SignalREvents.SeriesMatchComplete, (payload) => {
     setMatching(false);
     setMatchProgress(null);
     const msg = payload.stopReason

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import type * as SonnerModule from "sonner";
@@ -417,7 +418,7 @@ describe("BookDetail", () => {
       expect(call, `a ${event} handler was registered`).toBeDefined();
       return call![1] as (data: never) => void;
     };
-    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
 
     await waitFor(() => {
       expect(metadataRefreshApi.dismissPending).toHaveBeenCalledWith(42);
@@ -458,7 +459,7 @@ describe("BookDetail", () => {
       expect(call, `a ${event} handler was registered`).toBeDefined();
       return call![1] as (data: never) => void;
     };
-    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
 
     // A later, unrelated save (from the edit form, no marker) completes; it must not dismiss the
     // snapshot the user never applied.
@@ -490,10 +491,10 @@ describe("BookDetail", () => {
       expect(call, `a ${event} handler was registered`).toBeDefined();
       return call![1] as (data: never) => void;
     };
-    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
 
     // ...and completes again later; neither should dismiss the untouched pending snapshot.
-    handlerFor("AudiobookSaveComplete")({ audiobookId: 42 } as never);
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
 
     await waitFor(() => {
       expect(audiobookApi.updateBook).not.toHaveBeenCalled();

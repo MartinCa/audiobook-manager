@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { SignalRProvider } from "./SignalRProvider";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 
 type SignalRCallback = (...args: unknown[]) => void;
@@ -76,7 +77,7 @@ describe("SignalRProvider", () => {
 
     render(
       <SignalRProvider>
-        <TestSubscriber eventName="UpdateProgress" onMessage={messageHandler} />
+        <TestSubscriber eventName={SignalREvents.UpdateProgress} onMessage={messageHandler} />
       </SignalRProvider>,
     );
 
@@ -92,12 +93,15 @@ describe("SignalRProvider", () => {
 
     // The handler should now be bound on the hub connection
     await waitFor(() => {
-      expect(mockHubConnection.on).toHaveBeenCalledWith("UpdateProgress", expect.any(Function));
+      expect(mockHubConnection.on).toHaveBeenCalledWith(
+        SignalREvents.UpdateProgress,
+        expect.any(Function),
+      );
     });
 
     // Simulate backend sending an event
     act(() => {
-      mockOnHandlers["UpdateProgress"]?.({
+      mockOnHandlers[SignalREvents.UpdateProgress]?.({
         originalFileLocation: "/path/book.m4b",
         progress: 38,
         progressMessage: "Saving tags",
@@ -117,8 +121,8 @@ describe("SignalRProvider", () => {
 
     const { unmount } = render(
       <SignalRProvider>
-        <TestSubscriber eventName="UpdateProgress" onMessage={handler1} />
-        <TestSubscriber eventName="UpdateProgress" onMessage={handler2} />
+        <TestSubscriber eventName={SignalREvents.UpdateProgress} onMessage={handler1} />
+        <TestSubscriber eventName={SignalREvents.UpdateProgress} onMessage={handler2} />
       </SignalRProvider>,
     );
 
@@ -127,11 +131,14 @@ describe("SignalRProvider", () => {
     });
 
     await waitFor(() => {
-      expect(mockHubConnection.on).toHaveBeenCalledWith("UpdateProgress", expect.any(Function));
+      expect(mockHubConnection.on).toHaveBeenCalledWith(
+        SignalREvents.UpdateProgress,
+        expect.any(Function),
+      );
     });
 
     act(() => {
-      mockOnHandlers["UpdateProgress"]?.({ progress: 50 });
+      mockOnHandlers[SignalREvents.UpdateProgress]?.({ progress: 50 });
     });
 
     expect(handler1).toHaveBeenCalledWith({ progress: 50 });

@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Input } from "@/components/ui/input";
+import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +46,7 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
 
     const suggestions = useMemo(() => {
       if (!activeQuery) return [];
-      const matches = narrowByQuery(candidates, activeQuery, 6);
+      const matches = narrowByQuery(candidates, activeQuery, TYPEAHEAD_SUGGESTION_COUNT);
       if (
         matches.length === 1 &&
         normalizeForMatch(matches[0]) === normalizeForMatch(activeQuery)

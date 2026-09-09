@@ -11,10 +11,18 @@
  * have accepted.
  */
 
-/** Longest edge to send. Matches the server's cap, so a shrunk cover arrives already conforming. */
+/**
+ * Longest edge to send. Matches the server's cap (CoverImageProcessor.MaxDimension), so a shrunk
+ * cover arrives already conforming. The two layers enforce the cap independently rather than
+ * sharing a value; `SignalREventParityTests` asserts they agree.
+ */
 export const COVER_MAX_DIMENSION = 1500;
 
-/** Below this, sending the original is cheaper than re-encoding it. */
+/**
+ * Below this, sending the original is cheaper than re-encoding it. Matches the server's cap
+ * (CoverImageProcessor.MaxStoredBytes); the layers enforce it independently and
+ * `SignalREventParityTests` asserts they agree.
+ */
 export const COVER_MAX_BYTES = 2 * 1024 * 1024;
 
 const SHRUNK_MIME_TYPE = "image/jpeg";
