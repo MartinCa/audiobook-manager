@@ -657,9 +657,57 @@ public class ConsistencyControllerTests
             It.Is<IReadOnlyList<long>>(ids => ids.Count == 1),
             It.IsAny<Func<string, int, int, int, Task>>()), Times.Once);
         clientProxy.Verify(c => c.ConsistencyCheckProgress(It.Is<ConsistencyCheckProgress>(p =>
-            p.Message == "Checking 'Test Book'" && p.BooksChecked == 1 && p.TotalBooks == 1 && p.IssuesFound == 3)), Times.Once);
+            p.Message == "Checking 'Test Book'" && p.BooksChecked == 1 && p.TotalBooks == 1 && p.IssuesFound == 3
+                && p.Scope == ConsistencyCheckScope.Selected)), Times.Once);
         clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
-            r.TotalBooksChecked == 1 && r.TotalIssuesFound == 3)), Times.Once);
+            r.TotalBooksChecked == 1 && r.TotalIssuesFound == 3 && r.Scope == ConsistencyCheckScope.Selected)), Times.Once);
+    }
+
+    #endregion
+
+    #region Full-library check event scope
+
+    [TestMethod]
+    public async Task StartConsistencyCheck_Valid_BroadcastsProgressAndCompleteWithLibraryScope()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
+        mockConsistencyService.Setup(s => s.RunConsistencyCheck(
+                It.IsAny<Func<string, int, int, int, Task>>()))
+            .ReturnsAsync((Func<string, int, int, int, Task> progressAction) =>
+            {
+                progressAction("Checking library", 2, 5, 4).GetAwaiter().GetResult();
+                return (2, 4);
+            });
+        SetupScope(mockConsistencyService.Object);
+
+        var result = _controller.StartConsistencyCheck();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
+
+        clientProxy.Verify(c => c.ConsistencyCheckProgress(It.Is<ConsistencyCheckProgress>(p =>
+            p.Message == "Checking library" && p.Scope == ConsistencyCheckScope.Library)), Times.Once);
+        clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
+            r.TotalBooksChecked == 2 && r.TotalIssuesFound == 4 && r.Scope == ConsistencyCheckScope.Library)), Times.Once);
+    }
+
+    [TestMethod]
+    public void ConsistencyCheckEvents_OldConstructorShapeDefaultsToLibraryScope()
+    {
+        // A missing scope field on the wire (an old publisher, or a consumer of the 4-argument
+        // constructor) must read as a full-library check, not as an unknown/selected one - the
+        // full-check UI is the default surface.
+        var progress = new ConsistencyCheckProgress("Checking", 1, 2, 0);
+        var complete = new ConsistencyCheckComplete(1, 0);
+
+        Assert.AreEqual(ConsistencyCheckScope.Library, progress.Scope);
+        Assert.AreEqual(ConsistencyCheckScope.Library, complete.Scope);
     }
 
     #endregion

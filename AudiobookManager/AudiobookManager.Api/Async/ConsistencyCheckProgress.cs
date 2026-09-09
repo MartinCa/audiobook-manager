@@ -6,12 +6,19 @@ public class ConsistencyCheckProgress
     public int BooksChecked { get; set; }
     public int TotalBooks { get; set; }
     public int IssuesFound { get; set; }
+    public string Scope { get; set; } = ConsistencyCheckScope.Library;
 
-    public ConsistencyCheckProgress(string message, int booksChecked, int totalBooks, int issuesFound)
+    public ConsistencyCheckProgress(
+        string message,
+        int booksChecked,
+        int totalBooks,
+        int issuesFound,
+        string scope = ConsistencyCheckScope.Library)
     {
         Message = message;
         BooksChecked = booksChecked;
         TotalBooks = totalBooks;
         IssuesFound = issuesFound;
+        Scope = scope;
     }
 }

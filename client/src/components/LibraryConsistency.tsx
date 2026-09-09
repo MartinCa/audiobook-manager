@@ -47,11 +47,13 @@ interface ProgressPayload {
   booksChecked: number;
   totalBooks: number;
   issuesFound: number;
+  scope: "library" | "selected";
 }
 
 interface CompletePayload {
   totalBooksChecked: number;
   totalIssuesFound: number;
+  scope: "library" | "selected";
 }
 
 interface ResolveProgressPayload {
@@ -166,11 +168,13 @@ export function LibraryConsistency() {
     (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as ConsistencyIssue[];
 
   useSignalREvent<ProgressPayload>("ConsistencyCheckProgress", (data) => {
+    if (data.scope !== "library") return;
     setChecking(true);
     setCheckProgress(data);
   });
 
   useSignalREvent<CompletePayload>("ConsistencyCheckComplete", (data) => {
+    if (data.scope !== "library") return;
     setChecking(false);
     setCheckProgress(null);
     setCheckCompleteResult(data);
@@ -222,6 +226,7 @@ export function LibraryConsistency() {
             booksChecked: status.processed,
             totalBooks: status.total,
             issuesFound: 0,
+            scope: "library",
           },
       );
     } else {

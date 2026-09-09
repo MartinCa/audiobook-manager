@@ -336,6 +336,7 @@ describe("BookBulkActionBar", () => {
       booksChecked: 1,
       totalBooks: 2,
       issuesFound: 3,
+      scope: "selected",
     } as never);
     expect(await screen.findByText("Checking books (3 issues found)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Metadata" })).toBeDisabled();
@@ -343,6 +344,7 @@ describe("BookBulkActionBar", () => {
     handlerFor("ConsistencyCheckComplete")({
       totalBooksChecked: 2,
       totalIssuesFound: 3,
+      scope: "selected",
     } as never);
 
     await waitFor(() => {
@@ -351,5 +353,44 @@ describe("BookBulkActionBar", () => {
     expect(screen.queryByText("Checking books (3 issues found)")).not.toBeInTheDocument();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["seriesDetail"] });
     expect(screen.getByText("2 selected")).toBeInTheDocument();
+  });
+
+  it("ignores a full-library consistency event that is not scope selected", async () => {
+    // An earlier test stubs getStatus to report a running consistency-check-selected operation;
+    // the resync hook would otherwise drive this bar's disabled state off that stale stub.
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
+    const { invalidateSpy } = renderBar(books);
+    await screen.findByText("2 selected");
+
+    handlerFor("ConsistencyCheckProgress")({
+      message: "Checking library",
+      booksChecked: 100,
+      totalBooks: 500,
+      issuesFound: 3,
+      scope: "library",
+    } as never);
+
+    // The full-library run must not drive the selection bar: no progress, no disabled actions.
+    expect(screen.queryByText("Checking library (3 issues found)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Metadata" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Check Consistency" })).toBeEnabled();
+
+    handlerFor("ConsistencyCheckComplete")({
+      totalBooksChecked: 500,
+      totalIssuesFound: 3,
+      scope: "library",
+    } as never);
+
+    await waitFor(() => {
+      expect(toast.success).not.toHaveBeenCalledWith(
+        "Check complete: 500 books checked, 3 issues found",
+      );
+    });
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

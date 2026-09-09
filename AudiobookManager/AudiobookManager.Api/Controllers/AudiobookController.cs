@@ -10,13 +10,6 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class AudiobookController : ControllerBase
 {
-    /// <summary>
-    /// The largest multi-select a bulk action will accept. Beyond this the request stops being a
-    /// deliberate selection and is more likely a mis-addressed sweep - and each selected book is
-    /// a full tag write plus a consistency recheck, so an unbounded list is a foot-gun.
-    /// </summary>
-    private const int MaxBulkSelection = 100;
-
     public const string BulkEditOperationKey = "bulk-edit";
 
     private static readonly SemaphoreSlim _bulkEditLock = new(1, 1);
@@ -105,7 +98,7 @@ public class AudiobookController : ControllerBase
     [HttpPost("bulk-edit/preview")]
     public async Task<ActionResult<BulkEditPreviewResponseDto>> GetBulkEditPreview([FromBody] BulkSelectionDto? dto)
     {
-        var error = ValidateBulkSelection(dto?.AudiobookIds);
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
         if (error != null)
         {
             return error;
@@ -125,7 +118,7 @@ public class AudiobookController : ControllerBase
     [HttpPost("bulk-edit")]
     public IActionResult StartBulkEdit([FromBody] BulkEditAudiobooksRequestDto? dto)
     {
-        var error = ValidateBulkSelection(dto?.AudiobookIds);
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
         if (error != null)
         {
             return error;
@@ -171,30 +164,6 @@ public class AudiobookController : ControllerBase
             },
             () => _organizeHub.Clients.All.BulkEditComplete(new BulkEditComplete(0, 0, 0)),
             _appLifetime.ApplicationStopping);
-    }
-
-    /// <summary>
-    /// Every rejection a bulk request can produce, shared by the preview and the apply endpoints;
-    /// a duplicate id was the recurring foot-gun, promising N books and touching fewer.
-    /// </summary>
-    private ObjectResult? ValidateBulkSelection(IReadOnlyList<long>? audiobookIds)
-    {
-        if (audiobookIds == null || audiobookIds.Count == 0)
-        {
-            return this.InvalidRequest("At least one audiobook must be selected.");
-        }
-
-        if (audiobookIds.Count > MaxBulkSelection)
-        {
-            return this.InvalidRequest($"No more than {MaxBulkSelection} audiobooks can be selected at once.");
-        }
-
-        if (new HashSet<long>(audiobookIds).Count != audiobookIds.Count)
-        {
-            return this.InvalidRequest("AudiobookIds must not contain duplicates.");
-        }
-
-        return null;
     }
 
     /// <summary>

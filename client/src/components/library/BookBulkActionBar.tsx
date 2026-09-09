@@ -52,11 +52,13 @@ interface CheckProgressPayload {
   booksChecked: number;
   totalBooks: number;
   issuesFound: number;
+  scope: "library" | "selected";
 }
 
 interface CheckCompletePayload {
   totalBooksChecked: number;
   totalIssuesFound: number;
+  scope: "library" | "selected";
 }
 
 export interface BookBulkActionBarProps {
@@ -122,9 +124,13 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     invalidateCommonViews();
   });
 
-  useSignalREvent<CheckProgressPayload>("ConsistencyCheckProgress", setCheckProgress);
+  useSignalREvent<CheckProgressPayload>("ConsistencyCheckProgress", (data) => {
+    if (data.scope !== "selected") return;
+    setCheckProgress(data);
+  });
 
   useSignalREvent<CheckCompletePayload>("ConsistencyCheckComplete", (data) => {
+    if (data.scope !== "selected") return;
     setCheckProgress(null);
     toast.success(
       `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
@@ -168,6 +174,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
             booksChecked: status.processed,
             totalBooks: status.total,
             issuesFound: 0,
+            scope: "selected",
           },
       );
     } else {

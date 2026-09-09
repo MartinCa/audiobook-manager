@@ -15,13 +15,6 @@ public class MetadataRefreshController : ControllerBase
     /// <summary>The largest page a caller may ask for. Beyond this the response stops being a page.</summary>
     private const int MaxPageSize = 200;
 
-    /// <summary>
-    /// The largest multi-select the selected-books refresh will accept - the same cap the bulk
-    /// edit applies, duplicated per the repowide convention (see MetadataRefreshController's own
-    /// MaxPageSize: this codebase does not share consts between controllers).
-    /// </summary>
-    private const int MaxBulkSelection = 100;
-
     private const int DefaultPageSize = 50;
 
     /// <summary>
@@ -134,7 +127,7 @@ public class MetadataRefreshController : ControllerBase
     [HttpPost("bulk-selected")]
     public IActionResult StartSelectedRefresh([FromBody] BulkSelectionDto? dto)
     {
-        var error = ValidateBulkSelection(dto?.AudiobookIds);
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
         if (error != null)
         {
             return error;
@@ -168,26 +161,6 @@ public class MetadataRefreshController : ControllerBase
             () => _organizeHub.Clients.All.MetadataRefreshComplete(
                 new MetadataRefreshComplete(0, 0, 0, 0, "The bulk refresh failed before it could run.")),
             _appLifetime.ApplicationStopping);
-    }
-
-    private ObjectResult? ValidateBulkSelection(IReadOnlyList<long>? audiobookIds)
-    {
-        if (audiobookIds == null || audiobookIds.Count == 0)
-        {
-            return this.InvalidRequest("At least one audiobook must be selected.");
-        }
-
-        if (audiobookIds.Count > MaxBulkSelection)
-        {
-            return this.InvalidRequest($"No more than {MaxBulkSelection} audiobooks can be selected at once.");
-        }
-
-        if (new HashSet<long>(audiobookIds).Count != audiobookIds.Count)
-        {
-            return this.InvalidRequest("AudiobookIds must not contain duplicates.");
-        }
-
-        return null;
     }
 
     [HttpGet("pending")]
