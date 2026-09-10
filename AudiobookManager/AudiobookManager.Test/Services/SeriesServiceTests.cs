@@ -42,7 +42,7 @@ public class SeriesServiceTests
 
     private static List<SeriesOwnedBookRow> ToOwnedRows(List<SeriesGroupingBook> grouping) =>
         grouping
-            .Select((b, i) => new SeriesOwnedBookRow(i + 1, b.BookName, b.SeriesPart, 2024, b.Authors, new List<string>(), null))
+            .Select((b, i) => new SeriesOwnedBookRow(i + 1, b.BookName, b.SeriesPart, 2024, b.Authors, new List<string>(), null, null))
             .ToList();
 
     /// <summary>
@@ -279,7 +279,7 @@ public class SeriesServiceTests
             .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 40, 25))
             .ReturnsAsync((new List<SeriesOwnedBookRow>
             {
-                new(1, "Book One", "1", 2024, new List<string> { "Brandon Sanderson" }, new List<string>(), null),
+                new(1, "Book One", "1", 2024, new List<string> { "Brandon Sanderson" }, new List<string>(), null, null),
             }, 27));
 
         var page = await GetDetailPageAsync("Mistborn", ownedSkip: 40, ownedTake: 25);
@@ -288,6 +288,28 @@ public class SeriesServiceTests
         Assert.AreEqual(27, page.OwnedBookTotal, "the total is the series' full owned count, not the slice");
         Assert.AreEqual(1, page.OwnedBooks.Count);
         _audiobookRepository.Verify(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 40, 25), Times.Once);
+    }
+
+    // Regression: the owned section used to drop the cover path when mapping the SQL projection
+    // (SeriesOwnedBookRow) to the domain owned book, so the series view's rows never rendered a
+    // cover. The row's path must be copied through to the page the service returns.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_CopiesTheCoverFilePathFromTheOwnedRow()
+    {
+        const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
+        StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "1", "The Final Empire") }, catalogRow: null);
+        _audiobookRepository
+            .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
+            .ReturnsAsync((new List<SeriesOwnedBookRow>
+            {
+                new(1, "The Final Empire", "1", 2006, new List<string> { "Brandon Sanderson" }, new List<string>(), 88000, coverPath),
+            }, 1));
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.OwnedBooks.Count);
+        Assert.AreEqual(coverPath, page.OwnedBooks[0].CoverFilePath);
     }
 
     // The missing section is derived from the roster (bounded by the source's series page) plus

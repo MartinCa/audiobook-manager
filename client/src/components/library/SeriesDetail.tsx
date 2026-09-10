@@ -35,9 +35,10 @@ import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "
 import { Route } from "@/routes/library/series/$seriesName";
 import { formatDate } from "@/helpers/formatHelpers";
 
-// SeriesOwnedBookDto omits the summary-row fields BookListRow renders through its
-// ManagedAudiobook prop (no series, no cover, no genres); fill the gaps with the values the
-// owned row actually shows.
+// SeriesOwnedBookDto omits some summary-row fields BookListRow renders through its
+// ManagedAudiobook prop (no series, no genres); fill the gaps with the values the owned row
+// actually shows. The cover path is carried through so rows render their cover like the library
+// and author views do.
 function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
   return {
     id: b.id,
@@ -48,6 +49,7 @@ function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
     narrators: b.narrators,
     genres: [],
     durationInSeconds: b.durationInSeconds ?? undefined,
+    coverFilePath: b.coverFilePath ?? undefined,
   };
 }
 

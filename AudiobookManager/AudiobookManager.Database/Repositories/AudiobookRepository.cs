@@ -290,7 +290,8 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Year,
                 a.Authors.Select(p => p.Name).ToList(),
                 a.Narrators.Select(p => p.Name).ToList(),
-                a.DurationInSeconds))
+                a.DurationInSeconds,
+                a.CoverFilePath))
             .ToListAsync();
 
         return (items, total);

@@ -4208,6 +4208,7 @@ export interface components {
             narrators?: string[] | null;
             /** Format: int32 */
             durationInSeconds?: number | null;
+            coverFilePath?: string | null;
         };
         SeriesOwnedBookPageDto: {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;

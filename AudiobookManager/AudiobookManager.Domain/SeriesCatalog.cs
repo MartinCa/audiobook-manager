@@ -77,6 +77,7 @@ public class SeriesOwnedBook
     public List<string> Authors { get; set; } = new();
     public List<string> Narrators { get; set; } = new();
     public int? DurationInSeconds { get; set; }
+    public string? CoverFilePath { get; set; }
 }
 
 public class SeriesExpectedBookInfo

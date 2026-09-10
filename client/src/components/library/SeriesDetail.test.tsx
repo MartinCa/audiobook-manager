@@ -125,6 +125,33 @@ describe("SeriesDetail", () => {
     expect(screen.getByText(/Missing Books \(7\)/)).toBeInTheDocument();
   });
 
+  // Regression: the owned section used to serve a minimal DTO with no coverFilePath, so the
+  // series view's rows always showed the placeholder. A book that carries one must render its
+  // cover from the browse endpoint like the library and author views.
+  it("renders the cover image for owned books that carry a coverFilePath", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [{ ...defaultOwned, coverFilePath: "/covers/10.jpg" }]),
+    );
+
+    renderWithProviders();
+
+    const img = await screen.findByAltText<HTMLImageElement>("The Final Empire");
+    expect(img).toHaveAttribute("src", "/api/browse/audiobooks/10/cover");
+    expect(img.closest("a")).toHaveAttribute("href", "/library/book/10");
+  });
+
+  // Regression for the same bug: a book with no cover must keep rendering the placeholder
+  // rather than a broken image or nothing at all.
+  it("renders a placeholder icon for owned books without a coverFilePath", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    const { container } = renderWithProviders();
+
+    await screen.findByRole("link", { name: /The Final Empire/ });
+    expect(screen.queryByAltText("The Final Empire")).not.toBeInTheDocument();
+    expect(container.querySelector("svg.lucide-library")).not.toBeNull();
+  });
+
   // The three sections used to be three separate queries to the same endpoint - each computing
   // (and discarding) the other sections' default pages. One call carries all three page cursors.
   it("fetches the whole detail in a single call carrying every section's page", async () => {

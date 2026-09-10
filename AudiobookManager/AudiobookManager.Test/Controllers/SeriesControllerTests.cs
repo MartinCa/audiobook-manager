@@ -242,6 +242,37 @@ public class SeriesControllerTests
         Assert.AreEqual("Missing Book", dto.MissingBooks.Items[0].Title);
     }
 
+    // Regression: the owned section used to serve a minimal DTO with no coverFilePath, so the
+    // series view's rows always rendered the placeholder. Library and author views already carried
+    // it via AudiobookSummaryDto; the owned DTO must too.
+    [TestMethod]
+    public async Task GetSeriesDetail_OwnedBookDtoCarriesTheCoverFilePath()
+    {
+        const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50))
+            .ReturnsAsync(new SeriesDetailPage
+            {
+                Overview = MakeOverview(),
+                OwnedBooks = new List<SeriesOwnedBook>
+                {
+                    new SeriesOwnedBook { Id = 1, BookName = "The Final Empire", Year = 2006, Authors = new List<string> { "Brandon Sanderson" }, Narrators = new List<string>(), CoverFilePath = coverPath }
+                },
+                OwnedBookTotal = 3,
+                MissingBooks = new List<SeriesExpectedBookInfo>(),
+                MissingBookTotal = 0,
+                IgnoredBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredBookTotal = 0
+            });
+
+        var result = await _controller.GetSeriesDetail("Mistborn");
+
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual(1, result.Value!.OwnedBooks.Items.Count);
+        Assert.AreEqual(coverPath, result.Value.OwnedBooks.Items[0].CoverFilePath);
+    }
+
     [TestMethod]
     public async Task GetSeriesDetail_NotFound_Returns404()
     {

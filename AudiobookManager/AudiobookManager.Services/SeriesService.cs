@@ -196,6 +196,7 @@ public class SeriesService : ISeriesService
                     Authors = b.Authors,
                     Narrators = b.Narrators,
                     DurationInSeconds = b.DurationInSeconds,
+                    CoverFilePath = b.CoverFilePath,
                 })
                 .ToList(),
             OwnedBookTotal = ownedPage.Total,
