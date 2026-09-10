@@ -127,6 +127,43 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
     }
 
     [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_OrdersNumericSeriesPartsByValueAndBlanksLast()
+    {
+        // Regression for the BINARY-collation bug: series parts ordered lexically rendered
+        // "1, 17.5, 2, 24, 3". Numeric parts must order by value, and a blank part must still
+        // land last - the sort key has to keep the blank-last tier the explicit query used to.
+        var latePart = await SeedBookAsync("Book Five", "Mistborn", seriesPart: "17.5");
+        var firstPart = await SeedBookAsync("Book One", "Mistborn", seriesPart: "1");
+        var secondPart = await SeedBookAsync("Book Two", "Mistborn", seriesPart: "2");
+        var thirdPart = await SeedBookAsync("Book Three", "Mistborn", seriesPart: "3");
+        var fourthPart = await SeedBookAsync("Book Four", "Mistborn", seriesPart: "24");
+        var noPart = await SeedBookAsync("No Part", "Mistborn", seriesPart: null);
+
+        var (items, _) = await _repository.GetSeriesOwnedBooksPageAsync("Mistborn", skip: 0, take: 10);
+
+        Assert.AreSequenceEqual(
+            new List<long> { firstPart.Id, secondPart.Id, thirdPart.Id, latePart.Id, fourthPart.Id, noPart.Id },
+            items.Select(r => r.Id).ToList(),
+            "numeric parts order by value (1, 2, 3, 17.5, 24) and blank parts come last");
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_OrdersNonNumericSeriesPartsAfterEveryNumericBeforeBlanks()
+    {
+        var partOne = await SeedBookAsync("Book One", "Mistborn", seriesPart: "2");
+        var partTwo = await SeedBookAsync("Book Two", "Mistborn", seriesPart: "10");
+        var textPart = await SeedBookAsync("Book Interlude", "Mistborn", seriesPart: "Book 2");
+        var blankPart = await SeedBookAsync("Blank Part", "Mistborn", seriesPart: "  ");
+
+        var (items, _) = await _repository.GetSeriesOwnedBooksPageAsync("Mistborn", skip: 0, take: 10);
+
+        Assert.AreSequenceEqual(
+            new List<long> { partOne.Id, partTwo.Id, textPart.Id, blankPart.Id },
+            items.Select(r => r.Id).ToList(),
+            "a non-numeric part called \"Book 2\" trails every numeric part and still precedes a blank one");
+    }
+
+    [TestMethod]
     public async Task GetSeriesOwnedBooksPageAsync_ProjectsTheAuthorAndNarratorNames()
     {
         await SeedBookAsync("Book One", "Mistborn");
