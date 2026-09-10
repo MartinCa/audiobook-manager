@@ -2,6 +2,7 @@ using System.Reflection;
 using AudiobookManager.Database.EntityMappings;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
+using AudiobookManager.Database.Sort;
 using AudiobookManager.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,8 @@ public class DatabaseContext : DbContext
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SeriesMappingMapping).Assembly);
         modelBuilder.HasDbFunction(typeof(AccentFolding).GetMethod(nameof(AccentFolding.Fold))!)
             .HasName(AccentFolding.SqlFunctionName);
+        modelBuilder.HasDbFunction(typeof(SeriesPartSortKey).GetMethod(nameof(SeriesPartSortKey.Key))!)
+            .HasName(SeriesPartSortKey.SqlFunctionName);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -38,7 +41,11 @@ public class DatabaseContext : DbContext
         };
         optionsBuilder.UseSqlite(connectionStringBuilder.ToString(), options => options.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName))
             .UseSnakeCaseNamingConvention()
-            .AddInterceptors(new AccentFoldingConnectionInterceptor(), new SqlitePragmaInterceptor(), new AccentFoldedColumnsInterceptor());
+            .AddInterceptors(
+                new AccentFoldingConnectionInterceptor(),
+                new SeriesPartSortKeyConnectionInterceptor(),
+                new SqlitePragmaInterceptor(),
+                new AccentFoldedColumnsInterceptor());
     }
 
     public DbSet<SeriesMapping> SeriesMappings { get; set; }

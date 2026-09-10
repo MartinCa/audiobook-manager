@@ -1,6 +1,7 @@
 ﻿using System.Linq.Expressions;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
+using AudiobookManager.Database.Sort;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
@@ -241,7 +242,7 @@ public class AudiobookRepository : IAudiobookRepository
             query = query.Where(a => a.Authors.Any(p => p.Id == authorId.Value));
         }
 
-        return await query.OrderBy(a => a.SeriesPart).ThenBy(a => a.Id).ToListAsync();
+        return await query.OrderBy(a => SeriesPartSortKey.Key(a.SeriesPart)).ThenBy(a => a.Id).ToListAsync();
     }
 
     public async Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName)
@@ -262,10 +263,11 @@ public class AudiobookRepository : IAudiobookRepository
     /// <summary>
     /// One page of a series' owned books plus the full total, for the series detail's owned
     /// section. Only the fields that section renders are projected (author/narrator names as
-    /// correlated subqueries), and the page is computed in SQL with a total order - blank series
-    /// parts last, then the part, then the book name, then id - so paging stays stable while the
-    /// library grows. This replaced a per-section read of every owned book with its Genres and
-    /// Description for a view that shows a page at a time.
+    /// correlated subqueries), and the page is computed in SQL with a total order - series parts
+    /// ordered for a reader (numeric parts by value, non-numeric parts after, blank parts last,
+    /// via <see cref="SeriesPartSortKey"/>), then the book name, then id - so paging stays stable
+    /// while the library grows. This replaced a per-section read of every owned book with its
+    /// Genres and Description for a view that shows a page at a time.
     /// </summary>
     public async Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(
         string seriesName, int skip, int take)
@@ -277,8 +279,11 @@ public class AudiobookRepository : IAudiobookRepository
         var total = await query.CountAsync();
 
         var items = await query
-            .OrderBy(a => a.SeriesPart == null || a.SeriesPart.Trim() == "" ? 1 : 0)
-            .ThenBy(a => a.SeriesPart)
+            // The sort key handles the tiers: numeric parts by value, non-numeric parts after
+            // them, blank parts (null, empty, whitespace-only) last - so the no-longer-needed
+            // blank-last branch (SeriesPart == null || Trim() == "" ? 1 : 0) is gone, and a page
+            // always shows "1, 2, 3, 17.5, 24" instead of the BINARY-collation "1, 17.5, 2, 24, 3".
+            .OrderBy(a => SeriesPartSortKey.Key(a.SeriesPart))
             .ThenBy(a => a.BookName)
             .ThenBy(a => a.Id)
             .Skip(skip)
