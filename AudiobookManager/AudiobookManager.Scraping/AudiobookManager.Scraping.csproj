@@ -8,12 +8,12 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.8.0" />
-    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.11" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
     <PackageReference Include="Polly" Version="8.7.0" />
-    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.11" />
+    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
