@@ -2,7 +2,7 @@
   "name": "audiobook-manager-client",
   "version": "0.0.1",
   "type": "module",
-  "packageManager": "pnpm@12.4.0",
+  "packageManager": "pnpm@12.4.0+sha224.dde7b28ac3070dda57eff3417bdc2722965ac0a50ebc6addd6c5f776",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
