@@ -577,8 +577,9 @@ interface TagChipProps {
 // field doesn't support reordering (Genres) or is disabled, the grip is not rendered and the
 // parent config is disabled, so no drag can start. The handle is a native button (focusable,
 // implicit role="button") but deliberately claims no keyboard reorder semantics: formkit 0.6.1
-// has no keyboard drag plugin, so the description and aria-disabled state say plainly that this
-// is a pointer interaction.
+// has no keyboard drag plugin, so the description says plainly that this is a pointer
+// interaction. The grip is omitted entirely when the field is disabled - there is no
+// always-dead aria-disabled control in the tab order.
 function TagChip({ tag, disabled, reorderable, onEdit, onRemove }: TagChipProps) {
   return (
     <div
@@ -590,7 +591,6 @@ function TagChip({ tag, disabled, reorderable, onEdit, onRemove }: TagChipProps)
           data-drag-handle
           aria-label={`Reorder: ${tag}`}
           aria-description="Drag this handle with the pointer to change order"
-          aria-disabled={disabled}
           className="hover:bg-secondary-foreground/20 cursor-grab touch-none rounded-full p-1.5 active:cursor-grabbing"
         >
           <GripVertical className="h-3 w-3" />
