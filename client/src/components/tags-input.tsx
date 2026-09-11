@@ -1,20 +1,14 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { GripVertical, X } from "lucide-react";
 import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  horizontalListSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+  dragAndDrop,
+  isDragState,
+  parents,
+  remapNodes,
+  state,
+  type ParentData,
+  type SortEventData,
+} from "@formkit/drag-and-drop";
 import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
@@ -38,6 +32,55 @@ export interface TagsInputProps {
    * matters for fields like Authors/Narrators (folder naming, credits order), not Genres.
    */
   reorderable?: boolean;
+}
+
+// FormKit drag-and-drop is keyed by *value*, not by DOM node: performSort filters the current
+// values by `eq()` against the dragged value, and two chips sharing a string would be treated
+// as one item (both filtered out, one spliced back). So the controlled `value: string[]` is
+// never handed to formkit directly - each entry is wrapped in a `ReorderEntry` whose `key` is
+// minted once per entry and never reused. Two chips with the same string still compare
+// distinct, and only the actual dragged entry is removed and re-inserted during a sort.
+const DRAG_HANDLE_SELECTOR = "[data-drag-handle]";
+
+interface ReorderEntry {
+  /** Identity for formkit's deep `eq()` comparison - unique per entry instance, never reused. */
+  key: number;
+  value: string;
+}
+
+let nextEntryKey = 0;
+
+function mintEntry(value: string): ReorderEntry {
+  return { key: nextEntryKey++, value };
+}
+
+// True while this component's parent element is the origin of an in-flight formkit drag.
+// FormKit is a module-level state machine: `state` is its exported current drag record, and
+// when a drag is active it points at the initial parent the drag started from. Used to decide
+// whether an external `value` change landing mid-drag belongs to a live drag (see the sync
+// effect below).
+function isDragInFlightFor(parentEl: HTMLElement | null): boolean {
+  if (!parentEl) return false;
+  return isDragState(state) && state.initialParent.el === parentEl;
+}
+
+// Reflect the external `value` onto formkit's internal entries while preserving entry objects
+// (by value, in order) so a drag in flight never sees its identities replaced. Edits that
+// change/remove/add a string only mint new entries for those positions - the rest keep their
+// object identity, which is what formkit's drag tracking relies on.
+function remapEntries(existing: ReorderEntry[], values: string[]): ReorderEntry[] {
+  const result: ReorderEntry[] = [];
+  const used = new Array(existing.length).fill(false);
+  for (const value of values) {
+    const match = existing.findIndex((entry, index) => !used[index] && entry.value === value);
+    if (match === -1) {
+      result.push(mintEntry(value));
+    } else {
+      used[match] = true;
+      result.push(existing[match]!);
+    }
+  }
+  return result;
 }
 
 // A chip-based control for fields that are really a small set of discrete values (genres,
@@ -68,7 +111,130 @@ export function TagsInput({
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editHighlightedIndex, setEditHighlightedIndex] = useState(-1);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  // FormKit keeps its own mutable list of entries; this component is controlled (`value` +
+  // `onValueChange`), so the entries are held in a ref that both our sync effect and the
+  // library's getValues/setValues read/write directly. Using `useDragAndDrop`'s internal state
+  // here would fight the external `value`: its setState is only updated when a component
+  // re-renders, so an edit/remove that originates *outside* a drag would briefly leave formkit
+  // with stale entries - exactly the failure mode where dragging a just-edited chip computes on
+  // a value that no longer exists. The ref closes over that window, and `remapNodes` re-derives
+  // each node's entry binding immediately after a sync.
+  const dndRef = useRef<HTMLDivElement | null>(null);
+  const entriesRef = useRef<ReorderEntry[] | null>(null);
+  const onValueChangeRef = useRef(onValueChange);
+  const valueRef = useRef(value);
+  const dragCancelledRef = useRef(false);
+  const dndInitRef = useRef(false);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    onValueChangeRef.current = onValueChange;
+  }, [onValueChange]);
+
+  const isReorderEnabled = reorderable && !disabled;
+
+  // Cleanup caveat (formkit 0.6.1): there is no way to fully release a parent. `dragAndDrop`
+  // attaches a MutationObserver to the parent and registers `document`-level listeners, and
+  // neither `tearDown()` nor anything else ever disconnects them - the observer is a local
+  // variable inside the library (not stored anywhere public) and the document controller is a
+  // module-wide singleton. To keep the observer count bounded, this component calls
+  // `dragAndDrop` AT MOST ONCE per mounted element (the dndInitRef guard below) and never
+  // re-initializes or tears down afterwards - toggling `reorderable`/`disabled` mutates the
+  // parent's live config object instead. A tearDown-on-unmount was deliberately dropped:
+  // React 19 StrictMode replays mount effects on the same element, so tearing down would abort
+  // the parent's listeners that the replay expects to still be there. One observer per mounted
+  // element, attached to a node that becomes unreachable (and therefore garbage) together with
+  // it when the component unmounts, is the tightest this library allows.
+  //
+  // No `useDragAndDrop`/`tearDown`: besides being unreleasable, formkit's `useDragAndDrop` hook
+  // holds its own state which a controlled component (`value` + `onValueChange`) would have to
+  // mirror back on every render - the refs below keep formkit's entries and the external value
+  // in the same synchronous structure instead.
+  useEffect(() => {
+    const el = dndRef.current;
+    if (!el) return;
+    if (!dndInitRef.current) {
+      // Lazy init on first enable: a TagsInput that is never reorderable (e.g. Genres) carries
+      // zero formkit wiring - no parent listeners, no observer - matching the pre-formkit
+      // behavior where nothing drag-related was set up. If `disabled` was true at mount,
+      // enabling it later initializes here too.
+      if (!isReorderEnabled) return;
+      dndInitRef.current = true;
+      entriesRef.current = remapEntries([], valueRef.current);
+      dragAndDrop<ReorderEntry>({
+        parent: el,
+        getValues: () => entriesRef.current ?? [],
+        setValues: (entries) => {
+          if (dragCancelledRef.current) return;
+          entriesRef.current = entries;
+        },
+        config: {
+          dragHandle: DRAG_HANDLE_SELECTOR,
+          disabled: false,
+          draggingClass: "opacity-70",
+          dragPlaceholderClass: "opacity-70",
+          // formkit sorts live on drag-hover and gives us the fully reordered entries, so no
+          // local arrayMove step is needed - just hand the new order back up.
+          onSort: (data: SortEventData<ReorderEntry>) => {
+            if (dragCancelledRef.current) return;
+            onValueChangeRef.current(data.values.map((entry) => entry.value));
+          },
+          // A cancelled drag ends through the normal drop/dragend/pointercancel path; clear the
+          // suppression flag there so the next drag starts clean.
+          onDragend: () => {
+            dragCancelledRef.current = false;
+          },
+        },
+      });
+      return;
+    }
+    // Already initialized once: toggle enabled/disabled without re-initializing formkit.
+    // Re-invoking `dragAndDrop()` (which is what the exported `updateConfig` helper would do)
+    // tears the parent down and attaches a fresh MutationObserver on every call - the very leak
+    // this component must avoid. Updating `parentData.config` in the `parents` WeakMap and
+    // remapping nodes is the no-reinit path; `remapNodes` reads the live config immediately, so
+    // the new `disabled` value is honored on the very next drag attempt.
+    const parentData = parents.get(el) as ParentData<ReorderEntry> | undefined;
+    if (!parentData) return;
+    parentData.config.disabled = !isReorderEnabled;
+    if (!isReorderEnabled && isDragInFlightFor(el)) {
+      dragCancelledRef.current = true;
+    }
+    remapNodes<ReorderEntry>(el);
+  }, [isReorderEnabled]);
+
+  // External `value` changes (commit/edit/remove, or a caller setting the prop directly) must
+  // reach formkit's entry list. remapEntries preserves object identity where possible, so a
+  // drag already in progress keeps its identity; remapNodes then re-binds every node's entry so
+  // a subsequent drag cannot compute on a stale index/value pairing.
+  //
+  // If the value changed while a drag is in flight, that drag's intent is stale: formkit's
+  // performSort splices the dragged entry back in BY VALUE, which would resurrect a value that
+  // was just removed (or emit an order mixing pre- and post-change entries - e.g. when a new
+  // chip was inserted ahead of the one being dragged). The whole in-flight drag is therefore
+  // suppressed: setValues refuses the order formkit writes and onSort stays silent, so
+  // onValueChange never emits a removed value and the external `value` (already updated by the
+  // commit/edit/remove that triggered this effect) is untouched. The suppression is lifted when
+  // the drag ends (onDragend) or on the next run of this effect with no drag in flight.
+  useEffect(() => {
+    const current = entriesRef.current;
+    if (current === null) return; // formkit never initialized (reorder never enabled)
+    const next = remapEntries(current, value);
+    const dragActive = isDragInFlightFor(dndRef.current);
+    const changed =
+      next.length !== current.length || next.some((entry, index) => current[index] !== entry);
+    if (dragActive) {
+      if (changed) dragCancelledRef.current = true;
+    } else {
+      dragCancelledRef.current = false;
+    }
+    if (!changed) return;
+    entriesRef.current = next;
+    if (dndRef.current) remapNodes<ReorderEntry>(dndRef.current);
+  }, [value]);
 
   const isDuplicate = (candidate: string, excludeIndex?: number) =>
     value.some((v, i) => i !== excludeIndex && v.toLowerCase() === candidate.toLowerCase());
@@ -257,21 +423,13 @@ export function TagsInput({
     commitEdit();
   };
 
-  // Sortable ids (and React keys below) are the entry's *position*, not its value. Values are
-  // supposed to be unique - isDuplicate rejects a new/edited entry that collides with another -
-  // but that guarantee only holds for edits made through this component. A caller that sets
-  // `value` directly (BookEditForm's "similar existing value" hint used to do this) could still
-  // produce two equal strings; keying/identifying chips by value would then give dnd-kit and
-  // React two elements with the same id, breaking drag-and-drop and risking duplicate-key
-  // rendering bugs. Position is always unique, so it can't have that failure mode.
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = Number(active.id);
-    const newIndex = Number(over.id);
-    onValueChange(arrayMove(value, oldIndex, newIndex));
-  };
-
+  // React keys (and formkit's entry identity) are the entry's *position*, never its value.
+  // Values are supposed to be unique - isDuplicate rejects a new/edited entry that collides
+  // with another - but that guarantee only holds for edits made through this component. A
+  // caller that sets `value` directly (BookEditForm's "similar existing value" hint used to do
+  // this) could still produce two equal strings; keying chips by value would then give React
+  // two elements with the same key and break drag-and-drop. Position is always unique, so it
+  // can't have that failure mode.
   const chips = value.map((tag, index) =>
     editingIndex === index ? (
       <div key={index} className="relative">
@@ -301,7 +459,6 @@ export function TagsInput({
     ) : (
       <TagChip
         key={index}
-        id={String(index)}
         tag={tag}
         disabled={disabled}
         reorderable={reorderable}
@@ -310,8 +467,6 @@ export function TagsInput({
       />
     ),
   );
-
-  const sortableIds = useMemo(() => value.map((_, index) => String(index)), [value]);
 
   return (
     <div
@@ -322,15 +477,13 @@ export function TagsInput({
       )}
       aria-invalid={props["aria-invalid"]}
     >
-      {reorderable ? (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
-            {chips}
-          </SortableContext>
-        </DndContext>
-      ) : (
-        chips
-      )}
+      {/* FormKit's parent must contain exactly one draggable element per entry (it needs N nodes
+          for N values), so the committed chips get their own flex row instead of sharing the
+          outer container with the trailing draft input. The inner row keeps the same wrap, gap
+          and alignment the chips had as direct children of the outer container. */}
+      <div ref={dndRef} className="flex flex-wrap items-center gap-1.5">
+        {chips}
+      </div>
       <div className="relative min-w-24 flex-1">
         <input
           type="text"
@@ -411,7 +564,6 @@ function SuggestionListbox({
 }
 
 interface TagChipProps {
-  id: string;
   tag: string;
   disabled?: boolean;
   reorderable: boolean;
@@ -419,40 +571,27 @@ interface TagChipProps {
   onRemove: () => void;
 }
 
-// A single committed chip. Always registered with useSortable so hook order never depends on
-// the `reorderable` prop - dragging itself is disabled (and the grip handle hidden) when the
-// field doesn't support reordering (Genres) or is disabled.
-function TagChip({ id, tag, disabled, reorderable, onEdit, onRemove }: TagChipProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-    disabled: !reorderable || disabled,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
+// A single committed chip. The chip element itself is formkit's draggable node (it receives the
+// node listeners); only the grip button carries `data-drag-handle` so it is the sole drag
+// origin - the handle-selector approach the library documents, not the whole chip. When the
+// field doesn't support reordering (Genres) or is disabled, the grip is not rendered and the
+// parent config is disabled, so no drag can start. The handle is a native button (focusable,
+// implicit role="button") but deliberately claims no keyboard reorder semantics: formkit 0.6.1
+// has no keyboard drag plugin, so the description says plainly that this is a pointer
+// interaction. The grip is omitted entirely when the field is disabled - there is no
+// always-dead aria-disabled control in the tab order.
+function TagChip({ tag, disabled, reorderable, onEdit, onRemove }: TagChipProps) {
   return (
     <div
-      ref={setNodeRef}
-      // dnd-kit computes this per-frame during a drag (live translate offset); it cannot be a
-      // static Tailwind class. See DESIGN.md section 5.
-      // eslint-disable-next-line no-restricted-syntax
-      style={style}
-      className={cn(
-        badgeVariants({ variant: "secondary" }),
-        "gap-1 py-0 pr-1 pl-1 font-normal",
-        isDragging && "z-10 opacity-70",
-      )}
+      className={cn(badgeVariants({ variant: "secondary" }), "gap-1 py-0 pr-1 pl-1 font-normal")}
     >
       {reorderable && !disabled && (
         <button
           type="button"
-          {...attributes}
-          {...listeners}
+          data-drag-handle
+          aria-label={`Reorder: ${tag}`}
+          aria-description="Drag this handle with the pointer to change order"
           className="hover:bg-secondary-foreground/20 cursor-grab touch-none rounded-full p-1.5 active:cursor-grabbing"
-          aria-label={`Reorder ${tag}`}
         >
           <GripVertical className="h-3 w-3" />
         </button>

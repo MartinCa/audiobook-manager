@@ -39,5 +39,15 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   });
 }
 
+// jsdom doesn't implement elementFromPoint; FormKit drag-and-drop's native-drag handlers call
+// it for scroll-container detection during an active drag (handleNodeDragover -> handleSynthScroll)
+// and as the fallback in validateDragHandle. The input effect is null: a test's chips are small
+// and not in a scroll container, so the harness below is enough to let native drag events flow -
+// the actual sort decision runs on getBoundingClientRect geometry instead. Without it an active
+// drag crashes on `document.elementFromPoint is not a function`.
+if (typeof document !== "undefined" && !document.elementFromPoint) {
+  document.elementFromPoint = () => null;
+}
+
 (globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.9.0-test";
 (globalThis as unknown as Record<string, string>).__COMMIT_HASH__ = "test-sha";

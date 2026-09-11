@@ -522,8 +522,8 @@ describe("BookEditForm", () => {
 
     expect(screen.getByText("Alpha Author Fixed")).toBeInTheDocument();
     expect(screen.getByText("Beta Author")).toBeInTheDocument();
-    expect(screen.getByLabelText("Reorder Alpha Author Fixed")).toBeInTheDocument();
-    expect(screen.getByLabelText("Reorder Beta Author")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reorder: Alpha Author Fixed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reorder: Beta Author")).toBeInTheDocument();
   });
 
   it("offers live series typeahead suggestions while typing and selects on click", async () => {
