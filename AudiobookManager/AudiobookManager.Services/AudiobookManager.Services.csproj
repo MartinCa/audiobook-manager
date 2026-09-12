@@ -18,8 +18,8 @@
       this project needs at runtime, without Fontconfig - cover images are only decoded, resized
       and re-encoded here, never drawn with text.
     -->
-    <PackageReference Include="SkiaSharp" Version="4.151.2" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.151.2" />
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.0" />
   </ItemGroup>
 
   <ItemGroup>
