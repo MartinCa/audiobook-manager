@@ -81,6 +81,21 @@ Startup project: `AudiobookManager.Api`, Default project: `AudiobookManager.Data
 dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api --project AudiobookManager.Database
 ```
 
+## Git hooks
+
+Local hooks are installed automatically by `pnpm install` (the `prepare` script runs `lefthook install` — idempotent, safe to re-run).
+
+Hooks come from the shared `MartinCa/lefthook-configs` fragments pinned at `v1.0.1` in `lefthook.yml` (a thin `remotes:` config). `remotes:` configs merge *over* `lefthook.yml`, so this repo's monorepo adaptation lives in `lefthook-local.yml` (the one layer that overrides remotes): it adds `root: "client/"` to the shared lint/format commands so they run inside `client/`, while inheriting the fragment's globs and `stage_fixed` handling.
+
+- **pre-commit** — lint/format via ESLint `--fix` + Prettier `--write` on staged TS/TSX and Prettier on JSON/CSS/MD/JS/MJS/HTML, run from `client/` and re-staging fixed files; `lefthook-shared.yml` secret-scans the staged diff with `betterleaks` (blocks the commit on a leak) and audits staged `.github/workflows/*` files with `zizmor` (blocks on a finding).
+- **commit-msg** — `commit-msg.yml` enforces Conventional Commits, e.g. `feat: ...`, `fix(api): ...`.
+
+Frontend lint/format are enforced both locally (these hooks) and in CI (the `lint` job runs `pnpm run format-check` and `pnpm run lint` across `client/`). The secret scan and Conventional-Commits validation are hook-only: CI runs dotnet/frontend tests and uploads a zizmor SARIF report to code scanning — it does not run `betterleaks` or validate commit messages itself, and the zizmor CI job is a non-blocking SARIF report, not a merge gate. Do not bypass the hooks.
+
+Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its project README) and `zizmor` (workflow audit, install from zizmor.sh). If a tool is missing, `LEFTHOOK=0 git commit` skips the hooks entirely — a pragmatic escape hatch for restricted setups, not a way to dodge the gates.
+
+`lefthook-local.yml` is **intentionally checked in** as this repo's team-wide override: in a stock lefthook setup that file is the personal, gitignored override layer, but here it is the one layer that merges *over* the shared `remotes:` fragments, and it carries the repo-wide `root: "client/"` adaptation for the monorepo layout. It is not a personal override layer in this repo; do not use it for private changes.
+
 ## Architecture
 
 ### Backend — Layered .NET Solution (`AudiobookManager/`)
