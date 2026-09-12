@@ -165,11 +165,8 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 
 ### CI/CD
 
-- `docker-image.yml` — Build validation on push/PR to main
-- `tests.yml` — Backend and frontend test suites
-- `prettier_format_ci.yml` — Frontend formatting validation
-- `zizmor.yml` — GitHub Actions security analysis
-- `publish_to_dockerhub.yml` / `publish_to_github.yml` — Release publishing to Docker Hub and GHCR
+- `ci.yml` — jobs: `lint` (frontend lint/format), `test` (dotnet + frontend tests), `build` (Docker build validation), `zizmor` (GitHub Actions security analysis, SARIF upload)
+- `publish.yml` — Release publishing: `push_to_registry` (GHCR), `push_to_dockerhub` (Docker Hub + description update)
 
 ## Key Patterns
 
