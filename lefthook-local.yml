@@ -4,3 +4,7 @@ pre-commit:
       root: "client/"
     format-ts:
       root: "client/"
+pre-push:
+  commands:
+    test-ts:
+      root: "client/"
