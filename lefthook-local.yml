@@ -1,0 +1,6 @@
+pre-commit:
+  commands:
+    lint-ts:
+      root: "client/"
+    format-ts:
+      root: "client/"
