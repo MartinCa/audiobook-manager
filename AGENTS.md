@@ -85,7 +85,9 @@ dotnet ef migrations add <MigrationName> --startup-project AudiobookManager.Api 
 
 Local hooks are installed automatically by `pnpm install` (the `prepare` script runs `lefthook install` — idempotent, safe to re-run).
 
-Hooks come from the shared `MartinCa/lefthook-configs` fragments pinned at `v2.0.0` in `lefthook.yml` (a thin `remotes:` config). `remotes:` configs merge *over* `lefthook.yml`, so this repo's monorepo adaptation lives in `lefthook-local.yml` (the one layer that overrides remotes): it adds `root: "client/"` to the shared `lint-ts`/`format-ts` commands so they run inside `client/`, while inheriting the fragment's globs and `stage_fixed` handling.
+**AI agents**: do not install the lefthook binary yourself — it is included in the OpenCode image. If `lefthook` is not on PATH, report this to the user and ask whether to install it.
+
+Hooks come from the shared `MartinCa/lefthook-configs` fragments pinned at `v2.0.1` in `lefthook.yml` (a thin `remotes:` config). `remotes:` configs merge *over* `lefthook.yml`, so this repo's monorepo adaptation lives in `lefthook-local.yml` (the one layer that overrides remotes): it adds `root: "client/"` to the shared `lint-ts`/`format-ts` commands so they run inside `client/`, while inheriting the fragment's globs and `stage_fixed` handling.
 
 - **pre-commit** — `lint-ts`/`format-ts` via ESLint `--fix` + Prettier `--write` on staged TS/TSX and Prettier on JSON/CSS/MD/JS/MJS/HTML, run from `client/` and re-staging fixed files; `lefthook-shared.yml` secret-scans the staged diff with `betterleaks` (blocks the commit on a leak) and audits staged `.github/workflows/*` files with `zizmor` (blocks on a finding).
 - **commit-msg** — `commit-msg.yml` enforces Conventional Commits, e.g. `feat: ...`, `fix(api): ...`.
