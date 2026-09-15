@@ -878,7 +878,21 @@ public class SeriesService : ISeriesService
                 .ToLookup(i => NormalizePosition(i.Key.SeriesPart!), StringComparer.OrdinalIgnoreCase);
         }
 
-        public bool Contains(BookKey expected) => FindMatches(expected).Count > 0;
+        public bool Contains(BookKey expected)
+        {
+            if (!string.IsNullOrWhiteSpace(expected.Position))
+            {
+                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
+                {
+                    if (IsSameBook(expected, item.BookKey))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return _items.Any(item => IsSameBook(expected, item.BookKey));
+        }
 
         /// <summary>
         /// Every owned book this roster entry corresponds to. A book can match more than one
