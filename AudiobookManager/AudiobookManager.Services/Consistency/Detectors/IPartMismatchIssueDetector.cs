@@ -24,7 +24,10 @@ public interface IPartMismatchIssueDetector
     /// <summary>
     /// One issue per part mismatch across every matched series. Runs as the library-wide sweep of
     /// the full consistency check, which clears the issue table up front, so all emission is
-    /// insert-only.
+    /// insert-only. The sweep reconciles the series one at a time - deliberately sequential, never
+    /// fanned out with <c>Task.WhenAll</c> - because a cache-miss reconciliation computes inline
+    /// through the caller's scoped database context, which must not be driven from concurrent
+    /// tasks.
     /// </summary>
     Task<IReadOnlyList<ConsistencyIssue>> DetectLibraryWideAsync();
 

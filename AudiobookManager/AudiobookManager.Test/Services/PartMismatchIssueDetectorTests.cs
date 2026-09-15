@@ -84,6 +84,45 @@ public class PartMismatchIssueDetectorTests
             "no unmatched series may be reconciled by the sweep");
     }
 
+    // The sweep stays sequential on purpose: a reconciliation cache miss computes inline in the
+    // caller via the scoped DatabaseContext of the background operation (see the comment on
+    // DetectLibraryWideAsync), which EF forbids using from concurrent tasks. This proves the
+    // ordering deterministically -
+    // no sleeps: while the first series' reconciliation is still in flight (its task left
+    // unresolved on our gate), the second must not have been invoked at all, which only the
+    // sequential loop can guarantee. A Task.WhenAll fan-out would have started it already.
+    [TestMethod]
+    public async Task DetectLibraryWideAsync_ReconcilesDistinctSeriesSequentially()
+    {
+        _seriesRepository.Setup(r => r.GetMatchedSeriesNamesAsync()).ReturnsAsync(new List<string> { "First", "Second" });
+
+        var firstInvoked = new TaskCompletionSource();
+        var releaseFirst = new TaskCompletionSource<SeriesReconciliation>();
+
+        _seriesService.Setup(s => s.GetReconciliationAsync("First"))
+            .Callback(() => firstInvoked.SetResult())
+            .Returns(releaseFirst.Task);
+        _seriesService.Setup(s => s.GetReconciliationAsync("Second"))
+            .ReturnsAsync(MakeReconciliation(MakeMismatch(2)));
+
+        var sweep = _detector.DetectLibraryWideAsync();
+
+        // Poll the real condition (the first reconciliation being invoked) with a timeout rather
+        // than sleeping a fixed amount: the sweep is suspended on releaseFirst.Task, so once this
+        // returns, the first series is confirmed in flight and the second has provably not run.
+        await firstInvoked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _seriesService.Verify(s => s.GetReconciliationAsync("Second"), Times.Never,
+            "the second series must not be reconciled while the first is still in flight");
+
+        releaseFirst.SetResult(MakeReconciliation(MakeMismatch(1)));
+        var issues = await sweep.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.AreEqual(2, issues.Count,
+            "the sweep must finish through the second series once the first completes");
+        _seriesService.Verify(s => s.GetReconciliationAsync("Second"), Times.Once);
+    }
+
     // Fail-soft: a series over the bounded-reconciliation caps throws from the reconciliation
     // (the series detail fails loudly on it); the sweep must skip it and keep going, not fail the
     // whole-consistency check.

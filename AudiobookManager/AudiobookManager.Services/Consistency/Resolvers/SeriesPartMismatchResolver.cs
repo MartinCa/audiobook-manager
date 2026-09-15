@@ -25,7 +25,10 @@ namespace AudiobookManager.Services;
 /// is the one the roster assigns *now*, never a value a refresh has already made obsolete. A book
 /// the current roster no longer reports as a mismatch is a stale issue - the roster moved (or the
 /// book changed) to make the stored part correct - and is cleared rather than "fixed" by writing
-/// an obsolete part over a valid one.
+/// an obsolete part over a valid one. A book whose series field is empty is the same shape: it
+/// cannot mismatch a series it no longer names, and the resolve says that cause explicitly instead
+/// of implying the roster still agrees with the stored part (see
+/// <see cref="ClearIssueBookNoLongerInSeries"/>).
 /// </summary>
 public class SeriesPartMismatchResolver : IConsistencyIssueResolver
 {
@@ -74,7 +77,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
         // than treating "cannot verify" as "stale" and clearing a possibly-live issue.
         if (string.IsNullOrWhiteSpace(dbAudiobook.Series))
         {
-            return await ClearStaleIssue(issue);
+            return await ClearIssueBookNoLongerInSeries(issue);
         }
 
         var reconciliation = await _seriesService.GetReconciliationAsync(dbAudiobook.Series);
@@ -107,12 +110,12 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
     }
 
     /// <summary>
-    /// The book's part agrees with what the current roster assigns its matched entry (or the book
-    /// is no longer in a series), so the issue was already resolved by the roster itself - most
-    /// likely a refresh of the series between the full check and this resolve. Writing the stored
-    /// expected part would be actively wrong, and the issue row is deleted rather than reported
-    /// as a failure. <see cref="ResolveScope.IssueOnly"/>: nothing about the book was touched, so
-    /// a bulk resolve must not treat the book's other issues as settled by this stale row.
+    /// The book's part agrees with what the current roster assigns its matched entry, so the issue
+    /// was already resolved by the roster itself - most likely a refresh of the series between the
+    /// full check and this resolve. Writing the stored expected part would be actively wrong, and
+    /// the issue row is deleted rather than reported as a failure.
+    /// <see cref="ResolveScope.IssueOnly"/>: nothing about the book was touched, so a bulk resolve
+    /// must not treat the book's other issues as settled by this stale row.
     /// </summary>
     private async Task<(ResolveScope, ConsistencyResolveResult)> ClearStaleIssue(ConsistencyIssue issue)
     {
@@ -127,5 +130,26 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
             issue.IssueType,
             "resolved",
             "The book's stored part already matches what the series' roster now assigns; the stored issue was stale and has been cleared."));
+    }
+
+    /// <summary>
+    /// The book carries no series at all (the field was cleared after the issue was detected), so
+    /// there is no roster left for the stored part to disagree with. The issue is stale and
+    /// cleared without touching the book, exactly as <see cref="ClearStaleIssue"/> does - but the
+    /// message is factual about the cause rather than claiming the roster assigns the stored part.
+    /// </summary>
+    private async Task<(ResolveScope, ConsistencyResolveResult)> ClearIssueBookNoLongerInSeries(ConsistencyIssue issue)
+    {
+        _logger.LogInformation(
+            "SeriesPartMismatch issue {IssueId} for audiobook {AudiobookId} is stale: the book no longer belongs to a series, so its stored part cannot mismatch one; clearing it.",
+            issue.Id, issue.AudiobookId);
+
+        await _issueRepository.DeleteAsync(issue.Id);
+
+        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            issue.Id,
+            issue.IssueType,
+            "resolved",
+            "The book is no longer part of a series, so its stored part cannot mismatch one; the stored issue was stale and has been cleared."));
     }
 }

@@ -1806,6 +1806,10 @@ public class LibraryConsistencyServiceTests
         var result = await _service.ResolveIssue(45);
 
         Assert.AreEqual("resolved", result.ActionTaken);
+        Assert.AreEqual(
+            "The book's stored part already matches what the series' roster now assigns; the stored issue was stale and has been cleared.",
+            result.Message,
+            "a roster-disappeared mismatch is reported as the roster agreeing, not as the book leaving the series");
         _issueRepository.Verify(r => r.DeleteAsync(45), Times.Once,
             "the stale row is cleared, not reported as a failure");
         _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never,
@@ -1814,7 +1818,9 @@ public class LibraryConsistencyServiceTests
             "nothing about the book's other issues changed; only the stale row goes");
     }
 
-    // A book that no longer carries a series at all cannot mismatch one: the issue is stale.
+    // A book that no longer carries a series at all cannot mismatch one: the issue is stale. This
+    // shares the stale-clear shape with the roster-agreement case above, but the resolve must say
+    // *why* - the book left the series - rather than claim the roster now assigns the stored part.
     [TestMethod]
     public async Task ResolveIssue_SeriesPartMismatch_BookNoLongerInASeries_IsClearedAsStale()
     {
@@ -1841,6 +1847,10 @@ public class LibraryConsistencyServiceTests
         var result = await _service.ResolveIssue(46);
 
         Assert.AreEqual("resolved", result.ActionTaken);
+        Assert.AreEqual(
+            "The book is no longer part of a series, so its stored part cannot mismatch one; the stored issue was stale and has been cleared.",
+            result.Message,
+            "a book that left its series is reported factually, not as a roster that now agrees with the stored part");
         _issueRepository.Verify(r => r.DeleteAsync(46), Times.Once);
         _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never);
         _seriesService.Verify(s => s.GetReconciliationAsync(It.IsAny<string>()), Times.Never,

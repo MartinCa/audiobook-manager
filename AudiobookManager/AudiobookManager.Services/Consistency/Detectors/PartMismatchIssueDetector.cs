@@ -37,6 +37,13 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
         var matchedSeries = await _seriesRepository.GetMatchedSeriesNamesAsync();
         var issues = new List<ConsistencyIssue>();
 
+        // Sequential by design, not an oversight. A reconciliation cache miss computes inline in
+        // the caller (see SeriesReconciliationCache.GetOrComputeAsync) through the caller's scoped
+        // DatabaseContext - the full check runs in a background operation's scope, not a request -
+        // on its single SQLite connection. Fanning the series out with Task.WhenAll would run
+        // those cache-miss computations concurrently against that one context - EF Core forbids
+        // concurrent use of a DbContext, and SQLite serializes its readers anyway - so the sweep
+        // awaits each series in turn.
         foreach (var seriesName in matchedSeries)
         {
             try
