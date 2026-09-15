@@ -55,5 +55,18 @@ public enum ConsistencyIssueType
     /// resolving a stale issue is not a data loss risk because the pending-refresh snapshot, if
     /// any, is separate state.
     /// </summary>
-    MetadataRefreshFailed = 13
+    MetadataRefreshFailed = 13,
+
+    /// <summary>
+    /// An owned book of a matched series stores a <c>SeriesPart</c> that is missing or differs
+    /// from the position its matching roster entry assigns (the book was matched by title, but
+    /// renumbered or never numbered). Detected from the same cached per-series reconciliation the
+    /// series detail renders, so the two can never disagree. <see cref="ConsistencyIssue.ExpectedValue"/>
+    /// carries the roster's position (which resolving writes into the m4b and database through the
+    /// binding-invariant no-DB-only-update pipeline) and <see cref="ConsistencyIssue.ActualValue"/>
+    /// the stored part; the description names the roster title the book was matched against.
+    /// The series detail's Part Mismatches section reports the same findings one series at a time
+    /// and fixes them through the existing expected-book-apply endpoint.
+    /// </summary>
+    SeriesPartMismatch = 14
 }

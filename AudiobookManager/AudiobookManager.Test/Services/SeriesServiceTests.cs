@@ -66,7 +66,7 @@ public class SeriesServiceTests
         _audiobookRepository
             .Setup(r => r.GetSeriesOwnedKeysAsync(seriesName, It.IsAny<int>()))
             .ReturnsAsync((
-                grouping.Select(b => new SeriesOwnedKey(b.SeriesPart, b.BookName)).ToList(),
+                grouping.Select((b, i) => new SeriesOwnedKey(i + 1, b.SeriesPart, b.BookName)).ToList(),
                 Overflow: false));
         _audiobookRepository
             .Setup(r => r.GetAuthorNamesBySeriesAsync(seriesName))
@@ -81,9 +81,11 @@ public class SeriesServiceTests
         string seriesName,
         int ownedSkip = 0, int ownedTake = 100,
         int missingSkip = 0, int missingTake = 100,
-        int ignoredSkip = 0, int ignoredTake = 100) =>
+        int ignoredSkip = 0, int ignoredTake = 100,
+        int partMismatchSkip = 0, int partMismatchTake = 100) =>
         MakeService().GetSeriesDetailPageAsync(
-            seriesName, ownedSkip, ownedTake, missingSkip, missingTake, ignoredSkip, ignoredTake);
+            seriesName, ownedSkip, ownedTake, missingSkip, missingTake, ignoredSkip, ignoredTake,
+            partMismatchSkip, partMismatchTake);
 
     // Regression test: a roster entry with no position must still be matched on title against
     // owned books that *do* have one. IsSameBook falls back to a fuzzy title comparison whenever
@@ -394,7 +396,7 @@ public class SeriesServiceTests
         var service = MakeService();
         for (var skip = 0; skip < 55; skip += 10)
         {
-            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10);
+            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10, 0, 10);
             Assert.AreEqual(Math.Min(10, 55 - skip), page!.MissingBooks.Count);
             Assert.AreEqual(55, page.MissingBookTotal, "the total is the full reconciled roster each time, not the slice");
         }
@@ -425,13 +427,13 @@ public class SeriesServiceTests
             .Returns(Task.CompletedTask);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(0, after.MissingBookTotal, "the ignored entry must leave the missing section");
         Assert.AreEqual(1, after.IgnoredBookTotal, "the ignored entry must appear under ignored");
@@ -469,13 +471,13 @@ public class SeriesServiceTests
             .ReturnsAsync(catalogRow);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(2, after.MissingBookTotal, "the toggle must invalidate the cache so the detail refills");
     }
@@ -537,6 +539,335 @@ public class SeriesServiceTests
             Times.Once,
             "the owned-key fetch is bounded to the reconciliation cap");
     }
+
+    #region Part mismatch reconciliation
+
+    // A roster entry with no position defines nothing to fix a stored part against. A book that
+    // hand-carries a part under such an entry must not be flagged (resolving would clear a value
+    // on evidence that "differs from a position" does not describe), and its ExpectedPart could not
+    // be filled in.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_StoredPartUnderAPositionlessRosterEntry_IsNotReported()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", null) },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "1", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.PartMismatchTotal, "no roster position means nothing to mismatch against");
+        Assert.AreEqual(0, page.MissingBookTotal, "the title still identifies the book as owned");
+    }
+
+    // A book whose stored part differs from the position its roster entry assigns is not missing
+    // (the book is there) - it is a part mismatch, reported with the book identity, both parts and
+    // the roster title the fix writes back through.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_OwnedBookWithADifferentPart_IsReportedAsAPartMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", "1") },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "7", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.MissingBookTotal, "the wrong-part book is owned, not missing");
+        Assert.AreEqual(1, page.PartMismatchTotal);
+        var mismatch = page.PartMismatches.Single();
+        Assert.AreEqual(1, mismatch.AudiobookId);
+        Assert.AreEqual("The Final Empire", mismatch.BookName);
+        Assert.AreEqual("7", mismatch.StoredPart);
+        Assert.AreEqual("1", mismatch.ExpectedPart);
+        Assert.AreEqual("The Final Empire", mismatch.RosterTitle);
+    }
+
+    // A book with no part at all opposite a roster entry that assigns one is the "missing part"
+    // shape of this feature - the book was matched on title, so it is not missing, but its part
+    // gap is exactly what the section exists to fix.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_OwnedBookWithNoPart_IsReportedAsAPartMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Well of Ascension", "2") },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", null, "The Well of Ascension"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.PartMismatchTotal);
+        var mismatch = page.PartMismatches.Single();
+        Assert.AreEqual(1, mismatch.AudiobookId);
+        Assert.IsNull(mismatch.StoredPart);
+        Assert.AreEqual("2", mismatch.ExpectedPart);
+    }
+
+    // The part comparison reuses the matching equivalence: "2" and "2.0" are the same part, so a
+    // differently-typed-but-equivalent stored part must not be flagged.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_EquivalentStoredPart_IsNotReportedAsAMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", "2") },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "2.0", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.PartMismatchTotal, "2.0 and 2 are the same part");
+        Assert.AreEqual(0, page.MissingBookTotal);
+    }
+
+    // A truly unowned roster entry is missing; it must not double-report as a part mismatch (there
+    // is no owned book whose part could disagree with it).
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_UnownedRosterEntry_IsMissingNotAPartMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "The Final Empire", "1"),
+                MakeExpected(2, "The Hero of Ages", "3"),
+            },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "1", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.MissingBookTotal);
+        Assert.AreEqual("The Hero of Ages", page.MissingBooks.Single().Title);
+        Assert.AreEqual(0, page.PartMismatchTotal);
+    }
+
+    // Ignored roster entries are excluded from the missing section; their books' parts must not be
+    // reported either - a book can only be "mismatched" against a roster entry the user has told
+    // us to stop tracking.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_IgnoredRosterEntry_ProducesNoPartMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "Secret History", "3.5", ignored: true),
+            },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "9", "Secret History"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.PartMismatchTotal, "the book matches only an ignored entry");
+        Assert.AreEqual(0, page.MissingBookTotal);
+        Assert.AreEqual(1, page.IgnoredBookTotal);
+    }
+
+    // A compilation entry that is hidden by the omnibus setting must not surface its book's part,
+    // exactly like it cannot surface as missing: the roster entry is not part of the visible series.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_HiddenCompilation_ProducesNoPartMismatch()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Thursday Murder Club",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "99",
+            IncludeOmnibusEditions = false,
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                new()
+                {
+                    Id = 2,
+                    Title = "The Thursday Murder Club / The Man Who Died Twice",
+                    Position = "1",
+                    IsCompilation = true,
+                },
+            },
+        };
+
+        StubSeries("Thursday Murder Club", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Thursday Murder Club", "3", "The Thursday Murder Club / The Man Who Died Twice"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Thursday Murder Club");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.PartMismatchTotal, "the hidden compilation is not part of the visible series");
+
+        // Flipping the visibility setting makes the same book a plain mismatch, proving the
+        // visibility rule (not the ownership) is what kept it out before.
+        catalogRow.IncludeOmnibusEditions = true;
+        _reconciliationCache.Invalidate("Thursday Murder Club");
+        var pageWithOmnibus = await GetDetailPageAsync("Thursday Murder Club");
+        Assert.IsNotNull(pageWithOmnibus);
+        Assert.AreEqual(1, pageWithOmnibus.PartMismatchTotal);
+    }
+
+    // The part-mismatch section is paged from the cached reconciliation like the missing/ignored
+    // sections: one mismatch per book, stable slice boundaries.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_PagesThePartMismatchSection_NoBookSkippedOrRepeated()
+    {
+        var grouping = Enumerable.Range(1, 23)
+            .Select(i => MakeGrouping("Mistborn", (99 + i).ToString(), $"Book {i:00}"))
+            .ToList();
+        var roster = Enumerable.Range(1, 23)
+            .Select(i => MakeExpected(i, $"Book {i:00}", i.ToString()))
+            .ToList();
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = roster,
+        };
+
+        StubSeries("Mistborn", grouping, catalogRow);
+
+        var seen = new List<long>();
+        for (var skip = 0; skip < 23; skip += 10)
+        {
+            var page = await GetDetailPageAsync("Mistborn", partMismatchSkip: skip, partMismatchTake: 10);
+            seen.AddRange(page!.PartMismatches.Select(m => m.AudiobookId));
+        }
+
+        Assert.AreEqual(23, seen.Count, "no mismatch may be dropped by paging");
+        Assert.AreEqual(23, seen.Distinct().Count(), "no mismatch may appear on two pages");
+    }
+
+    // Regression: attribution used to be per roster entry with first-wins handling - the first
+    // entry in display order that matched a book claimed it. With a title repeated at two
+    // positions (say a source listing the individual volume and an omnibus reissue of the same
+    // book), the book's stored part agreed with the SECOND entry, but the FIRST entry (an
+    // earlier position) also matched by title alone, so the book was flagged as a part mismatch
+    // with the wrong expected part. A stored part that agrees with ANY matched entry is correct
+    // - a duplicate-title sibling's disagreement is not evidence the book is misnumbered.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_DuplicateTitles_StoredPartAgreeingWithOneEntry_IsNotFlagged()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "The Final Empire", "1"),
+                MakeExpected(2, "The Final Empire", "2"),
+            },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "2", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(0, page.PartMismatchTotal,
+            "a stored part agreeing with one of the duplicate-title entries is not a mismatch");
+        Assert.AreEqual(0, page.MissingBookTotal, "the title still identifies the book as owned");
+    }
+
+    // The same duplicate-title roster, but the book's stored part agrees with neither entry -
+    // that is a genuine mismatch, still reported exactly once and attributed to the
+    // earliest-position entry the book matched.
+    [TestMethod]
+    public async Task GetSeriesDetailPageAsync_DuplicateTitles_StoredPartAgreeingWithNoEntry_IsFlaggedOnce()
+    {
+        var catalogRow = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "The Final Empire", "1"),
+                MakeExpected(2, "The Final Empire", "2"),
+            },
+        };
+
+        StubSeries("Mistborn", new List<SeriesGroupingBook>
+        {
+            MakeGrouping("Mistborn", "9", "The Final Empire"),
+        }, catalogRow);
+
+        var page = await GetDetailPageAsync("Mistborn");
+
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.PartMismatchTotal);
+        var mismatch = page.PartMismatches.Single();
+        Assert.AreEqual(1, mismatch.AudiobookId);
+        Assert.AreEqual("9", mismatch.StoredPart);
+        Assert.AreEqual("1", mismatch.ExpectedPart, "the earliest matched entry is the fix target");
+    }
+
+    #endregion
 
     [TestMethod]
     public async Task GetAllSeriesOverviewAsync_MarksUnmatchedSeriesAndCountsOwnedBooks()

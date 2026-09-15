@@ -5,21 +5,24 @@ namespace AudiobookManager.Services;
 
 /// <summary>
 /// The computed result of reconciling a matched series' roster against its owned books - exactly
-/// what the detail page's missing/ignored sections and the overview counts render. Paged requests
-/// slice the cached lists instead of re-reading the roster and every owned book per page.
+/// what the detail page's missing/ignored/part-mismatch sections and the overview counts render.
+/// Paged requests slice the cached lists instead of re-reading the roster and every owned book
+/// per page.
 ///
-/// The three counts are stored alongside the lists (not derived by the service) so the overview
+/// The counts are stored alongside the lists (not derived by the service) so the overview
 /// badge and the section totals can never disagree with the sections they summarize.
 /// </summary>
 public sealed record SeriesReconciliation(
     IReadOnlyList<SeriesExpectedBookInfo> Missing,
     IReadOnlyList<SeriesExpectedBookInfo> Ignored,
+    IReadOnlyList<SeriesPartMismatch> PartMismatches,
     int ExpectedBookCount,
     int OwnedCount,
     IReadOnlyList<string> Authors)
 {
     public int MissingBookCount => Missing.Count;
     public int IgnoredBookCount => Ignored.Count;
+    public int PartMismatchCount => PartMismatches.Count;
 }
 
 /// <summary>
@@ -228,16 +231,28 @@ public class SeriesReconciliationCache : ISeriesReconciliationCache
             await gate.Semaphore.WaitAsync();
             try
             {
-                // Re-check under the gate: the holder may have just published.
-                var versionAtStart = GetVersion(seriesName);
-                if (Get(seriesName) is { } rechecked)
+                // A compute that was invalidated mid-flight must not be consumed: an invalidation
+                // means the roster or the owned books changed while it was running, so its result
+                // no longer describes what the caller asked about, and Set refuses to publish it.
+                // The loop discards that result and recomputes against the current generation -
+                // otherwise the caller would be served the exact stale data the version gate
+                // exists to stop. Invalidation is write-driven and rare, so the retry is
+                // negligible.
+                while (true)
                 {
-                    return rechecked;
-                }
+                    // Re-check under the gate: the holder may have just published.
+                    var versionAtStart = GetVersion(seriesName);
+                    if (Get(seriesName) is { } rechecked)
+                    {
+                        return rechecked;
+                    }
 
-                var reconciliation = await compute();
-                Set(seriesName, reconciliation, versionAtStart);
-                return reconciliation;
+                    var reconciliation = await compute();
+                    if (Set(seriesName, reconciliation, versionAtStart))
+                    {
+                        return reconciliation;
+                    }
+                }
             }
             finally
             {

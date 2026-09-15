@@ -13,6 +13,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookFileHandler _fileHandler;
     private readonly IAudiobookIssueDetectionService _detectionService;
+    private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly ILogger<MissingMediaFileResolver> _logger;
 
@@ -21,6 +22,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
         IConsistencyIssueRepository issueRepository,
         IAudiobookFileHandler fileHandler,
         IAudiobookIssueDetectionService detectionService,
+        IPartMismatchIssueDetector partMismatchIssueDetector,
         ISeriesReconciliationCache reconciliationCache,
         ILogger<MissingMediaFileResolver> logger)
     {
@@ -28,6 +30,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
         _issueRepository = issueRepository;
         _fileHandler = fileHandler;
         _detectionService = detectionService;
+        _partMismatchIssueDetector = partMismatchIssueDetector;
         _reconciliationCache = reconciliationCache;
         _logger = logger;
     }
@@ -42,8 +45,14 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
                 "Media file for audiobook {AudiobookId} ('{Title}') found at '{FilePath}'. Preserving audiobook and re-evaluating consistency.",
                 audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
+            // The file is back, so detection re-evaluated the whole book - but only its on-disk
+            // checks. The series-part-mismatch check (roster vs stored part) is database-only and
+            // lives in its own detector, the same one the full check's sweep runs; without it, a
+            // stored SeriesPartMismatch for this book would be silently dropped by the broad
+            // delete below and never re-inserted. Its findings are merged into the refresh.
             await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
             var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+            newIssues.AddRange(await _partMismatchIssueDetector.DetectForAudiobookAsync(audiobook));
             if (newIssues.Count > 0)
             {
                 await _issueRepository.InsertRangeAsync(newIssues);

@@ -2459,6 +2459,8 @@ export interface paths {
                     missingPageSize?: number;
                     ignoredPage?: number;
                     ignoredPageSize?: number;
+                    partMismatchPage?: number;
+                    partMismatchPageSize?: number;
                 };
                 header?: never;
                 path?: never;
@@ -4114,6 +4116,7 @@ export interface components {
             ownedBooks?: components["schemas"]["SeriesOwnedBookPageDto"];
             missingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
             ignoredBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            partMismatches?: components["schemas"]["SeriesPartMismatchPageDto"];
         };
         SeriesExpectedBookDto: {
             /** Format: int64 */
@@ -4207,6 +4210,19 @@ export interface components {
         };
         SeriesOwnedBookPageDto: {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
+        SeriesPartMismatchDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            storedPart?: string | null;
+            expectedPart?: string | null;
+            rosterTitle?: string | null;
+        };
+        SeriesPartMismatchPageDto: {
+            items?: components["schemas"]["SeriesPartMismatchDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
         };

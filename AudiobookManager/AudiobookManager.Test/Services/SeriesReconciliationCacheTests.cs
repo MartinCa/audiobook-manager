@@ -25,7 +25,7 @@ public class SeriesReconciliationCacheTests
 
     /// <summary>A generic reconciliation-shaped value; the specific field values are irrelevant to the cache contract.</summary>
     private static SeriesReconciliation MakeReconciliation(int tag = 0) =>
-        new(new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>(), 0, 0, new[] { $"Author {tag}" });
+        new(new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>(), new List<SeriesPartMismatch>(), 0, 0, new[] { $"Author {tag}" });
 
     [TestInitialize]
     public void Setup()
@@ -60,6 +60,47 @@ public class SeriesReconciliationCacheTests
 
         Assert.IsTrue(published, "a compute that saw the invalidated generation may publish");
         Assert.IsNotNull(_cache.Get("Mistborn"));
+    }
+
+    // Regression: GetOrComputeAsync used to return the compute's result unconditionally, even
+    // when Set refused to publish it (an invalidation landed mid-flight). The caller was served
+    // the pre-change data the version gate exists to stop - the series detail and the consistency
+    // detector would both render the stale roster for the whole TTL. The compute must be
+    // discarded and redone against the current generation.
+    [TestMethod]
+    public async Task GetOrComputeAsync_InvalidatedMidFlightCompute_IsDiscardedAndRecomputed()
+    {
+        var firstStarted = new TaskCompletionSource();
+        var releaseFirst = new TaskCompletionSource();
+        var computeCount = 0;
+
+        async Task<SeriesReconciliation> Compute()
+        {
+            if (Interlocked.Increment(ref computeCount) == 1)
+            {
+                firstStarted.SetResult();
+                await releaseFirst.Task;
+                return MakeReconciliation(1);
+            }
+
+            return MakeReconciliation(2);
+        }
+
+        var caller = _cache.GetOrComputeAsync("Mistborn", Compute);
+
+        // The first compute is in flight when the roster (or owned books) change.
+        await firstStarted.Task;
+        _cache.Invalidate("Mistborn");
+        releaseFirst.SetResult();
+
+        var result = await caller.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.AreEqual(2, computeCount,
+            "the pre-invalidation compute must be discarded, not returned");
+        Assert.AreEqual("Author 2", result.Authors.Single(),
+            "the caller must receive the recomputed result, never the stale one");
+        Assert.AreEqual("Author 2", _cache.Get("Mistborn")!.Authors.Single(),
+            "the recomputed result is what gets published for the next reader");
     }
 
     [TestMethod]

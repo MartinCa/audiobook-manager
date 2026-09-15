@@ -47,6 +47,8 @@ public class SeriesDetailPage
     public int MissingBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> IgnoredBooks { get; set; } = new();
     public int IgnoredBookTotal { get; set; }
+    public List<SeriesPartMismatch> PartMismatches { get; set; } = new();
+    public int PartMismatchTotal { get; set; }
 }
 
 /// <summary>One page of series overviews plus the total number of series matching the filters.</summary>
@@ -88,6 +90,23 @@ public class SeriesExpectedBookInfo
     public int? Year { get; set; }
     public string? SourceUrl { get; set; }
     public bool IsIgnored { get; set; }
+}
+
+/// <summary>
+/// An owned book of a matched series whose stored <c>SeriesPart</c> is missing or differs from
+/// the position its matching roster entry assigns it. The expected position comes from the
+/// matched series' roster (so a fix writes it back through the same expected-book-apply path the
+/// missing-book flow uses); <see cref="StoredPart"/> is what the book carries today, and
+/// <see cref="RosterTitle"/> is the roster entry's title so the reader can see what the book was
+/// matched against.
+/// </summary>
+public class SeriesPartMismatch
+{
+    public long AudiobookId { get; set; }
+    public string BookName { get; set; } = string.Empty;
+    public string? StoredPart { get; set; }
+    public string ExpectedPart { get; set; } = string.Empty;
+    public string RosterTitle { get; set; } = string.Empty;
 }
 
 public class SeriesMatchCandidate

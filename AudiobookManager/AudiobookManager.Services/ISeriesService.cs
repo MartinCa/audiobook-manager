@@ -32,22 +32,33 @@ public interface ISeriesService
     Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync();
 
     /// <summary>
-    /// One page per section of the series detail: the overview plus one page of owned, missing
-    /// and ignored books, each with its full total. Per request the reads are bounded: one catalog
-    /// metadata row, one SQL page of owned books, and the cached reconciliation. The
-    /// reconciliation itself (classifying the roster - the metadata source's stored series page,
-    /// hard-capped by <c>SeriesService.MaxReconciliationRosterEntries</c> - against the series'
-    /// owned position/title keys, capped too) is computed once per series per change by
-    /// <c>ISeriesReconciliationCache</c>, never per page request, so a section request never
-    /// materializes the roster plus every owned book of the series.
+    /// One page per section of the series detail: the overview plus one page of owned, missing,
+    /// ignored and part-mismatched books, each with its full total. Per request the reads are
+    /// bounded: one catalog metadata row, one SQL page of owned books, and the cached
+    /// reconciliation. The reconciliation itself (classifying the roster - the metadata source's
+    /// stored series page, hard-capped by <c>SeriesService.MaxReconciliationRosterEntries</c> -
+    /// against the series' owned position/title keys, capped too) is computed once per series per
+    /// change by <c>ISeriesReconciliationCache</c>, never per page request, so a section request
+    /// never materializes the roster plus every owned book of the series.
     /// </summary>
     Task<SeriesDetailPage?> GetSeriesDetailPageAsync(
         string seriesName,
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
-        int ignoredSkip, int ignoredTake);
+        int ignoredSkip, int ignoredTake,
+        int partMismatchSkip, int partMismatchTake);
 
     Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName);
+
+    /// <summary>
+    /// The series' reconciliation - the single source of truth for what the series detail's
+    /// missing/ignored/part-mismatch sections show and what the library-wide consistency detector
+    /// reports. Computed once per series per change and cached (see
+    /// <see cref="ISeriesReconciliationCache"/>); throws <see cref="InvalidOperationException"/>
+    /// when a series' roster or owned set is over the bounded-reconciliation caps, which callers
+    /// that can fail soft (the detector) catch, and callers that cannot (the detail page) surface.
+    /// </summary>
+    Task<SeriesReconciliation> GetReconciliationAsync(string seriesName);
 
     /// <summary>
     /// Manual match lookup driven by user input rather than the library's own series name:

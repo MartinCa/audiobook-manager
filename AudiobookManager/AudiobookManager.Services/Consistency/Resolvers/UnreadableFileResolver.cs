@@ -19,15 +19,18 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
 
     private readonly IConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookIssueDetectionService _detectionService;
+    private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ILogger<UnreadableFileResolver> _logger;
 
     public UnreadableFileResolver(
         IConsistencyIssueRepository issueRepository,
         IAudiobookIssueDetectionService detectionService,
+        IPartMismatchIssueDetector partMismatchIssueDetector,
         ILogger<UnreadableFileResolver> logger)
     {
         _issueRepository = issueRepository;
         _detectionService = detectionService;
+        _partMismatchIssueDetector = partMismatchIssueDetector;
         _logger = logger;
     }
 
@@ -71,9 +74,14 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
                 + "copied, or not readable by the user this application runs as."));
         }
 
-        // Readable again, so detection did re-evaluate the whole book and its answer is complete.
-        // Replacing every issue is correct here, and is what refreshes the book's status.
+        // Readable again, so detection did re-evaluate the whole book's on-disk state - but not
+        // the series-part-mismatch check, which is roster-vs-stored-part and database-only, in
+        // its own detector (the same one the full check's sweep runs). Without merging its
+        // findings, a stored SeriesPartMismatch for this book would be silently dropped by the
+        // broad delete below. Only then is the refresh complete and every issue replaced, which
+        // is what refreshes the book's status.
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
+        newIssues.AddRange(await _partMismatchIssueDetector.DetectForAudiobookAsync(audiobook));
         if (newIssues.Count > 0)
         {
             await _issueRepository.InsertRangeAsync(newIssues);

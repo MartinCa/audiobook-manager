@@ -167,12 +167,13 @@ public class SeriesService : ISeriesService
         string seriesName,
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
-        int ignoredSkip, int ignoredTake)
+        int ignoredSkip, int ignoredTake,
+        int partMismatchSkip, int partMismatchTake)
     {
         // The per-request reads are bounded: one catalog metadata row, one SQL page of owned
         // books, and the cached reconciliation. The reconciliation itself - which classifies the
         // whole roster against the series' owned keys via the fuzzy matcher - is computed once
-        // per series per change, never per page request (see GetOrComputeReconciliationAsync).
+        // per series per change, never per page request (see GetReconciliationAsync).
         var catalogRow = await _seriesRepository.GetByNameAsync(seriesName);
         var ownedPage = await _audiobookRepository.GetSeriesOwnedBooksPageAsync(seriesName, ownedSkip, ownedTake);
 
@@ -181,7 +182,7 @@ public class SeriesService : ISeriesService
             return null;
         }
 
-        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
+        var reconciliation = await GetReconciliationAsync(seriesName);
 
         return new SeriesDetailPage
         {
@@ -204,21 +205,24 @@ public class SeriesService : ISeriesService
             MissingBookTotal = reconciliation.Missing.Count,
             IgnoredBooks = reconciliation.Ignored.Skip(ignoredSkip).Take(ignoredTake).ToList(),
             IgnoredBookTotal = reconciliation.Ignored.Count,
+            PartMismatches = reconciliation.PartMismatches.Skip(partMismatchSkip).Take(partMismatchTake).ToList(),
+            PartMismatchTotal = reconciliation.PartMismatchCount,
         };
     }
 
     /// <summary>
-    /// The series' reconciliation, computed once per series per change and cached. The
-    /// computation classifies the full roster against the series' owned (position, title) keys -
-    /// the fuzzy ownership semantics demand the whole key set, which SQL cannot express - so it
-    /// is the one step that touches per-series data beyond the requested page, and it is bounded:
-    /// the roster is the metadata source's stored series page and both inputs sit under the
-    /// <see cref="MaxReconciliationRosterEntries"/>/<see cref="MaxReconciliationOwnedKeys"/>
+    /// The series' reconciliation for the whole library-wide surface (the detail page's sections
+    /// and the consistency detector both consume this cached view), computed once per series per
+    /// change. The computation classifies the full roster against the series' owned (id, position,
+    /// title) keys - the fuzzy ownership semantics demand the whole key set, which SQL cannot
+    /// express - so it is the one step that touches per-series data beyond the requested page, and
+    /// it is bounded: the roster is the metadata source's stored series page and both inputs sit
+    /// under the <see cref="MaxReconciliationRosterEntries"/>/<see cref="MaxReconciliationOwnedKeys"/>
     /// caps. The single-flight gate, the version check and the capacity-bounded eviction all live
     /// inside <see cref="ISeriesReconciliationCache"/>, so a page-flip stampede shares one
     /// computation and the cache cannot grow with the library.
     /// </summary>
-    private Task<SeriesReconciliation> GetOrComputeReconciliationAsync(string seriesName) =>
+    public Task<SeriesReconciliation> GetReconciliationAsync(string seriesName) =>
         _reconciliationCache.GetOrComputeAsync(seriesName, () => ComputeReconciliationAsync(seriesName));
 
     private async Task<SeriesReconciliation> ComputeReconciliationAsync(string seriesName)
@@ -248,10 +252,11 @@ public class SeriesService : ISeriesService
         var visible = expected
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
             .ToList();
+        var active = visible.Where(e => !e.IsIgnored).ToList();
 
-        var ownedIndex = new OwnedBookIndex(ownedKeys.Select(k => BookKey.From(k.SeriesPart, k.BookName)));
-        var missing = visible
-            .Where(e => !e.IsIgnored && !IsOwned(e, ownedIndex))
+        var ownedIndex = new OwnedBookIndex(ownedKeys);
+        var missing = active
+            .Where(e => !IsOwned(e, ownedIndex))
             .Select(ToExpectedInfo)
             .OrderBy(e => PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
@@ -266,12 +271,80 @@ public class SeriesService : ISeriesService
             .ThenBy(e => e.Id)
             .ToList();
 
+        // Owned books that matched a roster entry but carry no part - or a part the roster does
+        // not assign to that entry - are not missing (the book is there), they are mislabeled.
+        // A mismatch needs a roster-assigned position to fix against: an entry with no position
+        // defines nothing to differ from, and a hand-typed part under it is not evidence to clear
+        // the book on.
+        //
+        // Attribution is per book over ALL the entries it matches, not per entry over the books
+        // it matches. A book can match several entries (a title repeated across positions - the
+        // omnibus and individual editions of one book), and the first entry in display order is
+        // not necessarily the right one to judge it against: a stored part that agrees with any
+        // of the book's matched entries is correct, however many title-only sibling entries
+        // disagree with it - flagging it there would misassign the expected part. Only a book
+        // whose part agrees with NO matched entry is a genuine mismatch, and it is then reported
+        // against the earliest-position match, the entry the display-order iteration reaches
+        // first. The parts are compared with the same equivalence the matching uses, so "2" vs
+        // "2.0" is not a mismatch while "2" vs "" (or "7") is.
+        var entries = active
+            .Where(e => !string.IsNullOrWhiteSpace(e.Position))
+            .OrderBy(e => PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Id)
+            .ToList();
+
+        var matchesByBook = new Dictionary<long, List<SeriesExpectedBook>>();
+        foreach (var entry in entries)
+        {
+            foreach (var owned in ownedIndex.FindMatches(BookKey.From(entry.Position, entry.Title)))
+            {
+                if (!matchesByBook.TryGetValue(owned.AudiobookId, out var bookEntries))
+                {
+                    bookEntries = new List<SeriesExpectedBook>();
+                    matchesByBook[owned.AudiobookId] = bookEntries;
+                }
+
+                bookEntries.Add(entry);
+            }
+        }
+
+        var ownedKeyById = ownedKeys.ToDictionary(k => k.AudiobookId);
+        var partMismatches = new List<SeriesPartMismatch>();
+        foreach (var audiobookId in matchesByBook.Keys)
+        {
+            if (!ownedKeyById.TryGetValue(audiobookId, out var owned))
+            {
+                continue;
+            }
+
+            if (matchesByBook[audiobookId].Any(e => PartsEquivalent(owned.SeriesPart, e.Position!)))
+            {
+                continue;
+            }
+
+            var attributed = matchesByBook[audiobookId].First();
+            partMismatches.Add(new SeriesPartMismatch
+            {
+                AudiobookId = owned.AudiobookId,
+                BookName = owned.BookName,
+                StoredPart = owned.SeriesPart,
+                ExpectedPart = attributed.Position!,
+                RosterTitle = attributed.Title,
+            });
+        }
+
         var authors = await _audiobookRepository.GetAuthorNamesBySeriesAsync(seriesName);
 
         return new SeriesReconciliation(
             missing,
             ignored,
-            ExpectedBookCount: visible.Count(e => !e.IsIgnored),
+            partMismatches
+                .OrderBy(m => PositionSortKey(m.ExpectedPart))
+                .ThenBy(m => m.BookName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(m => m.AudiobookId)
+                .ToList(),
+            ExpectedBookCount: active.Count,
             OwnedCount: ownedKeys.Count,
             authors);
     }
@@ -396,7 +469,7 @@ public class SeriesService : ISeriesService
         // MatchSeriesCoreAsync invalidated the cache; rebuild the overview from a fresh
         // reconciliation so the return value already reflects the newly-stored roster. Bulk
         // callers use MatchSeriesCoreAsync directly and never render an overview.
-        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
+        var reconciliation = await GetReconciliationAsync(seriesName);
         return BuildReconciledOverview(seriesName, saved, reconciliation);
     }
 
@@ -408,7 +481,7 @@ public class SeriesService : ISeriesService
         var saved = await _seriesRepository.SetIncludeOmnibusEditionsAsync(seriesName, includeOmnibusEditions);
         _reconciliationCache.Invalidate(seriesName);
 
-        var reconciliation = await GetOrComputeReconciliationAsync(seriesName);
+        var reconciliation = await GetReconciliationAsync(seriesName);
         return BuildReconciledOverview(seriesName, saved, reconciliation);
     }
 
@@ -699,7 +772,10 @@ public class SeriesService : ISeriesService
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
             .ToList();
         var active = expected.Where(e => !e.IsIgnored).ToList();
-        var ownedIndex = new OwnedBookIndex(ownedBooks.Select(b => BookKey.From(b.SeriesPart, b.BookName)));
+        // The overview index only answers "is this roster entry owned" - never the part-mismatch
+        // pass - so the owned books can be reduced to synthetic keys without their row ids.
+        var ownedIndex = new OwnedBookIndex(
+            ownedBooks.Select(b => new SeriesOwnedKey(0, b.SeriesPart, b.BookName)));
 
         return BuildOverview(
             seriesName,
@@ -791,32 +867,65 @@ public class SeriesService : ISeriesService
     /// </summary>
     private sealed class OwnedBookIndex
     {
-        private readonly List<BookKey> _keys;
-        private readonly ILookup<string, BookKey> _byPosition;
+        private readonly List<OwnedBookIndexItem> _items;
+        private readonly ILookup<string, OwnedBookIndexItem> _byPosition;
 
-        public OwnedBookIndex(IEnumerable<BookKey> ownedKeys)
+        public OwnedBookIndex(IEnumerable<SeriesOwnedKey> ownedKeys)
         {
-            _keys = ownedKeys.ToList();
-            _byPosition = _keys
-                .Where(k => !string.IsNullOrWhiteSpace(k.Position))
-                .ToLookup(k => NormalizePosition(k.Position!), StringComparer.OrdinalIgnoreCase);
+            _items = ownedKeys.Select(k => new OwnedBookIndexItem(k, BookKey.From(k.SeriesPart, k.BookName))).ToList();
+            _byPosition = _items
+                .Where(i => !string.IsNullOrWhiteSpace(i.Key.SeriesPart))
+                .ToLookup(i => NormalizePosition(i.Key.SeriesPart!), StringComparer.OrdinalIgnoreCase);
         }
 
         public bool Contains(BookKey expected)
         {
-            // Fast path only - never a substitute for the scan below.
             if (!string.IsNullOrWhiteSpace(expected.Position))
             {
-                foreach (var owned in _byPosition[NormalizePosition(expected.Position!)])
+                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
                 {
-                    if (IsSameBook(expected, owned))
+                    if (IsSameBook(expected, item.BookKey))
                     {
                         return true;
                     }
                 }
             }
 
-            return _keys.Any(owned => IsSameBook(expected, owned));
+            return _items.Any(item => IsSameBook(expected, item.BookKey));
+        }
+
+        /// <summary>
+        /// Every owned book this roster entry corresponds to. A book can match more than one
+        /// roster entry (duplicate titles across positions), so the callers that need exactly one
+        /// answer (<see cref="Contains"/>) take "any"; the part-mismatch pass reports each matched
+        /// book and deduplicates itself.
+        /// </summary>
+        public List<SeriesOwnedKey> FindMatches(BookKey expected)
+        {
+            var matches = new List<SeriesOwnedKey>();
+
+            // Fast path only - never a substitute for the scan below.
+            if (!string.IsNullOrWhiteSpace(expected.Position))
+            {
+                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
+                {
+                    if (IsSameBook(expected, item.BookKey))
+                    {
+                        matches.Add(item.Key);
+                    }
+                }
+            }
+
+            foreach (var item in _items)
+            {
+                if (IsSameBook(expected, item.BookKey)
+                    && !matches.Contains(item.Key))
+                {
+                    matches.Add(item.Key);
+                }
+            }
+
+            return matches;
         }
 
         /// <summary>
@@ -831,6 +940,8 @@ public class SeriesService : ISeriesService
                 : position.Trim();
     }
 
+    private sealed record OwnedBookIndexItem(SeriesOwnedKey Key, BookKey BookKey);
+
     /// <summary>
     /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
     /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
@@ -838,6 +949,16 @@ public class SeriesService : ISeriesService
     /// </summary>
     private static bool IsOwned(SeriesExpectedBook expected, OwnedBookIndex ownedBooks) =>
         ownedBooks.Contains(BookKey.From(expected.Position, expected.Title));
+
+    /// <summary>
+    /// Whether an owned book's stored part agrees with the position of the roster entry it was
+    /// matched to. The caller has already skipped roster entries with no position (nothing to fix
+    /// a part against), so a stored empty part is a genuine miss and a stored one is compared
+    /// with the same equivalence <see cref="PositionsEqual"/> applies during matching - "2" and
+    /// "2.0" are the same part, "2" and "7" are not.
+    /// </summary>
+    private static bool PartsEquivalent(string? storedPart, string expectedPosition) =>
+        !string.IsNullOrWhiteSpace(storedPart) && PositionsEqual(storedPart, expectedPosition);
 
     private static bool IsSameBook(BookKey expected, BookKey owned)
     {

@@ -41,7 +41,8 @@ public record SeriesDetailDto(
     SeriesOverviewDto Overview,
     SeriesOwnedBookPageDto OwnedBooks,
     SeriesExpectedBookPageDto MissingBooks,
-    SeriesExpectedBookPageDto IgnoredBooks
+    SeriesExpectedBookPageDto IgnoredBooks,
+    SeriesPartMismatchPageDto PartMismatches
 );
 
 /// <summary>
@@ -67,6 +68,23 @@ public record SeriesCountsDto(
 public record SeriesOwnedBookPageDto(List<SeriesOwnedBookDto> Items, int TotalCount);
 
 public record SeriesExpectedBookPageDto(List<SeriesExpectedBookDto> Items, int TotalCount);
+
+/// <summary>
+/// An owned book of a matched series whose stored part is missing or differs from the position
+/// its matching roster entry assigns. The expected part and roster title are what the client
+/// hands back to <c>/series/expected-books/apply</c> to fix the book, so <paramref name="StoredPart"/>
+/// is nullable (a book with no part at all is exactly the missing-part shape this section exists
+/// to surface) while the expected values are not.
+/// </summary>
+public record SeriesPartMismatchDto(
+    long AudiobookId,
+    string BookName,
+    string? StoredPart,
+    string ExpectedPart,
+    string RosterTitle
+);
+
+public record SeriesPartMismatchPageDto(List<SeriesPartMismatchDto> Items, int TotalCount);
 
 public record SeriesMatchCandidateDto(
     string SourceName,

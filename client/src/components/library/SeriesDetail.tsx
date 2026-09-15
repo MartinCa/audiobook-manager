@@ -3,6 +3,7 @@ import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ArrowRight,
   RefreshCw,
   Link as LinkIcon,
   ExternalLink,
@@ -31,7 +32,12 @@ import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
 import { toast } from "sonner";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
-import type { SeriesExpectedBook, SeriesMatchCandidate, SeriesOwnedBook } from "@/types/Series";
+import type {
+  SeriesExpectedBook,
+  SeriesMatchCandidate,
+  SeriesOwnedBook,
+  SeriesPartMismatch,
+} from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
 import { formatDate } from "@/helpers/formatHelpers";
 
@@ -112,13 +118,23 @@ export function SeriesDetail() {
   const [ownedPage, setOwnedPage] = useState(0);
   const [missingPage, setMissingPage] = useState(0);
   const [ignoredPage, setIgnoredPage] = useState(0);
+  const [partMismatchPage, setPartMismatchPage] = useState(0);
+  const [fixingMismatchId, setFixingMismatchId] = useState<number | null>(null);
 
   // One combined detail query instead of three: the endpoint already computes every section on
   // each call and accepts all three page cursors, so separate queries made every section change
   // issue an extra backend call whose other sections (computed with default paging) were thrown
   // away. keepPreviousData keeps the other sections' items rendered while one section pages.
   const seriesDetailQuery = useQuery({
-    queryKey: ["seriesDetail", seriesName, authorId, ownedPage, missingPage, ignoredPage],
+    queryKey: [
+      "seriesDetail",
+      seriesName,
+      authorId,
+      ownedPage,
+      missingPage,
+      ignoredPage,
+      partMismatchPage,
+    ],
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
         ownedPage,
@@ -127,6 +143,8 @@ export function SeriesDetail() {
         missingPageSize: PAGE_SIZE,
         ignoredPage,
         ignoredPageSize: PAGE_SIZE,
+        partMismatchPage,
+        partMismatchPageSize: PAGE_SIZE,
       }),
     enabled: Boolean(seriesName),
     placeholderData: keepPreviousData,
@@ -145,15 +163,21 @@ export function SeriesDetail() {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
+  const partMismatchSection = seriesDetailQuery.data?.partMismatches ?? {
+    items: [] as SeriesPartMismatch[],
+    totalCount: 0,
+  };
   const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
   const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
   const ignoredPageCount = Math.max(1, Math.ceil(ignoredSection.totalCount / PAGE_SIZE));
+  const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / PAGE_SIZE));
 
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
   const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
+  const currentPartMismatchPage = Math.min(partMismatchPage, partMismatchPageCount - 1);
 
   // And the raw page states are corrected back into range once a response shows the total has
   // shrunk under them (e.g. ignoring the last row of the last missing-books page), so the next
@@ -161,6 +185,7 @@ export function SeriesDetail() {
   useClampedPage(ownedPage, ownedPageCount, setOwnedPage);
   useClampedPage(missingPage, missingPageCount, setMissingPage);
   useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
+  useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
 
   useSignalREvent<SeriesRefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (arg) => {
     setRefreshing(false);
@@ -287,6 +312,34 @@ export function SeriesDetail() {
     }
   };
 
+  // Fixing a part mismatch reuses the expected-books/apply endpoint (the same save-gate-safe
+  // UpdateAudiobook pipeline the missing-book flow uses): the mismatch row carries the roster's
+  // position and title, which are exactly the natural key the apply endpoint expects. Applying
+  // either fixes the part (roster has a position) or clears it, and the apply's own recheck
+  // clears the resolved issue.
+  const handleFixPartMismatch = async (mismatch: SeriesPartMismatch) => {
+    setFixingMismatchId(mismatch.audiobookId);
+    try {
+      await seriesApi.applyMissingBook(
+        seriesName,
+        mismatch.audiobookId,
+        mismatch.expectedPart,
+        mismatch.rosterTitle,
+      );
+      toast.success(`Set part ${mismatch.expectedPart} on "${mismatch.bookName}"`);
+      // The fix shrinks this list; drop the section back to page 0 so the refetch below never
+      // asks for a page the shrunk section no longer has.
+      setPartMismatchPage(0);
+      void queryClient.invalidateQueries({
+        queryKey: ["seriesDetail", seriesName, authorId],
+      });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setFixingMismatchId(null);
+    }
+  };
+
   if (!overview && seriesDetailQuery.isLoading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
@@ -309,6 +362,7 @@ export function SeriesDetail() {
   const ownedManagedBooks = ownedBooks.map(toManagedBook);
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
+  const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
 
   return (
     <div className="space-y-6">
@@ -741,6 +795,59 @@ export function SeriesDetail() {
               pageCount={ignoredPageCount}
               totalCount={ignoredSection.totalCount}
               onPageChange={setIgnoredPage}
+            />
+          )}
+        </div>
+      )}
+
+      {overview.isMatched && partMismatchSection.totalCount > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-orange-600 dark:text-orange-400">
+            Part Mismatches ({partMismatchSection.totalCount})
+          </h2>
+          <p className="text-muted-foreground w-2/3 text-xs">
+            These owned books carry no series part, or one that differs from the position this
+            matched series assigns them.
+          </p>
+          <div className="space-y-2">
+            {partMismatchBooks.map((pm) => (
+              <div
+                key={pm.audiobookId}
+                className="flex flex-col justify-between gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3 text-xs sm:flex-row sm:items-center"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-foreground font-semibold break-words">{pm.bookName}</span>
+                  <div className="text-muted-foreground mt-0.5 break-words">
+                    stored part <span className="line-through">{pm.storedPart ?? "—"}</span>{" "}
+                    <ArrowRight className="inline h-3 w-3" /> part {pm.expectedPart} (shared with "
+                    {pm.rosterTitle}")
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-6 self-end text-[11px] sm:self-center"
+                  disabled={fixingMismatchId === pm.audiobookId}
+                  onClick={() => {
+                    void handleFixPartMismatch(pm);
+                  }}
+                >
+                  {fixingMismatchId === pm.audiobookId ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="mr-1 h-3 w-3" />
+                  )}
+                  Fix
+                </Button>
+              </div>
+            ))}
+          </div>
+          {partMismatchPageCount > 1 && (
+            <SectionPager
+              currentPage={currentPartMismatchPage}
+              pageCount={partMismatchPageCount}
+              totalCount={partMismatchSection.totalCount}
+              onPageChange={setPartMismatchPage}
             />
           )}
         </div>

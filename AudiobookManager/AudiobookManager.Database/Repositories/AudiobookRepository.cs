@@ -303,10 +303,12 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
-    /// Every owned book of one series reduced to its (series part, book name) keys. The series
-    /// detail reconciles a roster against these, but that reconciliation is cached per series;
-    /// this runs only when the cache needs refilling, and carries nothing the fuzzy matcher does
-    /// not read - no authors, no ids, no entity graph.
+    /// Every owned book of one series reduced to its (series part, book name, id) keys. The
+    /// series detail reconciles a roster against these; the id is needed so an owned book whose
+    /// stored part differs from its roster entry's position can be reported (and later fixed).
+    /// That reconciliation is cached per series, so this runs only when the cache needs
+    /// refilling, and carries nothing the fuzzy matcher does not read - no authors, no entity
+    /// graph.
     ///
     /// The fetch is bounded to <paramref name="maxKeys"/> + 1 rows and returns whether that bound
     /// was breached, so a pathological owned set is detected without ever materializing (or
@@ -321,10 +323,10 @@ public class AudiobookRepository : IAudiobookRepository
             .Where(a => a.Series == seriesName)
             .OrderBy(a => a.Id)
             .Take(maxKeys + 1)
-            .Select(a => new { a.SeriesPart, a.BookName })
+            .Select(a => new { a.Id, a.SeriesPart, a.BookName })
             .ToListAsync();
 
-        return (rows.Select(r => new SeriesOwnedKey(r.SeriesPart, r.BookName)).ToList(), rows.Count > maxKeys);
+        return (rows.Select(r => new SeriesOwnedKey(r.Id, r.SeriesPart, r.BookName)).ToList(), rows.Count > maxKeys);
     }
 
     /// <summary>

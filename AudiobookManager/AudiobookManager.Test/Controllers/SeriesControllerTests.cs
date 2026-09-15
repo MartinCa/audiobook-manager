@@ -210,7 +210,7 @@ public class SeriesControllerTests
     {
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -225,7 +225,12 @@ public class SeriesControllerTests
                 },
                 MissingBookTotal = 7,
                 IgnoredBooks = new List<SeriesExpectedBookInfo>(),
-                IgnoredBookTotal = 2
+                IgnoredBookTotal = 2,
+                PartMismatches = new List<SeriesPartMismatch>
+                {
+                    new SeriesPartMismatch { AudiobookId = 1, BookName = "The Final Empire", StoredPart = "7", ExpectedPart = "1", RosterTitle = "The Final Empire" }
+                },
+                PartMismatchTotal = 5
             });
 
         var result = await _controller.GetSeriesDetail("Mistborn");
@@ -240,6 +245,26 @@ public class SeriesControllerTests
         Assert.AreEqual(0, dto.IgnoredBooks.Items.Count);
         Assert.AreEqual(2, dto.IgnoredBooks.TotalCount);
         Assert.AreEqual("Missing Book", dto.MissingBooks.Items[0].Title);
+        Assert.AreEqual(1, dto.PartMismatches.Items.Count);
+        Assert.AreEqual(5, dto.PartMismatches.TotalCount, "the total is the full mismatch count, not the page");
+        var mismatch = dto.PartMismatches.Items[0];
+        Assert.AreEqual(1, mismatch.AudiobookId);
+        Assert.AreEqual("7", mismatch.StoredPart);
+        Assert.AreEqual("1", mismatch.ExpectedPart);
+        Assert.AreEqual("The Final Empire", mismatch.RosterTitle);
+    }
+
+    // Only the section's own page parameters are sliced from the reconciliation; an out-of-range
+    // part-mismatch page must be refused like any other section's, and nothing is fetched.
+    [TestMethod]
+    public async Task GetSeriesDetail_AnOutOfRangePartMismatchPage_IsRefused()
+    {
+        var result = await _controller.GetSeriesDetail("Mistborn", partMismatchPage: -1);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(
+            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+            Times.Never);
     }
 
     // Regression: the owned section used to serve a minimal DTO with no coverFilePath, so the
@@ -251,7 +276,7 @@ public class SeriesControllerTests
         const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -278,7 +303,7 @@ public class SeriesControllerTests
     {
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync((SeriesDetailPage?)null);
 
         var result = await _controller.GetSeriesDetail("Unknown");
@@ -293,7 +318,7 @@ public class SeriesControllerTests
 
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _seriesService.Verify(
-            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 
