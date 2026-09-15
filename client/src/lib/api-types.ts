@@ -2847,6 +2847,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/expected-books/bulk-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesBulkCandidatePageDto"];
+                        "application/json": components["schemas"]["SeriesBulkCandidatePageDto"];
+                        "text/json": components["schemas"]["SeriesBulkCandidatePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/expected-books/apply-bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
+                    "text/json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
+                    "application/*+json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/expected-books/ignore": {
         parameters: {
             query?: never;
@@ -3557,6 +3639,15 @@ export interface components {
             position?: string | null;
             title?: string | null;
         };
+        ApplyMissingBookBulkRequestDto: {
+            selections: components["schemas"]["ApplyMissingBookSelectionDto"][];
+        };
+        ApplyMissingBookSelectionDto: {
+            position?: string | null;
+            title?: string | null;
+            /** Format: int64 */
+            audiobookId: number;
+        };
         ApplyUrlCleanupDto: {
             audiobookIds?: number[] | null;
         };
@@ -4102,6 +4193,15 @@ export interface components {
             /** Format: double */
             titleSimilarity?: number;
             authorMatches?: boolean;
+        };
+        SeriesBulkCandidateItemDto: {
+            book?: components["schemas"]["SeriesExpectedBookDto"];
+            candidates?: components["schemas"]["SeriesBookCandidateDto"][] | null;
+        };
+        SeriesBulkCandidatePageDto: {
+            items?: components["schemas"]["SeriesBulkCandidateItemDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
         SeriesCountsDto: {
             /** Format: int32 */

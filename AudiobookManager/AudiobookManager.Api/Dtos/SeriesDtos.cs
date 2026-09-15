@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AudiobookManager.Api.Dtos;
 
 public record SeriesOverviewDto(
@@ -107,6 +109,21 @@ public record SeriesBookCandidateDto(
     bool AuthorMatches
 );
 
+/// <summary>
+/// One row of the bulk missing-book match view: a missing expected book (the same shape the
+/// detail page's missing section renders) plus its ranked candidate library audiobooks. The
+/// candidate list is bounded per row by the same cap the single-book candidates endpoint uses.
+/// </summary>
+public record SeriesBulkCandidateItemDto(
+    SeriesExpectedBookDto Book,
+    List<SeriesBookCandidateDto> Candidates
+);
+
+public record SeriesBulkCandidatePageDto(
+    List<SeriesBulkCandidateItemDto> Items,
+    int TotalCount
+);
+
 public class MatchSeriesDto
 {
     public string SourceName { get; set; } = string.Empty;
@@ -142,6 +159,27 @@ public class ApplyExpectedBookDto
     public string? Position { get; set; }
 
     public string? Title { get; set; }
+}
+
+/// <summary>
+/// One accepted assignment in a bulk missing-book apply. The roster entry is addressed by its
+/// natural key (position and/or title) exactly like <see cref="ApplyExpectedBookDto"/>;
+/// a "do not assign" row is a selection the client simply omits, never a null AudiobookId.
+/// </summary>
+public class ApplyMissingBookSelectionDto
+{
+    public string? Position { get; set; }
+
+    public string? Title { get; set; }
+
+    [Required]
+    public long AudiobookId { get; set; }
+}
+
+public class ApplyMissingBookBulkRequestDto
+{
+    [Required]
+    public List<ApplyMissingBookSelectionDto> Selections { get; set; } = new();
 }
 
 public class BulkMatchSeriesDto

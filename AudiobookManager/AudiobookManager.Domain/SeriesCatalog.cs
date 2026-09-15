@@ -123,6 +123,32 @@ public class SeriesMatchCandidate
 }
 
 /// <summary>
+/// One missing expected book of a matched series together with the ranked library-audiobook
+/// candidates suggested for it - the payload of one row of the bulk missing-book match view.
+/// The candidates use exactly the ranking (and the same cap) the single-book candidates
+/// endpoint applies, so a reviewer accepts the same matches the row-by-row flow would offer.
+/// </summary>
+public class SeriesBulkCandidateItem
+{
+    public SeriesExpectedBookInfo Book { get; set; } = new();
+
+    /// <summary>Ranked candidate library audiobooks; empty when nothing in the library plausibly matches.</summary>
+    public List<SeriesBookCandidate> Candidates { get; set; } = new();
+}
+
+/// <summary>
+/// One page of the bulk missing-book match view. The missing books are sliced from the cached
+/// reconciliation (in its display order, so paging is stable) and the per-item candidate lists
+/// are capped at the same constant as the single-book endpoint, so the page is bounded on both
+/// axes.
+/// </summary>
+public class SeriesBulkCandidatePage
+{
+    public List<SeriesBulkCandidateItem> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+}
+
+/// <summary>
 /// A library audiobook suggested as a match for one missing expected book of a matched series.
 /// </summary>
 public class SeriesBookCandidate

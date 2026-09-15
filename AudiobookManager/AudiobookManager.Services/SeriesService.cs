@@ -631,13 +631,54 @@ public class SeriesService : ISeriesService
         // single-connection rule forbids it; the codebase keeps every such pair sequential for
         // the same reason.
         var knownAuthors = await GetKnownAuthorsAsync(seriesName);
-        var books = await _audiobookRepository.GetSeriesCandidateDataAsync(expected.Title, CandidatePrefilterLimit);
+        return await FindCandidatesForTitleAsync(expected.Title, knownAuthors);
+    }
+
+    public async Task<SeriesBulkCandidatePage> GetBulkMissingBookCandidatesAsync(string seriesName, int skip, int take)
+    {
+        // The missing books are the cached reconciliation's list (bounded at compute time and
+        // computed once per series per change), so paging never re-reads the roster or the
+        // owned set per page request. The per-row candidate ranking needs the series' authors
+        // and the bounded candidate pre-filter, both read once per page.
+        var reconciliation = await GetReconciliationAsync(seriesName);
+        var page = reconciliation.Missing.Skip(skip).Take(take).ToList();
+        if (page.Count == 0)
+        {
+            return new SeriesBulkCandidatePage { Items = new List<SeriesBulkCandidateItem>(), TotalCount = reconciliation.MissingBookCount };
+        }
+
+        var knownAuthors = await GetKnownAuthorsAsync(seriesName);
+
+        var items = new List<SeriesBulkCandidateItem>();
+        foreach (var expected in page)
+        {
+            items.Add(new SeriesBulkCandidateItem
+            {
+                Book = expected,
+                Candidates = await FindCandidatesForTitleAsync(expected.Title, knownAuthors),
+            });
+        }
+
+        return new SeriesBulkCandidatePage { Items = items, TotalCount = reconciliation.MissingBookCount };
+    }
+
+    /// <summary>
+    /// The ranked candidate list for one missing expected book's title, shared by the single-book
+    /// candidates endpoint and the bulk view so both accept the same matches. The ranking is
+    /// authoritative; the SQL LIKE pre-filter on <see cref="CandidatePrefilterLimit"/> rows only
+    /// reduces the set the fuzzy scorer works against, and the final list is capped at
+    /// <see cref="MaxMissingBookCandidates"/>.
+    /// </summary>
+    private async Task<List<SeriesBookCandidate>> FindCandidatesForTitleAsync(
+        string title, IReadOnlyCollection<string> knownAuthors)
+    {
+        var books = await _audiobookRepository.GetSeriesCandidateDataAsync(title, CandidatePrefilterLimit);
 
         // A book already in the target series is deliberately NOT excluded: one with a wrong part
         // or a slightly different title is exactly what leaves a roster entry reported as missing,
         // and the candidate carries its current series/part so the UI can show it.
         return books
-            .Select(book => (Book: book, TitleSimilarity: TitleSimilarity(book.BookName, expected.Title)))
+            .Select(book => (Book: book, TitleSimilarity: TitleSimilarity(book.BookName, title)))
             .Where(b => b.TitleSimilarity >= CandidateTitleSimilarityThreshold)
             .Select(b =>
             {
@@ -670,6 +711,15 @@ public class SeriesService : ISeriesService
                 AuthorMatches = b.AuthorSimilarity >= AuthorMatchSimilarityThreshold,
             })
             .ToList();
+    }
+
+    public async Task<SeriesExpectedBookInfo?> ResolveExpectedBookAsync(string seriesName, string? position, string? title)
+    {
+        // The same repository lookup ApplyMissingBookAsync performs against the same key, so the
+        // bulk apply's pre-flight duplicate check and the apply itself can never disagree about
+        // which natural key addresses which roster entry.
+        var book = await _seriesRepository.FindExpectedBookStrictAsync(seriesName, position, title);
+        return book is null ? null : ToExpectedInfo(book);
     }
 
     public async Task ApplyMissingBookAsync(string seriesName, string? position, string? title, long audiobookId)

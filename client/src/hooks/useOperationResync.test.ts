@@ -87,4 +87,66 @@ describe("useOperationResync", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(onStatus).not.toHaveBeenCalled();
   });
+
+  it("re-fetches status when resyncTrigger changes", async () => {
+    const onStatus = vi.fn();
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 5,
+      total: 10,
+    });
+
+    const { rerender } = renderHook(
+      ({ trigger }) => useOperationResync("test-op", onStatus, trigger),
+      { initialProps: { trigger: 0 } },
+    );
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ trigger: 1 });
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(2);
+      expect(onStatus).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("drops an in-flight status response from the previous resyncTrigger", async () => {
+    // The permanently-mounted dialog's open-triggered resync must not apply a status fetched
+    // for the previous (closed) window: an old "running" response landing after the dialog was
+    // reopened would resurrect a progress bar for a batch that already finished. The previous
+    // effect instance's cleanup discards it.
+    const onStatus = vi.fn();
+    let resolveFirst: (val: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(operationsApi.getStatus)
+      .mockReturnValueOnce(first as never)
+      .mockResolvedValueOnce({ isRunning: true, processed: 2, total: 5 });
+
+    const { rerender } = renderHook(
+      ({ trigger }) => useOperationResync("test-op", onStatus, trigger),
+      { initialProps: { trigger: 0 } },
+    );
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ trigger: 1 });
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(2);
+    });
+
+    // The first (now stale) response resolves AFTER the trigger changed - it must be dropped.
+    resolveFirst!({ isRunning: true, processed: 1, total: 5 });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(onStatus).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenCalledWith({ isRunning: true, processed: 2, total: 5 });
+  });
 });

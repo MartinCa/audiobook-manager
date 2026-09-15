@@ -25,9 +25,11 @@ public class SeriesController : ControllerBase
 {
     private static readonly SemaphoreSlim _matchLock = new(1, 1);
     private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private static readonly SemaphoreSlim _missingBookApplyLock = new(1, 1);
 
     public const string MatchOperationKey = "series-match";
     public const string RefreshOperationKey = "series-refresh";
+    public const string MissingBookApplyOperationKey = "series-missing-book-apply";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -339,6 +341,203 @@ public class SeriesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// One page of the bulk missing-book match view: each missing roster entry of the series with
+    /// its ranked candidate library audiobooks, so the client can review every missing book at
+    /// once and apply all accepted assignments in a single follow-up (<c>expected-books/apply-bulk</c>).
+    /// Paged like the detail sections; the per-row candidate lists are capped server-side, so the
+    /// response is bounded on both axes.
+    /// </summary>
+    [HttpGet("expected-books/bulk-candidates")]
+    public async Task<ActionResult<SeriesBulkCandidatePageDto>> GetBulkMissingBookCandidates(
+        [FromQuery] string seriesName,
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+    {
+        var pagingError = ValidatePageSelection(page, pageSize, "missing books");
+        if (pagingError != null)
+        {
+            return pagingError;
+        }
+
+        try
+        {
+            var result = await _seriesService.GetBulkMissingBookCandidatesAsync(
+                seriesName, skip: (int)((long)page * pageSize), take: pageSize);
+            return new SeriesBulkCandidatePageDto(
+                result.Items.Select(i => new SeriesBulkCandidateItemDto(
+                    ToDto(i.Book),
+                    i.Candidates.Select(c => new SeriesBookCandidateDto(
+                        c.AudiobookId, c.BookName, c.Series, c.SeriesPart, c.Year, c.Authors, c.TitleSimilarity, c.AuthorMatches)).ToList())).ToList(),
+                result.TotalCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching bulk missing-book candidates for series {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>
+    /// Fire-and-forget bulk application of accepted missing-book assignments. Selections are the
+    /// {"Do not assign", "best candidate", "alternate candidate"} choices the review dialog made,
+    /// each addressed by the roster entry's natural key plus the chosen audiobook; only the
+    /// accepted rows are sent (a skipped row is simply absent). Each assignment runs through
+    /// <c>ApplyMissingBookAsync</c> - the same UpdateAudiobook path the interactive apply uses -
+    /// under the per-audiobook save gate, so a busy book fails just its own item and the batch
+    /// carries on. The follow-up consistency recheck per book mirrors the interactive apply's tail.
+    /// Progress is reported over SignalR; the operation status is recorded under
+    /// <see cref="MissingBookApplyOperationKey"/> so a client can recover it after a reconnect.
+    /// </summary>
+    [HttpPost("expected-books/apply-bulk")]
+    public async Task<IActionResult> StartBulkApplyMissingBooks([FromQuery] string seriesName, [FromBody] ApplyMissingBookBulkRequestDto? dto)
+    {
+        var selections = dto?.Selections;
+        if (selections is null || selections.Count == 0)
+        {
+            return this.InvalidRequest("At least one book assignment is required.");
+        }
+
+        foreach (var selection in selections)
+        {
+            if (selection.AudiobookId <= 0)
+            {
+                return this.InvalidRequest("A valid AudiobookId is required for every assignment.");
+            }
+
+            if (string.IsNullOrWhiteSpace(selection.Position) && string.IsNullOrWhiteSpace(selection.Title))
+            {
+                return this.InvalidRequest("Position or Title is required for every assignment.");
+            }
+        }
+
+        // One library book can only be assigned to one missing slot: a duplicate would apply the
+        // series and part to the same audiobook twice (two writes to one book, two moves), with
+        // the second clobbering the first and both counting as "succeeded". Reject the batch up
+        // front rather than discovering the collision mid-run. AudiobookId is validated > 0 above,
+        // so a zero FirstOrDefault is a reliable "no duplicate" sentinel.
+        var duplicateAudiobookId = selections
+            .GroupBy(s => s.AudiobookId)
+            .FirstOrDefault(g => g.Count() > 1)
+            ?.Key ?? 0;
+        if (duplicateAudiobookId != 0)
+        {
+            return this.InvalidRequest(
+                $"A library book can only be assigned to one missing book: audiobook {duplicateAudiobookId} appears more than once in the request.");
+        }
+
+        // Symmetric guard on the other side of that assignment: two selections may not target the
+        // same roster entry. The natural keys are RESOLVED rather than string-compared, because
+        // the strict matching rule ApplyMissingBookAsync uses - both parts when both are supplied,
+        // position OR title alone otherwise, trimmed and case-insensitive - means "2" on its own
+        // and "2" + "The Well of Ascension" can name the same row, which a raw key-pair equality
+        // check would miss. The resolution happens here, before the background operation starts,
+        // so a duplicate target fails this request instead of a mid-batch double-apply.
+        var resolvedTargets = new HashSet<long>();
+        foreach (var selection in selections)
+        {
+            var expected = await _seriesService.ResolveExpectedBookAsync(
+                seriesName, selection.Position, selection.Title);
+            if (expected is null)
+            {
+                continue;
+            }
+
+            if (!resolvedTargets.Add(expected.Id))
+            {
+                return this.InvalidRequest(
+                    $"A missing book can only be assigned once: roster entry {DescribeExpected(expected)} is targeted by more than one assignment.");
+            }
+        }
+
+        return BackgroundOperationRunner.Start(
+            _missingBookApplyLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            MissingBookApplyOperationKey,
+            async sp =>
+            {
+                // Resolved from the background scope, never from the request's own instances:
+                // both services are scoped, and the background task outlives the request.
+                var seriesService = sp.GetRequiredService<ISeriesService>();
+                var libraryConsistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(MissingBookApplyOperationKey, processed, total);
+                    return _organizeHub.Clients.All.SeriesMissingBookApplyProgress(
+                        new SeriesMissingBookApplyProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) = await ApplyMissingBookSelectionsCoreAsync(
+                    seriesService, libraryConsistencyService, seriesName, selections, ProgressAction);
+
+                await _organizeHub.Clients.All.SeriesMissingBookApplyComplete(
+                    new SeriesMissingBookApplyComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.SeriesMissingBookApplyComplete(new SeriesMissingBookApplyComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
+    /// <summary>
+    /// The bulk apply loop. The save gate, the apply, and the follow-up recheck are exactly the
+    /// interactive <c>ApplyExpectedBook</c> action's body, run once per accepted selection with
+    /// the shared bulk contract: one try/catch per item so a single failure never aborts the
+    /// batch, and a (processed, total, succeeded, failed) progress report after every item. A
+    /// recheck failure is non-fatal, mirroring the interactive apply.
+    /// </summary>
+    private async Task<(int Processed, int Succeeded, int Failed)> ApplyMissingBookSelectionsCoreAsync(
+        ISeriesService seriesService,
+        ILibraryConsistencyService libraryConsistencyService,
+        string seriesName,
+        IReadOnlyList<ApplyMissingBookSelectionDto> selections,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var total = selections.Count;
+
+        foreach (var selection in selections)
+        {
+            processed++;
+            try
+            {
+                // Same per-audiobook gate the interactive apply (and the save PUT) holds: two
+                // writers must never rewrite the same book's tags concurrently. A book someone
+                // is saving right now fails just its own item and the batch carries on.
+                using var lease = _saveGate.Acquire(selection.AudiobookId);
+
+                await seriesService.ApplyMissingBookAsync(seriesName, selection.Position, selection.Title, selection.AudiobookId);
+
+                // Same tail as the interactive apply: the assignment rewrote tags and possibly
+                // moved the file, so stored issues for this book are stale until rechecked.
+                try
+                {
+                    await libraryConsistencyService.RecheckAudiobookAsync(selection.AudiobookId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after a bulk series assignment", selection.AudiobookId);
+                }
+
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Bulk series assignment failed for series {SeriesName}, expected book (position {Position}, title {Title}), audiobook {AudiobookId}",
+                    seriesName, selection.Position, selection.Title, selection.AudiobookId);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        return (processed, succeeded, failed);
+    }
+
     // Roster entries are addressed by their natural key (series name plus position and/or
     // title), not by row id: matching and refreshing delete and re-insert the whole roster,
     // so an id a client cached earlier can point at a different book by the time it is used.
@@ -433,4 +632,18 @@ public class SeriesController : ControllerBase
 
     private static SeriesPartMismatchDto ToMismatchDto(SeriesPartMismatch m) => new(
         m.AudiobookId, m.BookName, m.StoredPart, m.ExpectedPart, m.RosterTitle);
+
+    /// <summary>
+    /// Human-readable label of a resolved roster entry for an error the caller sees. Uses the
+    /// canonical values from the stored row (not the key the client sent), so the label agrees
+    /// with what the series detail's missing section shows even when the two selections that
+    /// collided named the entry differently.
+    /// </summary>
+    private static string DescribeExpected(SeriesExpectedBookInfo book)
+    {
+        var position = book.Position;
+        return string.IsNullOrWhiteSpace(position)
+            ? $"'{book.Title}'"
+            : $"'{book.Title}' (position '{position}')";
+    }
 }

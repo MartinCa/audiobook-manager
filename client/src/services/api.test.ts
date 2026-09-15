@@ -245,6 +245,48 @@ describe("api service mappings and contracts", () => {
         }),
       );
     });
+
+    it("calls expected-books/bulk-candidates with paged query params", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ items: [], totalCount: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getBulkMissingBookCandidates("Mistborn", 3, 50);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/expected-books/bulk-candidates?seriesName=Mistborn&page=3&pageSize=50",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("calls expected-books/apply-bulk with only the accepted selections", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.startBulkMissingBookApply("Mistborn", [
+        { audiobookId: 42, position: "4", title: "Secret History" },
+        { audiobookId: 43, position: null, title: "The Lost Metal" },
+      ]);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/expected-books/apply-bulk?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            selections: [
+              { audiobookId: 42, position: "4", title: "Secret History" },
+              { audiobookId: 43, position: null, title: "The Lost Metal" },
+            ],
+          }),
+        }),
+      );
+    });
   });
 
   describe("Files API endpoints", () => {

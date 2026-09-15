@@ -84,6 +84,7 @@ public class SeriesControllerTests
         var mockScope = new Mock<IServiceScope>();
         var mockServiceProvider = new Mock<IServiceProvider>();
         mockServiceProvider.Setup(sp => sp.GetService(typeof(ISeriesService))).Returns(_seriesService.Object);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService))).Returns(_libraryConsistencyService.Object);
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
@@ -708,5 +709,262 @@ public class SeriesControllerTests
 
         ProblemAssert.HasDetail(
             result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    [TestMethod]
+    public async Task GetBulkMissingBookCandidates_ValidatesPaging()
+    {
+        var badPage = await _controller.GetBulkMissingBookCandidates("Mistborn", page: -1, pageSize: 50);
+        ProblemAssert.HasStatus(badPage.Result, StatusCodes.Status400BadRequest);
+
+        var badSize = await _controller.GetBulkMissingBookCandidates("Mistborn", page: 0, pageSize: PagingLimits.MaxPageSize + 1);
+        ProblemAssert.HasStatus(badSize.Result, StatusCodes.Status400BadRequest);
+    }
+
+    [TestMethod]
+    public async Task GetBulkMissingBookCandidates_ReturnsMappedPage()
+    {
+        _seriesService.Setup(s => s.GetBulkMissingBookCandidatesAsync("Mistborn", 0, 50))
+            .ReturnsAsync(new SeriesBulkCandidatePage
+            {
+                Items = new List<SeriesBulkCandidateItem>
+                {
+                    new()
+                    {
+                        Book = new SeriesExpectedBookInfo { Id = 11, Title = "The Well of Ascension", Position = "2", Year = 2006 },
+                        Candidates = new List<SeriesBookCandidate>
+                        {
+                            new()
+                            {
+                                AudiobookId = 5, BookName = "Well of Ascension", Series = null, SeriesPart = null, Year = 2006,
+                                Authors = new List<string> { "Brandon Sanderson" }, TitleSimilarity = 0.9, AuthorMatches = true,
+                            },
+                        },
+                    },
+                },
+                TotalCount = 7,
+            });
+
+        var result = await _controller.GetBulkMissingBookCandidates("Mistborn", page: 0, pageSize: 50);
+
+        Assert.AreEqual(7, result.Value!.TotalCount);
+        Assert.AreEqual(1, result.Value.Items.Count);
+        var item = result.Value.Items[0];
+        Assert.AreEqual("2", item.Book.Position);
+        Assert.AreEqual(11, item.Book.Id);
+        Assert.AreEqual("The Well of Ascension", item.Book.Title);
+        Assert.AreEqual(1, item.Candidates.Count);
+        var candidate = item.Candidates.Single();
+        Assert.AreEqual(5, candidate.AudiobookId);
+        Assert.AreEqual("Well of Ascension", candidate.BookName);
+        Assert.IsTrue(candidate.AuthorMatches);
+    }
+
+    [TestMethod]
+    public async Task GetBulkMissingBookCandidates_ServiceThrows_Returns500()
+    {
+        _seriesService.Setup(s => s.GetBulkMissingBookCandidatesAsync("Mistborn", 0, 50))
+            .ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.GetBulkMissingBookCandidates("Mistborn", page: 0, pageSize: 50);
+
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_NullOrEmptySelections_ReturnsBadRequest()
+    {
+        var nullDto = await _controller.StartBulkApplyMissingBooks("Mistborn", null);
+        ProblemAssert.HasDetail(nullDto, StatusCodes.Status400BadRequest, "At least one book assignment is required.");
+
+        var emptyDto = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto());
+        ProblemAssert.HasDetail(emptyDto, StatusCodes.Status400BadRequest, "At least one book assignment is required.");
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_InvalidSelection_ReturnsBadRequest()
+    {
+        var zeroId = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto
+        {
+            Selections = new List<ApplyMissingBookSelectionDto> { new() { AudiobookId = 0, Position = "2" } },
+        });
+        ProblemAssert.HasDetail(zeroId, StatusCodes.Status400BadRequest, "A valid AudiobookId is required for every assignment.");
+
+        var noKey = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto
+        {
+            Selections = new List<ApplyMissingBookSelectionDto> { new() { AudiobookId = 5 } },
+        });
+        ProblemAssert.HasDetail(noKey, StatusCodes.Status400BadRequest, "Position or Title is required for every assignment.");
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_DuplicateAudiobookId_ReturnsBadRequestAndAppliesNothing()
+    {
+        // Two different missing slots pointing at the same library book would apply the series to
+        // that book twice (clobbering the first assignment), so the batch must be refused up front.
+        var selections = new List<ApplyMissingBookSelectionDto>
+        {
+            new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+            new() { AudiobookId = 5, Position = "3", Title = "The Hero of Ages" },
+        };
+
+        var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+        ProblemAssert.HasDetail(
+            result, StatusCodes.Status400BadRequest,
+            "A library book can only be assigned to one missing book: audiobook 5 appears more than once in the request.");
+        _seriesService.Verify(
+            s => s.ApplyMissingBookAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<long>()),
+            Times.Never, "the request must be rejected before any background apply starts");
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_ReturnsOkImmediately_AndAppliesEachSelectionUnderTheSaveGateWithRecheck()
+    {
+        var selections = new List<ApplyMissingBookSelectionDto>
+        {
+            new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+            new() { AudiobookId = 6, Position = "3", Title = "The Hero of Ages" },
+        };
+
+        // Distinct natural keys resolve to distinct roster entries, so the pre-flight duplicate
+        // target check lets the batch through.
+        _seriesService
+            .Setup(s => s.ResolveExpectedBookAsync("Mistborn", "2", "The Well of Ascension"))
+            .ReturnsAsync(new SeriesExpectedBookInfo { Id = 11, Title = "The Well of Ascension", Position = "2" });
+        _seriesService
+            .Setup(s => s.ResolveExpectedBookAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(new SeriesExpectedBookInfo { Id = 12, Title = "The Hero of Ages", Position = "3" });
+
+        var finished = RegisterFinishedWaiter(SeriesController.MissingBookApplyOperationKey);
+
+        var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _seriesService.Verify(s => s.ApplyMissingBookAsync("Mistborn", "2", "The Well of Ascension", 5), Times.Once);
+        _seriesService.Verify(s => s.ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 6), Times.Once);
+        _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Once);
+        _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(6), Times.Once);
+        _clientProxy.Verify(c => c.SeriesMissingBookApplyProgress(It.Is<SeriesMissingBookApplyProgress>(p => p.Processed == 1 && p.Total == 2)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesMissingBookApplyProgress(It.Is<SeriesMissingBookApplyProgress>(p => p.Processed == 2 && p.Total == 2)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalProcessed == 2 && p.TotalSucceeded == 2 && p.TotalFailed == 0)), Times.Once);
+
+        // The controller must release every book's gate - prove it by re-acquiring book 5's.
+        Assert.IsTrue(_saveGate.TryAcquire(5, out var reLease), "the bulk apply must release each book's save gate");
+        reLease.Dispose();
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_OneItemFails_TheBatchCarriesOn()
+    {
+        _seriesService.Setup(s => s.ApplyMissingBookAsync("Mistborn", "2", "The Well of Ascension", 5))
+            .ThrowsAsync(new Exception("boom"));
+        var selections = new List<ApplyMissingBookSelectionDto>
+        {
+            new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+            new() { AudiobookId = 6, Position = "3", Title = "The Hero of Ages" },
+        };
+
+        var finished = RegisterFinishedWaiter(SeriesController.MissingBookApplyOperationKey);
+
+        var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalProcessed == 2 && p.TotalSucceeded == 1 && p.TotalFailed == 1)), Times.Once);
+        _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Never, "a failed apply must not be rechecked");
+        _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(6), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_SaveGateBusy_FailsJustThatItem()
+    {
+        Assert.IsTrue(_saveGate.TryAcquire(5, out var existingLease));
+        try
+        {
+            var selections = new List<ApplyMissingBookSelectionDto>
+            {
+                new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+                new() { AudiobookId = 6, Position = "3", Title = "The Hero of Ages" },
+            };
+
+            var finished = RegisterFinishedWaiter(SeriesController.MissingBookApplyOperationKey);
+
+            var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+            Assert.IsInstanceOfType(result, typeof(OkResult));
+
+            await AwaitOperationFinished(finished);
+
+            _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalProcessed == 2 && p.TotalSucceeded == 1 && p.TotalFailed == 1)), Times.Once);
+            _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Never, "a book another operation holds must not be touched");
+            _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(6), Times.Once);
+        }
+        finally
+        {
+            existingLease.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_RecheckFailure_DoesNotFailTheApply()
+    {
+        _libraryConsistencyService.Setup(c => c.RecheckAudiobookAsync(5)).ThrowsAsync(new Exception("boom"));
+        var selections = new List<ApplyMissingBookSelectionDto>
+        {
+            new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+        };
+
+        var finished = RegisterFinishedWaiter(SeriesController.MissingBookApplyOperationKey);
+
+        var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        // Mirrors the interactive apply: the assignment itself succeeded, so a recheck bug must
+        // not turn it into a counted failure.
+        _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartBulkApplyMissingBooks_DuplicateTargetRosterEntry_ReturnsProblemAndStartsNoBackgroundOperation()
+    {
+        // Two selections address the SAME roster entry under the strict natural-key semantics
+        // ApplyMissingBookAsync uses: "2" + "The Well of Ascension" and "2" on its own both
+        // resolve to row 42. A keyword-only check on the position/title pairs would miss this
+        // (the keys are textually different), so the controller must resolve each key to the
+        // stored row and compare the resolved entry ids - before the background operation starts.
+        _seriesService
+            .Setup(s => s.ResolveExpectedBookAsync("Mistborn", "2", "The Well of Ascension"))
+            .ReturnsAsync(new SeriesExpectedBookInfo { Id = 42, Title = "The Well of Ascension", Position = "2" });
+        _seriesService
+            .Setup(s => s.ResolveExpectedBookAsync("Mistborn", "2", null))
+            .ReturnsAsync(new SeriesExpectedBookInfo { Id = 42, Title = "The Well of Ascension", Position = "2" });
+
+        var selections = new List<ApplyMissingBookSelectionDto>
+        {
+            new() { AudiobookId = 5, Position = "2", Title = "The Well of Ascension" },
+            new() { AudiobookId = 6, Position = "2", Title = null },
+        };
+
+        var result = await _controller.StartBulkApplyMissingBooks("Mistborn", new ApplyMissingBookBulkRequestDto { Selections = selections });
+
+        ProblemAssert.HasDetail(
+            result, StatusCodes.Status400BadRequest,
+            "A missing book can only be assigned once: roster entry 'The Well of Ascension' (position '2') is targeted by more than one assignment.");
+        _seriesService.Verify(
+            s => s.ApplyMissingBookAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<long>()),
+            Times.Never, "the request must be rejected before any background apply starts");
+        _statusRegistry.Verify(
+            s => s.SetRunning(SeriesController.MissingBookApplyOperationKey),
+            Times.Never, "no background operation may start for a batch with a duplicate target");
     }
 }
