@@ -184,6 +184,13 @@ public class BrowseController : ControllerBase
             return clampError;
         }
 
+        // The series section pages by page number, computed from the offset; a non-multiple
+        // offset would silently truncate. seriesLimit is already validated to be >= 1 above.
+        if (seriesOffset % seriesLimit != 0)
+        {
+            return this.InvalidRequest("seriesOffset must be a multiple of seriesLimit.");
+        }
+
         // Three narrow queries rather than one that materializes the author's entire catalogue:
         // the series section runs through the same overview pipeline as /library/series (so its
         // entries carry match state, authors and owned/missing counts), scoped to this author's

@@ -340,32 +340,6 @@ public class AudiobookRepository : IAudiobookRepository
             .FirstOrDefaultAsync();
     }
 
-    /// <summary>
-    /// One page of per-series book counts for one author, aggregated in SQL. The author detail
-    /// view only renders a name and a count for each series, so the books themselves are never
-    /// loaded. Paged with a total order (the series name, which the GROUP BY makes unique within
-    /// an author's series) so page boundaries stay stable.
-    /// </summary>
-    public async Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(
-        long authorId, int limit, int offset)
-    {
-        var matching = _db.Audiobooks
-            .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && a.Authors.Any(p => p.Id == authorId));
-
-        var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
-
-        var rows = await matching
-            .GroupBy(a => a.Series!)
-            .Select(g => new { Series = g.Key, BookCount = g.Count() })
-            .OrderBy(g => g.Series)
-            .Skip(offset)
-            .Take(limit)
-            .ToListAsync();
-
-        return (rows.Select(r => (r.Series, r.BookCount)).ToList(), total);
-    }
-
     /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
     public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
         long authorId, int limit, int offset)

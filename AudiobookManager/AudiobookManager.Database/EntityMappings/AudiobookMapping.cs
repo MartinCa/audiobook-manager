@@ -35,7 +35,7 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
             .HasIndex(a => a.FileInfoFileName, "ix_audiobooks_file_info_file_name");
 
         // Every query behind the series overview and detail views filters, groups or orders on
-        // this column: GetBooksBySeriesAsync, GetSeriesCountsByAuthorAsync, GetSeriesOwnedBooksPageAsync,
+        // this column: GetBooksBySeriesAsync, GetSeriesOwnedBooksPageAsync,
         // GetSeriesGroupingDataAsync, GetSeriesNamesAsync, GetSeriesBookCountsAsync, SearchSeriesAsync.
         builder
             .HasIndex(a => a.Series, "ix_audiobooks_series");

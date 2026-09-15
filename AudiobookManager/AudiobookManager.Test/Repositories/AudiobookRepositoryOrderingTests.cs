@@ -89,29 +89,6 @@ public class AudiobookRepositoryOrderingTests
     }
 
     [TestMethod]
-    public async Task GetSeriesCountsByAuthorAsync_CountsPerSeriesAndOrdersInSql()
-    {
-        var author = new Person(default, "Target Author");
-        await SeedAsync("Book A", "alpha series", author);
-        await SeedAsync("Book B", "alpha series", author);
-        await SeedAsync("Book C", "Zeta Series", author);
-        await SeedAsync("Book D", "Elan Series", author);
-
-        // Paged queries have to order in SQL, which means BINARY collation - the documented
-        // tradeoff in AGENTS.md's ordering rule. The order below is code-point order, not
-        // culture-aware.
-        var (counts, total) = await _repository.GetSeriesCountsByAuthorAsync(author.Id, limit: 10, offset: 0);
-
-        Assert.AreEqual(3, total);
-        Assert.AreSequenceEqual(
-            new List<string> { "Elan Series", "Zeta Series", "alpha series" },
-            counts.Select(c => c.Series).ToList());
-        Assert.AreEqual(1, counts[0].BookCount);
-        Assert.AreEqual(1, counts[1].BookCount);
-        Assert.AreEqual(2, counts[2].BookCount);
-    }
-
-    [TestMethod]
     public async Task GetStandaloneBooksByAuthorAsync_OrdersByTitleInSqlAndExcludesSeriesBooks()
     {
         var author = new Person(default, "Target Author");

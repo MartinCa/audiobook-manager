@@ -252,8 +252,8 @@ public class AudiobookRepositorySeriesOverviewPagingTests
         Assert.AreEqual("Owned Series", items.Single());
     }
 
-    // The author filter composes with the accent-folding search: a "Rene" query still finds the
-    // author's "Sërîés Éternal" series (both via the series value and via the author's name).
+    // The author filter composes with the accent-folding search: a "etern" query still finds the
+    // author's "Sërîés Éternal" series via the series value.
     [TestMethod]
     public async Task GetSeriesValuesPageAsync_AuthorFilter_KeepsAccentFoldingSearch()
     {

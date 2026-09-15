@@ -80,7 +80,6 @@ public interface IAudiobookRepository
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
-    Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(long authorId, int limit, int offset);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
 
