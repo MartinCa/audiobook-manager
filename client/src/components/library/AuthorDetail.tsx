@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Users, BookMarked, BookOpen, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Users, BookMarked, BookOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { SeriesListEntry } from "./SeriesListEntry";
 import { browseApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
@@ -124,27 +124,9 @@ export function AuthorDetail() {
             <BookMarked className="text-primary h-5 w-5" />
             Series ({seriesSection.total})
           </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-2">
             {series.map((s) => (
-              <Link
-                key={s.seriesName}
-                to="/library/series/$seriesName"
-                params={{ seriesName: s.seriesName }}
-                search={{ authorId: author.id }}
-                className="focus-visible:ring-ring block rounded-lg focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              >
-                <Card className="hover:bg-muted/50 cursor-pointer transition-colors">
-                  <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-base font-semibold">{s.seriesName}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="text-muted-foreground flex items-center justify-between p-4 pt-0 text-xs">
-                    <span>
-                      {s.bookCount} {s.bookCount === 1 ? "book" : "books"}
-                    </span>
-                    <ChevronRight className="h-4 w-4" />
-                  </CardContent>
-                </Card>
-              </Link>
+              <SeriesListEntry key={s.name} series={s} search={{ authorId: author.id }} />
             ))}
           </div>
           {seriesPageCount > 1 && (

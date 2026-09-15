@@ -41,8 +41,14 @@ public interface IAudiobookRepository
     /// the precomputed <c>SeriesFolded</c> column and also matches any author name, mirroring the
     /// old client-side filter). <paramref name="matched"/> narrows to series with (or without) a
     /// catalog row carrying a matched source.
+    ///
+    /// <paramref name="authorId"/> scopes the page to the distinct series values of books by that
+    /// author alone. An author scope deliberately unions no catalog rows: a series the author
+    /// owns no book in is not one the author has, so a catalog-only value would be wrong to list
+    /// there. The search/matched filters still apply.
     /// </summary>
-    Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(string? search, bool? matched, int skip, int take);
+    Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
+        string? search, bool? matched, int skip, int take, long? authorId = null);
 
     /// <summary>Total distinct series values (catalog plus audiobook tags) and how many of those have a matched catalog source, for the overview header badges.</summary>
     Task<(int Total, int Matched)> GetSeriesValueCountsAsync();
@@ -74,7 +80,6 @@ public interface IAudiobookRepository
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
-    Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(long authorId, int limit, int offset);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
 

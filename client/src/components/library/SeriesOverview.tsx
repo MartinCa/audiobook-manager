@@ -1,27 +1,16 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BookMarked,
-  Search,
-  X,
-  RefreshCw,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  ChevronRight,
-  Layers,
-  Sparkles,
-} from "lucide-react";
+import { BookMarked, Search, X, RefreshCw, Loader2, Layers, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
+import { SeriesListEntry } from "./SeriesListEntry";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -287,60 +276,7 @@ export function SeriesOverviewPage() {
       ) : (
         <div className="space-y-2">
           {seriesList.map((s) => (
-            <Link
-              key={s.name}
-              to="/library/series/$seriesName"
-              params={{ seriesName: s.name }}
-              className="group border-border bg-card hover:bg-muted/50 focus-visible:ring-ring flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-foreground font-semibold break-words">{s.name}</span>
-                  {s.isMatched ? (
-                    <Badge
-                      variant="secondary"
-                      className="gap-1 bg-emerald-500/15 text-[11px] text-emerald-600 dark:text-emerald-400"
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
-                      {s.matchedSourceName}
-                      {s.matchConfidence != null && (
-                        <span className="ml-0.5 opacity-75">
-                          ({Math.round(s.matchConfidence * 100)}%)
-                        </span>
-                      )}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-muted-foreground text-[11px]">
-                      Unmatched
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
-                  {s.authors && s.authors.length > 0 && (
-                    <span>By {s.authors.join(", ")} &middot;</span>
-                  )}
-                  <span>
-                    {s.ownedBookCount} {s.ownedBookCount === 1 ? "book" : "books"} owned
-                  </span>
-                  {s.isMatched && s.missingBookCount > 0 && (
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      &middot; {s.missingBookCount} missing
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-3">
-                {s.missingBookCount > 0 && (
-                  <Badge variant="destructive" className="gap-1 text-xs">
-                    <AlertCircle className="h-3 w-3" />
-                    {s.missingBookCount} missing
-                  </Badge>
-                )}
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
-              </div>
-            </Link>
+            <SeriesListEntry key={s.name} series={s} />
           ))}
 
           {/* Stays rendered even if this page comes back empty while the count is non-zero, so the

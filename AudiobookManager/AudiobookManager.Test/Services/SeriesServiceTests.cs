@@ -558,6 +558,82 @@ public class SeriesServiceTests
         CollectionAssert.AreEqual(new List<string> { "Author X" }, overviews[0].Authors);
     }
 
+    // The author detail's series section pages the same overview pipeline scoped to one author:
+    // the authorId must reach the repository so the page and its total are that author's series
+    // values only, while the page's values are still hydrated into full overviews.
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_PassesAuthorIdToTheRepository()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(null, null, 0, 50, 7))
+            .ReturnsAsync((new List<string> { "Mistborn" }, 2));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync(new List<string> { "Mistborn" }))
+            .ReturnsAsync(new List<SeriesGroupingBook>
+            {
+                new("Mistborn", "1", "The Final Empire", new List<string> { "Brandon Sanderson" }),
+                new("Mistborn", "2", "The Well of Ascension", new List<string> { "Brandon Sanderson" }),
+            });
+        _seriesRepository
+            .Setup(r => r.GetByNamesWithExpectedBooksAsync(new List<string> { "Mistborn" }))
+            .ReturnsAsync(new List<Series>());
+
+        var page = await MakeService().GetSeriesOverviewPageAsync(0, 50, null, null, authorId: 7);
+
+        Assert.AreEqual(2, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual("Mistborn", page.Items[0].Name);
+        Assert.AreEqual(2, page.Items[0].OwnedBookCount);
+        Assert.IsFalse(page.Items[0].IsMatched);
+        CollectionAssert.AreEqual(new List<string> { "Brandon Sanderson" }, page.Items[0].Authors);
+        _audiobookRepository.Verify(r => r.GetSeriesValuesPageAsync(null, null, 0, 50, 7), Times.Once);
+    }
+
+    // The overview must stay library-wide in its owned/missing figures even when the page of
+    // series values is author-scoped: a series entry lists what the whole library owns, so the
+    // catalog data used to build it is not author-filtered. Confirmed by a matched catalog row
+    // whose roster reports missing books.
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_AuthorScopedPage_StillBuildsWholeLibraryOverview()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(null, null, 0, 50, 7))
+            .ReturnsAsync((new List<string> { "Mistborn" }, 1));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync(new List<string> { "Mistborn" }))
+            .ReturnsAsync(new List<SeriesGroupingBook>
+            {
+                new("Mistborn", "1", "The Final Empire", new List<string> { "Brandon Sanderson" }),
+            });
+        _seriesRepository
+            .Setup(r => r.GetByNamesWithExpectedBooksAsync(new List<string> { "Mistborn" }))
+            .ReturnsAsync(new List<Series>
+            {
+                new()
+                {
+                    Id = 1,
+                    Name = "Mistborn",
+                    MatchedSourceName = "Hardcover",
+                    MatchedSourceId = "42",
+                    ExpectedBooks = new List<SeriesExpectedBook>
+                    {
+                        MakeExpected(10, "The Final Empire", "1"),
+                        MakeExpected(11, "The Hero of Ages", "3"),
+                    },
+                },
+            });
+
+        var page = await MakeService().GetSeriesOverviewPageAsync(0, 50, null, null, authorId: 7);
+
+        Assert.AreEqual(1, page.Items.Count);
+        var overview = page.Items[0];
+        Assert.IsTrue(overview.IsMatched);
+        Assert.AreEqual("Hardcover", overview.MatchedSourceName);
+        Assert.AreEqual(1, overview.MissingBookCount,
+            "missing counts describe the whole library's holdings, matching the /library/series page");
+        Assert.AreEqual(2, overview.ExpectedBookCount);
+    }
+
     [TestMethod]
     public async Task SuggestSeriesMatchesAsync_RanksCandidatesAndSkipsNonSeriesScrapers()
     {

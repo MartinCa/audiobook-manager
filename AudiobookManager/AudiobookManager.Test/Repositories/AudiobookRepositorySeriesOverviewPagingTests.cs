@@ -20,6 +20,7 @@ public class AudiobookRepositorySeriesOverviewPagingTests
     private string _dbPath = null!;
     private DatabaseContext _db = null!;
     private AudiobookRepository _repository = null!;
+    private Dictionary<long, Person> _personsByAuthor = new();
 
     [TestInitialize]
     public void Setup()
@@ -29,6 +30,7 @@ public class AudiobookRepositorySeriesOverviewPagingTests
         _db = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
         _db.Database.EnsureCreated();
         _repository = new AudiobookRepository(_db);
+        _personsByAuthor = new Dictionary<long, Person>();
     }
 
     [TestCleanup]
@@ -73,6 +75,28 @@ public class AudiobookRepositorySeriesOverviewPagingTests
         _db.Series.Add(row);
         await _db.SaveChangesAsync();
         return row;
+    }
+
+    private async Task<Audiobook> SeedBookForAuthorAsync(string bookName, string series, long authorId)
+    {
+        // One Person instance per author, shared across that author's books in this test: the
+        // identity map rejects a second instance with the same key value.
+        if (!_personsByAuthor.TryGetValue(authorId, out var person))
+        {
+            _personsByAuthor[authorId] = person = new Person(authorId, $"Author {authorId}");
+        }
+
+        var audiobook = new Audiobook(
+            default, bookName, null, series, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
+        {
+            Authors = new List<Person> { person }
+        };
+
+        _db.Audiobooks.Add(audiobook);
+        await _db.SaveChangesAsync();
+        return audiobook;
     }
 
     [TestMethod]
@@ -191,6 +215,77 @@ public class AudiobookRepositorySeriesOverviewPagingTests
 
         Assert.AreEqual(1, total);
         Assert.AreEqual("PlainValue", items.Single());
+    }
+
+    // The author detail's series section is scoped to one author: only the distinct series
+    // values of books that author actually owns in. Catalog rows the author owns nothing in -
+    // and series other authors own - must not appear.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_AuthorFilter_ReturnsOnlyTheSeriesThatAuthorOwnsBooksIn()
+    {
+        var authorA = (await SeedBookForAuthorAsync("Book A1", "Author A Series", 1)).Authors.Single().Id;
+        await SeedBookForAuthorAsync("Book A2", "Author A Series", 1);
+        await SeedBookForAuthorAsync("Book Shared", "Shared Series", 1);
+        await SeedBookForAuthorAsync("Other Author's Book", "Other Series", 2);
+        await SeedCatalogRowAsync("Catalog Only", matched: true);
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(null, null, skip: 0, take: 10, authorId: authorA);
+
+        Assert.AreEqual(2, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "Author A Series", "Shared Series" },
+            items,
+            "the author's own distinct series values, and nothing the author owns no book in");
+    }
+
+    // An author scope never unions catalog rows: a catalog-only value is not a series the
+    // author has, even though the whole-library page deliberately lists it.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_AuthorFilter_DoesNotIncludeCatalogOnlyRows()
+    {
+        await SeedBookForAuthorAsync("Book", "Owned Series", 1);
+        await SeedCatalogRowAsync("Ghost Catalog Series", matched: true);
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(null, null, skip: 0, take: 10, authorId: 1);
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Owned Series", items.Single());
+    }
+
+    // The author filter composes with the accent-folding search: a "etern" query still finds the
+    // author's "Sërîés Éternal" series via the series value.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_AuthorFilter_KeepsAccentFoldingSearch()
+    {
+        await SeedBookForAuthorAsync("Book", "Sërîés Éternal", 1);
+        await SeedBookForAuthorAsync("Book", "Unrelated", 1);
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync("etern", null, skip: 0, take: 10, authorId: 1);
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Sërîés Éternal", items.Single());
+    }
+
+    // An author scope stays stable across pages like the whole-library union does: the distinct
+    // series values are unique, so ordering by the value alone keeps every page stable.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_AuthorFilter_PagedRightThrough_CoversEveryValueExactlyOnce()
+    {
+        for (var i = 0; i < 23; i++)
+        {
+            await SeedBookForAuthorAsync($"Book {i:02d}", $"Author Series {i:02d}", 1);
+        }
+        await SeedBookForAuthorAsync("Book", "Other Series", 2);
+
+        var seen = new List<string>();
+        for (var page = 0; page < 3; page++)
+        {
+            var (items, _) = await _repository.GetSeriesValuesPageAsync(null, null, skip: page * 10, take: 10, authorId: 1);
+            seen.AddRange(items);
+        }
+
+        Assert.AreEqual(23, seen.Count, "all 23 of the author's series values, no other author's");
+        Assert.AreEqual(23, seen.Distinct().Count(), "no series value may appear on two pages");
     }
 
     [TestMethod]
