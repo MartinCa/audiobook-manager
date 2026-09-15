@@ -354,6 +354,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audiobook/{id}/series-part-conflicts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    series?: string;
+                    seriesPart?: string;
+                };
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesPartConflictCheckDto"];
+                        "application/json": components["schemas"]["SeriesPartConflictCheckDto"];
+                        "text/json": components["schemas"]["SeriesPartConflictCheckDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/audiobooks": {
         parameters: {
             query?: never;
@@ -3486,6 +3528,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/similar-values/autocomplete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    valueType?: string;
+                    query?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": string[];
+                        "application/json": string[];
+                        "text/json": string[];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/similar-values/entry-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    valueType?: string;
+                    value?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["EntryStatusDto"];
+                        "application/json": components["schemas"]["EntryStatusDto"];
+                        "text/json": components["schemas"]["EntryStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/similar-values/align": {
         parameters: {
             query?: never;
@@ -3683,6 +3807,11 @@ export interface components {
             lastMetadataRefreshedAt?: string | null;
             fileInfo?: components["schemas"]["AudiobookFileInfo"];
         };
+        AudiobookAuthorDto: {
+            /** Format: int64 */
+            id?: number;
+            name?: string | null;
+        };
         AudiobookDetailDto: {
             /** Format: int64 */
             id?: number;
@@ -3711,6 +3840,7 @@ export interface components {
             sizeInBytes?: number;
             /** Format: date-time */
             lastMetadataRefreshedAt?: string | null;
+            authorRefs?: components["schemas"]["AudiobookAuthorDto"][] | null;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -3925,6 +4055,17 @@ export interface components {
             /** Format: int32 */
             wellTaggedTotal?: number;
             items?: components["schemas"]["DiscoveredAudiobookDto"][] | null;
+        };
+        EntryMatchDto: {
+            /** Format: int64 */
+            id?: number | null;
+            name?: string | null;
+        };
+        EntryStatusDto: {
+            value?: string | null;
+            status?: string | null;
+            exactMatch?: components["schemas"]["EntryMatchDto"];
+            similarMatches?: components["schemas"]["EntryMatchDto"][] | null;
         };
         ExistingTargetFileDto: {
             /** Format: int64 */
@@ -4312,6 +4453,16 @@ export interface components {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
+        };
+        SeriesPartConflictBookDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            seriesPart?: string | null;
+        };
+        SeriesPartConflictCheckDto: {
+            conflicts?: components["schemas"]["SeriesPartConflictBookDto"][] | null;
+            truncated?: boolean;
         };
         SeriesPartMismatchDto: {
             /** Format: int64 */

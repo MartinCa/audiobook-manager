@@ -7,6 +7,7 @@ import type { Audiobook } from "@/types/Audiobook";
 vi.mock("@/services/api", () => ({
   audiobookApi: {
     generateNewPath: vi.fn().mockResolvedValue("Author/2024 - Book/book.m4b"),
+    getSeriesPartConflicts: vi.fn().mockResolvedValue({ conflicts: [], truncated: false }),
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
@@ -15,6 +16,13 @@ vi.mock("@/services/api", () => ({
     getAuthorNames: vi.fn().mockResolvedValue([]),
     getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
+    getAutocomplete: vi.fn().mockResolvedValue([]),
+    getEntryStatus: vi.fn().mockResolvedValue({
+      value: "",
+      status: "new",
+      exactMatch: null,
+      similarMatches: [],
+    }),
   },
   metadataSearchApi: {
     getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
@@ -89,33 +97,45 @@ describe("BookEditForm", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("shows a click-to-use hint for the initial author as soon as a similar existing name loads, with no typing required", async () => {
+  it("shows a click-to-use hint for the initial author as soon as the server classifies it as similar, with no typing required", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "Jane Author" ? "similar" : "new",
+        exactMatch: null,
+        similarMatches: [{ id: 5, name: "Jane Authorr" }],
+      }),
+    );
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
-    // "Jane Author" (already on the book) is similar to the candidate "Jane Authorr" - the hint
-    // must appear purely from that data arriving, without the user typing anything.
-    expect(
-      await screen.findByText("Similar existing author: Jane Authorr (click to use)"),
-    ).toBeInTheDocument();
+    // "Jane Author" (already on the book) comes back classified similar to the existing
+    // "Jane Authorr" - the hint must appear purely from the server response arriving, without
+    // the user typing anything.
+    expect(await screen.findByText('Similar to "Jane Authorr" — click to use')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Similar existing author: Jane Authorr (click to use)"));
+    fireEvent.click(screen.getByText('Similar to "Jane Authorr" — click to use'));
 
     expect(screen.getByText("Jane Authorr")).toBeInTheDocument();
-    expect(screen.queryByText("Jane Author", { selector: "button" })).not.toBeInTheDocument();
+    expect(screen.queryByText('Similar to "Jane Authorr" — click to use')).not.toBeInTheDocument();
   });
 
   it("shows an independent hint for every flagged author at once, not just the most recently typed one", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce([
-      "Jane Authorr",
-      "Brandon Sanderson",
-    ]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: "similar",
+        exactMatch: null,
+        similarMatches: [
+          { id: 5, name: value === "Jane Author" ? "Jane Authorr" : "Brandon Sanderson" },
+        ],
+      }),
+    );
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+    await screen.findByText('Similar to "Jane Authorr" — click to use');
 
     // Committing a second, unrelated typo'd author must not clear the first author's hint - the
     // bug this regresses against always overwrote a single hint slot with the latest commit.
@@ -125,20 +145,16 @@ describe("BookEditForm", () => {
     fireEvent.keyDown(authorsInput, { key: "Enter" });
 
     expect(
-      await screen.findByText("Similar existing author: Brandon Sanderson (click to use)"),
+      await screen.findByText('Similar to "Brandon Sanderson" — click to use'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Similar existing author: Jane Authorr (click to use)"),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Similar to "Jane Authorr" — click to use')).toBeInTheDocument();
 
     // Clicking one hint only fixes the entry it describes.
-    fireEvent.click(screen.getByText("Similar existing author: Brandon Sanderson (click to use)"));
+    fireEvent.click(screen.getByText('Similar to "Brandon Sanderson" — click to use'));
 
     expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
     expect(screen.getByText("Jane Author")).toBeInTheDocument();
-    expect(
-      screen.getByText("Similar existing author: Jane Authorr (click to use)"),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Similar to "Jane Authorr" — click to use')).toBeInTheDocument();
   });
 
   it("clicking a hint merges into an existing exact-match entry instead of creating a duplicate", async () => {
@@ -146,7 +162,15 @@ describe("BookEditForm", () => {
     // "Brandon Sanderson" is already a separate author on this book, and also the suggestion
     // for the "Brandon Sandersons" typo - clicking the hint must not leave two identical
     // "Brandon Sanderson" chips (which broke drag-and-drop and could double the credited author).
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Brandon Sanderson"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "Brandon Sanderson" ? "exact" : "similar",
+        exactMatch: value === "Brandon Sanderson" ? { id: 5, name: "Brandon Sanderson" } : null,
+        similarMatches:
+          value === "Brandon Sandersons" ? [{ id: 5, name: "Brandon Sanderson" }] : [],
+      }),
+    );
 
     renderWithProviders(
       <BookEditForm
@@ -158,52 +182,68 @@ describe("BookEditForm", () => {
       />,
     );
 
-    await screen.findByText("Similar existing author: Brandon Sanderson (click to use)");
+    await screen.findByText('Similar to "Brandon Sanderson" — click to use');
 
-    fireEvent.click(screen.getByText("Similar existing author: Brandon Sanderson (click to use)"));
+    fireEvent.click(screen.getByText('Similar to "Brandon Sanderson" — click to use'));
 
     expect(screen.getAllByLabelText("Remove Brandon Sanderson")).toHaveLength(1);
     expect(screen.queryByText("Brandon Sandersons")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Similar existing author: Brandon Sanderson (click to use)"),
+      screen.queryByText('Similar to "Brandon Sanderson" — click to use'),
     ).not.toBeInTheDocument();
   });
 
   it("clears the author hint once the flagged entry is fixed by editing it directly", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "Jane Author" ? "similar" : "new",
+        exactMatch: null,
+        similarMatches: value === "Jane Author" ? [{ id: 5, name: "Jane Authorr" }] : [],
+      }),
+    );
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+    await screen.findByText('Similar to "Jane Authorr" — click to use');
 
     fireEvent.click(screen.getByLabelText("Edit Jane Author"));
     const editInput = screen.getByDisplayValue("Jane Author");
     fireEvent.change(editInput, { target: { value: "Someone Else Entirely" } });
     fireEvent.keyDown(editInput, { key: "Enter" });
 
-    expect(
-      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Similar to "Jane Authorr" — click to use')).not.toBeInTheDocument();
     expect(screen.getByText("Someone Else Entirely")).toBeInTheDocument();
   });
 
   it("clears the author hint once the flagged entry is removed", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Jane Authorr"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockResolvedValueOnce({
+      value: "Jane Author",
+      status: "similar",
+      exactMatch: null,
+      similarMatches: [{ id: 5, name: "Jane Authorr" }],
+    });
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await screen.findByText("Similar existing author: Jane Authorr (click to use)");
+    await screen.findByText('Similar to "Jane Authorr" — click to use');
 
     fireEvent.click(screen.getByLabelText("Remove Jane Author"));
 
-    expect(
-      screen.queryByText("Similar existing author: Jane Authorr (click to use)"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Similar to "Jane Authorr" — click to use')).not.toBeInTheDocument();
   });
 
   it("shows a hint for an author applied from a scraped metadata search result, not just hand-typed entries", async () => {
     const { similarValuesApi, metadataSearchApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce(["Brandon Sanderson"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "Brandon Sandersonn" ? "similar" : "new",
+        exactMatch: null,
+        similarMatches:
+          value === "Brandon Sandersonn" ? [{ id: 5, name: "Brandon Sanderson" }] : [],
+      }),
+    );
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
         {
@@ -221,7 +261,6 @@ describe("BookEditForm", () => {
     });
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText("Search Online Metadata"));
     const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
@@ -234,10 +273,10 @@ describe("BookEditForm", () => {
     fireEvent.click(applyAllButton);
 
     // The bulk-applied author never goes through TagsInput's own draft-entry flow, so this only
-    // works because the hint is derived from the current field value, not from a "just typed"
+    // works because the indicator is derived from the current field value, not from a "just typed"
     // event.
     expect(
-      await screen.findByText("Similar existing author: Brandon Sanderson (click to use)"),
+      await screen.findByText('Similar to "Brandon Sanderson" — click to use'),
     ).toBeInTheDocument();
   });
 
@@ -437,19 +476,21 @@ describe("BookEditForm", () => {
 
   it("offers live author typeahead suggestions while typing and commits the selection as a chip", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getAuthorNames).mockResolvedValueOnce([
+    vi.mocked(similarValuesApi.getAutocomplete).mockResolvedValueOnce([
       "Brandon Sanderson",
       "Patrick Rothfuss",
     ]);
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
-    await waitFor(() => expect(similarValuesApi.getAuthorNames).toHaveBeenCalled());
-
     const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
     fireEvent.focus(authorsInput);
     fireEvent.change(authorsInput, { target: { value: "Sand" } });
 
+    // The suggestions are a bounded server-side lookup of the typed query, not a preloaded list.
+    await waitFor(() =>
+      expect(similarValuesApi.getAutocomplete).toHaveBeenCalledWith("author", "Sand", 6),
+    );
     expect(await screen.findByRole("option", { name: "Brandon Sanderson" })).toBeInTheDocument();
 
     fireEvent.pointerDown(screen.getByRole("option", { name: "Brandon Sanderson" }));
@@ -458,9 +499,9 @@ describe("BookEditForm", () => {
     expect(authorsInput).toHaveValue("");
   });
 
-  it("offers live narrator typeahead suggestions and a similar-value hint, matching author parity", async () => {
+  it("offers live narrator typeahead suggestions through the bounded server-side lookup, matching author parity", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getNarratorNames).mockResolvedValueOnce([
+    vi.mocked(similarValuesApi.getAutocomplete).mockResolvedValue([
       "Michael Kramerr",
       "Kate Reading",
     ]);
@@ -472,20 +513,29 @@ describe("BookEditForm", () => {
       />,
     );
 
-    await waitFor(() => expect(similarValuesApi.getNarratorNames).toHaveBeenCalled());
-
     const narratorsInput = screen.getByRole("textbox", { name: "Narrator Name" });
     fireEvent.change(narratorsInput, { target: { value: "Kate" } });
 
+    // The suggestions are a bounded server-side lookup of the typed query, not a preloaded list.
+    await waitFor(() =>
+      expect(similarValuesApi.getAutocomplete).toHaveBeenCalledWith("narrator", "Kate", 6),
+    );
     expect(await screen.findByRole("option", { name: "Kate Reading" })).toBeInTheDocument();
     fireEvent.pointerDown(screen.getByRole("option", { name: "Kate Reading" }));
 
     expect(screen.getByText("Kate Reading")).toBeInTheDocument();
   });
 
-  it("shows a click-to-use hint for the initial narrator as soon as a similar existing name loads, matching author parity", async () => {
+  it("shows a click-to-use hint for the initial narrator as soon as the server classifies it as similar, matching author parity", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getNarratorNames).mockResolvedValueOnce(["Michael Kramerr"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "Michael Kramer" ? "similar" : "new",
+        exactMatch: null,
+        similarMatches: value === "Michael Kramer" ? [{ id: 2, name: "Michael Kramerr" }] : [],
+      }),
+    );
 
     renderWithProviders(
       <BookEditForm
@@ -495,10 +545,10 @@ describe("BookEditForm", () => {
     );
 
     expect(
-      await screen.findByText("Similar existing narrator: Michael Kramerr (click to use)"),
+      await screen.findByText('Similar to "Michael Kramerr" — click to use'),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Similar existing narrator: Michael Kramerr (click to use)"));
+    fireEvent.click(screen.getByText('Similar to "Michael Kramerr" — click to use'));
 
     expect(screen.getByText("Michael Kramerr")).toBeInTheDocument();
   });
@@ -528,19 +578,21 @@ describe("BookEditForm", () => {
 
   it("offers live series typeahead suggestions while typing and selects on click", async () => {
     const { similarValuesApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getSeriesNames).mockResolvedValueOnce([
+    vi.mocked(similarValuesApi.getAutocomplete).mockResolvedValueOnce([
       "The Stormlight Archive",
       "Mistborn",
     ]);
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
 
-    await waitFor(() => expect(similarValuesApi.getSeriesNames).toHaveBeenCalled());
-
     const seriesInput = screen.getByPlaceholderText("Series name");
     fireEvent.focus(seriesInput);
     fireEvent.change(seriesInput, { target: { value: "Storm" } });
 
+    // The suggestions are a bounded server-side lookup of the typed query, not a preloaded list.
+    await waitFor(() =>
+      expect(similarValuesApi.getAutocomplete).toHaveBeenCalledWith("series", "Storm", 6),
+    );
     expect(
       await screen.findByRole("option", { name: "The Stormlight Archive" }),
     ).toBeInTheDocument();
@@ -551,7 +603,15 @@ describe("BookEditForm", () => {
 
   it("shows a click-to-use hint for a similar existing series, including when the value is bulk-applied from a scraped result", async () => {
     const { similarValuesApi, metadataSearchApi } = await import("@/services/api");
-    vi.mocked(similarValuesApi.getSeriesNames).mockResolvedValueOnce(["The Stormlight Archive"]);
+    vi.mocked(similarValuesApi.getEntryStatus).mockImplementation((_valueType, value) =>
+      Promise.resolve({
+        value,
+        status: value === "The Stormlight Archives" ? "similar" : "new",
+        exactMatch: null,
+        similarMatches:
+          value === "The Stormlight Archives" ? [{ id: null, name: "The Stormlight Archive" }] : [],
+      }),
+    );
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
         {
@@ -569,7 +629,6 @@ describe("BookEditForm", () => {
     });
 
     renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
-    await waitFor(() => expect(similarValuesApi.getSeriesNames).toHaveBeenCalled());
 
     // Same gap the author/narrator hint had: a series set in bulk from a metadata-search apply
     // never goes through a manual blur, so the hint must be derived from the field value, not
@@ -584,12 +643,10 @@ describe("BookEditForm", () => {
     fireEvent.click(applyAllButton);
 
     expect(
-      await screen.findByText("Similar existing series: The Stormlight Archive (click to use)"),
+      await screen.findByText('Similar to "The Stormlight Archive" — click to use'),
     ).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByText("Similar existing series: The Stormlight Archive (click to use)"),
-    );
+    fireEvent.click(screen.getByText('Similar to "The Stormlight Archive" — click to use'));
 
     expect(screen.getByDisplayValue("The Stormlight Archive")).toBeInTheDocument();
   });
@@ -844,5 +901,109 @@ describe("BookEditForm", () => {
     expect(
       await screen.findByText(/File Location \/ Target Path/i, undefined, { timeout: 3000 }),
     ).toBeInTheDocument();
+  });
+
+  it("shows an informational message when series is set but the series part is empty", () => {
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive" }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Series is set but no series part is entered/i)).toBeInTheDocument();
+  });
+
+  it("flags series-part conflicts via normal anchor links to the other books", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.getSeriesPartConflicts).mockResolvedValue({
+      conflicts: [{ audiobookId: 99, bookName: "Words of Radiance", seriesPart: "2" }],
+      truncated: false,
+    });
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive", seriesPart: "1" }}
+        onSave={vi.fn()}
+        currentBookId={42}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(audiobookApi.getSeriesPartConflicts).toHaveBeenCalledWith(
+        42,
+        "The Stormlight Archive",
+        "1",
+      ),
+    );
+
+    expect(
+      await screen.findByText(/another book already uses this series part/i),
+    ).toBeInTheDocument();
+
+    const conflictLink = screen.getByRole("link", { name: /Words of Radiance/i });
+    expect(conflictLink.getAttribute("href")).toBe("/library/book/99");
+    expect(conflictLink.getAttribute("target")).toBe("_blank");
+    expect(conflictLink.getAttribute("rel")).toBe("noopener noreferrer");
+
+    // Advisory only - the save button stays enabled, which the requirement calls out.
+    expect(screen.getByRole("button", { name: /save audiobook/i })).toBeEnabled();
+  });
+
+  it("tells the user when the conflict list is truncated, while saving stays allowed", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.getSeriesPartConflicts).mockResolvedValue({
+      conflicts: [{ audiobookId: 99, bookName: "Words of Radiance", seriesPart: "2" }],
+      truncated: true,
+    });
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive", seriesPart: "1" }}
+        onSave={vi.fn()}
+        currentBookId={42}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/list is truncated — more books share this series part/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/saving is still allowed/i)).toBeInTheDocument();
+  });
+
+  it("surfaces an advisory error instead of pretending no conflicts when the check fails", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.getSeriesPartConflicts).mockRejectedValueOnce(new Error("network down"));
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive", seriesPart: "1" }}
+        onSave={vi.fn()}
+        currentBookId={42}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/couldn't check for series-part conflicts/i),
+    ).toBeInTheDocument();
+    // The warning must not be presented as "no conflicts" - and saving stays allowed.
+    expect(
+      screen.queryByText(/another book already uses this series part/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save audiobook/i })).toBeEnabled();
+  });
+
+  it("skips the conflict check when no currentBookId is provided (new-book flows)", async () => {
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "The Stormlight Archive", seriesPart: "1" }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    // The query is disabled without a currentBookId regardless of the debounce, so this is
+    // deterministic - not a fixed-sleep race.
+    const { audiobookApi } = await import("@/services/api");
+    expect(audiobookApi.getSeriesPartConflicts).not.toHaveBeenCalled();
   });
 });

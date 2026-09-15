@@ -22,5 +22,6 @@ public record AudiobookDetailDto(
     string FilePath,
     string FileName,
     long SizeInBytes,
-    DateTime? LastMetadataRefreshedAt
+    DateTime? LastMetadataRefreshedAt,
+    List<AudiobookAuthorDto> AuthorRefs
 );

@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Database.Search;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
@@ -76,6 +77,13 @@ public class SeriesService : ISeriesService
     /// cap + 1 rows so an oversized set is detected without materializing it.
     /// </summary>
     internal const int MaxReconciliationOwnedKeys = 20_000;
+
+    /// <summary>
+    /// Cap on the advisory series-part conflict check's result. The check runs on every edit
+    /// keystroke, is bounded by design, and the shared (series, part) combination is a small set
+    /// in any sane library - a pathological one is truncated rather than materialized whole.
+    /// </summary>
+    public const int MaxSeriesPartConflictRows = 50;
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
@@ -741,6 +749,32 @@ public class SeriesService : ISeriesService
         await _audiobookService.UpdateAudiobook(audiobookId, audiobook);
     }
 
+    /// <summary>
+    /// Other books already carrying the given (series, series part) combination, excluding the
+    /// current book. Advisory: a blank series or part returns nothing (an empty part cannot be
+    /// equivalent to any part via <see cref="SeriesPartEquivalence.PartsEquivalentClr"/>, and is
+    /// its own informational state in the edit form anyway). The equivalence is applied in SQL,
+    /// so the returned conflicts are exact and nothing is silently skipped; the cap and its
+    /// truncation flag are carried back for the UI to surface.
+    /// </summary>
+    public async Task<SeriesPartConflictCheck> GetSeriesPartConflictsAsync(
+        long currentAudiobookId, string? series, string? seriesPart, int limit = MaxSeriesPartConflictRows)
+    {
+        var trimmedSeries = series?.Trim();
+        var trimmedPart = seriesPart?.Trim();
+        if (string.IsNullOrEmpty(trimmedSeries) || string.IsNullOrEmpty(trimmedPart))
+        {
+            return new SeriesPartConflictCheck(new List<SeriesPartConflict>(), Truncated: false);
+        }
+
+        var (rows, truncated) = await _audiobookRepository.GetSeriesPartConflictCandidatesAsync(
+            trimmedSeries, currentAudiobookId, trimmedPart, limit);
+
+        return new SeriesPartConflictCheck(
+            rows.Select(c => new SeriesPartConflict(c.AudiobookId, c.BookName, c.SeriesPart)).ToList(),
+            truncated);
+    }
+
     private async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshManyAsync(
         List<string> seriesNames,
         Func<int, int, int, int, Task> progressAction)
@@ -1052,16 +1086,8 @@ public class SeriesService : ISeriesService
         return shared / (double)Math.Min(tokensA.Count, tokensB.Count) >= PositionMatchTitleFloor;
     }
 
-    private static bool PositionsEqual(string a, string b)
-    {
-        if (double.TryParse(a, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numA) &&
-            double.TryParse(b, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numB))
-        {
-            return Math.Abs(numA - numB) < 0.0001;
-        }
-
-        return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool PositionsEqual(string a, string b) =>
+        SeriesPartEquivalence.PartsEquivalentClr(a, b);
 
     /// <summary>
     /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer

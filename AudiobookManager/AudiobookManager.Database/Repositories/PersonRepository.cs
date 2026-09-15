@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Database.Models;
+﻿using System.Linq.Expressions;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
@@ -6,6 +7,13 @@ namespace AudiobookManager.Database.Repositories;
 public class PersonRepository : IPersonRepository
 {
     private readonly DatabaseContext _db;
+
+    private const string LikeEscapeCharacter = "\\";
+
+    private static string EscapeLikePattern(string value) => value
+        .Replace("\\", "\\\\")
+        .Replace("%", "\\%")
+        .Replace("_", "\\_");
 
     public PersonRepository(DatabaseContext db)
     {
@@ -124,6 +132,102 @@ public class PersonRepository : IPersonRepository
         names.Sort(StringComparer.InvariantCulture);
         return names;
     }
+
+    /// <summary>
+    /// The author whose folded name equals the input's folded name, or null. Folded-column
+    /// equality via SQLite LIKE semantics (no wildcards, ESCAPE applied): case-insensitive for
+    /// ASCII and accent-insensitive for everything, which is exactly what the accent-insensitive
+    /// search invariant asks of a "does this value already exist" answer. Only persons that
+    /// actually author books count - a narrator-only or orphan (bookless) person is not an
+    /// author entry.
+    /// </summary>
+    public Task<AuthorSummaryRow?> FindAuthorByFoldedNameAsync(string value) =>
+        FindPersonByFoldedNameAsync(value, p => p.BooksAuthored.Any());
+
+    /// <summary>
+    /// The narrator whose folded name equals the input's folded name, or null - the narrator
+    /// counterpart of <see cref="FindAuthorByFoldedNameAsync"/>, scoped to persons that actually
+    /// narrate books. Backs the narrator entry-status classification in the edit form.
+    /// </summary>
+    public Task<AuthorSummaryRow?> FindNarratorByFoldedNameAsync(string value) =>
+        FindPersonByFoldedNameAsync(value, p => p.BooksNarrated.Any());
+
+    private async Task<AuthorSummaryRow?> FindPersonByFoldedNameAsync(
+        string value, Expression<Func<Person, bool>> hasLinkedBooks)
+    {
+        var folded = AccentFolding.FoldPlain(value?.Trim());
+        if (string.IsNullOrEmpty(folded))
+        {
+            return null;
+        }
+
+        var pattern = EscapeLikePattern(folded);
+        return await _db.Persons
+            .AsNoTracking()
+            .Where(hasLinkedBooks)
+            .Where(p => p.NameFolded != null
+                && EF.Functions.Like(p.NameFolded, pattern, LikeEscapeCharacter))
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// The distinct author names the entry-status classification scores as "similar" candidates,
+    /// capped at <paramref name="limit"/> rows. The prefilter is bounded by construction - it
+    /// never materializes the library's whole name list - and deliberately permissive: rows whose
+    /// folded name contains the folded query OR the query's first token (the common typo shape is
+    /// one token right, one misspelled), with full-containment rows ordered ahead of token-only
+    /// ones so a common token cannot crowd out the genuine match. The fuzzy scoring that decides
+    /// what counts as "similar" then runs over this capped set.
+    /// </summary>
+    public Task<List<AuthorSummaryRow>> SearchAuthorNamesAsync(string query, int limit) =>
+        SearchPersonNamesAsync(query, limit, p => p.BooksAuthored.Any());
+
+    /// <summary>
+    /// The narrator counterpart of <see cref="SearchAuthorNamesAsync"/>: bounded, permissive
+    /// narrator-name candidates for the narrator entry-status classification. Every person row
+    /// is a shared table entry, so the "who is a narrator" filter is the one thing that differs
+    /// from the author prefilter.
+    /// </summary>
+    public Task<List<AuthorSummaryRow>> SearchNarratorNamesAsync(string query, int limit) =>
+        SearchPersonNamesAsync(query, limit, p => p.BooksNarrated.Any());
+
+    private async Task<List<AuthorSummaryRow>> SearchPersonNamesAsync(
+        string query, int limit, Expression<Func<Person, bool>> hasLinkedBooks)
+    {
+        var folded = AccentFolding.FoldPlain(query?.Trim());
+        if (string.IsNullOrEmpty(folded))
+        {
+            return new List<AuthorSummaryRow>();
+        }
+
+        var firstToken = FoldFirstToken(folded);
+
+        // Both patterns are ESCAPEd so a literal '%' or '_' the user typed (e.g. "100%", "my_author")
+        // matches rows containing exactly that character instead of acting as a LIKE wildcard.
+        var fullPattern = $"%{EscapeLikePattern(folded)}%";
+        var tokenPattern = $"%{EscapeLikePattern(firstToken)}%";
+        var hasFirstToken = firstToken.Length > 0;
+
+        var rows = await _db.Persons
+            .AsNoTracking()
+            .Where(hasLinkedBooks)
+            .Where(p => p.NameFolded != null && (
+                EF.Functions.Like(p.NameFolded, fullPattern, LikeEscapeCharacter)
+                || (hasFirstToken && EF.Functions.Like(p.NameFolded, tokenPattern, LikeEscapeCharacter))))
+            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, fullPattern, LikeEscapeCharacter))
+            .ThenBy(p => p.Name)
+            .Take(limit)
+            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .ToListAsync();
+
+        // Same culture-aware ordering as GetAuthorNamesAsync - a candidate list a human reads
+        // must not come back in SQLite's code-point BINARY order.
+        return rows.OrderBy(r => r.Name, StringComparer.InvariantCulture).ToList();
+    }
+
+    private static string FoldFirstToken(string folded) =>
+        folded.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
     public async Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync()
     {

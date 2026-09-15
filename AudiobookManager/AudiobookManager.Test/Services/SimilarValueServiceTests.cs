@@ -544,4 +544,192 @@ public class SimilarValueServiceTests
         Assert.AreEqual(2, last.succeeded);
         Assert.AreEqual(0, last.failed);
     }
+
+    // ---- GetEntryStatusAsync ----
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_ExactExistingAuthor_IsExactWithTheMatchingRow()
+    {
+        _personRepository.Setup(r => r.FindAuthorByFoldedNameAsync("Brandon Sanderson"))
+            .ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "Brandon Sanderson", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Exact, status.Kind);
+        Assert.IsNotNull(status.ExactMatch);
+        Assert.AreEqual(7, status.ExactMatch.Id);
+        Assert.AreEqual("Brandon Sanderson", status.ExactMatch.Name);
+        Assert.AreEqual(0, status.SimilarMatches.Count);
+        _personRepository.Verify(r => r.SearchAuthorNamesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_AccentFoldVariantOfExistingAuthor_IsExact()
+    {
+        // "rene" and "René" fold to the same value, so the typed form is "exact existing" - the
+        // accent-insensitive search invariant applies to this classification too.
+        _personRepository.Setup(r => r.FindAuthorByFoldedNameAsync("rene"))
+            .ReturnsAsync(new AuthorSummaryRow(3, "René", 2));
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "rene", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Exact, status.Kind);
+        Assert.AreEqual("René", status.ExactMatch?.Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SlightlyMisspelledExistingAuthor_IsSimilar()
+    {
+        _personRepository.Setup(r => r.FindAuthorByFoldedNameAsync("Brandon Sandersson"))
+            .ReturnsAsync((AuthorSummaryRow?)null);
+        _personRepository.Setup(r => r.SearchAuthorNamesAsync("Brandon Sandersson", 20))
+            .ReturnsAsync(new List<AuthorSummaryRow>
+            {
+                new(7, "Brandon Sanderson", 5), // one-edit surname difference -> similar
+            });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "Brandon Sandersson", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsNull(status.ExactMatch);
+        Assert.AreEqual(1, status.SimilarMatches.Count);
+        Assert.AreEqual(7, status.SimilarMatches[0].Id);
+        Assert.AreEqual("Brandon Sanderson", status.SimilarMatches[0].Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_UnknownAuthor_IsNew()
+    {
+        _personRepository.Setup(r => r.FindAuthorByFoldedNameAsync("Nova Writer"))
+            .ReturnsAsync((AuthorSummaryRow?)null);
+        _personRepository.Setup(r => r.SearchAuthorNamesAsync("Nova Writer", 20))
+            .ReturnsAsync(new List<AuthorSummaryRow>());
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "Nova Writer", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.New, status.Kind);
+        Assert.IsNull(status.ExactMatch);
+        Assert.AreEqual(0, status.SimilarMatches.Count);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_ExactExistingSeries_IsExact()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("Mistborn"))
+            .ReturnsAsync("Mistborn");
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "Mistborn", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Exact, status.Kind);
+        Assert.IsNotNull(status.ExactMatch);
+        Assert.IsNull(status.ExactMatch.Id, "series values carry no identity");
+        Assert.AreEqual("Mistborn", status.ExactMatch.Name);
+        _audiobookRepository.Verify(r => r.SearchSeriesValuesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_NearDuplicateSeriesValue_IsSimilar()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Stormlight Archivee"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Stormlight Archivee", 20))
+            .ReturnsAsync(new List<string> { "The Stormlight Archive" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Stormlight Archivee", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual(1, status.SimilarMatches.Count);
+        Assert.AreEqual("The Stormlight Archive", status.SimilarMatches[0].Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SameValueDifferentPunctuation_IsSimilar()
+    {
+        // Not an accent/case fold away ("J.K." vs "JK"), so not exact - but normalized-equal,
+        // so similar. Mirrors the merge the alignment feature itself would do.
+        _personRepository.Setup(r => r.FindAuthorByFoldedNameAsync("JK Rowling"))
+            .ReturnsAsync((AuthorSummaryRow?)null);
+        _personRepository.Setup(r => r.SearchAuthorNamesAsync("JK Rowling", 20))
+            .ReturnsAsync(new List<AuthorSummaryRow> { new(9, "J.K. Rowling", 1) });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "JK Rowling", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual("J.K. Rowling", status.SimilarMatches[0].Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SimilarMatches_AreCappedAtLimit()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("Stormlight"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Stormlight", 20))
+            .ReturnsAsync(new List<string>
+            {
+                "The Stormlight Archive",
+                "The Stormlight Archivo",
+                "The Stormlight Archives",
+                "Stormlight Book 2",
+            });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "Stormlight", 2);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual(2, status.SimilarMatches.Count);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_BlankValue_IsNewWithoutQueries()
+    {
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Author, "   ", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.New, status.Kind);
+        _personRepository.Verify(r => r.FindAuthorByFoldedNameAsync(It.IsAny<string>()), Times.Never);
+        _personRepository.Verify(r => r.SearchAuthorNamesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+        _audiobookRepository.Verify(r => r.FindSeriesValueByFoldedNameAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_ExactExistingNarrator_IsExact()
+    {
+        _personRepository.Setup(r => r.FindNarratorByFoldedNameAsync("Michael Kramer"))
+            .ReturnsAsync(new AuthorSummaryRow(2, "Michael Kramer", 0));
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Narrator, "Michael Kramer", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Exact, status.Kind);
+        Assert.AreEqual(2, status.ExactMatch?.Id);
+        Assert.AreEqual("Michael Kramer", status.ExactMatch?.Name);
+        _personRepository.Verify(r => r.SearchNarratorNamesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SlightlyMisspelledExistingNarrator_IsSimilar()
+    {
+        _personRepository.Setup(r => r.FindNarratorByFoldedNameAsync("Michael Kramerr"))
+            .ReturnsAsync((AuthorSummaryRow?)null);
+        _personRepository.Setup(r => r.SearchNarratorNamesAsync("Michael Kramerr", 20))
+            .ReturnsAsync(new List<AuthorSummaryRow> { new(2, "Michael Kramer", 0) });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Narrator, "Michael Kramerr", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual(1, status.SimilarMatches.Count);
+        Assert.AreEqual("Michael Kramer", status.SimilarMatches[0].Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_NarratorClassification_NeverFallsThroughToSeries()
+    {
+        _personRepository.Setup(r => r.FindNarratorByFoldedNameAsync("Michael Kramer"))
+            .ReturnsAsync((AuthorSummaryRow?)null);
+        _personRepository.Setup(r => r.SearchNarratorNamesAsync("Michael Kramer", 20))
+            .ReturnsAsync(new List<AuthorSummaryRow>());
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Narrator, "Michael Kramer", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.New, status.Kind);
+        _audiobookRepository.Verify(r => r.FindSeriesValueByFoldedNameAsync(It.IsAny<string>()), Times.Never);
+        _audiobookRepository.Verify(r => r.SearchSeriesValuesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
 }

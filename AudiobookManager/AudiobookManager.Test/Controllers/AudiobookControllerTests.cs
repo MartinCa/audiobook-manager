@@ -21,6 +21,7 @@ public class AudiobookControllerTests
     private Mock<IQueuedOrganizeTaskService> _organizeTaskService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<IBulkEditService> _bulkEditService = null!;
+    private Mock<ISeriesService> _seriesService = null!;
     private Mock<IOrganize> _organizeClient = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<ILogger<AudiobookController>> _logger = null!;
@@ -34,6 +35,7 @@ public class AudiobookControllerTests
         _organizeTaskService = new Mock<IQueuedOrganizeTaskService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _bulkEditService = new Mock<IBulkEditService>();
+        _seriesService = new Mock<ISeriesService>();
         _logger = new Mock<ILogger<AudiobookController>>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
 
@@ -58,6 +60,7 @@ public class AudiobookControllerTests
             _organizeTaskService.Object,
             _libraryConsistencyService.Object,
             _bulkEditService.Object,
+            _seriesService.Object,
             organizeHub.Object,
             _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
             _statusRegistry.Object,
@@ -428,6 +431,57 @@ public class AudiobookControllerTests
 
         Assert.AreEqual(9999, status.AudiobookId);
         Assert.IsFalse(status.IsSaving);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflicts_DelegatesToTheServiceAndMapsTheResult()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync(new Domain.SeriesPartConflictCheck(
+                new List<Domain.SeriesPartConflict> { new(7, "The Well of Ascension", "2.0") },
+                Truncated: false));
+
+        var result = await _controller.GetSeriesPartConflicts(42, "Mistborn", "2");
+
+        var dto = result.Value as SeriesPartConflictCheckDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual(1, dto.Conflicts.Count);
+        Assert.AreEqual(7, dto.Conflicts[0].AudiobookId);
+        Assert.AreEqual("The Well of Ascension", dto.Conflicts[0].BookName);
+        Assert.AreEqual("2.0", dto.Conflicts[0].SeriesPart);
+        Assert.IsFalse(dto.Truncated);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflicts_NoConflicts_ReturnsEmptyCheck()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync(new Domain.SeriesPartConflictCheck(new List<Domain.SeriesPartConflict>(), Truncated: false));
+
+        var result = await _controller.GetSeriesPartConflicts(42, "Mistborn", "2");
+
+        var dto = result.Value as SeriesPartConflictCheckDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual(0, dto.Conflicts.Count);
+        Assert.IsFalse(dto.Truncated);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflicts_TruncationFlag_IsSurfacedToTheClient()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync(new Domain.SeriesPartConflictCheck(
+                new List<Domain.SeriesPartConflict> { new(7, "The Well of Ascension", "2.0") },
+                Truncated: true));
+
+        var result = await _controller.GetSeriesPartConflicts(42, "Mistborn", "2");
+
+        var dto = result.Value as SeriesPartConflictCheckDto;
+        Assert.IsNotNull(dto);
+        Assert.IsTrue(dto.Truncated, "a capped conflict list must not be presented as complete");
     }
 
     [TestMethod]

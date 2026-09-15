@@ -14,6 +14,15 @@ public interface ISimilarValueService
     Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarAuthorsAsync(int skip, int take);
     Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarSeriesAsync(int skip, int take);
 
+    /// <summary>
+    /// Classifies one typed author/series entry against the library's existing values: Exact when
+    /// the same value already exists (accent- and case-insensitive), Similar when only near
+    /// matches exist, New when neither. Bounded by construction: one input value, a capped
+    /// candidate prefilter, and a result capped at <paramref name="limit"/>. Backs the explicit
+    /// exact/new/similar indicators on the author and series entry fields.
+    /// </summary>
+    Task<EntryValueStatus> GetEntryStatusAsync(EntryValueKind kind, string value, int limit);
+
     Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
         string targetName,

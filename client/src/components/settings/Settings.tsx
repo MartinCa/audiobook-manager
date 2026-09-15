@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TypeaheadInput } from "@/components/TypeaheadInput";
+import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { settingsApi, similarValuesApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
@@ -57,11 +58,15 @@ export function Settings() {
 
   const mappings = (grouped?.items ?? []) as SeriesMappingGroup[];
 
-  const { data: seriesNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "series"],
-    queryFn: () => similarValuesApi.getSeriesNames(),
-    staleTime: 5 * 60 * 1000,
-  });
+  // The target-series type-ahead in the mapping dialog is a bounded server-side lookup of the
+  // typed query, not a preloaded list of every series value - the same bounded replacement the
+  // book form's series field uses. The provider identity is stable (it closes over nothing
+  // changeable) so TypeaheadInput's debounced fetch is not reset on every render.
+  const fetchSeriesTargets = useCallback(
+    (query: string) =>
+      similarValuesApi.getAutocomplete("series", query, TYPEAHEAD_SUGGESTION_COUNT),
+    [],
+  );
 
   const { data: systemInfo } = useQuery({
     queryKey: ["systemInfo"],
@@ -322,7 +327,7 @@ export function Settings() {
                 placeholder="The Wheel of Time"
                 value={mappedSeries}
                 onValueChange={setMappedSeries}
-                candidates={seriesNames}
+                fetchCandidates={fetchSeriesTargets}
                 required
               />
             </div>

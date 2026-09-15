@@ -13,6 +13,7 @@ import type {
   ConsistencyResolveResult,
 } from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
+import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
@@ -40,6 +41,7 @@ import type {
   SeriesOverviewPage,
 } from "@/types/Series";
 import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroups } from "@/types/SeriesMapping";
+import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
@@ -125,6 +127,17 @@ export const audiobookApi = {
 
   getSaveStatus: (id: number) =>
     api.get<{ audiobookId: number; isSaving: boolean }>(`/audiobook/${id}/save-status`),
+
+  /**
+   * Advisory series-part conflict check for the edit form. Server-backed and bounded: it returns
+   * the other books (current excluded) already carrying the (series, series part) combination,
+   * compared with the same part-equivalence the series reconciliation uses, plus a truncation
+   * flag when the bounded response does not carry all genuine conflicts. Never blocks a save.
+   */
+  getSeriesPartConflicts: (id: number, series: string, seriesPart: string) =>
+    api.get<SeriesPartConflictCheck>(`/audiobook/${id}/series-part-conflicts`, {
+      query: { series, seriesPart },
+    }),
 };
 
 // Bulk selection (multi-select in the book lists)
@@ -303,6 +316,28 @@ export const similarValuesApi = {
   getNarratorNames: () => api.get<string[]>("/similar-values/narrator-names"),
 
   getSeriesNames: () => api.get<string[]>("/similar-values/series-names"),
+
+  /**
+   * Bounded server-backed classification of a single typed author/narrator/series entry into
+   * exact-existing / similar / new, for the entry fields' indicators. Narrator is supported
+   * where the narrator entry field uses it. The bounded-list invariant is what this replaces:
+   * the indicators must not pull the whole name list to classify locally.
+   */
+  getEntryStatus: (valueType: "author" | "narrator" | "series", value: string, limit = 3) =>
+    api.get<EntryStatus>("/similar-values/entry-status", {
+      query: { valueType, value, limit },
+    }),
+
+  /**
+   * Bounded server-side author/narrator/series type-ahead: existing names matching the typed
+   * query, accent-insensitively, capped at limit. This feeds the suggestion dropdowns of the
+   * author, narrator and series entry fields - the bounded replacement for the ungated flat
+   * name lists, whose size grew with the library.
+   */
+  getAutocomplete: (valueType: "author" | "narrator" | "series", query: string, limit: number) =>
+    api.get<string[]>("/similar-values/autocomplete", {
+      query: { valueType, query, limit },
+    }),
 
   align: (valueType: "author" | "series", sourceValues: string[], targetValue: string) =>
     api.post<void>("/similar-values/align", {
