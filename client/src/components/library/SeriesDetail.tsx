@@ -67,15 +67,14 @@ export function SeriesDetail() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const selection = useBookSelection();
-  const decodedSeriesName = decodeURIComponent(seriesName || "");
 
   // A series change means a whole new roster of owned books; the selection must not carry a
   // previous series' picks across the navigation. Reset during render so a stale selection can
   // never render for the rows of a different series (the component stays mounted across param
   // changes).
-  const [prevSeriesName, setPrevSeriesName] = useState(decodedSeriesName);
-  if (prevSeriesName !== decodedSeriesName) {
-    setPrevSeriesName(decodedSeriesName);
+  const [prevSeriesName, setPrevSeriesName] = useState(seriesName);
+  if (prevSeriesName !== seriesName) {
+    setPrevSeriesName(seriesName);
     selection.clear();
   }
 
@@ -119,9 +118,9 @@ export function SeriesDetail() {
   // issue an extra backend call whose other sections (computed with default paging) were thrown
   // away. keepPreviousData keeps the other sections' items rendered while one section pages.
   const seriesDetailQuery = useQuery({
-    queryKey: ["seriesDetail", decodedSeriesName, authorId, ownedPage, missingPage, ignoredPage],
+    queryKey: ["seriesDetail", seriesName, authorId, ownedPage, missingPage, ignoredPage],
     queryFn: () =>
-      seriesApi.getSeriesDetail(decodedSeriesName, {
+      seriesApi.getSeriesDetail(seriesName, {
         ownedPage,
         ownedPageSize: PAGE_SIZE,
         missingPage,
@@ -129,7 +128,7 @@ export function SeriesDetail() {
         ignoredPage,
         ignoredPageSize: PAGE_SIZE,
       }),
-    enabled: Boolean(decodedSeriesName),
+    enabled: Boolean(seriesName),
     placeholderData: keepPreviousData,
   });
 
@@ -172,14 +171,14 @@ export function SeriesDetail() {
         : "Refresh complete";
     toast.success(msg);
     void queryClient.invalidateQueries({
-      queryKey: ["seriesDetail", decodedSeriesName, authorId],
+      queryKey: ["seriesDetail", seriesName, authorId],
     });
   });
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await seriesApi.startRefresh(decodedSeriesName);
+      await seriesApi.startRefresh(seriesName);
       toast.success("Series refresh queued");
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
@@ -190,7 +189,7 @@ export function SeriesDetail() {
   const handleLoadCandidates = async () => {
     setLoadingCandidates(true);
     try {
-      const results = await seriesApi.getMatchCandidates(decodedSeriesName);
+      const results = await seriesApi.getMatchCandidates(seriesName);
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
@@ -208,7 +207,7 @@ export function SeriesDetail() {
     if (!q) return;
     setSearchingCandidates(true);
     try {
-      const results = await seriesApi.searchMatchCandidates(decodedSeriesName, q);
+      const results = await seriesApi.searchMatchCandidates(seriesName, q);
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
@@ -225,7 +224,7 @@ export function SeriesDetail() {
     setMatchingCandidate(true);
     try {
       await seriesApi.matchSeries(
-        decodedSeriesName,
+        seriesName,
         candidate.sourceName,
         candidate.sourceId,
         candidate.confidence,
@@ -235,7 +234,7 @@ export function SeriesDetail() {
       setCandidatesLoaded(false);
       toast.success(`Matched to ${candidate.seriesName} (${candidate.sourceName})`);
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", decodedSeriesName, authorId],
+        queryKey: ["seriesDetail", seriesName, authorId],
       });
       void queryClient.invalidateQueries({ queryKey: ["series"] });
     } catch (err: unknown) {
@@ -248,10 +247,10 @@ export function SeriesDetail() {
   const handleToggleOmnibus = async (checked: boolean) => {
     setUpdatingOmnibus(true);
     try {
-      await seriesApi.setIncludeOmnibusEditions(decodedSeriesName, checked);
+      await seriesApi.setIncludeOmnibusEditions(seriesName, checked);
       toast.success(checked ? "Omnibus editions included" : "Omnibus editions excluded");
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", decodedSeriesName, authorId],
+        queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
@@ -267,19 +266,19 @@ export function SeriesDetail() {
     setIgnoringBookId(book.id);
     try {
       if (ignored) {
-        await seriesApi.ignoreExpectedBook(decodedSeriesName, book.position, book.title);
+        await seriesApi.ignoreExpectedBook(seriesName, book.position, book.title);
         toast.success(`Ignored "${book.title || "book"}"`);
         // Ignoring moves a book out of the missing list; drop that section back to page 0 so
         // the refetch below never asks for a page the shrunk section no longer has.
         setMissingPage(0);
       } else {
-        await seriesApi.unignoreExpectedBook(decodedSeriesName, book.position, book.title);
+        await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
         toast.success(`Unignored "${book.title || "book"}"`);
         // Unignoring moves a book out of the ignored list; same drop for the ignored section.
         setIgnoredPage(0);
       }
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", decodedSeriesName, authorId],
+        queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
@@ -372,7 +371,7 @@ export function SeriesDetail() {
       </div>
 
       <div className="border-border border-b pb-4">
-        <h1 className="text-foreground text-2xl font-bold break-words">{decodedSeriesName}</h1>
+        <h1 className="text-foreground text-2xl font-bold break-words">{seriesName}</h1>
         <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
           <span>
             {ownedBooks.length} {ownedBooks.length === 1 ? "book" : "books"} owned
@@ -752,7 +751,7 @@ export function SeriesDetail() {
         onOpenChange={(open) => {
           setMissingCandidatesOpen(open ? missingCandidatesOpen : false);
         }}
-        seriesName={decodedSeriesName}
+        seriesName={seriesName}
         missingBook={
           typeof missingCandidatesOpen === "object"
             ? {

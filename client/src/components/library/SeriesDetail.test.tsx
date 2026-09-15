@@ -315,4 +315,25 @@ describe("SeriesDetail", () => {
       screen.queryByRole("checkbox", { name: "Select The Final Empire" }),
     ).not.toBeInTheDocument();
   });
+
+  // Regression: TanStack Router decodes path params when it matches the URL, so `%25`/`%20` in
+  // the route already arrive as `%`/space. The component used to decodeURIComponent the param
+  // again, which throws "URI malformed" for a name holding a literal percent ("10% Happier").
+  it("renders a series name containing a literal percent from the single decoded route param", async () => {
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders("/library/series/10%25%20Happier");
+
+    expect(await screen.findByRole("heading", { name: "10% Happier" })).toBeInTheDocument();
+    expect(getSeriesDetail).toHaveBeenCalledWith("10% Happier", {
+      ownedPage: 0,
+      ownedPageSize: 50,
+      missingPage: 0,
+      missingPageSize: 50,
+      ignoredPage: 0,
+      ignoredPageSize: 50,
+    });
+  });
 });
