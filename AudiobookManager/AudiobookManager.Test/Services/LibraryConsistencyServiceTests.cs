@@ -23,7 +23,9 @@ public class LibraryConsistencyServiceTests
     private IAudiobookFileHandler _fileHandler = null!;
     private IFileOperations _fileOperations = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
+    private Mock<ISeriesService> _seriesService = null!;
     private Mock<IInitialsSpacingIssueDetector> _initialsSpacingIssueDetector = null!;
+    private Mock<IPartMismatchIssueDetector> _partMismatchIssueDetector = null!;
     private Mock<ILibrarySettingsRepository> _librarySettingsRepository = null!;
     private Mock<ILogger<LibraryConsistencyService>> _logger = null!;
     private AudiobookSaveGate _saveGate = null!;
@@ -54,7 +56,7 @@ public class LibraryConsistencyServiceTests
         {
             new MissingMediaFileResolver(
                 _audiobookRepository.Object, _issueRepository.Object, _fileHandler, detectionService,
-                new SeriesReconciliationCache(),
+                _partMismatchIssueDetector.Object, new SeriesReconciliationCache(),
                 NullLogger<MissingMediaFileResolver>.Instance),
             new MetadataSidecarResolver(
                 _tagHandler.Object, _fileHandler, _issueRepository.Object,
@@ -62,13 +64,17 @@ public class LibraryConsistencyServiceTests
             new TagOrPathMismatchResolver(
                 _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object,
                 NullLogger<TagOrPathMismatchResolver>.Instance),
+            new SeriesPartMismatchResolver(
+                _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object,
+                _seriesService.Object,
+                NullLogger<SeriesPartMismatchResolver>.Instance),
             new MissingCoverResolver(
                 _tagHandler.Object, _fileHandler, _audiobookRepository.Object, _issueRepository.Object,
                 NullLogger<MissingCoverResolver>.Instance),
             new UnreadableFileResolver(
-                _issueRepository.Object, detectionService, NullLogger<UnreadableFileResolver>.Instance),
+                _issueRepository.Object, detectionService, _partMismatchIssueDetector.Object, NullLogger<UnreadableFileResolver>.Instance),
             new LibraryPathUnavailableResolver(
-                _issueRepository.Object, detectionService, NullLogger<LibraryPathUnavailableResolver>.Instance),
+                _issueRepository.Object, detectionService, _partMismatchIssueDetector.Object, NullLogger<LibraryPathUnavailableResolver>.Instance),
             new InitialsSpacingResolver(
                 _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object, _saveGate,
                 NullLogger<InitialsSpacingResolver>.Instance),
@@ -90,6 +96,7 @@ public class LibraryConsistencyServiceTests
             _saveGate,
             detectionService,
             _initialsSpacingIssueDetector.Object,
+            _partMismatchIssueDetector.Object,
             _librarySettingsRepository.Object,
             resolvers,
             orphanDirectoryConsistencyService,
@@ -117,7 +124,9 @@ public class LibraryConsistencyServiceTests
         _fileOperations = new FileOperations();
         _fileHandler = new AudiobookFileHandler(_fileOperations);
         _audiobookService = new Mock<IAudiobookService>();
+        _seriesService = new Mock<ISeriesService>();
         _initialsSpacingIssueDetector = new Mock<IInitialsSpacingIssueDetector>();
+        _partMismatchIssueDetector = new Mock<IPartMismatchIssueDetector>();
         _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
         _logger = new Mock<ILogger<LibraryConsistencyService>>();
         _saveGate = new AudiobookSaveGate();
@@ -137,6 +146,12 @@ public class LibraryConsistencyServiceTests
         _initialsSpacingIssueDetector
             .Setup(d => d.Detect(It.IsAny<IReadOnlyList<Database.Models.Audiobook>>(), It.IsAny<Domain.InitialsSpacing>()))
             .Returns(new List<ConsistencyIssue>());
+        _partMismatchIssueDetector
+            .Setup(d => d.DetectLibraryWideAsync())
+            .ReturnsAsync(new List<ConsistencyIssue>());
+        _partMismatchIssueDetector
+            .Setup(d => d.DetectForAudiobookAsync(It.IsAny<Database.Models.Audiobook>()))
+            .ReturnsAsync(new List<ConsistencyIssue>());
 
         _service = CreateService();
     }
@@ -820,6 +835,70 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // Regression: the readable-again refresh used to replace every stored issue with only what
+    // on-disk detection found, silently dropping a stored SeriesPartMismatch (a database-side
+    // check that lives in its own detector, not in that detection).
+    [TestMethod]
+    public async Task ResolveIssue_UnreadableFile_NowReadable_RefreshesThePartMismatchCheck()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "readable now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, "Mistborn", "7", 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 23,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.UnreadableFile,
+                Description = "File could not be read",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(23)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+            _partMismatchIssueDetector
+                .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
+                .ReturnsAsync(new List<ConsistencyIssue>
+                {
+                    new()
+                    {
+                        AudiobookId = 1,
+                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        Description = "stored part differs from part 2",
+                        ExpectedValue = "2",
+                        ActualValue = "7",
+                        DetectedAt = DateTime.UtcNow,
+                    },
+                });
+
+            var result = await _service.ResolveIssue(23);
+
+            Assert.AreEqual("file_readable", result.ActionTaken);
+            _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
+                "the readable-again refresh must re-run the part-mismatch check for the book");
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+                "the stored SeriesPartMismatch must not be silently dropped by the refresh");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // #1311: the whole point of the new state. A file missing because its directory is gone is a
     // share that died, not a deletion - the record must survive, and the resolve is a re-read,
     // exactly like UnreadableFile.
@@ -919,6 +998,72 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("directory_readable_again", result.ActionTaken);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Regression: the directory-back refresh used to replace every stored issue with only what
+    // on-disk detection found, silently dropping a stored SeriesPartMismatch (a database-side
+    // check that lives in its own detector, not in that detection).
+    [TestMethod]
+    public async Task ResolveIssue_LibraryPathUnavailable_DirectoryBack_RefreshesThePartMismatchCheck()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var restoredSubtree = Path.Combine(tempDir, "restored-subtree");
+
+        try
+        {
+            Directory.CreateDirectory(restoredSubtree);
+            var tempFile = Path.Combine(restoredSubtree, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "readable now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, "Mistborn", "7", 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 34,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                Description = "Media file's directory is not available",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(34)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+            _partMismatchIssueDetector
+                .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
+                .ReturnsAsync(new List<ConsistencyIssue>
+                {
+                    new()
+                    {
+                        AudiobookId = 1,
+                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        Description = "stored part differs from part 2",
+                        ExpectedValue = "2",
+                        ActualValue = "7",
+                        DetectedAt = DateTime.UtcNow,
+                    },
+                });
+
+            var result = await _service.ResolveIssue(34);
+
+            Assert.AreEqual("directory_readable_again", result.ActionTaken);
+            _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
+                "the directory-back refresh must re-run the part-mismatch check for the book");
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+                "the stored SeriesPartMismatch must not be silently dropped by the refresh");
         }
         finally
         {
@@ -1069,6 +1214,72 @@ public class LibraryConsistencyServiceTests
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
             Assert.IsTrue(File.Exists(tempFile), "the reappeared file should not be touched");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Regression: the file-recovered refresh used to delete every stored issue for the book and
+    // re-insert only what on-disk detection found. The series-part-mismatch check is not part of
+    // that detection (it reads the roster vs the stored part from the database), so a stored
+    // SeriesPartMismatch was silently dropped - the book's mislabeled part vanished from the
+    // consistency screen without ever being fixed.
+    [TestMethod]
+    public async Task ResolveIssue_MissingMediaFile_FileReappeared_RefreshesThePartMismatchCheck()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var tempFile = Path.Combine(tempDir, "test.m4b");
+            await File.WriteAllTextAsync(tempFile, "the file is actually here now");
+
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, "Mistborn", "7", 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000);
+
+            var issue = new ConsistencyIssue
+            {
+                Id = 12,
+                AudiobookId = 1,
+                Audiobook = dbAudiobook,
+                IssueType = ConsistencyIssueType.MissingMediaFile,
+                Description = "File missing",
+                DetectedAt = DateTime.UtcNow
+            };
+
+            _issueRepository.Setup(r => r.GetByIdAsync(12)).ReturnsAsync(issue);
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+            _partMismatchIssueDetector
+                .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
+                .ReturnsAsync(new List<ConsistencyIssue>
+                {
+                    new()
+                    {
+                        AudiobookId = 1,
+                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        Description = "stored part differs from part 2",
+                        ExpectedValue = "2",
+                        ActualValue = "7",
+                        DetectedAt = DateTime.UtcNow,
+                    },
+                });
+
+            var result = await _service.ResolveIssue(12);
+
+            Assert.AreEqual("file_recovered", result.ActionTaken);
+            _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
+                "the recovered-file refresh must re-run the part-mismatch check for the book");
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+                "the stored SeriesPartMismatch must not be silently dropped by the refresh");
         }
         finally
         {
@@ -1432,6 +1643,252 @@ public class LibraryConsistencyServiceTests
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
     }
 
+    // SeriesPartMismatch resolves by writing the roster position (the issue's ExpectedValue) into
+    // the book through UpdateAudiobook - the same binding-invariant pipeline (tags, recomputed
+    // path, sidecars) as the tag/path rewrite, whose resolver it reuses the shape of.
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_SetsTheExpectedPartThroughUpdateAudiobook()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", "7", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+        };
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 41,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            Description = "stored part differs from part 2",
+            ExpectedValue = "2",
+            ActualValue = "7",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(41)).ReturnsAsync(issue);
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+            .ReturnsAsync(MakeReconciliationWithPartMismatch(1, "2", "7"));
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>()))
+            .ReturnsAsync(new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000)));
+
+        var result = await _service.ResolveIssue(41);
+
+        Assert.AreEqual("resolved", result.ActionTaken);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Domain.Audiobook>(a =>
+            a.SeriesPart == "2" && a.Series == "Mistborn"
+        )), Times.Once, "the roster position rewrites the stored part through UpdateAudiobook");
+        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once,
+            "the rewrite invalidates every other stored check for the book");
+    }
+
+    /// <summary>A reconciliation whose only mismatch is one book's part (expected/stored).</summary>
+    private static SeriesReconciliation MakeReconciliationWithPartMismatch(
+        long audiobookId, string expectedPart, string? storedPart) =>
+        new(
+            new List<SeriesExpectedBookInfo>(),
+            new List<SeriesExpectedBookInfo>(),
+            new List<SeriesPartMismatch>
+            {
+                new()
+                {
+                    AudiobookId = audiobookId,
+                    BookName = $"Book {audiobookId}",
+                    StoredPart = storedPart,
+                    ExpectedPart = expectedPart,
+                    RosterTitle = $"Roster {expectedPart}",
+                },
+            },
+            ExpectedBookCount: 1,
+            OwnedCount: 1,
+            Authors: new List<string>());
+
+    // Regression: the issue's expected part was detected against the roster as it stood when the
+    // full check ran. A refresh since (which renumbers or re-orders the source's books) can assign
+    // this book a different position, and the resolver used to write the stored, now-obsolete
+    // ExpectedValue into the m4b - actively breaking the book against the current roster. The
+    // resolve must write the position the roster assigns NOW.
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_RosterRefreshedToADifferentPart_WritesTheCurrentPart()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", "7", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+        };
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 44,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            // Stale: detected before the refresh, when the roster assigned part 2.
+            Description = "stored part differs from part 2",
+            ExpectedValue = "2",
+            ActualValue = "7",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(44)).ReturnsAsync(issue);
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+            .ReturnsAsync(MakeReconciliationWithPartMismatch(1, "3", "7"));
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>()))
+            .ReturnsAsync(new Domain.Audiobook(
+                new List<Domain.Person> { new Domain.Person("Author One") },
+                "Test Book",
+                2024,
+                new Domain.AudiobookFileInfo("/library/test.m4b", "test.m4b", 1000)));
+
+        var result = await _service.ResolveIssue(44);
+
+        Assert.AreEqual("resolved", result.ActionTaken);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Domain.Audiobook>(a =>
+            a.SeriesPart == "3" && a.Series == "Mistborn"
+        )), Times.Once, "the position the roster assigns now is written, not the stored ExpectedValue");
+        _issueRepository.Verify(r => r.DeleteAsync(44), Times.Never,
+            "a live mismatch is fixed, not stale-cleared");
+    }
+
+    // Regression: a stored part that now agrees with the roster was previously "fixed" by writing
+    // the obsolete expected position over it - making a correct book wrong. When the current
+    // roster no longer reports the book as a mismatch, the issue is stale (the roster moved, or
+    // the book changed) and must be cleared without touching the book's files.
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_NoLongerAMismatch_IsClearedAsStale()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", "7", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
+        };
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 45,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            // Detected when the roster assigned part 2; the roster now says 7, which is what the
+            // book already carries.
+            Description = "stored part differs from part 2",
+            ExpectedValue = "2",
+            ActualValue = "7",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(45)).ReturnsAsync(issue);
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+            .ReturnsAsync(new SeriesReconciliation(
+                new List<SeriesExpectedBookInfo>(),
+                new List<SeriesExpectedBookInfo>(),
+                new List<SeriesPartMismatch>(),
+                ExpectedBookCount: 1,
+                OwnedCount: 1,
+                Authors: new List<string>()));
+
+        var result = await _service.ResolveIssue(45);
+
+        Assert.AreEqual("resolved", result.ActionTaken);
+        _issueRepository.Verify(r => r.DeleteAsync(45), Times.Once,
+            "the stale row is cleared, not reported as a failure");
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never,
+            "an already-correct book's files must never be rewritten");
+        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never,
+            "nothing about the book's other issues changed; only the stale row goes");
+    }
+
+    // A book that no longer carries a series at all cannot mismatch one: the issue is stale.
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_BookNoLongerInASeries_IsClearedAsStale()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, null, "7", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000);
+
+        var issue = new ConsistencyIssue
+        {
+            Id = 46,
+            AudiobookId = 1,
+            Audiobook = dbAudiobook,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            Description = "stored part differs from part 2",
+            ExpectedValue = "2",
+            ActualValue = "7",
+            DetectedAt = DateTime.UtcNow
+        };
+
+        _issueRepository.Setup(r => r.GetByIdAsync(46)).ReturnsAsync(issue);
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+        var result = await _service.ResolveIssue(46);
+
+        Assert.AreEqual("resolved", result.ActionTaken);
+        _issueRepository.Verify(r => r.DeleteAsync(46), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never);
+        _seriesService.Verify(s => s.GetReconciliationAsync(It.IsAny<string>()), Times.Never,
+            "a book outside any series cannot be reconciled against one");
+    }
+
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_MissingAudiobook_Throws()
+    {
+        _issueRepository.Setup(r => r.GetByIdAsync(42)).ReturnsAsync(new ConsistencyIssue
+        {
+            Id = 42,
+            AudiobookId = 404,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            ExpectedValue = "2",
+            ActualValue = null,
+            DetectedAt = DateTime.UtcNow
+        });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(404)).ReturnsAsync((DbAudiobook?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => _service.ResolveIssue(42));
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never,
+            "a book that no longer exists must never be updated");
+    }
+
+    // An issue without an expected position is corrupt state the detector cannot produce; the
+    // resolve must fail (and leave the issue visible) rather than clear or invent a part.
+    [TestMethod]
+    public async Task ResolveIssue_SeriesPartMismatch_WithoutExpectedPart_Throws()
+    {
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/test.m4b", "test.m4b", 1000);
+
+        _issueRepository.Setup(r => r.GetByIdAsync(43)).ReturnsAsync(new ConsistencyIssue
+        {
+            Id = 43,
+            AudiobookId = 1,
+            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            Description = "corrupt",
+            DetectedAt = DateTime.UtcNow
+        });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _service.ResolveIssue(43));
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never);
+    }
     // Regression: ResolveWrongFilePath used to relocate the file using tags re-parsed from the
     // file itself (assuming they were already correct), then delete every stored issue for the
     // book on success - including a TagMismatch it never actually fixed, since it never rewrote
@@ -2533,6 +2990,150 @@ public class LibraryConsistencyServiceTests
         // plausibility check was never consulted for a non-destructive issue type.
         Assert.AreEqual(10, resolved + failed);
         _audiobookRepository.Verify(r => r.CountAsync(), Times.Never);
+    }
+
+    #endregion
+
+    #region Series-part-mismatch sweep integration
+
+    // The full check runs the library-wide part-mismatch sweep and stores its findings alongside
+    // the per-book ones, counted into the run's issue total - same lifecycle as the initials-
+    // spacing sweep.
+    [TestMethod]
+    public async Task RunConsistencyCheck_InsertsAndCountsSeriesPartMismatchSweepIssues()
+    {
+        // A clean, readable book so the per-book loop produces no findings of its own.
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        var tempFile = Path.Combine(tempDir, "test.m4b");
+        await File.WriteAllTextAsync(tempFile, "fake audio content");
+
+        try
+        {
+            var dbAudiobook = new DbAudiobook(
+                1, "Test Book", null, "Mistborn", "7", 2024,
+                null, null, null, null, null, null, null, null, null,
+                tempFile, "test.m4b", 1000)
+            {
+                Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+            };
+            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
+                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(new Domain.Audiobook(
+                    new List<Domain.Person> { new Domain.Person("Author") }, "Test Book", 2024,
+                    new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
+
+            _partMismatchIssueDetector
+                .Setup(d => d.DetectLibraryWideAsync())
+                .ReturnsAsync(new List<ConsistencyIssue>
+                {
+                    new()
+                    {
+                        AudiobookId = 1,
+                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        Description = "stored part differs from part 2",
+                        ExpectedValue = "2",
+                        ActualValue = "7",
+                        DetectedAt = DateTime.UtcNow,
+                    },
+                });
+
+            var (booksChecked, issuesFound) = await _service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+
+            Assert.AreEqual(1, booksChecked);
+            Assert.IsTrue(issuesFound >= 1, "the run reports findings including the sweep's");
+            _partMismatchIssueDetector.Verify(d => d.DetectLibraryWideAsync(), Times.Once);
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch))), Times.AtLeastOnce);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // The single-book recheck merges the book's own part-mismatch findings with the on-disk
+    // detection, so resolving one book does not blind the screen to a mismatch that is still
+    // genuinely there (this is what the "include it in single-book rechecks" requirement means).
+    [TestMethod]
+    public async Task RecheckAudiobookAsync_MergesTheBooksSeriesPartMismatchIssues()
+    {
+        // Parent directory present: a genuinely deleted book is the shape detection reports.
+        var goneAuthor = Path.Combine(_libraryPath, "Gone Author");
+        Directory.CreateDirectory(goneAuthor);
+
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", "7", 2024,
+            null, null, null, null, null, null, null, null, null,
+            Path.Combine(goneAuthor, "test.m4b"), "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+        };
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+        _partMismatchIssueDetector
+            .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
+            .ReturnsAsync(new List<ConsistencyIssue>
+            {
+                new()
+                {
+                    AudiobookId = 1,
+                    IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                    Description = "stored part differs from part 2",
+                    ExpectedValue = "2",
+                    ActualValue = "7",
+                    DetectedAt = DateTime.UtcNow,
+                },
+            });
+
+        var issues = await _service.RecheckAudiobookAsync(1);
+
+        CollectionAssert.AreEqual(
+            new[] { ConsistencyIssueType.MissingMediaFile, ConsistencyIssueType.SeriesPartMismatch },
+            issues.Select(i => i.IssueType).ToArray(),
+            "the on-disk finding and the part mismatch are both reported by the single-book recheck");
+        _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+    }
+
+    // The batch recheck path is the same single-book pipeline once per id.
+    [TestMethod]
+    public async Task RecheckAudiobooksAsync_RechecksEachSelectedBookWithItsPartMismatch()
+    {
+        var goneAuthor = Path.Combine(_libraryPath, "Gone Author");
+        Directory.CreateDirectory(goneAuthor);
+
+        var dbAudiobook = new DbAudiobook(
+            1, "Test Book", null, "Mistborn", "9", 2024,
+            null, null, null, null, null, null, null, null, null,
+            Path.Combine(goneAuthor, "test.m4b"), "test.m4b", 1000)
+        {
+            Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
+        };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new[] { 1L })).ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
+
+        _partMismatchIssueDetector
+            .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
+            .ReturnsAsync(new List<ConsistencyIssue>
+            {
+                new()
+                {
+                    AudiobookId = 1,
+                    IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                    Description = "stored part differs from part 3",
+                    ExpectedValue = "3",
+                    ActualValue = "9",
+                    DetectedAt = DateTime.UtcNow,
+                },
+            });
+
+        var (processed, issuesFound) = await _service.RecheckAudiobooksAsync(
+            new[] { 1L }, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(2, issuesFound, "the missing file plus the part mismatch");
+        _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once);
     }
 
     #endregion

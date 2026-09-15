@@ -16,6 +16,7 @@ export const ISSUE_TYPE_LABELS: Record<string, string> = {
   UnreadableFile: "Unreadable Files",
   LibraryPathUnavailable: "Library Path Unavailable",
   InitialsSpacingMismatch: "Initials Spacing",
+  SeriesPartMismatch: "Series Part Mismatches",
 };
 
 export function getIssueTypeLabel(issueType: string): string {
@@ -45,6 +46,8 @@ export const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
     "Each affected book's directory will be looked for again. Books whose directory is back are re-checked normally; books whose directory is still missing stay listed. Nothing is deleted or modified.",
   InitialsSpacingMismatch:
     "For each affected author or narrator, every book carrying that name will have the name rewritten to the configured initials spacing (e.g. \u201cJ.K. Rowling\u201d \u2192 \u201cJ. K. Rowling\u201d), and the m4b tags, sidecars, and file paths updated to match.",
+  SeriesPartMismatch:
+    "Each affected audiobook's series part will be overwritten with the position its matched series assigns it (from that series' roster), and the m4b tags, sidecars, and file paths updated to match.",
 };
 
 export const ISSUE_TYPE_INFO: Record<string, string> = {
@@ -56,6 +59,8 @@ export const ISSUE_TYPE_INFO: Record<string, string> = {
     "Each book's m4b tags differ from its library metadata. Resolve opens a dialog to choose, field by field, whether to keep the library value, the file's value, or clear the field. Bulk resolve rewrites every tag to match the library and moves the file if that changes its path.",
   InitialsSpacingMismatch:
     "An author or narrator does not match the configured initials spacing (spaced like \u201cJ. K. Rowling\u201d or unspaced like \u201cJ.K. Rowling\u201d). Resolving rewrites the name to the configured style on every book that carries it, and updates the m4b tags, sidecars, and file path for each.",
+  SeriesPartMismatch:
+    "An owned book of a matched series stores a series part that is missing or differs from the position that series' roster assigns it (\u201c2\u201d vs \u201c2.0\u201d is not a mismatch). Resolving writes the roster position into the book and updates the m4b tags, sidecars, and file path for each.",
 };
 
 export function getIssueTypeInfo(issueType: string): string {

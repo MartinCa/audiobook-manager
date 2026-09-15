@@ -404,6 +404,8 @@ export const seriesApi = {
       missingPageSize?: number;
       ignoredPage?: number;
       ignoredPageSize?: number;
+      partMismatchPage?: number;
+      partMismatchPageSize?: number;
     } = {},
   ) =>
     api.get<SeriesDetail>("/series/detail", {

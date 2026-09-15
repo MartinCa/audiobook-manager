@@ -62,6 +62,17 @@ describe("consistencyHelpers", () => {
     });
   });
 
+  describe("SeriesPartMismatch", () => {
+    it("has a label, a bulk description and its own explanatory info", () => {
+      expect(getIssueTypeLabel("SeriesPartMismatch")).toBe("Series Part Mismatches");
+      expect(getBulkResolveDescription("SeriesPartMismatch")).toContain(
+        "overwritten with the position its matched series assigns it",
+      );
+      // Its own entry rather than a generic "Continue?".
+      expect(getIssueTypeInfo("SeriesPartMismatch")).not.toBe("Continue?");
+    });
+  });
+
   describe("notifyConsistencyResolveResult", () => {
     it("shows info toast when actionTaken is file_recovered", () => {
       notifyConsistencyResolveResult({

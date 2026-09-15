@@ -189,25 +189,28 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
         Assert.AreEqual(coverPath, items.Single().CoverFilePath);
     }
 
-    // The reconciliation's input is deliberately minimal: series part and book name only, so the
-    // cache-refill (the one read that touches every owned book of the series) carries nothing
-    // the fuzzy matcher does not use.
+    // The reconciliation's input is deliberately minimal: series part, book name and the row id.
+    // The fuzzy matcher reads the first two; the id is what lets a part-mismatch be reported and
+    // fixed against a specific owned book, so it has to be carried by the key too. The cache-refill
+    // (the one read that touches every owned book of the series) still carries nothing else.
     [TestMethod]
-    public async Task GetSeriesOwnedKeysAsync_ReturnsOnlyPartAndBookNameForTheSeries()
+    public async Task GetSeriesOwnedKeysAsync_ReturnsPartBookNameAndAudiobookIdForTheSeries()
     {
-        await SeedBookAsync("Book One", "Mistborn", seriesPart: "1");
-        await SeedBookAsync("Book Two", "Mistborn", seriesPart: "2");
+        var bookOne = await SeedBookAsync("Book One", "Mistborn", seriesPart: "1");
+        var bookTwo = await SeedBookAsync("Book Two", "Mistborn", seriesPart: "2");
         await SeedBookAsync("Unrelated", "Stormlight Archive", seriesPart: "1");
 
         var (keys, overflow) = await _repository.GetSeriesOwnedKeysAsync("Mistborn", maxKeys: 100);
 
         Assert.IsFalse(overflow);
         Assert.AreEqual(2, keys.Count, "only the series' own books, not the whole library");
-        Assert.IsTrue(keys.Any(k => k.SeriesPart == "1" && k.BookName == "Book One"));
-        Assert.IsTrue(keys.Any(k => k.SeriesPart == "2" && k.BookName == "Book Two"));
+        Assert.IsTrue(keys.Any(k => k.SeriesPart == "1" && k.BookName == "Book One" && k.AudiobookId == bookOne.Id),
+            "the projected id identifies the owned book it was read from");
+        Assert.IsTrue(keys.Any(k => k.SeriesPart == "2" && k.BookName == "Book Two" && k.AudiobookId == bookTwo.Id),
+            "the projected id identifies the owned book it was read from");
         Assert.IsFalse(keys.Any(k => k.BookName == "Unrelated"));
-        Assert.IsTrue(keys.All(k => k is { SeriesPart: not null, BookName.Length: > 0 }),
-            "the key carries series part and book name - nothing else (the row type has no other fields)");
+        Assert.IsTrue(keys.All(k => k is { AudiobookId: > 0, SeriesPart: not null, BookName.Length: > 0 }),
+            "the key carries the series part, book name and audiobook id - and nothing else");
     }
 
     // Regression for the materialization cap: a pathological owned set (more than the

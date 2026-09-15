@@ -23,6 +23,13 @@ public interface ISeriesRepository
     Task<Series?> GetByNameAsync(string name);
 
     /// <summary>
+    /// The names of every matched series, names only. The library-wide series-part-mismatch
+    /// sweep consumes the cached per-series reconciliation for exactly these series; unmatched
+    /// series have no roster to reconcile against and never produce a part mismatch.
+    /// </summary>
+    Task<List<string>> GetMatchedSeriesNamesAsync();
+
+    /// <summary>
     /// <see cref="GetByNameWithExpectedBooksAsync"/> for the detail reconciliation: the catalog row
     /// plus its roster, with the roster fetch bounded to <paramref name="maxExpectedBooks"/> + 1
     /// rows. A roster at or under the cap comes back complete; a larger one is detected (the

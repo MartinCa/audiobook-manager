@@ -55,11 +55,27 @@ export type SeriesOwnedBookPage = Require<
   items: SeriesOwnedBook[];
 };
 
+// AudiobookManager.Api/Dtos/SeriesDtos.cs (SeriesPartMismatchDto): audiobookId/bookName/
+// expectedPart/rosterTitle are non-nullable; storedPart is genuinely nullable (a book with no
+// part at all is exactly the missing-part shape this is used to surface).
+export type SeriesPartMismatch = Require<
+  components["schemas"]["SeriesPartMismatchDto"],
+  "audiobookId" | "bookName" | "expectedPart" | "rosterTitle"
+>;
+
+export type SeriesPartMismatchPage = Require<
+  components["schemas"]["SeriesPartMismatchPageDto"],
+  "items" | "totalCount"
+> & {
+  items: SeriesPartMismatch[];
+};
+
 export interface SeriesDetail {
   overview: SeriesOverview;
   ownedBooks: SeriesOwnedBookPage;
   missingBooks: SeriesExpectedBookPage;
   ignoredBooks: SeriesExpectedBookPage;
+  partMismatches: SeriesPartMismatchPage;
 }
 
 // sourceName/sourceId/seriesName/authors/confidence are non-nullable; sourceUrl and bookCount

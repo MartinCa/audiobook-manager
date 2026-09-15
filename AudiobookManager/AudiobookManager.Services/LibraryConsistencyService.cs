@@ -23,6 +23,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IAudiobookSaveGate _saveGate;
     private readonly IAudiobookIssueDetectionService _detectionService;
     private readonly IInitialsSpacingIssueDetector _initialsSpacingIssueDetector;
+    private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
     private readonly IOrphanDirectoryConsistencyService _orphanDirectoryConsistencyService;
     private readonly Dictionary<ConsistencyIssueType, IConsistencyIssueResolver> _resolversByType;
@@ -37,6 +38,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IAudiobookSaveGate saveGate,
         IAudiobookIssueDetectionService detectionService,
         IInitialsSpacingIssueDetector initialsSpacingIssueDetector,
+        IPartMismatchIssueDetector partMismatchIssueDetector,
         ILibrarySettingsRepository librarySettingsRepository,
         IEnumerable<IConsistencyIssueResolver> resolvers,
         IOrphanDirectoryConsistencyService orphanDirectoryConsistencyService,
@@ -51,6 +53,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _saveGate = saveGate;
         _detectionService = detectionService;
         _initialsSpacingIssueDetector = initialsSpacingIssueDetector;
+        _partMismatchIssueDetector = partMismatchIssueDetector;
         _librarySettingsRepository = librarySettingsRepository;
         _orphanDirectoryConsistencyService = orphanDirectoryConsistencyService;
         _logger = logger;
@@ -143,6 +146,17 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             await _issueRepository.InsertRangeAsync(initialsSpacingIssues);
         }
         issuesFound += initialsSpacingIssues.Count;
+
+        // Library-wide sweep: owned books of matched series whose stored part is missing or
+        // differs from the roster position. Delegates to the same cached per-series
+        // reconciliation the series detail renders, so the two surfaces always agree, and fails
+        // soft (a series over the bounded-reconciliation caps is skipped, not fatal).
+        var partMismatchIssues = await _partMismatchIssueDetector.DetectLibraryWideAsync();
+        if (partMismatchIssues.Count > 0)
+        {
+            await _issueRepository.InsertRangeAsync(partMismatchIssues);
+        }
+        issuesFound += partMismatchIssues.Count;
 
         issuesFound = await _orphanDirectoryConsistencyService.ScanAsync(progressAction, totalBooks, issuesFound);
 
@@ -538,6 +552,11 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // request thread. (The full check needs no such wrapper: BackgroundOperationRunner
         // already puts it on the thread pool.)
         var issues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+
+        // The series-part-mismatch check is async (the cached reconciliation reads the roster and
+        // owned keys) and is this book's share of the same library-wide sweep the full check runs;
+        // adding it here keeps the single-book recheck equivalent without duplicating the deletion.
+        issues.AddRange(await _partMismatchIssueDetector.DetectForAudiobookAsync(audiobook));
 
         await _issueRepository.InsertRangeAsync(issues);
         return issues;

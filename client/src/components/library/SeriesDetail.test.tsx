@@ -6,7 +6,12 @@ import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { seriesApi } from "@/services/api";
-import type { SeriesDetail, SeriesExpectedBook, SeriesOwnedBook } from "@/types/Series";
+import type {
+  SeriesDetail,
+  SeriesExpectedBook,
+  SeriesOwnedBook,
+  SeriesPartMismatch,
+} from "@/types/Series";
 
 const mockSignalRValue = {
   connection: null,
@@ -43,6 +48,8 @@ function makeDetail(
   missingTotal: number,
   ownedItems: SeriesOwnedBook[] = [defaultOwned],
   ignoredTotal = 0,
+  partMismatchItems: SeriesPartMismatch[] = [],
+  partMismatchTotal = 0,
 ): SeriesDetail {
   return {
     overview: {
@@ -72,6 +79,10 @@ function makeDetail(
     ignoredBooks: {
       items: [],
       totalCount: ignoredTotal,
+    },
+    partMismatches: {
+      items: partMismatchItems,
+      totalCount: partMismatchTotal,
     },
   };
 }
@@ -171,6 +182,8 @@ describe("SeriesDetail", () => {
       missingPageSize: 50,
       ignoredPage: 0,
       ignoredPageSize: 50,
+      partMismatchPage: 0,
+      partMismatchPageSize: 50,
     });
   });
 
@@ -314,5 +327,88 @@ describe("SeriesDetail", () => {
     expect(
       screen.queryByRole("checkbox", { name: "Select The Final Empire" }),
     ).not.toBeInTheDocument();
+  });
+
+  function partMismatch(
+    audiobookId: number,
+    bookName: string,
+    expectedPart: string,
+    storedPart?: string | null,
+  ): SeriesPartMismatch {
+    return {
+      audiobookId,
+      bookName,
+      storedPart: storedPart ?? null,
+      expectedPart,
+      rosterTitle: `${bookName} (source)`,
+    };
+  }
+
+  it("renders the Part Mismatches section with stored and expected parts", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [], 0, [partMismatch(10, "The Final Empire", "1", "7")], 1),
+    );
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Part Mismatches (1)")).toBeInTheDocument();
+    expect(screen.getByText("The Final Empire")).toBeInTheDocument();
+    expect(screen.getByText(/stored part/)).toBeInTheDocument();
+    expect(screen.getByText(/shared with "The Final Empire \(source\)"/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fix" })).toBeInTheDocument();
+  });
+
+  // Fixing a mismatch reuses expected-books/apply: the row's expected part and roster title are
+  // exactly the natural key that endpoint resolves, so no second backend surface was introduced.
+  // The refetch after the fix must render the section WITHOUT the fixed row - the whole point of
+  // the fix - not a forever-identical mock.
+  it("fixes a part mismatch through expected-books/apply and refetches the detail", async () => {
+    let fixed = false;
+    vi.spyOn(seriesApi, "applyMissingBook").mockImplementation(() => {
+      // The apply resolves the mismatch server-side, so every later detail fetch comes back
+      // without the row - exactly what the backend returns after its recheck.
+      fixed = true;
+      return Promise.resolve();
+    });
+    const getSeriesDetail = vi.spyOn(seriesApi, "getSeriesDetail");
+    getSeriesDetail.mockImplementation(() =>
+      Promise.resolve(
+        fixed
+          ? makeDetail([], 0)
+          : makeDetail([], 0, [], 0, [partMismatch(42, "Alloy of Law", "4", "9")], 1),
+      ),
+    );
+
+    renderWithProviders();
+
+    await screen.findByText("Part Mismatches (1)");
+    fireEvent.click(screen.getByRole("button", { name: "Fix" }));
+
+    await waitFor(() =>
+      expect(seriesApi.applyMissingBook).toHaveBeenCalledWith(
+        "Mistborn",
+        42,
+        "4",
+        "Alloy of Law (source)",
+      ),
+    );
+    // The fix invalidates the detail query, so the section refetches with the corrected roster.
+    await waitFor(() => {
+      expect(getSeriesDetail.mock.calls.length).toBeGreaterThan(1);
+    });
+    // ...and, with the row gone, the whole Part Mismatches section (heading and total) disappears
+    // instead of re-rendering a stale "Part Mismatches (1)".
+    await waitFor(() => {
+      expect(screen.queryByText(/Part Mismatches/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not render the Part Mismatches section when there are none", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+
+    await screen.findByRole("link", { name: /The Final Empire/ });
+    expect(screen.queryByText(/Part Mismatches/)).not.toBeInTheDocument();
   });
 });

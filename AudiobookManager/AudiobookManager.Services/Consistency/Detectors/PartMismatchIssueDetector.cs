@@ -1,0 +1,105 @@
+using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
+using Microsoft.Extensions.Logging;
+using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
+
+namespace AudiobookManager.Services;
+
+/// <summary>
+/// Maps the cached per-series reconciliation's part mismatches to consistency issues. See
+/// <see cref="IPartMismatchIssueDetector"/> for why this is a library-wide sweep and not an
+/// <see cref="IConsistencyIssueDetector"/>. The per-series work is delegated to
+/// <see cref="ISeriesService.GetReconciliationAsync(string)"/> - never reimplemented here - so
+/// the detected findings always agree with what the series detail renders, and a full check that
+/// follows a series-detail browse reuses the cache instead of recomputing.
+/// </summary>
+public class PartMismatchIssueDetector : IPartMismatchIssueDetector
+{
+    private readonly ISeriesRepository _seriesRepository;
+    private readonly ISeriesService _seriesService;
+    private readonly ILogger<PartMismatchIssueDetector> _logger;
+
+    public PartMismatchIssueDetector(
+        ISeriesRepository seriesRepository,
+        ISeriesService seriesService,
+        ILogger<PartMismatchIssueDetector> logger)
+    {
+        _seriesRepository = seriesRepository;
+        _seriesService = seriesService;
+        _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<ConsistencyIssue>> DetectLibraryWideAsync()
+    {
+        // One issue per treated book, bounded by the matched-series list (the sweep is groupable
+        // only by series, and unmatched series have no roster to mismatch against).
+        var matchedSeries = await _seriesRepository.GetMatchedSeriesNamesAsync();
+        var issues = new List<ConsistencyIssue>();
+
+        foreach (var seriesName in matchedSeries)
+        {
+            try
+            {
+                var reconciliation = await _seriesService.GetReconciliationAsync(seriesName);
+                foreach (var mismatch in reconciliation.PartMismatches)
+                {
+                    issues.Add(ToIssue(mismatch));
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                // A series over the bounded-reconciliation caps cannot be reconciled - the series
+                // detail already fails loudly on it. Failing soft here keeps one pathological
+                // series from failing the whole-consistency check.
+                _logger.LogWarning(
+                    ex, "Skipping series-part-mismatch sweep for series {SeriesName}: {Message}",
+                    seriesName, ex.Message);
+            }
+        }
+
+        return issues;
+    }
+
+    public async Task<IReadOnlyList<ConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook)
+    {
+        if (string.IsNullOrWhiteSpace(audiobook.Series))
+        {
+            return new List<ConsistencyIssue>();
+        }
+
+        try
+        {
+            var reconciliation = await _seriesService.GetReconciliationAsync(audiobook.Series);
+            return reconciliation.PartMismatches
+                .Where(m => m.AudiobookId == audiobook.Id)
+                .Select(ToIssue)
+                .ToList();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(
+                ex, "Skipping series-part-mismatch detection for audiobook {AudiobookId} in series {SeriesName}: {Message}",
+                audiobook.Id, audiobook.Series, ex.Message);
+            return new List<ConsistencyIssue>();
+        }
+    }
+
+    /// <summary>
+    /// The issue's expected/actual values carry the roster position vs the stored part (the
+    /// resolver writes <see cref="ConsistencyIssue.ExpectedValue"/> back into the book), and the
+    /// description names the roster title the book was matched against, mirroring what the series
+    /// detail's Part Mismatches section shows.
+    /// </summary>
+    private static ConsistencyIssue ToIssue(SeriesPartMismatch mismatch) => new()
+    {
+        AudiobookId = mismatch.AudiobookId,
+        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+        Description =
+            $"The stored series part of '{mismatch.BookName}' is missing or differs from "
+            + $"part {mismatch.ExpectedPart} assigned to '{mismatch.RosterTitle}' in the matched series.",
+        ExpectedValue = mismatch.ExpectedPart,
+        ActualValue = mismatch.StoredPart,
+        DetectedAt = DateTime.UtcNow
+    };
+}

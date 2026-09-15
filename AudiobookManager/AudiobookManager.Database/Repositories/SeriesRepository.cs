@@ -55,6 +55,22 @@ public class SeriesRepository : ISeriesRepository
     }
 
     /// <summary>
+    /// The names of every matched series, names only - no roster. The library-wide
+    /// series-part-mismatch sweep iterates the matched series to reconcile each one against its
+    /// owned books; it must not load the full catalog (rosters included) to learn which series are
+    /// matched.
+    /// </summary>
+    public async Task<List<string>> GetMatchedSeriesNamesAsync()
+    {
+        return await _db.Series
+            .AsNoTracking()
+            .Where(s => s.MatchedSourceName != null && s.MatchedSourceName != ""
+                && s.MatchedSourceId != null && s.MatchedSourceId != "")
+            .Select(s => s.Name)
+            .ToListAsync();
+    }
+
+    /// <summary>
     /// The catalog row plus its roster, bounded to <paramref name="maxExpectedBooks"/> + 1 rows.
     /// The reconciliation's fuzzy matcher is explicitly capped, so the roster read must not
     /// materialize (or transfer) a pathological full roster just to learn it is too big: the
