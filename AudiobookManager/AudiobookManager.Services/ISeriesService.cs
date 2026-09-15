@@ -133,6 +133,19 @@ public interface ISeriesService
     Task<SeriesExpectedBookInfo?> ResolveExpectedBookAsync(string seriesName, string? position, string? title);
 
     /// <summary>
+    /// Advisory check backing the edit form's series-part conflict warning: other books in the
+    /// library already carrying the given (series, series part) combination. The current book is
+    /// always excluded (its own row is the one being edited, not a conflict), and parts are
+    /// compared with the same equivalence the series reconciliation applies ("1" and "1.0" are
+    /// the same part, "" and "1" are not - so an empty part never conflicts). Equivalence runs in
+    /// SQL, so the returned conflicts are exact; the result is still capped, and
+    /// <see cref="SeriesPartConflictCheck.Truncated"/> tells the caller when the list is partial.
+    /// Purely advisory - the caller must never use it to block a save.
+    /// </summary>
+    Task<SeriesPartConflictCheck> GetSeriesPartConflictsAsync(
+        long currentAudiobookId, string? series, string? seriesPart, int limit = SeriesService.MaxSeriesPartConflictRows);
+
+    /// <summary>
     /// Applies the series name and the roster entry's position to a chosen audiobook, through
     /// AudiobookService.UpdateAudiobook. The caller holds the per-audiobook save gate around this
     /// call - the gate is non-reentrant, so this method must never take it itself.

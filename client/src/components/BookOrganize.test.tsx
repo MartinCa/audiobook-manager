@@ -22,6 +22,7 @@ vi.mock("@/services/api", () => ({
     getAuthorNames: vi.fn().mockResolvedValue([]),
     getNarratorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
+    getAutocomplete: vi.fn().mockResolvedValue([]),
   },
 }));
 

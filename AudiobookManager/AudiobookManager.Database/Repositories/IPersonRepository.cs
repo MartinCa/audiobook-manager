@@ -12,6 +12,35 @@ public interface IPersonRepository
     /// the input collapse to the same instance).
     /// </summary>
     Task<Dictionary<string, Person>> GetOrCreatePersons(IEnumerable<string> names);
+    /// <summary>
+    /// An author whose folded name equals the input value's folded name - the "this value already
+    /// exists" answer for the entry-status classification. Identical to what the accent-insensitive
+    /// AND the case-insensitive search does (folded-column equality, SQLite LIKE semantics), so a
+    /// typed "rené" matches a stored "René" and "brandon sanderson" matches "Brandon Sanderson".
+    /// </summary>
+    Task<AuthorSummaryRow?> FindAuthorByFoldedNameAsync(string value);
+
+    /// <summary>
+    /// A narrator whose folded name equals the input value's folded name - the narrator
+    /// counterpart of <see cref="FindAuthorByFoldedNameAsync"/>, scoped to persons that actually
+    /// narrate books. Backs the narrator entry-status classification in the edit form.
+    /// </summary>
+    Task<AuthorSummaryRow?> FindNarratorByFoldedNameAsync(string value);
+
+    /// <summary>
+    /// The distinct author names the entry-status classification scores as "similar" candidates -
+    /// a bounded (capped), deliberately permissive prefilter (full-query containment ranked ahead
+    /// of first-token containment) over which the fuzzy "similar" decision is made. Returns id +
+    /// name so the classification can offer the match for the author link.
+    /// </summary>
+    Task<List<AuthorSummaryRow>> SearchAuthorNamesAsync(string query, int limit);
+
+    /// <summary>
+    /// The narrator counterpart of <see cref="SearchAuthorNamesAsync"/>: bounded narrator-name
+    /// candidates for the narrator entry-status classification.
+    /// </summary>
+    Task<List<AuthorSummaryRow>> SearchNarratorNamesAsync(string query, int limit);
+
     /// <summary>Distinct names of authors that have at least one book. Backs the entry-time
     /// autocomplete, which needs nothing but the strings.</summary>
     Task<List<string>> GetAuthorNamesAsync();

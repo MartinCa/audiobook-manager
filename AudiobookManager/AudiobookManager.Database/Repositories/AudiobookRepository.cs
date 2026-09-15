@@ -839,6 +839,103 @@ public class AudiobookRepository : IAudiobookRepository
         return series;
     }
 
+    /// <summary>
+    /// The series value whose folded name equals the input's folded name, or null. Folded-column
+    /// equality via SQLite LIKE semantics (no wildcards, ESCAPE applied): case-insensitive for
+    /// ASCII and accent-insensitive for everything, matching the accent-insensitive search
+    /// invariant the "does this value already exist" answer needs.
+    /// </summary>
+    public async Task<string?> FindSeriesValueByFoldedNameAsync(string value)
+    {
+        var folded = AccentFolding.FoldPlain(value?.Trim());
+        if (string.IsNullOrEmpty(folded))
+        {
+            return null;
+        }
+
+        var pattern = EscapeLikePattern(folded);
+        return await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series != null && a.SeriesFolded != null && EF.Functions.Like(a.SeriesFolded, pattern, LikeEscapeCharacter))
+            .Select(a => a.Series!)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// The distinct series values the entry-status classification scores as "similar" candidates,
+    /// capped at <paramref name="limit"/> rows. Same bounded, deliberately permissive prefilter
+    /// shape as <see cref="PersonRepository.SearchAuthorNamesAsync"/>: full-query containment
+    /// ranked ahead of first-token containment, so a common token cannot crowd out the genuine
+    /// match from the capped set. Sorted in memory like <see cref="GetSeriesNamesAsync"/> because
+    /// a candidate list a human reads must not come back in code-point BINARY order.
+    /// </summary>
+    public async Task<List<string>> SearchSeriesValuesAsync(string query, int limit)
+    {
+        var folded = AccentFolding.FoldPlain(query?.Trim());
+        if (string.IsNullOrEmpty(folded))
+        {
+            return new List<string>();
+        }
+
+        var firstToken = folded.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+
+        // Both patterns are ESCAPEd so a literal '%' or '_' the user typed matches rows containing
+        // exactly that character instead of acting as a LIKE wildcard.
+        var fullPattern = $"%{EscapeLikePattern(folded)}%";
+        var tokenPattern = $"%{EscapeLikePattern(firstToken)}%";
+        var hasFirstToken = firstToken.Length > 0;
+
+        var series = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series != null && a.SeriesFolded != null && (
+                EF.Functions.Like(a.SeriesFolded, fullPattern, LikeEscapeCharacter)
+                || (hasFirstToken && EF.Functions.Like(a.SeriesFolded, tokenPattern, LikeEscapeCharacter))))
+            .OrderByDescending(a => EF.Functions.Like(a.SeriesFolded, fullPattern, LikeEscapeCharacter))
+            .ThenBy(a => a.Series)
+            .Select(a => a.Series!)
+            .Distinct()
+            .Take(limit)
+            .ToListAsync();
+
+        series.Sort(StringComparer.InvariantCulture);
+        return series;
+    }
+
+    /// <summary>
+    /// Books carrying exactly the given series value whose series part is <em>equivalent</em> to
+    /// <paramref name="seriesPart"/>, excluding <paramref name="excludeAudiobookId"/>. The
+    /// equivalence (numeric with rounding, or trimmed case-insensitive text - see
+    /// <see cref="SeriesPartEquivalence"/>) is applied IN SQL via the registered
+    /// <c>parts_equivalent</c> scalar function, so the row set is exactly the genuine conflicts,
+    /// not an arbitrary slice of the series that is then filtered in memory: a conflict can never
+    /// sort past an alphabetical bound and be silently missed. The result is still capped -
+    /// <paramref name="limit"/> rows, with an explicit truncation flag when more genuine conflicts
+    /// exist, so the caller can tell the user the list is partial rather than claim it is complete.
+    /// </summary>
+    public async Task<(List<SeriesPartConflictRow> Items, bool Truncated)> GetSeriesPartConflictCandidatesAsync(
+        string series, long excludeAudiobookId, string seriesPart, int limit)
+    {
+        var trimmed = series?.Trim();
+        if (string.IsNullOrEmpty(trimmed) || string.IsNullOrWhiteSpace(seriesPart))
+        {
+            return (new List<SeriesPartConflictRow>(), Truncated: false);
+        }
+
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Series == trimmed
+                && a.Id != excludeAudiobookId
+                && a.SeriesPart != null
+                && SeriesPartEquivalence.PartsEquivalent(a.SeriesPart, seriesPart))
+            .OrderBy(a => a.BookName).ThenBy(a => a.Id)
+            .Take(limit + 1)
+            .Select(a => new SeriesPartConflictRow(a.Id, a.BookName, a.SeriesPart))
+            .ToListAsync();
+
+        var truncated = rows.Count > limit;
+        return (truncated ? rows.Take(limit).ToList() : rows, truncated);
+    }
+
     public async Task<Dictionary<string, int>> GetSeriesBookCountsAsync(IReadOnlyCollection<string> seriesValues)
     {
         if (seriesValues.Count == 0)

@@ -49,6 +49,7 @@ vi.mock("@/services/api", () => ({
   similarValuesApi: {
     getAuthorNames: vi.fn().mockResolvedValue([]),
     getSeriesNames: vi.fn().mockResolvedValue([]),
+    getAutocomplete: vi.fn().mockResolvedValue([]),
   },
   metadataRefreshApi: {
     refreshAudiobook: vi.fn(),

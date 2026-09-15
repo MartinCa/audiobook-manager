@@ -12,6 +12,8 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Info,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -148,6 +150,13 @@ export interface BookEditFormProps {
   pendingRefreshResult?: MetadataSearchResult | null;
   pendingRefreshOpen?: boolean;
   onPendingRefreshOpenChange?: (open: boolean) => void;
+  /**
+   * The id of the book this form is editing, when there is one. Enable the advisory series-part
+   * conflict check (which excludes the current book) once set; the organize/discovered flows,
+   * which have no book yet, keep it unset and skip the check. Purely advisory either way: the
+   * check never prevents a save.
+   */
+  currentBookId?: number;
 }
 
 export function BookEditForm({
@@ -168,6 +177,7 @@ export function BookEditForm({
   pendingRefreshResult,
   pendingRefreshOpen,
   onPendingRefreshOpenChange,
+  currentBookId,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   const [newPath, setNewPath] = useState<string | null>(null);
@@ -188,6 +198,34 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
+
+  // Advisory series-part conflict check: does another book already carry this (series, part)?
+  // Server-backed and bounded (per-book, part-equivalence applied server-side, capped result).
+  // Debounced so a keystroke in either field does not fire one request per character; the query
+  // is disabled for the organize/discovered flows, which have no currentBookId yet, and for an
+  // empty series or part. Saving stays allowed no matter what this returns - the warning is
+  // informational, never a blocker.
+  const seriesValue = (watchedValues.series ?? "").trim();
+  const seriesPartValue = (watchedValues.seriesPart ?? "").trim();
+  const [debouncedSeries, setDebouncedSeries] = useState(seriesValue);
+  const [debouncedPart, setDebouncedPart] = useState(seriesPartValue);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSeries(seriesValue), 300);
+    return () => clearTimeout(timer);
+  }, [seriesValue]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedPart(seriesPartValue), 300);
+    return () => clearTimeout(timer);
+  }, [seriesPartValue]);
+  const seriesSetWithNoPart = seriesValue.length > 0 && seriesPartValue.length === 0;
+  const { data: seriesPartConflictCheck, isError: seriesPartConflictError } = useQuery({
+    queryKey: ["seriesPartConflicts", currentBookId, debouncedSeries, debouncedPart],
+    queryFn: () =>
+      audiobookApi.getSeriesPartConflicts(currentBookId!, debouncedSeries, debouncedPart),
+    enabled: currentBookId !== undefined && debouncedSeries.length > 0 && debouncedPart.length > 0,
+  });
+  const seriesPartConflicts = seriesPartConflictCheck?.conflicts ?? [];
+  const seriesPartConflictsTruncated = seriesPartConflictCheck?.truncated ?? false;
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -550,6 +588,55 @@ export function BookEditForm({
               <Input {...form.register("seriesPart")} placeholder="e.g. 1 or 2.5" />
             </div>
           </div>
+
+          {seriesSetWithNoPart && (
+            <p className="text-status-unknown mt-1 flex items-center gap-1 text-xs">
+              <Info className="h-3 w-3 shrink-0" />
+              <span>
+                Series is set but no series part is entered — the book will have no position within
+                it.
+              </span>
+            </p>
+          )}
+
+          {seriesPartConflictError && (
+            <p role="alert" className="text-status-error mt-1 flex items-center gap-1 text-xs">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span>Couldn't check for series-part conflicts — saving is still allowed.</span>
+            </p>
+          )}
+
+          {seriesPartConflicts.length > 0 && (
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-300">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>Another book already uses this series part</span>
+              </div>
+              <ul className="mt-1 list-inside list-disc space-y-0.5">
+                {seriesPartConflicts.map((conflict) => (
+                  <li key={conflict.audiobookId}>
+                    <a
+                      href={`/library/book/${conflict.audiobookId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium break-all underline"
+                    >
+                      {conflict.bookName}
+                      {conflict.seriesPart ? ` · part ${conflict.seriesPart}` : ""}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              {seriesPartConflictsTruncated && (
+                <p className="mt-1 opacity-80">
+                  List is truncated — more books share this series part than are shown.
+                </p>
+              )}
+              <p className="mt-1 opacity-80">
+                Saving is still allowed — this is a heads-up, not a blocker.
+              </p>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <div className="min-w-0 flex-1">

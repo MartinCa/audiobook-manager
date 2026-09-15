@@ -33,6 +33,7 @@ vi.mock("@/services/api", () => ({
   },
   similarValuesApi: {
     getSeriesNames: vi.fn().mockResolvedValue([]),
+    getAutocomplete: vi.fn().mockResolvedValue([]),
   },
 }));
 

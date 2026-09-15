@@ -1,8 +1,9 @@
-import { useMemo, type ComponentProps } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, type ComponentProps } from "react";
 import { TypeaheadInput } from "@/components/TypeaheadInput";
 import { similarValuesApi } from "@/services/api";
-import { findSimilarExisting } from "@/helpers/similarValueMatcher";
+import { useEntryStatus } from "@/hooks/useEntryStatus";
+import { EntryStatusHint } from "@/components/fields/EntryStatusHint";
+import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 
 export interface SeriesFieldProps {
   value: string;
@@ -30,21 +31,18 @@ export function SeriesField({
   onBlur,
   showLabel = true,
 }: SeriesFieldProps) {
-  const { data: seriesNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "series"],
-    queryFn: () => similarValuesApi.getSeriesNames(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Same derived approach as the author/narrator hints: a similar existing series is shown
-  // regardless of whether the value was typed, blurred into, or set in bulk via a scraped
-  // metadata-search apply.
-  const seriesHint = useMemo(() => {
-    const series = value?.trim();
-    if (!series) return null;
-    const matches = findSimilarExisting(series, seriesNames);
-    return matches[0] && matches[0] !== series ? matches[0] : null;
-  }, [value, seriesNames]);
+  // The type-ahead candidates come from a bounded server-side lookup keyed by the typed query
+  // (TypeaheadInput's fetchCandidates), not a preloaded list of every existing series value. The
+  // exact-existing / similar / new indicator below uses its own single-value bounded
+  // classification - never a client scan of the whole library's name set. The provider identity
+  // is stable (it closes over nothing changeable) so TypeaheadInput's debounced fetch is not
+  // reset on every render.
+  const fetchCandidates = useCallback(
+    (query: string) =>
+      similarValuesApi.getAutocomplete("series", query, TYPEAHEAD_SUGGESTION_COUNT),
+    [],
+  );
+  const { status, isError } = useEntryStatus("series", value);
 
   return (
     <div className="min-w-0 flex-1">
@@ -53,20 +51,12 @@ export function SeriesField({
         ref={ref}
         value={value}
         onValueChange={onChange}
-        candidates={seriesNames}
         placeholder={placeholder}
         disabled={disabled}
         onBlur={onBlur}
+        fetchCandidates={fetchCandidates}
       />
-      {seriesHint && (
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground mt-1 text-xs underline decoration-dotted"
-          onClick={() => onChange(seriesHint)}
-        >
-          Similar existing series: {seriesHint} (click to use)
-        </button>
-      )}
+      <EntryStatusHint status={status} isError={isError} onUseMatch={onChange} />
     </div>
   );
 }

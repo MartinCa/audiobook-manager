@@ -10,19 +10,24 @@ namespace AudiobookManager.Database.Search;
 /// <c>DbContext.OnConfiguring</c> - the context is still being configured at that point, and
 /// touching <c>Database.GetDbConnection()</c> there throws. A connection interceptor is the
 /// supported hook: it fires right as a (possibly pooled/reused) connection is about to open, so
-/// the function is always registered before any query can run against it.
+/// the functions are always registered before any query can run against it.
+///
+/// Registers both the accent-folding function and the series-part equivalence function (see
+/// <see cref="SeriesPartEquivalence"/>), which a query translator references the same way.
 /// </summary>
 public sealed class AccentFoldingConnectionInterceptor : DbConnectionInterceptor
 {
     public override InterceptionResult ConnectionOpening(DbConnection connection, ConnectionEventData eventData, InterceptionResult result)
     {
         AccentFolding.Register((SqliteConnection)connection);
+        SeriesPartEquivalence.Register((SqliteConnection)connection);
         return result;
     }
 
     public override ValueTask<InterceptionResult> ConnectionOpeningAsync(DbConnection connection, ConnectionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
     {
         AccentFolding.Register((SqliteConnection)connection);
+        SeriesPartEquivalence.Register((SqliteConnection)connection);
         return ValueTask.FromResult(result);
     }
 }

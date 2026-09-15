@@ -383,4 +383,142 @@ public class PersonRepositorySearchTests
 
         Assert.AreEqual(0, counts.Count);
     }
+
+    // ---- Entry-status backing queries ----
+
+    [TestMethod]
+    public async Task FindAuthorByFoldedNameAsync_AccentAndCaseInsensitive()
+    {
+        await SeedBookWithAuthorAsync("Book One", "René Descartes");
+
+        var found = await _repository.FindAuthorByFoldedNameAsync("rene descartes");
+
+        Assert.IsNotNull(found);
+        Assert.AreEqual("René Descartes", found.Name);
+    }
+
+    [TestMethod]
+    public async Task FindAuthorByFoldedNameAsync_NoSuchAuthor_ReturnsNull()
+    {
+        await SeedBookWithAuthorAsync("Book One", "Someone Else");
+
+        var found = await _repository.FindAuthorByFoldedNameAsync("Nobody Here");
+
+        Assert.IsNull(found);
+    }
+
+    // Regression guard for the bounded prefilter: the entry-status "similar" classification must
+    // surface a candidate that shares only the first token (the common typo shape) without
+    // loading the whole name list - a plain containment prefilter on the query would never
+    // return "Brandon Sanderson" for a misspelled surname.
+    [TestMethod]
+    public async Task SearchAuthorNamesAsync_FirstTokenVariant_SurfacesAfterFullContainment()
+    {
+        await SeedBookWithAuthorAsync("A", "Brandon Sanderson");
+        await SeedBookWithAuthorAsync("B", "Brandon The Retriever");
+
+        var results = await _repository.SearchAuthorNamesAsync("Brandon Sandersson", 10);
+
+        CollectionAssert.Contains(results.Select(r => r.Name).ToList(), "Brandon Sanderson");
+    }
+
+    [TestMethod]
+    public async Task FindAuthorByFoldedNameAsync_BlankInput_ReturnsNull()
+    {
+        var found = await _repository.FindAuthorByFoldedNameAsync("   ");
+
+        Assert.IsNull(found);
+    }
+
+    // Regression guard: an exact "existing author" answer must not be given for a person that does
+    // not author books. Narrator-only persons and orphan (bookless) person rows exist alongside
+    // authors in the shared persons table; classifying one of them as an existing author would
+    // make the entry-status indicator lie ("Brandon Sanderson" applies, "read by X" does not).
+    [TestMethod]
+    public async Task FindAuthorByFoldedNameAsync_NarratorOnlyOrOrphanPerson_IsNotAnExistingAuthor()
+    {
+        await SeedBookWithNarratorAsync("Book With Narrator", "Narrator Only");
+        // An orphan person row: persisted by a race / a cleared book, but linked to no book.
+        await _repository.GetOrCreatePerson("Orphan Person");
+
+        Assert.IsNull(await _repository.FindAuthorByFoldedNameAsync("Narrator Only"),
+            "a narrator-only person is not an author");
+        Assert.IsNull(await _repository.FindAuthorByFoldedNameAsync("Orphan Person"),
+            "a person with no books at all is not an author");
+    }
+
+    // Regression guard for the bounded prefilter: LIKE wildcards typed by the user ('%' and '_')
+    // must not act as wildcards - "B_eta" must match a name containing a literal underscore, and
+    // "100%" must not match every name merely containing "100".
+    [TestMethod]
+    public async Task SearchAuthorNamesAsync_LikeWildcardsInTheQuery_AreTreatedLiterally()
+    {
+        await SeedBookWithAuthorAsync("Book A", "B_eta Helper");
+        await SeedBookWithAuthorAsync("Book B", "Breta Helper");   // matches unescaped B_eta, not the literal
+        await SeedBookWithAuthorAsync("Book C", "100% Author");
+        await SeedBookWithAuthorAsync("Book D", "100 Friends");    // matches unescaped 100%, not the literal
+
+        var underscore = await _repository.SearchAuthorNamesAsync("B_eta", 10);
+        CollectionAssert.AreEqual(
+            new List<string> { "B_eta Helper" },
+            underscore.Select(r => r.Name).ToList(),
+            "an underscore in the query matches a literal underscore, not 'any character'");
+
+        var percent = await _repository.SearchAuthorNamesAsync("100%", 10);
+        CollectionAssert.AreEqual(
+            new List<string> { "100% Author" },
+            percent.Select(r => r.Name).ToList(),
+            "'%' in the query matches a literal '%', not a wildcard");
+    }
+
+    // ---- Narrator entry-status backing queries ----
+
+    [TestMethod]
+    public async Task FindNarratorByFoldedNameAsync_AccentAndCaseInsensitive()
+    {
+        await SeedBookWithNarratorAsync("Book One", "René Descartes");
+        await SeedBookWithNarratorAsync("Book Two", "Someone Else");
+
+        var found = await _repository.FindNarratorByFoldedNameAsync("rene descartes");
+
+        Assert.IsNotNull(found);
+        Assert.AreEqual("René Descartes", found.Name);
+    }
+
+    [TestMethod]
+    public async Task FindNarratorByFoldedNameAsync_AuthorOnlyOrOrphanPerson_IsNotAnExistingNarrator()
+    {
+        await SeedBookWithAuthorAsync("Book With Author", "Author Only");
+        await _repository.GetOrCreatePerson("Orphan Person");
+
+        Assert.IsNull(await _repository.FindNarratorByFoldedNameAsync("Author Only"),
+            "an author-only person is not a narrator");
+        Assert.IsNull(await _repository.FindNarratorByFoldedNameAsync("Orphan Person"),
+            "a person with no books at all is not a narrator");
+    }
+
+    [TestMethod]
+    public async Task SearchNarratorNamesAsync_FirstTokenVariant_SurfacesAfterFullContainment()
+    {
+        await SeedBookWithNarratorAsync("A", "Brandon Sanderson");
+        await SeedBookWithNarratorAsync("B", "Brandon The Retriever");
+
+        var results = await _repository.SearchNarratorNamesAsync("Brandon Sandersson", 10);
+
+        CollectionAssert.Contains(results.Select(r => r.Name).ToList(), "Brandon Sanderson");
+    }
+
+    [TestMethod]
+    public async Task SearchNarratorNamesAsync_LikeWildcardsInTheQuery_AreTreatedLiterally()
+    {
+        await SeedBookWithNarratorAsync("Book A", "B_eta Helper");
+        await SeedBookWithNarratorAsync("Book B", "Breta Helper");
+
+        var underscore = await _repository.SearchNarratorNamesAsync("B_eta", 10);
+
+        CollectionAssert.AreEqual(
+            new List<string> { "B_eta Helper" },
+            underscore.Select(r => r.Name).ToList(),
+            "an underscore in a narrator query matches a literal underscore, not 'any character'");
+    }
 }
