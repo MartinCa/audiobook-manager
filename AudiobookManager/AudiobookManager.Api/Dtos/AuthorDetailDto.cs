@@ -7,11 +7,6 @@ namespace AudiobookManager.Api.Dtos;
 /// </summary>
 public record AuthorDetailDto(
     AuthorSummaryDto Author,
-    PaginatedResult<SeriesInfo> Series,
+    PaginatedResult<SeriesOverviewDto> Series,
     PaginatedResult<AudiobookSummaryDto> StandaloneBooks
-);
-
-public record SeriesInfo(
-    string SeriesName,
-    int BookCount
 );

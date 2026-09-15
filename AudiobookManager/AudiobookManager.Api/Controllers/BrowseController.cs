@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
@@ -12,13 +13,16 @@ public class BrowseController : ControllerBase
 {
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
+    private readonly ISeriesService _seriesService;
 
     public BrowseController(
         IAudiobookRepository audiobookRepo,
-        IPersonRepository personRepo)
+        IPersonRepository personRepo,
+        ISeriesService seriesService)
     {
         _audiobookRepo = audiobookRepo;
         _personRepo = personRepo;
+        _seriesService = seriesService;
     }
 
     [HttpGet("audiobooks")]
@@ -181,25 +185,31 @@ public class BrowseController : ControllerBase
         }
 
         // Three narrow queries rather than one that materializes the author's entire catalogue:
-        // the series section only needs a name and a count, so those books are never loaded.
+        // the series section runs through the same overview pipeline as /library/series (so its
+        // entries carry match state, authors and owned/missing counts), scoped to this author's
+        // series values; the standalone books are paged straight from SQL.
         var author = await _personRepo.GetAuthorSummaryAsync(authorId);
         if (author == null)
         {
             return NotFound();
         }
 
-        var (seriesCounts, seriesTotal) = await _audiobookRepo.GetSeriesCountsByAuthorAsync(
-            authorId, seriesLimit, seriesOffset);
+        var seriesPage = await _seriesService.GetSeriesOverviewPageAsync(
+            page: seriesOffset / seriesLimit,
+            pageSize: seriesLimit,
+            search: null,
+            matched: null,
+            authorId: authorId);
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
             authorId, standaloneLimit, standaloneOffset);
 
         var summary = new AuthorSummaryDto(author.Id, author.Name, author.BookCount);
-        var seriesDtos = seriesCounts.Select(s => new SeriesInfo(s.Series, s.BookCount)).ToList();
+        var seriesDtos = seriesPage.Items.Select(SeriesOverviewMapper.ToDto).ToList();
         var standaloneDtos = standalone.Select(MapToSummaryDto).ToList();
 
         return new AuthorDetailDto(
             summary,
-            new PaginatedResult<SeriesInfo>(seriesDtos.Count, seriesTotal, seriesDtos),
+            new PaginatedResult<SeriesOverviewDto>(seriesDtos.Count, seriesPage.TotalCount, seriesDtos),
             new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos));
     }
 

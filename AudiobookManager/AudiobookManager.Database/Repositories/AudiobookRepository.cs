@@ -591,7 +591,7 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     public async Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
-        string? search, bool? matched, int skip, int take)
+        string? search, bool? matched, int skip, int take, long? authorId = null)
     {
         var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
         var pattern = folded is null ? null : $"%{folded}%";
@@ -599,6 +599,11 @@ public class AudiobookRepository : IAudiobookRepository
         var booksQuery = _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.Series != null && a.Series != "");
+
+        if (authorId.HasValue)
+        {
+            booksQuery = booksQuery.Where(a => a.Authors.Any(p => p.Id == authorId.Value));
+        }
 
         if (pattern is not null)
         {
@@ -626,6 +631,22 @@ public class AudiobookRepository : IAudiobookRepository
         }
 
         var fromBooks = booksQuery.Select(a => a.Series!).Distinct();
+
+        // An author scope is answered entirely from that author's books - a catalog row whose
+        // value no longer appears on any audiobook is not a series the author owns. The distinct
+        // value is still unique within the set, so ordering by the value alone keeps every page
+        // stable.
+        if (authorId.HasValue)
+        {
+            var scopedTotal = await fromBooks.CountAsync();
+            var scopedItems = await fromBooks
+                .OrderBy(value => value)
+                .Skip(skip)
+                .Take(take)
+                .ToListAsync();
+
+            return (scopedItems, scopedTotal);
+        }
 
         var catalogQuery = _db.Series.AsNoTracking();
         if (pattern is not null)

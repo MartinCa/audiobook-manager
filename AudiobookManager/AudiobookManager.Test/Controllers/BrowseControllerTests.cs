@@ -2,8 +2,11 @@ using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using SeriesOverview = AudiobookManager.Domain.SeriesOverview;
+using SeriesOverviewPage = AudiobookManager.Domain.SeriesOverviewPage;
 
 namespace AudiobookManager.Test.Controllers;
 
@@ -12,6 +15,7 @@ public class BrowseControllerTests
 {
     private Mock<IAudiobookRepository> _audiobookRepo = null!;
     private Mock<IPersonRepository> _personRepo = null!;
+    private Mock<ISeriesService> _seriesService = null!;
     private BrowseController _controller = null!;
 
     [TestInitialize]
@@ -19,7 +23,8 @@ public class BrowseControllerTests
     {
         _audiobookRepo = new Mock<IAudiobookRepository>();
         _personRepo = new Mock<IPersonRepository>();
-        _controller = new BrowseController(_audiobookRepo.Object, _personRepo.Object);
+        _seriesService = new Mock<ISeriesService>();
+        _controller = new BrowseController(_audiobookRepo.Object, _personRepo.Object, _seriesService.Object);
     }
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>
@@ -286,8 +291,19 @@ public class BrowseControllerTests
     {
         var authorRow = new AuthorSummaryRow(7, "Brandon Sanderson", 5);
         _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(authorRow);
-        _audiobookRepo.Setup(r => r.GetSeriesCountsByAuthorAsync(7, 50, 0))
-            .ReturnsAsync((new List<(string Series, int BookCount)> { ("Mistborn", 3) }, 2));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage
+            {
+                Items = new List<SeriesOverview>
+                {
+                    new()
+                    {
+                        Name = "Mistborn",
+                        OwnedBookCount = 3,
+                    },
+                },
+                TotalCount = 2,
+            });
         _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
             .ReturnsAsync((new List<Audiobook>(), 4));
 
@@ -298,18 +314,76 @@ public class BrowseControllerTests
         Assert.AreEqual(7, ok.Author.Id);
         Assert.AreEqual(1, ok.Series.Count);
         Assert.AreEqual(2, ok.Series.Total);
-        Assert.AreEqual("Mistborn", ok.Series.Items[0].SeriesName);
-        Assert.AreEqual(3, ok.Series.Items[0].BookCount);
+        Assert.AreEqual("Mistborn", ok.Series.Items[0].Name);
+        Assert.AreEqual(3, ok.Series.Items[0].OwnedBookCount);
         Assert.AreEqual(0, ok.StandaloneBooks.Count);
         Assert.AreEqual(4, ok.StandaloneBooks.Total);
+    }
+
+    // The author detail's series section now runs through the same overview pipeline as the
+    // /library/series page, so each entry must carry the match state, authors and owned/missing
+    // counts the rich renderer shows - not just a name and a count.
+    [TestMethod]
+    public async Task GetAuthorDetail_SeriesSectionCarriesMatchAndMissingData()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage
+            {
+                Items = new List<SeriesOverview>
+                {
+                    new()
+                    {
+                        Id = 1,
+                        Name = "Mistborn",
+                        Authors = new List<string> { "Brandon Sanderson" },
+                        OwnedBookCount = 3,
+                        IsMatched = true,
+                        MatchedSourceName = "Hardcover",
+                        MatchedSourceId = "42",
+                        MatchConfidence = 0.75,
+                        ExpectedBookCount = 4,
+                        MissingBookCount = 1,
+                        IgnoredBookCount = 0,
+                    },
+                    new()
+                    {
+                        Name = "Skyward",
+                        OwnedBookCount = 2,
+                        IsMatched = false,
+                    },
+                },
+                TotalCount = 2,
+            });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        var result = await _controller.GetAuthorDetail(7);
+
+        var ok = result.Value!;
+        var matched = ok.Series.Items[0];
+        Assert.AreEqual("Mistborn", matched.Name);
+        Assert.AreEqual(3, matched.OwnedBookCount);
+        CollectionAssert.Contains(matched.Authors, "Brandon Sanderson");
+        Assert.IsTrue(matched.IsMatched);
+        Assert.AreEqual("Hardcover", matched.MatchedSourceName);
+        Assert.AreEqual(0.75, matched.MatchConfidence);
+        Assert.AreEqual(1, matched.MissingBookCount);
+        Assert.AreEqual(4, matched.ExpectedBookCount);
+        var unmatched = ok.Series.Items[1];
+        Assert.AreEqual("Skyward", unmatched.Name);
+        Assert.IsFalse(unmatched.IsMatched);
+        Assert.AreEqual(0, unmatched.MissingBookCount);
+        _seriesService.Verify(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7), Times.Once,
+            "the series page must be scoped to the author's own series values");
     }
 
     [TestMethod]
     public async Task GetAuthorDetail_PassesSectionPagingThrough()
     {
         _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
-        _audiobookRepo.Setup(r => r.GetSeriesCountsByAuthorAsync(7, 25, 50))
-            .ReturnsAsync((new List<(string Series, int BookCount)>(), 0));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(2, 25, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
         _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 10, 20))
             .ReturnsAsync((new List<Audiobook>(), 0));
 
@@ -318,7 +392,8 @@ public class BrowseControllerTests
 
         var ok = result.Value!;
         Assert.IsNotNull(ok);
-        _audiobookRepo.Verify(r => r.GetSeriesCountsByAuthorAsync(7, 25, 50), Times.Once);
+        _seriesService.Verify(s => s.GetSeriesOverviewPageAsync(2, 25, null, null, 7), Times.Once,
+            "seriesLimit/seriesOffset map to the service's page/pageSize (offset / limit)");
         _audiobookRepo.Verify(r => r.GetStandaloneBooksByAuthorAsync(7, 10, 20), Times.Once);
     }
 
@@ -330,8 +405,8 @@ public class BrowseControllerTests
         var result = await _controller.GetAuthorDetail(authorId: 7, standaloneLimit: 0);
 
         Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
-        _audiobookRepo.Verify(
-            r => r.GetSeriesCountsByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>(), It.IsAny<long?>()),
             Times.Never);
     }
 
@@ -343,8 +418,8 @@ public class BrowseControllerTests
         var result = await _controller.GetAuthorDetail(999);
 
         Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
-        _audiobookRepo.Verify(
-            r => r.GetSeriesCountsByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>(), It.IsAny<long?>()),
             Times.Never);
         _audiobookRepo.Verify(
             r => r.GetStandaloneBooksByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
