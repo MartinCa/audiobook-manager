@@ -342,32 +342,6 @@ public class AudiobookRepository : IAudiobookRepository
             .FirstOrDefaultAsync();
     }
 
-    /// <summary>
-    /// One page of per-series book counts for one author, aggregated in SQL. The author detail
-    /// view only renders a name and a count for each series, so the books themselves are never
-    /// loaded. Paged with a total order (the series name, which the GROUP BY makes unique within
-    /// an author's series) so page boundaries stay stable.
-    /// </summary>
-    public async Task<(List<(string Series, int BookCount)> Items, int Total)> GetSeriesCountsByAuthorAsync(
-        long authorId, int limit, int offset)
-    {
-        var matching = _db.Audiobooks
-            .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && a.Authors.Any(p => p.Id == authorId));
-
-        var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
-
-        var rows = await matching
-            .GroupBy(a => a.Series!)
-            .Select(g => new { Series = g.Key, BookCount = g.Count() })
-            .OrderBy(g => g.Series)
-            .Skip(offset)
-            .Take(limit)
-            .ToListAsync();
-
-        return (rows.Select(r => (r.Series, r.BookCount)).ToList(), total);
-    }
-
     /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
     public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
         long authorId, int limit, int offset)
@@ -593,7 +567,7 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     public async Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
-        string? search, bool? matched, int skip, int take)
+        string? search, bool? matched, int skip, int take, long? authorId = null)
     {
         var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
         var pattern = folded is null ? null : $"%{folded}%";
@@ -601,6 +575,11 @@ public class AudiobookRepository : IAudiobookRepository
         var booksQuery = _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.Series != null && a.Series != "");
+
+        if (authorId.HasValue)
+        {
+            booksQuery = booksQuery.Where(a => a.Authors.Any(p => p.Id == authorId.Value));
+        }
 
         if (pattern is not null)
         {
@@ -628,6 +607,22 @@ public class AudiobookRepository : IAudiobookRepository
         }
 
         var fromBooks = booksQuery.Select(a => a.Series!).Distinct();
+
+        // An author scope is answered entirely from that author's books - a catalog row whose
+        // value no longer appears on any audiobook is not a series the author owns. The distinct
+        // value is still unique within the set, so ordering by the value alone keeps every page
+        // stable.
+        if (authorId.HasValue)
+        {
+            var scopedTotal = await fromBooks.CountAsync();
+            var scopedItems = await fromBooks
+                .OrderBy(value => value)
+                .Skip(skip)
+                .Take(take)
+                .ToListAsync();
+
+            return (scopedItems, scopedTotal);
+        }
 
         var catalogQuery = _db.Series.AsNoTracking();
         if (pattern is not null)

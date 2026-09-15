@@ -365,8 +365,6 @@ describe("SeriesDetail", () => {
   it("fixes a part mismatch through expected-books/apply and refetches the detail", async () => {
     let fixed = false;
     vi.spyOn(seriesApi, "applyMissingBook").mockImplementation(() => {
-      // The apply resolves the mismatch server-side, so every later detail fetch comes back
-      // without the row - exactly what the backend returns after its recheck.
       fixed = true;
       return Promise.resolve();
     });
@@ -392,12 +390,9 @@ describe("SeriesDetail", () => {
         "Alloy of Law (source)",
       ),
     );
-    // The fix invalidates the detail query, so the section refetches with the corrected roster.
     await waitFor(() => {
       expect(getSeriesDetail.mock.calls.length).toBeGreaterThan(1);
     });
-    // ...and, with the row gone, the whole Part Mismatches section (heading and total) disappears
-    // instead of re-rendering a stale "Part Mismatches (1)".
     await waitFor(() => {
       expect(screen.queryByText(/Part Mismatches/)).not.toBeInTheDocument();
     });
@@ -410,5 +405,27 @@ describe("SeriesDetail", () => {
 
     await screen.findByRole("link", { name: /The Final Empire/ });
     expect(screen.queryByText(/Part Mismatches/)).not.toBeInTheDocument();
+  });
+
+  // Regression: TanStack Router decodes path params when it matches the URL, so `%25`/`%20` in
+  // the route already arrive as `%`/space. The component must not decode the param again.
+  it("renders a series name containing a literal percent from the single decoded route param", async () => {
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders("/library/series/10%25%20Happier");
+
+    expect(await screen.findByRole("heading", { name: "10% Happier" })).toBeInTheDocument();
+    expect(getSeriesDetail).toHaveBeenCalledWith("10% Happier", {
+      ownedPage: 0,
+      ownedPageSize: 50,
+      missingPage: 0,
+      missingPageSize: 50,
+      ignoredPage: 0,
+      ignoredPageSize: 50,
+      partMismatchPage: 0,
+      partMismatchPageSize: 50,
+    });
   });
 });

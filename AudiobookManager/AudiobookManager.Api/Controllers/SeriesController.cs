@@ -72,7 +72,7 @@ public class SeriesController : ControllerBase
         }
 
         var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(page, pageSize, search, matched);
-        return Ok(new SeriesOverviewPageDto(overviewPage.Items.Select(ToDto).ToList(), overviewPage.TotalCount));
+        return Ok(new SeriesOverviewPageDto(overviewPage.Items.Select(SeriesOverviewMapper.ToDto).ToList(), overviewPage.TotalCount));
     }
 
     [HttpGet("counts")]
@@ -120,7 +120,7 @@ public class SeriesController : ControllerBase
         }
 
         return new SeriesDetailDto(
-            ToDto(detail.Overview),
+            SeriesOverviewMapper.ToDto(detail.Overview),
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
                 b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
@@ -176,7 +176,7 @@ public class SeriesController : ControllerBase
         try
         {
             var overview = await _seriesService.MatchSeriesAsync(seriesName, dto.SourceName, dto.SourceId, dto.Confidence, dto.IncludeOmnibusEditions);
-            return ToDto(overview);
+            return SeriesOverviewMapper.ToDto(overview);
         }
         catch (ArgumentException ex)
         {
@@ -195,7 +195,7 @@ public class SeriesController : ControllerBase
         try
         {
             var overview = await _seriesService.SetIncludeOmnibusEditionsAsync(seriesName, dto.IncludeOmnibusEditions);
-            return ToDto(overview);
+            return SeriesOverviewMapper.ToDto(overview);
         }
         catch (Exception ex)
         {
@@ -401,22 +401,6 @@ public class SeriesController : ControllerBase
             () => _organizeHub.Clients.All.SeriesRefreshComplete(new SeriesRefreshComplete(0, 0, 0)),
             _appLifetime.ApplicationStopping);
     }
-
-    private static SeriesOverviewDto ToDto(SeriesOverview o) => new(
-        o.Id,
-        o.Name,
-        o.Authors,
-        o.OwnedBookCount,
-        o.IsMatched,
-        o.MatchedSourceName,
-        o.MatchedSourceId,
-        o.MatchedSourceUrl,
-        o.MatchConfidence,
-        o.LastRefreshedAt,
-        o.ExpectedBookCount,
-        o.MissingBookCount,
-        o.IgnoredBookCount,
-        o.IncludeOmnibusEditions);
 
     /// <summary>
     /// Shared page/pageSize validation for this controller's paged endpoints, mirroring

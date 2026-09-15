@@ -133,10 +133,10 @@ public class SeriesService : ISeriesService
     }
 
     public async Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
-        int page, int pageSize, string? search, bool? matched)
+        int page, int pageSize, string? search, bool? matched, long? authorId = null)
     {
         var (names, totalCount) = await _audiobookRepository.GetSeriesValuesPageAsync(
-            search, matched, skip: (int)((long)page * pageSize), take: pageSize);
+            search, matched, skip: (int)((long)page * pageSize), take: pageSize, authorId);
 
         if (names.Count == 0)
         {

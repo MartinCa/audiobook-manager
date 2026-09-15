@@ -21,8 +21,12 @@ public interface ISeriesService
     /// page and its total come from SQL; only the page's series values are hydrated into
     /// overviews, so the read is proportional to the rendered rows, not the library. See
     /// <see cref="AudiobookRepository.GetSeriesValuesPageAsync"/> for the search/matched filters.
+    /// <paramref name="authorId"/> scopes the page to the series one author owns books in (the
+    /// author detail's series section), skipping the catalog-union that whole-library browsing
+    /// wants.
     /// </summary>
-    Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(int page, int pageSize, string? search, bool? matched);
+    Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
+        int page, int pageSize, string? search, bool? matched, long? authorId = null);
 
     /// <summary>Total/matched/unmatched series counts for the overview header badge.</summary>
     Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync();

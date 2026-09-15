@@ -3688,7 +3688,7 @@ export interface components {
         };
         AuthorDetailDto: {
             author?: components["schemas"]["AuthorSummaryDto"];
-            series?: components["schemas"]["SeriesInfoPaginatedResult"];
+            series?: components["schemas"]["SeriesOverviewDtoPaginatedResult"];
             standaloneBooks?: components["schemas"]["AudiobookSummaryDtoPaginatedResult"];
         };
         AuthorSummaryDto: {
@@ -4133,18 +4133,6 @@ export interface components {
             /** Format: int32 */
             totalCount?: number;
         };
-        SeriesInfo: {
-            seriesName?: string | null;
-            /** Format: int32 */
-            bookCount?: number;
-        };
-        SeriesInfoPaginatedResult: {
-            /** Format: int32 */
-            count?: number;
-            /** Format: int32 */
-            total?: number;
-            items?: components["schemas"]["SeriesInfo"][] | null;
-        };
         SeriesMapping: {
             /** Format: int64 */
             id?: number | null;
@@ -4194,6 +4182,13 @@ export interface components {
             /** Format: int32 */
             ignoredBookCount?: number;
             includeOmnibusEditions?: boolean;
+        };
+        SeriesOverviewDtoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["SeriesOverviewDto"][] | null;
         };
         SeriesOverviewPageDto: {
             items?: components["schemas"]["SeriesOverviewDto"][] | null;
