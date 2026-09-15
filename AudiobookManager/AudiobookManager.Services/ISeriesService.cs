@@ -112,6 +112,27 @@ public interface ISeriesService
     Task<List<SeriesBookCandidate>> FindMissingBookCandidatesAsync(string seriesName, string? position, string? title);
 
     /// <summary>
+    /// One page of the bulk missing-book match view: the series' missing roster entries (sliced
+    /// from the cached reconciliation, in its display order) each with the same ranked candidate
+    /// list the single-book endpoint returns. Reads one author-name set for the series and runs
+    /// the bounded candidate pre-filter once per row on the page, so the cost is proportional to
+    /// the rendered rows, never the whole library.
+    /// </summary>
+    Task<SeriesBulkCandidatePage> GetBulkMissingBookCandidatesAsync(string seriesName, int skip, int take);
+
+    /// <summary>
+    /// Resolves a roster entry's natural key (position and/or title) to the stored entry it
+    /// addresses, using exactly the same strict matching semantics
+    /// <see cref="ApplyMissingBookAsync"/> applies to the same key: trim + case-insensitive
+    /// comparison on each part, both parts required when both are supplied, either alone
+    /// otherwise, and null when nothing matches. The bulk apply resolves every selection with
+    /// this before the background operation starts, so two selections whose differently-spelled
+    /// keys land on the same row - something a raw string comparison cannot see - are rejected
+    /// as a duplicate target instead of being applied twice.
+    /// </summary>
+    Task<SeriesExpectedBookInfo?> ResolveExpectedBookAsync(string seriesName, string? position, string? title);
+
+    /// <summary>
     /// Applies the series name and the roster entry's position to a chosen audiobook, through
     /// AudiobookService.UpdateAudiobook. The caller holds the per-audiobook save gate around this
     /// call - the gate is non-reentrant, so this method must never take it itself.

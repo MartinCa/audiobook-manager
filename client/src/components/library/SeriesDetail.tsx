@@ -14,6 +14,7 @@ import {
   Check,
   CheckCircle2,
   BookPlus,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ import { SignalREvents } from "@/constants/signalrEvents";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
+import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -111,6 +113,9 @@ export function SeriesDetail() {
   const [missingCandidatesOpen, setMissingCandidatesOpen] = useState<
     false | { id: number; position?: string | null; title?: string | null }
   >(false);
+
+  // Bulk missing-book match dialog: one review over every missing book at once.
+  const [bulkMatchOpen, setBulkMatchOpen] = useState(false);
 
   // Each section pages server-side: a matched series with a large roster (or a book-heavy
   // series) used to send every owned and expected book over the wire and into the DOM at once.
@@ -672,9 +677,22 @@ export function SeriesDetail() {
 
       {overview.isMatched && (
         <div className="space-y-4">
-          <h2 className="text-lg font-bold text-amber-600 dark:text-amber-400">
-            Missing Books ({missingSection.totalCount})
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-bold text-amber-600 dark:text-amber-400">
+              Missing Books ({missingSection.totalCount})
+            </h2>
+            {missingSection.totalCount > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => setBulkMatchOpen(true)}
+              >
+                <Wand2 className="mr-1 h-3 w-3" />
+                Match Missing Books
+              </Button>
+            )}
+          </div>
           {missingBooks.length === 0 ? (
             <p className="text-muted-foreground text-xs">
               No missing books detected in this series.
@@ -872,6 +890,12 @@ export function SeriesDetail() {
                 title: null,
               }
         }
+      />
+
+      <BulkMissingBookMatchDialog
+        open={bulkMatchOpen}
+        onOpenChange={setBulkMatchOpen}
+        seriesName={seriesName}
       />
     </div>
   );

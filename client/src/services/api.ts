@@ -30,7 +30,9 @@ import type { AudiobookMissingTagsPage, MissingTagField } from "@/types/MissingT
 import type { OperationStatus } from "@/types/OperationStatus";
 import type { OrphanDirectory, OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 import type {
+  ApplyMissingBookSelection,
   SeriesBookCandidate,
+  SeriesBulkCandidatePage,
   SeriesCounts,
   SeriesDetail,
   SeriesMatchCandidate,
@@ -504,6 +506,18 @@ export const seriesApi = {
         query: { seriesName },
       },
     ),
+
+  // Paged server-side (bounded-list invariant): one page of missing books with each row's ranked
+  // candidate list (per-row candidates are capped server-side too).
+  getBulkMissingBookCandidates: (seriesName: string, page: number, pageSize: number) =>
+    api.get<SeriesBulkCandidatePage>("/series/expected-books/bulk-candidates", {
+      query: { seriesName, page, pageSize },
+    }),
+
+  // Fire-and-forget: accepts only the rows the user assigned (position/title address the roster
+  // entry, audiobookId the chosen library book), reports progress over SignalR.
+  startBulkMissingBookApply: (seriesName: string, selections: ApplyMissingBookSelection[]) =>
+    api.post<void>("/series/expected-books/apply-bulk", { selections }, { query: { seriesName } }),
 };
 
 // Metadata Search

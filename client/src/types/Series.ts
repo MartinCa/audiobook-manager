@@ -91,3 +91,29 @@ export type SeriesBookCandidate = Require<
   components["schemas"]["SeriesBookCandidateDto"],
   "audiobookId" | "bookName" | "year" | "authors" | "titleSimilarity" | "authorMatches"
 >;
+
+// AudiobookManager.Api/Dtos/SeriesDtos.cs (SeriesBulkCandidateItemDto): book and candidates are
+// non-nullable on the record (candidates may be an empty list); the nullable forms on the wire
+// come from there being no [Required] on a record's positional properties. The Omit strips the
+// generated optional/nullable keys before the narrowed shapes are put back, so iterating
+// candidates yields SeriesBookCandidate - not a bare intersection that keeps the optional fields.
+export type SeriesBulkCandidateItem = Omit<
+  components["schemas"]["SeriesBulkCandidateItemDto"],
+  "book" | "candidates"
+> & {
+  book: SeriesExpectedBook;
+  candidates: SeriesBookCandidate[];
+};
+
+export type SeriesBulkCandidatePage = Omit<
+  components["schemas"]["SeriesBulkCandidatePageDto"],
+  "items" | "totalCount"
+> & {
+  items: SeriesBulkCandidateItem[];
+  totalCount: number;
+};
+
+// The wire shape of one accepted assignment in a bulk missing-book apply (ApplyMissingBookBulkRequestDto
+// with [Required] on selections/audiobookId, unlike the response records).
+export type ApplyMissingBookSelection = components["schemas"]["ApplyMissingBookSelectionDto"];
+export type ApplyMissingBookBulkRequest = components["schemas"]["ApplyMissingBookBulkRequestDto"];

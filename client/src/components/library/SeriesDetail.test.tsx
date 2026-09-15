@@ -428,4 +428,39 @@ describe("SeriesDetail", () => {
       partMismatchPageSize: 50,
     });
   });
+
+  it("opens the bulk missing-book match dialog from the Missing Books header", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([missingBook(20, "The Alloy of Law", "4")], 7),
+    );
+    const getBulk = vi
+      .spyOn(seriesApi, "getBulkMissingBookCandidates")
+      .mockResolvedValue({ items: [], totalCount: 0 });
+
+    renderWithProviders();
+
+    await screen.findByText(/Missing Books \(7\)/);
+
+    // The bulk dialog is only offered when the series is matched and actually has missing books.
+    expect(screen.getByRole("button", { name: "Match Missing Books" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Match Missing Books" }));
+
+    await waitFor(() => {
+      expect(getBulk).toHaveBeenCalledWith("Mistborn", 0, 50);
+    });
+    // The dialog opened and rendered its (here empty) review from the mocked page.
+    expect(
+      await screen.findByText("No missing books to match in this series."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer bulk missing-book matching when there is nothing missing", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+
+    await screen.findByRole("heading", { name: "Mistborn" });
+    expect(screen.queryByRole("button", { name: "Match Missing Books" })).not.toBeInTheDocument();
+  });
 });
