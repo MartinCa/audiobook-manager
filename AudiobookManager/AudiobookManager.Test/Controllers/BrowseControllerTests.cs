@@ -410,6 +410,39 @@ public class BrowseControllerTests
             Times.Never);
     }
 
+    // Regression test for the series-section divisibility guard: the section pages by page
+    // number (page = seriesOffset / seriesLimit), so an offset that is not a multiple of the
+    // limit would silently truncate instead of faulting.
+    [TestMethod]
+    public async Task GetAuthorDetail_NonMultipleSeriesOffset_IsRefusedAs400()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+
+        var result = await _controller.GetAuthorDetail(authorId: 7, seriesLimit: 50, seriesOffset: 30);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<bool?>(), It.IsAny<long?>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_MultipleSeriesOffset_PassesValidationAndReachesTheService()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(1, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        var result = await _controller.GetAuthorDetail(authorId: 7, seriesLimit: 50, seriesOffset: 50);
+
+        Assert.IsNotNull(result.Value);
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(1, 50, null, null, 7), Times.Once,
+            "a multiple seriesOffset must map to page seriesOffset / seriesLimit and reach the service");
+    }
+
     [TestMethod]
     public async Task GetAuthorDetail_UnknownAuthor_Returns404WithoutCallingTheSectionQueries()
     {
