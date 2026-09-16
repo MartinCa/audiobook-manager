@@ -248,13 +248,7 @@ describe("BookBulkActionBar", () => {
     });
     expect(screen.queryByText("Bulk editing books...")).not.toBeInTheDocument();
 
-    for (const queryKey of [
-      ["books"],
-      ["author"],
-      ["seriesDetail"],
-      ["metadataRefresh"],
-      ["similarValueNames"],
-    ]) {
+    for (const queryKey of [["books"], ["author"], ["seriesDetail"], ["metadataRefresh"]]) {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey });
     }
 
@@ -306,7 +300,6 @@ describe("BookBulkActionBar", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
     // A refresh does not change the books' identities: the selection survives.
     expect(screen.getByText("2 selected")).toBeInTheDocument();
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ["similarValueNames"] });
   });
 
   it("warns when a metadata refresh stops early", async () => {

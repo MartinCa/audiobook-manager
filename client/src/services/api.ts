@@ -311,12 +311,6 @@ export const similarValuesApi = {
       query: { page, pageSize },
     }),
 
-  getAuthorNames: () => api.get<string[]>("/similar-values/author-names"),
-
-  getNarratorNames: () => api.get<string[]>("/similar-values/narrator-names"),
-
-  getSeriesNames: () => api.get<string[]>("/similar-values/series-names"),
-
   /**
    * Bounded server-backed classification of a single typed author/narrator/series entry into
    * exact-existing / similar / new, for the entry fields' indicators. Narrator is supported

@@ -355,6 +355,9 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // Clear the edit draft so the debounced provider effect below cannot fall back to the stale
+    // value after the edit is committed (it reads (draft || editDraft || "").trim()).
+    setEditDraft("");
 
     if (trimmed.length === 0) {
       removeAt(index);
@@ -372,6 +375,8 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // See commitEdit: a stale editDraft must not drive a provider fetch after the edit is applied.
+    setEditDraft("");
 
     if (suggestion === value[index]) return;
     if (isDuplicate(suggestion, index)) return;
@@ -383,6 +388,9 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // Same stale-draft rule as commitEdit: cancelling ends the edit too, so the draft it carried
+    // must not drive a provider fetch once the add-new box is focused again.
+    setEditDraft("");
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

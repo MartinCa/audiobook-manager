@@ -47,7 +47,7 @@ public class AudiobookRepository : IAudiobookRepository
         // The escape keeps a literal '_' or '%' in a file name (both common) from turning into
         // a wildcard; a slightly wider candidate set would be harmless - the predicate below
         // still decides - but not a free one.
-        var likePattern = EscapeLikePattern(fileName);
+        var likePattern = LikePatterns.EscapeLikePattern(fileName);
 
         // Only the id and the path, not the rows: file names are not unique (a library where
         // every file is "audiobook.m4b" is unusual but perfectly legal), and materializing every
@@ -56,7 +56,7 @@ public class AudiobookRepository : IAudiobookRepository
         var candidates = await _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.FileInfoFileName == fileName
-                || EF.Functions.Like(a.FileInfoFileName, likePattern, LikeEscapeCharacter))
+                || EF.Functions.Like(a.FileInfoFileName, likePattern, LikePatterns.EscapeCharacter))
             .Select(a => new { a.Id, a.FileInfoFullPath })
             .ToListAsync();
 
@@ -71,13 +71,6 @@ public class AudiobookRepository : IAudiobookRepository
 
         return await _db.Audiobooks.AsNoTracking().FirstOrDefaultAsync(a => a.Id == match.Id);
     }
-
-    private const string LikeEscapeCharacter = "\\";
-
-    private static string EscapeLikePattern(string value) => value
-        .Replace("\\", "\\\\")
-        .Replace("%", "\\%")
-        .Replace("_", "\\_");
 
     /// <summary>How many books the library tracks. Just the count - no rows materialized.</summary>
     public Task<int> CountAsync() => _db.Audiobooks.AsNoTracking().CountAsync();
@@ -159,8 +152,11 @@ public class AudiobookRepository : IAudiobookRepository
         // used to, cost a callback into managed code for every row scanned, on every OR term, on
         // every keystroke (#1303).
         var folded = AccentFolding.FoldPlain(query);
-        var pattern = $"%{folded}%";
-        var prefixPattern = $"{folded}%";
+        // ESCAPEd like every other raw user-pattern LIKE in this repository - a literal '%' or
+        // '_' the user typed must match the literal character. The trailing '%' of prefixPattern
+        // is the only intentional wildcard (both are added after the escaping).
+        var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var prefixPattern = $"{LikePatterns.EscapeLikePattern(folded)}%";
 
         // Authors is unconditional - every caller ranks on it (see the OrderByDescending below)
         // and the type-ahead path renders it. Narrators/Genres are pulled in (as a split query, to
@@ -177,11 +173,11 @@ public class AudiobookRepository : IAudiobookRepository
 
         var dbQuery = baseQuery
             .Where(a =>
-                EF.Functions.Like(a.BookNameFolded, pattern) ||
-                EF.Functions.Like(a.SubtitleFolded, pattern) ||
-                EF.Functions.Like(a.SeriesFolded, pattern) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern)) ||
-                EF.Functions.Like(a.DescriptionFolded, pattern)
+                EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter) ||
+                EF.Functions.Like(a.SubtitleFolded, pattern, LikePatterns.EscapeCharacter) ||
+                EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
+                EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
             )
             // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
             // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
@@ -189,8 +185,8 @@ public class AudiobookRepository : IAudiobookRepository
             // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
             // it. ThenBy(Id) keeps the order total, which a paged split query requires.
             .OrderByDescending(a =>
-                EF.Functions.Like(a.BookNameFolded, prefixPattern) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern)))
+                EF.Functions.Like(a.BookNameFolded, prefixPattern, LikePatterns.EscapeCharacter) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter)))
             .ThenBy(a => a.BookName)
             .ThenBy(a => a.Id);
 
@@ -205,12 +201,14 @@ public class AudiobookRepository : IAudiobookRepository
     public async Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
-        var pattern = $"%{folded}%";
-        var prefixPattern = $"{folded}%";
+        // ESCAPEd like every other raw user-pattern LIKE in this repository; the trailing '%' of
+        // prefixPattern is the only intentional wildcard.
+        var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var prefixPattern = $"{LikePatterns.EscapeLikePattern(folded)}%";
 
         var matching = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern));
+            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter));
 
         var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
 
@@ -219,7 +217,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
             // Rank before the limit, not after it - see SearchAsync for what ranking the
             // survivors of an alphabetical Take costs.
-            .OrderByDescending(g => EF.Functions.Like(AccentFolding.Fold(g.Series), prefixPattern))
+            .OrderByDescending(g => EF.Functions.Like(AccentFolding.Fold(g.Series), prefixPattern, LikePatterns.EscapeCharacter))
             .ThenBy(g => g.Series)
             .Skip(offset)
             .Take(limit)
@@ -442,8 +440,9 @@ public class AudiobookRepository : IAudiobookRepository
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
-            query = query.Where(a => EF.Functions.Like(a.BookNameFolded, pattern));
+            // ESCAPEd like every other raw user-pattern LIKE in this repository.
+            var pattern = $"%{LikePatterns.EscapeLikePattern(AccentFolding.FoldPlain(search!.Trim()))}%";
+            query = query.Where(a => EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter));
         }
 
         // The matching set is answered in SQL before any row is materialized: the total is a
@@ -570,7 +569,8 @@ public class AudiobookRepository : IAudiobookRepository
         string? search, bool? matched, int skip, int take, long? authorId = null)
     {
         var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
-        var pattern = folded is null ? null : $"%{folded}%";
+        // ESCAPEd like every other raw user-pattern LIKE in this repository.
+        var pattern = folded is null ? null : $"%{LikePatterns.EscapeLikePattern(folded)}%";
 
         var booksQuery = _db.Audiobooks
             .AsNoTracking()
@@ -589,8 +589,8 @@ public class AudiobookRepository : IAudiobookRepository
             // search in this repository. The matched condition is inlined (not factored into a
             // helper) because EF can only translate conditions written inline in the lambda.
             booksQuery = booksQuery.Where(a =>
-                EF.Functions.Like(a.SeriesFolded, pattern) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern)));
+                EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
+                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)));
         }
 
         if (matched is not null)
@@ -627,7 +627,7 @@ public class AudiobookRepository : IAudiobookRepository
         var catalogQuery = _db.Series.AsNoTracking();
         if (pattern is not null)
         {
-            catalogQuery = catalogQuery.Where(s => EF.Functions.Like(AccentFolding.Fold(s.Name), pattern));
+            catalogQuery = catalogQuery.Where(s => EF.Functions.Like(AccentFolding.Fold(s.Name), pattern, LikePatterns.EscapeCharacter));
         }
 
         if (matched is not null)
@@ -717,7 +717,7 @@ public class AudiobookRepository : IAudiobookRepository
         var allMatch = _db.Audiobooks.AsNoTracking();
         foreach (var pattern in patterns)
         {
-            allMatch = allMatch.Where(a => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter));
+            allMatch = allMatch.Where(a => EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter));
         }
 
         var allMatchRows = await QueryCandidateRows(allMatch, limit);
@@ -739,7 +739,7 @@ public class AudiobookRepository : IAudiobookRepository
 
         var broad = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => patterns.Any(pattern => EF.Functions.Like(a.BookNameFolded, pattern, LikeEscapeCharacter)));
+            .Where(a => patterns.Any(pattern => EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter)));
 
         var allMatchIds = allMatchRows.Select(r => r.Id).ToList();
         if (allMatchIds.Count > 0)
@@ -798,7 +798,7 @@ public class AudiobookRepository : IAudiobookRepository
 
         if (lowered.Any(c => c == '%' || c == '_'))
         {
-            return new List<string> { EscapeLikePattern(lowered) };
+            return new List<string> { LikePatterns.EscapeLikePattern(lowered) };
         }
 
         // Replace punctuation with spaces so "Dune:" tokenizes to "dune", matching library entries
@@ -809,13 +809,13 @@ public class AudiobookRepository : IAudiobookRepository
         var tokens = stripped
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(t => t.Length >= 3)
-            .Select(EscapeLikePattern)
+            .Select(LikePatterns.EscapeLikePattern)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
         if (tokens.Count == 0)
         {
-            tokens.Add(EscapeLikePattern(folded.ToLowerInvariant()));
+            tokens.Add(LikePatterns.EscapeLikePattern(folded.ToLowerInvariant()));
         }
 
         return tokens;
@@ -853,10 +853,10 @@ public class AudiobookRepository : IAudiobookRepository
             return null;
         }
 
-        var pattern = EscapeLikePattern(folded);
+        var pattern = LikePatterns.EscapeLikePattern(folded);
         return await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series != null && a.SeriesFolded != null && EF.Functions.Like(a.SeriesFolded, pattern, LikeEscapeCharacter))
+            .Where(a => a.Series != null && a.SeriesFolded != null && EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter))
             .Select(a => a.Series!)
             .FirstOrDefaultAsync();
     }
@@ -881,16 +881,16 @@ public class AudiobookRepository : IAudiobookRepository
 
         // Both patterns are ESCAPEd so a literal '%' or '_' the user typed matches rows containing
         // exactly that character instead of acting as a LIKE wildcard.
-        var fullPattern = $"%{EscapeLikePattern(folded)}%";
-        var tokenPattern = $"%{EscapeLikePattern(firstToken)}%";
+        var fullPattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var tokenPattern = $"%{LikePatterns.EscapeLikePattern(firstToken)}%";
         var hasFirstToken = firstToken.Length > 0;
 
         var series = await _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.Series != null && a.SeriesFolded != null && (
-                EF.Functions.Like(a.SeriesFolded, fullPattern, LikeEscapeCharacter)
-                || (hasFirstToken && EF.Functions.Like(a.SeriesFolded, tokenPattern, LikeEscapeCharacter))))
-            .OrderByDescending(a => EF.Functions.Like(a.SeriesFolded, fullPattern, LikeEscapeCharacter))
+                EF.Functions.Like(a.SeriesFolded, fullPattern, LikePatterns.EscapeCharacter)
+                || (hasFirstToken && EF.Functions.Like(a.SeriesFolded, tokenPattern, LikePatterns.EscapeCharacter))))
+            .OrderByDescending(a => EF.Functions.Like(a.SeriesFolded, fullPattern, LikePatterns.EscapeCharacter))
             .ThenBy(a => a.Series)
             .Select(a => a.Series!)
             .Distinct()

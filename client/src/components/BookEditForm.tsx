@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   RotateCcw,
@@ -184,7 +184,6 @@ export function BookEditForm({
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
-  const queryClient = useQueryClient();
 
   const form = useForm<BookEditFormValues>({
     resolver: zodResolver(bookEditFormSchema),
@@ -443,9 +442,6 @@ export function BookEditForm({
       // re-arm the pending-snapshot dismiss flow.
       metadataAppliedFromSearchRef.current = false;
       pendingRefreshAppliedRef.current = false;
-      // A newly-typed author/series is now a real value in the backend; refresh the cached
-      // name lists so the next book's entry-time duplicate-prevention hint can see it.
-      void queryClient.invalidateQueries({ queryKey: ["similarValueNames"] });
     } finally {
       setSaving(false);
     }

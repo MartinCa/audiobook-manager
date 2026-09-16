@@ -47,9 +47,6 @@ vi.mock("@/services/api", () => ({
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
   },
   similarValuesApi: {
-    getAuthorNames: vi.fn().mockResolvedValue([]),
-    getNarratorNames: vi.fn().mockResolvedValue([]),
-    getSeriesNames: vi.fn().mockResolvedValue([]),
     getAutocomplete: vi.fn().mockResolvedValue([]),
     getEntryStatus: vi.fn().mockResolvedValue({
       value: "",
@@ -166,6 +163,17 @@ describe("BookDetail", () => {
 
     expect(screen.getByText("· part 1")).toBeInTheDocument();
     expect(screen.getByText(/An epic fantasy story\./)).toBeInTheDocument();
+  });
+
+  it("renders the subtitle on the read-only detail page", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      subtitle: "Part One of the Stormlight Archive",
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/Part One of the Stormlight Archive/)).toBeInTheDocument();
   });
 
   it("Edit button navigates to the edit route", async () => {

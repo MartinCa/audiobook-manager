@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using System.Reflection;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
@@ -8,12 +9,9 @@ public class PersonRepository : IPersonRepository
 {
     private readonly DatabaseContext _db;
 
-    private const string LikeEscapeCharacter = "\\";
-
-    private static string EscapeLikePattern(string value) => value
-        .Replace("\\", "\\\\")
-        .Replace("%", "\\%")
-        .Replace("_", "\\_");
+    private static readonly ConstructorInfo AuthorSummaryRowConstructor =
+        typeof(AuthorSummaryRow).GetConstructor(new[] { typeof(long), typeof(string), typeof(int) })
+        ?? throw new InvalidOperationException("AuthorSummaryRow positional constructor not found");
 
     public PersonRepository(DatabaseContext db)
     {
@@ -142,7 +140,7 @@ public class PersonRepository : IPersonRepository
     /// author entry.
     /// </summary>
     public Task<AuthorSummaryRow?> FindAuthorByFoldedNameAsync(string value) =>
-        FindPersonByFoldedNameAsync(value, p => p.BooksAuthored.Any());
+        FindPersonByFoldedNameAsync(value, p => p.BooksAuthored.Any(), p => p.BooksAuthored.Count);
 
     /// <summary>
     /// The narrator whose folded name equals the input's folded name, or null - the narrator
@@ -150,10 +148,12 @@ public class PersonRepository : IPersonRepository
     /// narrate books. Backs the narrator entry-status classification in the edit form.
     /// </summary>
     public Task<AuthorSummaryRow?> FindNarratorByFoldedNameAsync(string value) =>
-        FindPersonByFoldedNameAsync(value, p => p.BooksNarrated.Any());
+        FindPersonByFoldedNameAsync(value, p => p.BooksNarrated.Any(), p => p.BooksNarrated.Count);
 
     private async Task<AuthorSummaryRow?> FindPersonByFoldedNameAsync(
-        string value, Expression<Func<Person, bool>> hasLinkedBooks)
+        string value,
+        Expression<Func<Person, bool>> hasLinkedBooks,
+        Expression<Func<Person, int>> countSelector)
     {
         var folded = AccentFolding.FoldPlain(value?.Trim());
         if (string.IsNullOrEmpty(folded))
@@ -161,13 +161,13 @@ public class PersonRepository : IPersonRepository
             return null;
         }
 
-        var pattern = EscapeLikePattern(folded);
+        var pattern = LikePatterns.EscapeLikePattern(folded);
         return await _db.Persons
             .AsNoTracking()
             .Where(hasLinkedBooks)
             .Where(p => p.NameFolded != null
-                && EF.Functions.Like(p.NameFolded, pattern, LikeEscapeCharacter))
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+                && EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter))
+            .Select(AuthorSummaryProjection(countSelector))
             .FirstOrDefaultAsync();
     }
 
@@ -181,7 +181,7 @@ public class PersonRepository : IPersonRepository
     /// what counts as "similar" then runs over this capped set.
     /// </summary>
     public Task<List<AuthorSummaryRow>> SearchAuthorNamesAsync(string query, int limit) =>
-        SearchPersonNamesAsync(query, limit, p => p.BooksAuthored.Any());
+        SearchPersonNamesAsync(query, limit, p => p.BooksAuthored.Any(), p => p.BooksAuthored.Count);
 
     /// <summary>
     /// The narrator counterpart of <see cref="SearchAuthorNamesAsync"/>: bounded, permissive
@@ -190,10 +190,13 @@ public class PersonRepository : IPersonRepository
     /// from the author prefilter.
     /// </summary>
     public Task<List<AuthorSummaryRow>> SearchNarratorNamesAsync(string query, int limit) =>
-        SearchPersonNamesAsync(query, limit, p => p.BooksNarrated.Any());
+        SearchPersonNamesAsync(query, limit, p => p.BooksNarrated.Any(), p => p.BooksNarrated.Count);
 
     private async Task<List<AuthorSummaryRow>> SearchPersonNamesAsync(
-        string query, int limit, Expression<Func<Person, bool>> hasLinkedBooks)
+        string query,
+        int limit,
+        Expression<Func<Person, bool>> hasLinkedBooks,
+        Expression<Func<Person, int>> countSelector)
     {
         var folded = AccentFolding.FoldPlain(query?.Trim());
         if (string.IsNullOrEmpty(folded))
@@ -205,20 +208,20 @@ public class PersonRepository : IPersonRepository
 
         // Both patterns are ESCAPEd so a literal '%' or '_' the user typed (e.g. "100%", "my_author")
         // matches rows containing exactly that character instead of acting as a LIKE wildcard.
-        var fullPattern = $"%{EscapeLikePattern(folded)}%";
-        var tokenPattern = $"%{EscapeLikePattern(firstToken)}%";
+        var fullPattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var tokenPattern = $"%{LikePatterns.EscapeLikePattern(firstToken)}%";
         var hasFirstToken = firstToken.Length > 0;
 
         var rows = await _db.Persons
             .AsNoTracking()
             .Where(hasLinkedBooks)
             .Where(p => p.NameFolded != null && (
-                EF.Functions.Like(p.NameFolded, fullPattern, LikeEscapeCharacter)
-                || (hasFirstToken && EF.Functions.Like(p.NameFolded, tokenPattern, LikeEscapeCharacter))))
-            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, fullPattern, LikeEscapeCharacter))
+                EF.Functions.Like(p.NameFolded, fullPattern, LikePatterns.EscapeCharacter)
+                || (hasFirstToken && EF.Functions.Like(p.NameFolded, tokenPattern, LikePatterns.EscapeCharacter))))
+            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, fullPattern, LikePatterns.EscapeCharacter))
             .ThenBy(p => p.Name)
             .Take(limit)
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(AuthorSummaryProjection(countSelector))
             .ToListAsync();
 
         // Same culture-aware ordering as GetAuthorNamesAsync - a candidate list a human reads
@@ -228,6 +231,26 @@ public class PersonRepository : IPersonRepository
 
     private static string FoldFirstToken(string folded) =>
         folded.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+
+    /// <summary>
+    /// The <see cref="AuthorSummaryRow"/> projection for a person query, with the count
+    /// expression taken from the caller (BooksAuthored for author lookups, BooksNarrated for
+    /// narrator lookups) - a narrator's row must report narrated books, not authored ones. The
+    /// count selector's own parameter is reused as the projection's parameter, so the body needs
+    /// no rebinding and EF translates it as ordinary inline navigation-count SQL.
+    /// </summary>
+    private static Expression<Func<Person, AuthorSummaryRow>> AuthorSummaryProjection(
+        Expression<Func<Person, int>> countSelector)
+    {
+        var p = countSelector.Parameters[0];
+        return Expression.Lambda<Func<Person, AuthorSummaryRow>>(
+            Expression.New(
+                AuthorSummaryRowConstructor,
+                Expression.Property(p, nameof(Person.Id)),
+                Expression.Property(p, nameof(Person.Name)),
+                countSelector.Body),
+            p);
+    }
 
     public async Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync()
     {
@@ -256,8 +279,10 @@ public class PersonRepository : IPersonRepository
             // Folded on the precomputed NameFolded column like every other search in this
             // repository; the page is ordered in SQL, so it gets BINARY collation (the
             // documented tradeoff for a paged query - see the ordering rule in AGENTS.md).
-            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
-            dbQuery = dbQuery.Where(p => EF.Functions.Like(p.NameFolded, pattern));
+            // ESCAPEd like every other raw user-pattern LIKE: a literal '%' or '_' the user
+            // typed must match the literal character, not act as a wildcard.
+            var pattern = $"%{LikePatterns.EscapeLikePattern(AccentFolding.FoldPlain(search!.Trim()))}%";
+            dbQuery = dbQuery.Where(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter));
         }
 
         var total = await dbQuery.CountAsync();
@@ -281,12 +306,14 @@ public class PersonRepository : IPersonRepository
     public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
-        var pattern = $"%{folded}%";
-        var prefixPattern = $"{folded}%";
+        // ESCAPEd like every other raw user-pattern LIKE in this repository; the trailing '%' of
+        // prefixPattern is the only intentional wildcard.
+        var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var prefixPattern = $"{LikePatterns.EscapeLikePattern(folded)}%";
 
         var dbQuery = _db.Persons
             .AsNoTracking()
-            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.NameFolded, pattern));
+            .Where(p => p.BooksAuthored.Any() && EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter));
 
         var total = await dbQuery.CountAsync();
 
@@ -294,7 +321,7 @@ public class PersonRepository : IPersonRepository
             // Rank before the limit. This query is capped at `limit` rows, so ordering
             // alphabetically and re-ranking the survivors in the controller discarded the
             // prefix matches the user was most likely reaching for - see SearchAsync.
-            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, prefixPattern))
+            .OrderByDescending(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter))
             .ThenBy(p => p.Name)
             .ThenBy(p => p.Id)
             .Skip(offset)

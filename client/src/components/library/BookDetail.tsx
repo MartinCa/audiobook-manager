@@ -503,6 +503,8 @@ export function BookDetail({ mode }: BookDetailProps) {
                     </span>
                   </DetailRow>
 
+                  <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
+
                   <DetailRow label="Year">
                     {bookDetail.year ? String(bookDetail.year) : "Unknown"}
                   </DetailRow>

@@ -32,9 +32,6 @@ vi.mock("@/services/api", async (importOriginal) => {
       apply: vi.fn().mockResolvedValue(undefined),
     },
     similarValuesApi: {
-      getAuthorNames: vi.fn().mockResolvedValue([]),
-      getNarratorNames: vi.fn().mockResolvedValue([]),
-      getSeriesNames: vi.fn().mockResolvedValue([]),
       getAutocomplete: vi.fn().mockResolvedValue([]),
       getEntryStatus: vi.fn().mockResolvedValue({
         value: "",

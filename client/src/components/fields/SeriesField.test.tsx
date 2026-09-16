@@ -9,7 +9,6 @@ vi.mock("@/services/api", async (importOriginal) => {
   return {
     ...actual,
     similarValuesApi: {
-      getSeriesNames: vi.fn().mockResolvedValue(["The Stormlight Archive"]),
       getAutocomplete: vi.fn().mockResolvedValue([]),
       getEntryStatus: vi.fn().mockResolvedValue({
         value: "",

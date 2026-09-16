@@ -423,6 +423,55 @@ public class AudiobookRepositorySearchTests
         Assert.AreEqual(2, results.Count);
     }
 
+    // Regression: SearchAsync used to interpolate the folded user query into the LIKE pattern
+    // without escaping, so a literal '%' or '_' a user typed acted as a wildcard. Now routed
+    // through the shared LikePatterns helper like the prefiltered name searches.
+    [TestMethod]
+    public async Task SearchAsync_LikeWildcardsInTheQuery_AreTreatedLiterally()
+    {
+        await SeedBookAsync("B_eta Helper", null);
+        await SeedBookAsync("Breta Helper", null);
+        await SeedBookAsync("100% Author", null);
+        await SeedBookAsync("100 Friends", null);
+
+        var (underscore, totalUnderscore) = await _repository.SearchAsync("B_eta", 10, 0);
+        CollectionAssert.AreEqual(
+            new[] { "B_eta Helper" },
+            underscore.Select(a => a.BookName).ToList(),
+            "an underscore in the search matches a literal underscore, not 'any character'");
+        Assert.AreEqual(1, totalUnderscore);
+
+        var (percent, totalPercent) = await _repository.SearchAsync("100%", 10, 0);
+        CollectionAssert.AreEqual(
+            new[] { "100% Author" },
+            percent.Select(a => a.BookName).ToList(),
+            "'%' in the search matches a literal '%', not a wildcard");
+        Assert.AreEqual(1, totalPercent);
+    }
+
+    [TestMethod]
+    public async Task SearchSeriesAsync_LikeWildcardsInTheQuery_AreTreatedLiterally()
+    {
+        await SeedBookAsync("Book A", "B_eta Series");
+        await SeedBookAsync("Book B", "Breta Series");
+        await SeedBookAsync("Book C", "100% Series");
+        await SeedBookAsync("Book D", "100 Friends");
+
+        var (underscore, totalUnderscore) = await _repository.SearchSeriesAsync("B_eta", 10, 0);
+        CollectionAssert.AreEqual(
+            new[] { "B_eta Series" },
+            underscore.Select(r => r.Series).ToList(),
+            "an underscore in the search matches a literal underscore, not 'any character'");
+        Assert.AreEqual(1, totalUnderscore);
+
+        var (percent, totalPercent) = await _repository.SearchSeriesAsync("100%", 10, 0);
+        CollectionAssert.AreEqual(
+            new[] { "100% Series" },
+            percent.Select(r => r.Series).ToList(),
+            "'%' in the search matches a literal '%', not a wildcard");
+        Assert.AreEqual(1, totalPercent);
+    }
+
     [TestMethod]
     public async Task GetByFullPathAsync_MatchingBookExists_ReturnsIt()
     {
