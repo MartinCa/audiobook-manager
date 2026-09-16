@@ -191,7 +191,7 @@ internal static class SeriesRosterMatcher
     }
 
     internal static bool PositionsEqual(string? a, string? b) =>
-        SeriesPartEquivalence.PartsEquivalentClr(a, b);
+        AudiobookManager.Database.Search.SeriesPartEquivalence.PartsEquivalentClr(a, b);
 
     /// <summary>
     /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer

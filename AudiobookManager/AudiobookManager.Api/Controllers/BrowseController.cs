@@ -251,7 +251,10 @@ public class BrowseController : ControllerBase
             audiobook.FileInfoFullPath,
             audiobook.FileInfoFileName,
             audiobook.FileInfoSizeInBytes,
-            audiobook.LastMetadataRefreshedAt
+            audiobook.LastMetadataRefreshedAt,
+            audiobook.Authors
+                .Select(a => new AudiobookAuthorDto(a.Id, a.Name))
+                .ToList()
         );
     }
 

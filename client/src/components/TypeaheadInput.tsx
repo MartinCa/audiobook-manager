@@ -1,5 +1,6 @@
 import {
   useState,
+  useEffect,
   useMemo,
   forwardRef,
   type ComponentProps,
@@ -14,7 +15,13 @@ import { cn } from "@/lib/utils";
 export interface TypeaheadInputProps extends Omit<ComponentProps<"input">, "onChange" | "value"> {
   value: string;
   onValueChange: (value: string) => void;
-  candidates: string[];
+  candidates?: string[];
+  /**
+   * When present, the candidate list is a bounded server-side lookup of the active query
+   * (debounced) instead of a preloaded list - the type-ahead for fields whose candidate set is
+   * too large to ship whole. Errors degrade to an empty list.
+   */
+  fetchCandidates?: (query: string) => Promise<string[]>;
   multiValue?: boolean;
   onSelectSuggestion?: (suggestion: string) => void;
 }
@@ -24,7 +31,8 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
     {
       value,
       onValueChange,
-      candidates,
+      candidates = [],
+      fetchCandidates,
       multiValue = false,
       onSelectSuggestion,
       className,
@@ -37,6 +45,7 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
   ) => {
     const [isOpen, setIsOpen] = useState(false);
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
+    const [serverCandidates, setServerCandidates] = useState<string[]>([]);
 
     const activeQuery = useMemo(() => {
       if (!multiValue) return value.trim();
@@ -44,9 +53,38 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
       return (parts[parts.length - 1] ?? "").trim();
     }, [value, multiValue]);
 
+    // Bounded server-side candidate fetch for the active query, debounced so a keystroke does not
+    // fire one request per character. Errors degrade to an empty list.
+    useEffect(() => {
+      if (!fetchCandidates) return;
+      const query = activeQuery;
+      let cancelled = false;
+      const timer = setTimeout(() => {
+        if (!query) {
+          // Nothing to look up; clear the previous lookup so a later keystroke cannot
+          // resurrect it. Done inside the timer (async), never synchronously in the effect.
+          if (!cancelled) setServerCandidates([]);
+          return;
+        }
+        fetchCandidates(query)
+          .then((names) => {
+            if (!cancelled) setServerCandidates(names);
+          })
+          .catch(() => {
+            if (!cancelled) setServerCandidates([]);
+          });
+      }, 150);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }, [activeQuery, fetchCandidates]);
+
+    const sourceCandidates = fetchCandidates ? serverCandidates : candidates;
+
     const suggestions = useMemo(() => {
       if (!activeQuery) return [];
-      const matches = narrowByQuery(candidates, activeQuery, TYPEAHEAD_SUGGESTION_COUNT);
+      const matches = narrowByQuery(sourceCandidates, activeQuery, TYPEAHEAD_SUGGESTION_COUNT);
       if (
         matches.length === 1 &&
         normalizeForMatch(matches[0]) === normalizeForMatch(activeQuery)
@@ -54,7 +92,7 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
         return [];
       }
       return matches;
-    }, [candidates, activeQuery]);
+    }, [sourceCandidates, activeQuery]);
 
     const applySuggestion = (suggestion: string) => {
       let nextValue: string;

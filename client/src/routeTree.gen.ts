@@ -28,6 +28,7 @@ import { Route as LibraryAuthorsAuthorIdRouteImport } from './routes/library/aut
 import { Route as LibraryBookBookIdRouteImport } from './routes/library/book.$bookId'
 import { Route as LibrarySeriesIndexRouteImport } from './routes/library/series/index'
 import { Route as LibrarySeriesSeriesNameRouteImport } from './routes/library/series/$seriesName'
+import { Route as LibraryBookBookIdEditRouteImport } from './routes/library/book.$bookId.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -124,6 +125,11 @@ const LibrarySeriesSeriesNameRoute = LibrarySeriesSeriesNameRouteImport.update({
   path: '/library/series/$seriesName',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LibraryBookBookIdEditRoute = LibraryBookBookIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => LibraryBookBookIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -141,10 +147,11 @@ export interface FileRoutesByFullPath {
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
-  '/library/book/$bookId': typeof LibraryBookBookIdRoute
+  '/library/book/$bookId': typeof LibraryBookBookIdRouteWithChildren
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
   '/library/authors/': typeof LibraryAuthorsIndexRoute
   '/library/series/': typeof LibrarySeriesIndexRoute
+  '/library/book/$bookId/edit': typeof LibraryBookBookIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -162,10 +169,11 @@ export interface FileRoutesByTo {
   '/library': typeof LibraryIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
-  '/library/book/$bookId': typeof LibraryBookBookIdRoute
+  '/library/book/$bookId': typeof LibraryBookBookIdRouteWithChildren
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
   '/library/authors': typeof LibraryAuthorsIndexRoute
   '/library/series': typeof LibrarySeriesIndexRoute
+  '/library/book/$bookId/edit': typeof LibraryBookBookIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -184,10 +192,11 @@ export interface FileRoutesById {
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
-  '/library/book/$bookId': typeof LibraryBookBookIdRoute
+  '/library/book/$bookId': typeof LibraryBookBookIdRouteWithChildren
   '/library/series/$seriesName': typeof LibrarySeriesSeriesNameRoute
   '/library/authors/': typeof LibraryAuthorsIndexRoute
   '/library/series/': typeof LibrarySeriesIndexRoute
+  '/library/book/$bookId/edit': typeof LibraryBookBookIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -211,6 +220,7 @@ export interface FileRouteTypes {
     | '/library/series/$seriesName'
     | '/library/authors/'
     | '/library/series/'
+    | '/library/book/$bookId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
     | '/library/series/$seriesName'
     | '/library/authors'
     | '/library/series'
+    | '/library/book/$bookId/edit'
   id:
     | '__root__'
     | '/'
@@ -253,6 +264,7 @@ export interface FileRouteTypes {
     | '/library/series/$seriesName'
     | '/library/authors/'
     | '/library/series/'
+    | '/library/book/$bookId/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -271,7 +283,7 @@ export interface RootRouteChildren {
   LibraryIndexRoute: typeof LibraryIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   LibraryAuthorsAuthorIdRoute: typeof LibraryAuthorsAuthorIdRoute
-  LibraryBookBookIdRoute: typeof LibraryBookBookIdRoute
+  LibraryBookBookIdRoute: typeof LibraryBookBookIdRouteWithChildren
   LibrarySeriesSeriesNameRoute: typeof LibrarySeriesSeriesNameRoute
   LibraryAuthorsIndexRoute: typeof LibraryAuthorsIndexRoute
   LibrarySeriesIndexRoute: typeof LibrarySeriesIndexRoute
@@ -412,8 +424,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibrarySeriesSeriesNameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/library/book/$bookId/edit': {
+      id: '/library/book/$bookId/edit'
+      path: '/edit'
+      fullPath: '/library/book/$bookId/edit'
+      preLoaderRoute: typeof LibraryBookBookIdEditRouteImport
+      parentRoute: typeof LibraryBookBookIdRoute
+    }
   }
 }
+
+interface LibraryBookBookIdRouteChildren {
+  LibraryBookBookIdEditRoute: typeof LibraryBookBookIdEditRoute
+}
+
+const LibraryBookBookIdRouteChildren: LibraryBookBookIdRouteChildren = {
+  LibraryBookBookIdEditRoute: LibraryBookBookIdEditRoute,
+}
+
+const LibraryBookBookIdRouteWithChildren =
+  LibraryBookBookIdRoute._addFileChildren(LibraryBookBookIdRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -431,7 +461,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibraryIndexRoute: LibraryIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   LibraryAuthorsAuthorIdRoute: LibraryAuthorsAuthorIdRoute,
-  LibraryBookBookIdRoute: LibraryBookBookIdRoute,
+  LibraryBookBookIdRoute: LibraryBookBookIdRouteWithChildren,
   LibrarySeriesSeriesNameRoute: LibrarySeriesSeriesNameRoute,
   LibraryAuthorsIndexRoute: LibraryAuthorsIndexRoute,
   LibrarySeriesIndexRoute: LibrarySeriesIndexRoute,

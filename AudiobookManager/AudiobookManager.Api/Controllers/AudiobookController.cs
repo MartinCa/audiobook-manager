@@ -18,6 +18,7 @@ public class AudiobookController : ControllerBase
     private readonly IQueuedOrganizeTaskService _organizeTaskService;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly IBulkEditService _bulkEditService;
+    private readonly ISeriesService _seriesService;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
@@ -31,6 +32,7 @@ public class AudiobookController : ControllerBase
         IQueuedOrganizeTaskService organizeTaskService,
         ILibraryConsistencyService libraryConsistencyService,
         IBulkEditService bulkEditService,
+        ISeriesService seriesService,
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
@@ -43,6 +45,7 @@ public class AudiobookController : ControllerBase
         _organizeTaskService = organizeTaskService;
         _libraryConsistencyService = libraryConsistencyService;
         _bulkEditService = bulkEditService;
+        _seriesService = seriesService;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
@@ -414,6 +417,26 @@ public class AudiobookController : ControllerBase
     [HttpGet("{id}/save-status")]
     public AudiobookSaveStatusDto GetSaveStatus(long id) =>
         new(id, _saveGate.IsBusy(id));
+
+    /// <summary>
+    /// Advisory check for the edit form's series-part conflict warning: other books already
+    /// carrying the (series, series part) combination about to be saved, excluding this book.
+    /// Read-only, bounded and never gates a save - the client uses it to warn. Part equivalence
+    /// is applied in SQL, so no conflict is skipped; the response's Truncated flag tells the
+    /// client when more genuine conflicts exist than the bounded response carries. A blank series
+    /// or part returns no conflicts (an empty part is its own informational state in the form).
+    /// </summary>
+    [HttpGet("{id}/series-part-conflicts")]
+    public async Task<ActionResult<SeriesPartConflictCheckDto>> GetSeriesPartConflicts(
+        long id, [FromQuery] string? series, [FromQuery] string? seriesPart)
+    {
+        var result = await _seriesService.GetSeriesPartConflictsAsync(id, series, seriesPart);
+        return new SeriesPartConflictCheckDto(
+            result.Conflicts
+                .Select(c => new SeriesPartConflictBookDto(c.AudiobookId, c.BookName, c.SeriesPart))
+                .ToList(),
+            result.Truncated);
+    }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteAudiobook(long id)

@@ -199,6 +199,150 @@ public class SimilarValuesControllerTests
     }
 
     [TestMethod]
+    public async Task GetEntryStatus_Author_ReturnsClassifiedStatus()
+    {
+        _similarValueService
+            .Setup(s => s.GetEntryStatusAsync(Domain.EntryValueKind.Author, "Jane Authorr", 3))
+            .ReturnsAsync(new EntryValueStatus(
+                "Jane Authorr",
+                Domain.EntryValueStatusKind.Similar,
+                ExactMatch: null,
+                new List<EntryValueMatch> { new(1, "Jane Author") }));
+
+        var result = await _controller.GetEntryStatus("author", "Jane Authorr");
+
+        var dto = result.Value as EntryStatusDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("similar", dto.Status);
+        Assert.IsNull(dto.ExactMatch);
+        Assert.AreEqual(1, dto.SimilarMatches.Count);
+        Assert.AreEqual(1, dto.SimilarMatches[0].Id);
+        Assert.AreEqual("Jane Author", dto.SimilarMatches[0].Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatus_Series_ReturnsExactStatus()
+    {
+        _similarValueService
+            .Setup(s => s.GetEntryStatusAsync(Domain.EntryValueKind.Series, "Mistborn", 3))
+            .ReturnsAsync(new EntryValueStatus(
+                "Mistborn",
+                Domain.EntryValueStatusKind.Exact,
+                new EntryValueMatch(null, "Mistborn"),
+                new List<EntryValueMatch>()));
+
+        var result = await _controller.GetEntryStatus("series", "Mistborn");
+
+        var dto = result.Value as EntryStatusDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("exact", dto.Status);
+        Assert.IsNotNull(dto.ExactMatch);
+        Assert.IsNull(dto.ExactMatch.Id, "series matches carry no id");
+        Assert.AreEqual("Mistborn", dto.ExactMatch.Name);
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatus_Narrator_ReturnsClassifiedStatus()
+    {
+        _similarValueService
+            .Setup(s => s.GetEntryStatusAsync(Domain.EntryValueKind.Narrator, "Michael Kramer", 3))
+            .ReturnsAsync(new EntryValueStatus(
+                "Michael Kramer",
+                Domain.EntryValueStatusKind.Exact,
+                new EntryValueMatch(2, "Michael Kramer"),
+                new List<EntryValueMatch>()));
+
+        var result = await _controller.GetEntryStatus("narrator", "Michael Kramer");
+
+        var dto = result.Value as EntryStatusDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("exact", dto.Status);
+        Assert.AreEqual(2, dto.ExactMatch?.Id);
+    }
+
+    [TestMethod]
+    [DataRow("invalid", "x")]
+    [DataRow("author", "")]
+    [DataRow("author", "   ")]
+    public async Task GetEntryStatus_InvalidInput_IsRefused(string valueType, string value)
+    {
+        var result = await _controller.GetEntryStatus(valueType, value);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _similarValueService.Verify(
+            s => s.GetEntryStatusAsync(It.IsAny<Domain.EntryValueKind>(), It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(11)]
+    public async Task GetEntryStatus_OutOfRangeLimit_IsRefused(int limit)
+    {
+        var result = await _controller.GetEntryStatus("author", "x", limit);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetAutocomplete_Author_ReturnsBoundedNameList()
+    {
+        _personRepository.Setup(r => r.SearchAuthorNamesAsync("Brand", 8))
+            .ReturnsAsync(new List<AuthorSummaryRow>
+            {
+                new(1, "Brandon Sanderson", 2),
+                new(2, "Brandon", 1),
+            });
+
+        var result = await _controller.GetAutocomplete("author", "Brand", 8);
+
+        var names = result.Value as List<string>;
+        Assert.IsNotNull(names);
+        CollectionAssert.AreEqual(new List<string> { "Brandon Sanderson", "Brandon" }, names);
+    }
+
+    [TestMethod]
+    public async Task GetAutocomplete_Series_DelegatesToSeriesPrefilter()
+    {
+        _audiobookRepository.Setup(a => a.SearchSeriesValuesAsync("Mist", 5))
+            .ReturnsAsync(new List<string> { "Mistborn" });
+
+        var result = await _controller.GetAutocomplete("series", "Mist", 5);
+
+        var names = result.Value as List<string>;
+        Assert.IsNotNull(names);
+        CollectionAssert.AreEqual(new List<string> { "Mistborn" }, names);
+    }
+
+    [TestMethod]
+    public async Task GetAutocomplete_Narrator_DelegatesToNarratorPrefilter()
+    {
+        _personRepository.Setup(r => r.SearchNarratorNamesAsync("Micha", 5))
+            .ReturnsAsync(new List<AuthorSummaryRow>
+            {
+                new(2, "Michael Kramer", 0),
+                new(3, "Michael Page", 0),
+            });
+
+        var result = await _controller.GetAutocomplete("narrator", "Micha", 5);
+
+        var names = result.Value as List<string>;
+        Assert.IsNotNull(names);
+        CollectionAssert.AreEqual(new List<string> { "Michael Kramer", "Michael Page" }, names);
+    }
+
+    [TestMethod]
+    [DataRow("invalid", "x")]
+    [DataRow("author", "")]
+    [DataRow("author", "   ")]
+    public async Task GetAutocomplete_InvalidInput_IsRefused(string valueType, string query)
+    {
+        var result = await _controller.GetAutocomplete(valueType, query);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
     public void StartAlign_InvalidValueType_ReturnsBadRequest()
     {
         var result = _controller.StartAlign(new AlignSimilarValuesDto

@@ -78,6 +78,33 @@ public interface IAudiobookRepository
     Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);
+
+    /// <summary>
+    /// The series value whose folded name equals the input's folded name, or null - the "this
+    /// series already exists" answer for the entry-status classification. Same case- and
+    /// accent-insensitivity as every other search in this repository.
+    /// </summary>
+    Task<string?> FindSeriesValueByFoldedNameAsync(string value);
+
+    /// <summary>
+    /// The distinct series values the entry-status classification scores as "similar" candidates,
+    /// capped at <paramref name="limit"/> rows - a bounded, deliberately permissive prefilter
+    /// (full-query containment ranked ahead of first-token containment) over which the fuzzy
+    /// "similar" decision is made. Series values have no identity, so only the strings are returned.
+    /// </summary>
+    Task<List<string>> SearchSeriesValuesAsync(string query, int limit);
+
+    /// <summary>
+    /// Books carrying exactly the given series value whose series part is <em>equivalent</em> to
+    /// <paramref name="seriesPart"/> (numeric with rounding, or trimmed case-insensitive text),
+    /// excluding <paramref name="excludeAudiobookId"/>. Equivalence is applied in SQL, so the
+    /// returned rows are exactly the genuine conflicts - a conflict cannot sort past an
+    /// alphabetical bound and be silently missed. Bounded to <paramref name="limit"/> rows with an
+    /// explicit truncation flag when more genuine conflicts exist, per the bounded-list invariant.
+    /// </summary>
+    Task<(List<SeriesPartConflictRow> Items, bool Truncated)> GetSeriesPartConflictCandidatesAsync(
+        string series, long excludeAudiobookId, string seriesPart, int limit);
+
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);

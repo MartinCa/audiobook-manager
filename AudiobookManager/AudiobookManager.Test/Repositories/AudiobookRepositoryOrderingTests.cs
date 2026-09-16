@@ -44,12 +44,12 @@ public class AudiobookRepositoryOrderingTests
     // rather than constructing a fresh one per seed.
     private Person? _defaultAuthor;
 
-    private async Task SeedAsync(string bookName, string? series, Person? author = null)
+    private async Task SeedAsync(string bookName, string? series, Person? author = null, string? seriesPart = null)
     {
         _defaultAuthor ??= new Person(default, "An Author");
 
         var audiobook = new Audiobook(
-            default, bookName, null, series, null, 2024,
+            default, bookName, null, series, seriesPart, 2024,
             null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
@@ -174,5 +174,121 @@ public class AudiobookRepositoryOrderingTests
     {
         using var db = NewContext();
         return await new AudiobookRepository(db).GetByIdWithIncludesAsync(id);
+    }
+
+    // ---- Entry-status backing queries ----
+
+    [TestMethod]
+    public async Task FindSeriesValueByFoldedNameAsync_AccentAndCaseInsensitive()
+    {
+        await SeedAsync("Book A", "Études du Cheval");
+
+        var found = await _repository.FindSeriesValueByFoldedNameAsync("etudes du cheval");
+
+        Assert.AreEqual("Études du Cheval", found);
+    }
+
+    [TestMethod]
+    public async Task FindSeriesValueByFoldedNameAsync_NoSuchSeries_ReturnsNull()
+    {
+        await SeedAsync("Book A", "Mistborn");
+
+        var found = await _repository.FindSeriesValueByFoldedNameAsync("Stormlight");
+
+        Assert.IsNull(found);
+    }
+
+    // Same bounded-prefilter regression as the person version: a candidate sharing only the first
+    // token must still surface for the "similar" classification.
+    [TestMethod]
+    public async Task SearchSeriesValuesAsync_FirstTokenVariant_Surfaces()
+    {
+        await SeedAsync("Book A", "The Stormlight Archive");
+        await SeedAsync("Book B", "The Hormlight Dances");
+
+        var results = await _repository.SearchSeriesValuesAsync("The Storlight Archive", 10);
+
+        CollectionAssert.Contains(results, "The Stormlight Archive");
+    }
+
+    // Mirror of the author prefilter's wildcard regression: LIKE wildcards the user types must
+    // not leak through to the series prefilter.
+    [TestMethod]
+    public async Task SearchSeriesValuesAsync_LikeWildcardsInTheQuery_AreTreatedLiterally()
+    {
+        await SeedAsync("Book A", "The 100% Series");
+        await SeedAsync("Book B", "The 100 Series");
+
+        var percent = await _repository.SearchSeriesValuesAsync("100%", 10);
+
+        CollectionAssert.AreEqual(
+            new List<string> { "The 100% Series" },
+            percent,
+            "'%' in the query matches a literal '%', not a wildcard");
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictCandidatesAsync_NonNumericParts_CompareCaseInsensitiveTrimmedEquality()
+    {
+        await SeedAsync("Book A", "Wheel of Time", seriesPart: "Book 1");
+        await SeedAsync("Book B", "Wheel of Time", seriesPart: "book 1    ");
+        await SeedAsync("Book C", "Wheel of Time", seriesPart: "Book 2");
+
+        var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
+            "Wheel of Time", excludeAudiobookId: 999_999, "BOOK 1", limit: 10);
+
+        Assert.IsFalse(truncated);
+        CollectionAssert.AreEqual(
+            new List<string> { "Book A", "Book B" },
+            rows.Select(r => r.BookName).ToList(),
+            "non-numeric parts compare trimmed case-insensitively, so 'BOOK 1' conflicts with 'book 1    ' ");
+    }
+
+    // Regression guard for the advisory conflict check: the equivalence must be applied in SQL, not
+// by taking a bounded alphabetical slice of the series and filtering in memory - a conflict that
+// sorts past the bound would be silently missed. Numeric ("1" vs "1.0"), case-insensitive and
+// current-book exclusion all have to work against real SQLite.
+[TestMethod]
+public async Task GetSeriesPartConflictCandidatesAsync_EquivalenceAppliedInSql_ExcludesNonEquivalentAndCurrentBook()
+    {
+        _defaultAuthor ??= new Person(default, "An Author");
+        var current = await _repository.InsertAudiobook(new Audiobook(
+            default, "Current", null, "Mistborn", "1", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Current.m4b", "Current.m4b", 1000)
+        {
+            Authors = new List<Person> { _defaultAuthor },
+        });
+
+        await SeedAsync("Other A", "Mistborn", seriesPart: "1");
+        await SeedAsync("Other B", "Mistborn", seriesPart: "1.0"); // numeric-equivalent
+        await SeedAsync("Other C", "Mistborn", seriesPart: "3");    // not equivalent
+        await SeedAsync("Other D", "Mistborn", seriesPart: null);   // no part -> never equivalent
+        await SeedAsync("Different Series", "Other Series", seriesPart: "1");
+
+        var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
+            "Mistborn", current.Id, "1", limit: 10);
+
+        Assert.IsFalse(truncated);
+        CollectionAssert.AreEqual(
+            new List<string> { "Other A", "Other B" },
+            rows.Select(r => r.BookName).ToList(),
+            "only parts equivalent to '1' conflict, and the book being edited is always excluded");
+        CollectionAssert.DoesNotContain(rows.Select(r => r.AudiobookId).ToList(), current.Id);
+    }
+
+[TestMethod]
+public async Task GetSeriesPartConflictCandidatesAsync_MoreConflictsThanTheCap_ReportsTruncated()
+    {
+        await SeedAsync("Alpha", "Mistborn", seriesPart: "1");
+        await SeedAsync("Beta", "Mistborn", seriesPart: "1");
+        await SeedAsync("Gamma", "Mistborn", seriesPart: "1");
+        await SeedAsync("Delta", "Mistborn", seriesPart: "1");
+
+        var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
+            "Mistborn", excludeAudiobookId: 999_999, "1", limit: 2);
+
+        Assert.AreEqual(2, rows.Count, "the result is bounded");
+        Assert.IsTrue(truncated, "the caller must be told more conflicts exist than the cap carries");
     }
 }

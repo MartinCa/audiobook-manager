@@ -2560,4 +2560,105 @@ public class SeriesServiceTests
 
         public Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl) => Task.FromResult(_roster);
     }
+
+    // ---- GetSeriesPartConflictsAsync ----
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_EquivalentPartsOnOtherBooksAreReturned()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
+                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync((
+                new List<SeriesPartConflictRow>
+                {
+                    new(2, "The Well of Ascension", "2"),
+                    new(3, "Well of Ascension (audio)", "2.0"),  // numeric equivalence -> conflict
+                },
+                Truncated: false));
+
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+
+        CollectionAssert.AreEqual(
+            new List<long> { 2, 3 },
+            result.Conflicts.Select(c => c.AudiobookId).ToList(),
+            "Both '2' and '2.0' conflict with '2' under the numeric part-equivalence the reconciliation uses.");
+        Assert.IsFalse(result.Truncated);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_BlankPart_NeverConflicts()
+    {
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "  ");
+
+        CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
+        _audiobookRepository.Verify(
+            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_BlankSeries_NeverConflicts()
+    {
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, null, "2");
+
+        CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
+        _audiobookRepository.Verify(
+            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_BookWithNoPartIsNotAConflict()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
+                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync((
+                new List<SeriesPartConflictRow>(),
+                Truncated: false));
+
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+
+        CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_CaseVariantPartIsEquivalent()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
+                "Wheel of Time", 1, "Book 1", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync((
+                new List<SeriesPartConflictRow>
+                {
+                    new(2, "A Memory of Light", "Book 1"),
+                    new(3, "The Eye of the World", "book 1"), // trimmed case-insensitive equality -> conflict
+                },
+                Truncated: false));
+
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Wheel of Time", "Book 1");
+
+        CollectionAssert.AreEqual(
+            new List<long> { 2, 3 },
+            result.Conflicts.Select(c => c.AudiobookId).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesPartConflictsAsync_MoreConflictsThanTheCap_ReportsTruncated()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
+                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+            .ReturnsAsync((
+                Enumerable.Range(2, 3)
+                    .Select(i => new SeriesPartConflictRow(i, $"Book {i}", "2"))
+                    .ToList(),
+                Truncated: true));
+
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+
+        Assert.AreEqual(3, result.Conflicts.Count);
+        Assert.IsTrue(result.Truncated, "the caller must be told the list is partial, not complete");
+    }
 }

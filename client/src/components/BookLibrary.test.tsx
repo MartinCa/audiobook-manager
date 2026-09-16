@@ -46,8 +46,7 @@ vi.mock("@/services/api", () => ({
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
   },
   similarValuesApi: {
-    getAuthorNames: vi.fn().mockResolvedValue([]),
-    getSeriesNames: vi.fn().mockResolvedValue([]),
+    getAutocomplete: vi.fn().mockResolvedValue([]),
   },
   metadataRefreshApi: {
     refreshAudiobook: vi.fn(),
@@ -124,6 +123,7 @@ describe("BookLibrary", () => {
     sizeInBytes: 1000,
     durationInSeconds: 164000,
     coverFilePath: "/covers/1.jpg",
+    authorRefs: [{ id: 1, name: "Brandon Sanderson" }],
   };
 
   beforeEach(() => {
@@ -247,8 +247,9 @@ describe("BookLibrary", () => {
     expect(bookLink).not.toHaveAttribute("target");
     fireEvent.click(bookLink);
 
-    // Expect to be on book detail page with book details loaded
-    expect(await screen.findByDisplayValue("The Way of Kings")).toBeInTheDocument();
+    // Expect to be on the read-only book detail page with book details loaded.
+    expect(await screen.findByText(/Brandon Sanderson — The Way of Kings/)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("The Way of Kings")).not.toBeInTheDocument();
 
     // Click Back to Library button
     const backBtn = await screen.findByRole("button", { name: /back to library/i });

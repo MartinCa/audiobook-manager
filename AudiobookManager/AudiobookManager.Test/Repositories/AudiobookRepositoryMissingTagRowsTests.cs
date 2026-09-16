@@ -138,6 +138,31 @@ public class AudiobookRepositoryMissingTagRowsTests
         Assert.AreEqual("Encyclopédie", items.Single().BookName);
     }
 
+    // Regression: the paged search interpolated the folded query into the LIKE pattern without
+    // escaping, so a literal '%' or '_' the user typed acted as a wildcard.
+    [TestMethod]
+    public async Task GetMissingTagRowsPageAsync_LikeWildcardsInTheSearch_AreTreatedLiterally()
+    {
+        await SeedBookAsync("B_eta Helper", language: null);
+        await SeedBookAsync("Breta Helper", language: null);
+        await SeedBookAsync("100% Author", language: null);
+        await SeedBookAsync("100 Friends", language: null);
+
+        var (underscore, totalUnderscore) = await PageAsync(new[] { LanguageMissing }, search: "B_eta");
+        CollectionAssert.AreEqual(
+            new List<string> { "B_eta Helper" },
+            underscore.Select(r => r.BookName).ToList(),
+            "an underscore in the search matches a literal underscore, not 'any character'");
+        Assert.AreEqual(1, totalUnderscore);
+
+        var (percent, totalPercent) = await PageAsync(new[] { LanguageMissing }, search: "100%");
+        CollectionAssert.AreEqual(
+            new List<string> { "100% Author" },
+            percent.Select(r => r.BookName).ToList(),
+            "'%' in the search matches a literal '%', not a wildcard");
+        Assert.AreEqual(1, totalPercent);
+    }
+
     [TestMethod]
     public async Task GetMissingTagRowsPageAsync_BlankSearchReturnsEveryMatchingRow()
     {

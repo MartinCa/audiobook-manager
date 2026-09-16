@@ -100,6 +100,10 @@ describe("toAudiobook", () => {
       www: "https://lib.com",
       coverFilePath: "/covers/42.jpg",
       durationInSeconds: 7200,
+      authorRefs: [
+        { id: 1, name: "Author A" },
+        { id: 2, name: "Author B" },
+      ],
     };
 
     const result = toAudiobook(detail);

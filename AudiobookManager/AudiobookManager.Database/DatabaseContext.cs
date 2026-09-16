@@ -28,6 +28,8 @@ public class DatabaseContext : DbContext
             .HasName(AccentFolding.SqlFunctionName);
         modelBuilder.HasDbFunction(typeof(SeriesPartSortKey).GetMethod(nameof(SeriesPartSortKey.Key))!)
             .HasName(SeriesPartSortKey.SqlFunctionName);
+        modelBuilder.HasDbFunction(typeof(SeriesPartEquivalence).GetMethod(nameof(SeriesPartEquivalence.PartsEquivalent))!)
+            .HasName(SeriesPartEquivalence.SqlFunctionName);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
