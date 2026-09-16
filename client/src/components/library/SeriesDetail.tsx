@@ -819,7 +819,10 @@ export function SeriesDetail() {
           {/* Metadata Provider */}
           <div className="border-border space-y-4 border-t pt-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              {overview.isMatched ? (
+              {/* Same guard as the header: a matched series without a source name is not a
+                  nameable match, so it renders as the incomplete state instead of a dangling
+                  "Matched to " label. The source name itself is the link to the source. */}
+              {overview.isMatched && overview.matchedSourceName ? (
                 <>
                   <Badge
                     variant="secondary"
@@ -828,21 +831,10 @@ export function SeriesDetail() {
                     <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                     Matched to{" "}
                     <MatchedSourceLink
-                      sourceName={overview.matchedSourceName ?? ""}
+                      sourceName={overview.matchedSourceName}
                       sourceUrl={overview.matchedSourceUrl}
                     />
                   </Badge>
-                  {overview.matchedSourceUrl && (
-                    <a
-                      href={overview.matchedSourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary flex items-center hover:underline"
-                    >
-                      <ExternalLink className="mr-1 h-3 w-3" />
-                      View at source
-                    </a>
-                  )}
                   {overview.matchConfidence != null && (
                     <span className="text-muted-foreground">
                       Confidence: {Math.round(overview.matchConfidence * 100)}%

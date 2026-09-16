@@ -351,21 +351,39 @@ public class SeriesRepository : ISeriesRepository
     }
 
     /// <summary>
-    /// Deletes one catalog row by id. Only the series-mapping create path's rollback uses it,
-    /// and only for a row that same call just inserted (see <c>SeriesService.CreateSeriesMappingAsync</c>),
-    /// so there is no foreign-key or inverse-navigation concern to reason about here.
+    /// Deletes one catalog row, but only when it is still the untouched shell a create path just
+    /// inserted: unmatched, no omnibus flag, no mapping patterns and no roster. The emptiness is
+    /// checked in the same statement as the delete, so a concurrent write - a mapping another
+    /// request inserted onto the row, a match, a roster replace, an omnibus toggle - makes the
+    /// condition fail at delete time and the row survives, instead of being cascaded away with the
+    /// other request's data. Only the series-mapping create path's rollback uses it, and only for
+    /// a row <c>SeriesService.CreateSeriesMappingAsync</c> itself just created; this conditional
+    /// re-check is what keeps that rollback safe against a concurrent request that adopted the row.
+    /// Returns whether the row was actually deleted.
     /// </summary>
-    public async Task<bool> DeleteAsync(long id)
+    public async Task<bool> DeleteIfEmptyAsync(long id)
     {
-        var row = await _db.Series.FindAsync(id);
-        if (row is null)
+        var deletedRows = await _db.Series
+            .Where(s => s.Id == id
+                && s.MatchedSourceName == null
+                && s.MatchedSourceId == null
+                && !s.IncludeOmnibusEditions
+                && !s.Mappings.Any()
+                && !s.ExpectedBooks.Any())
+            .ExecuteDeleteAsync();
+
+        if (deletedRows > 0)
         {
-            return false;
+            // ExecuteDeleteAsync bypasses the change tracker: the row this call inserted is still
+            // tracked here, and a deleted rowid SQLite may hand to a later insert must never
+            // resolve back to it inside this request-scoped context.
+            foreach (var entry in _db.ChangeTracker.Entries<Series>().Where(e => e.Entity.Id == id).ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
         }
 
-        _db.Remove(row);
-        await _db.SaveChangesAsync();
-        return true;
+        return deletedRows > 0;
     }
 
     /// <summary>

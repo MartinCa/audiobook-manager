@@ -2768,7 +2768,7 @@ public class SeriesServiceTests
             .Setup(r => r.GetOrCreateByNameAsync("Unmatched Series"))
             .ReturnsAsync((new Series { Id = 9, Name = "Unmatched Series" }, true));
         _seriesRepository
-            .Setup(r => r.DeleteAsync(9))
+            .Setup(r => r.DeleteIfEmptyAsync(9))
             .ReturnsAsync(true);
         _seriesMappingRepository
             .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
@@ -2778,7 +2778,7 @@ public class SeriesServiceTests
             MakeService().CreateSeriesMappingAsync(
                 "Unmatched Series", new DomainSeriesMapping(null, "^dup.*$", false)));
 
-        _seriesRepository.Verify(r => r.DeleteAsync(9), Times.Once);
+        _seriesRepository.Verify(r => r.DeleteIfEmptyAsync(9), Times.Once);
         _seriesMappingRepository.Verify(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Once);
     }
 
@@ -2798,7 +2798,37 @@ public class SeriesServiceTests
             MakeService().CreateSeriesMappingAsync(
                 "Mistborn", new DomainSeriesMapping(null, "^dup.*$", false)));
 
-        _seriesRepository.Verify(r => r.DeleteAsync(It.IsAny<long>()), Times.Never);
+        _seriesRepository.Verify(r => r.DeleteIfEmptyAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    // Regression for the review finding: the rollback used to be an unconditional DeleteAsync when
+    // THIS call had created the owner, so a request that lost the create race but had meanwhile
+    // inserted its own (valid) pattern onto the same row had its mapping cascaded away - a silent
+    // data loss the winner's caller never learned about. The rollback now goes through the
+    // repository's conditional DeleteIfEmptyAsync, which deletes only a row still holding nothing
+    // but the empty shell this call created; the service rethrows regardless of what the
+    // conditional found.
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_KeepsARowAConcurrentCallMappedOntoEvenIfThisCallCreatedIt()
+    {
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("New Series"))
+            .ReturnsAsync((new Series { Id = 9, Name = "New Series" }, true));
+        _seriesRepository
+            .Setup(r => r.DeleteIfEmptyAsync(9))
+            .ReturnsAsync(false);
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ThrowsAsync(new ArgumentException("A series mapping with the pattern '^dup.*$' already exists."));
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().CreateSeriesMappingAsync(
+                "New Series", new DomainSeriesMapping(null, "^dup.*$", false)));
+
+        // The rollback was attempted through the conditional path (the only path that could tell
+        // the row was no longer empty), and its refusal to delete was tolerated - the caller's
+        // Duplicate/insert error is still what surfaces.
+        _seriesRepository.Verify(r => r.DeleteIfEmptyAsync(9), Times.Once);
     }
 
     [TestMethod]

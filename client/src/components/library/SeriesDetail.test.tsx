@@ -136,13 +136,14 @@ describe("SeriesDetail", () => {
 
     // Critical info first: the header shows the matched-to source indication twice - once in the
     // header where the source NAME is the link to the source page, and once in the Management
-    // section's metadata block.
+    // section's metadata block. There is no separate "View at source" link - the name is the link.
     const sourceLinks = screen.getAllByRole("link", { name: "Hardcover" });
     expect(sourceLinks.length).toBeGreaterThanOrEqual(2);
     expect(
       sourceLinks.every((l) => l.getAttribute("href") === "https://hardcover.app/series/mistborn"),
     ).toBe(true);
     expect(screen.getAllByText(/Matched to/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/View at source/)).not.toBeInTheDocument();
 
     // The management section owns the metadata provider details and the match/refresh actions.
     expect(screen.getByText("Management & Settings")).toBeInTheDocument();
@@ -150,6 +151,35 @@ describe("SeriesDetail", () => {
     expect(screen.getByRole("button", { name: "Refresh Online" })).toBeInTheDocument();
     expect(screen.getByText("Confidence: 98%")).toBeInTheDocument();
     expect(screen.getByText("Series Mapping Patterns (0)")).toBeInTheDocument();
+  });
+
+  // Regression for the review finding: the header already guarded "Matched to" with a non-empty
+  // source name, but the Management card only checked isMatched and rendered "Matched to " against
+  // an empty source name (still styled as a link when matchedSourceUrl happened to be set). Both
+  // must share the guard - a matched series without a source name is the incomplete state, not a
+  // dangling label.
+  it("renders the incomplete-provider message for a matched series with no source name", async () => {
+    const detail = makeDetail([], 0);
+    detail.overview = {
+      ...detail.overview,
+      matchedSourceName: null,
+      matchedSourceId: null,
+      matchedSourceUrl: null,
+    };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    await screen.findByRole("heading", { name: "Mistborn" });
+    // Same guard in header and management card: never "Matched to " with an empty source name.
+    expect(screen.queryByText(/Matched to/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Hardcover|View at source/ }),
+    ).not.toBeInTheDocument();
+    // Also no stray "View at source" (the source name is the only source link, and there is none).
+    expect(screen.queryByText(/View at source/)).not.toBeInTheDocument();
+    // The management card shows the incomplete-state guidance instead.
+    expect(screen.getByText(/Not matched to an online metadata provider yet/)).toBeInTheDocument();
   });
 
   // Regression for the review finding: the header used to hide the missing count entirely when

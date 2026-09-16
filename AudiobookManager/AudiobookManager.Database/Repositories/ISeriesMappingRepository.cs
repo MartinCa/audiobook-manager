@@ -14,7 +14,14 @@ public interface ISeriesMappingRepository
 
     Task<SeriesMapping> CreateSeriesMappingAsync(SeriesMapping seriesMapping);
 
-    /// <summary>Read-only lookup of one mapping row (with its owner id), or null when the id is unknown.</summary>
+    /// <summary>
+    /// Lookup of one mapping row (with its owner id), or null when the id is unknown. Tracked, not
+    /// AsNoTracking: the update/delete ownership checks are the only callers and they hand the id
+    /// straight to <see cref="ISeriesMappingRepository.UpdateSeriesMappingAsync"/> /
+    /// <see cref="ISeriesMappingRepository.DeleteSeriesMappingAsync"/> in the same request scope,
+    /// which re-fetch by <c>FindAsync</c> - a tracked fetch makes that second lookup hit the
+    /// identity map instead of issuing a second SELECT.
+    /// </summary>
     Task<SeriesMapping?> GetSeriesMappingAsync(long id);
 
     /// <summary>Updates Regex/WarnAboutPart on an existing row; null when the id is unknown.</summary>

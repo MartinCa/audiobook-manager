@@ -521,12 +521,18 @@ public class SeriesService : ISeriesService
                 // A duplicate-regex failure (or any other insert failure) must not leave the owner
                 // row this call just inserted behind as an orphan: an unmatched series exists only
                 // as a value on audiobooks, so an empty catalog row with no pattern would surface
-                // it as a phantom series on the overview. Only a row THIS call created is rolled
-                // back - a pre-existing owner (or a winner adopted after a concurrent create, where
-                // createdOwner is false) is never deleted.
+                // it as a phantom series on the overview. The rollback is a single conditional
+                // delete - only a row still holding nothing but what this call created (unmatched,
+                // no patterns, no roster, no omnibus flag) is removed, re-checked atomically at
+                // delete time. A concurrent caller that lost the create race but inserted its own
+                // pattern (or matched the series, or toggled omnibus) onto this row in the window
+                // since it was created keeps its data: deleting the row would cascade it all away
+                // with no error surfaced to that caller, which believes its write succeeded.
+                // createdOwner is still worth checking first - a pre-existing owner (or a winner
+                // adopted after a concurrent create) is never even considered for rollback.
                 try
                 {
-                    await _seriesRepository.DeleteAsync(series.Id);
+                    await _seriesRepository.DeleteIfEmptyAsync(series.Id);
                 }
                 catch (Exception rollbackEx)
                 {

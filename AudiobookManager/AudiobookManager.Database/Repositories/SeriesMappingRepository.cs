@@ -53,10 +53,19 @@ public class SeriesMappingRepository : ISeriesMappingRepository
         return seriesMapping;
     }
 
+    /// <summary>
+    /// Lookup of one mapping row (with its owner id), or null when the id is unknown. Deliberately
+    /// TRACKED, not AsNoTracking: the only callers are the update/delete ownership checks in
+    /// <c>SeriesService</c>, which hand the id straight to
+    /// <see cref="UpdateSeriesMappingAsync"/> / <see cref="DeleteSeriesMappingAsync"/> in the same
+    /// request scope, and those re-fetch the row via <c>FindAsync</c>. A tracked fetch puts the
+    /// row in the identity map, so the second lookup short-circuits there instead of issuing a
+    /// second SELECT. (An AsNoTracking fetch forked the row instead, so every edit/delete cost two
+    /// reads of the same row.)
+    /// </summary>
     public async Task<SeriesMapping?> GetSeriesMappingAsync(long id)
     {
         return await _db.SeriesMappings
-            .AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == id);
     }
 
