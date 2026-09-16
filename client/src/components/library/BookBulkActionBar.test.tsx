@@ -6,20 +6,17 @@ import { SignalRContext } from "@/context/SignalRContext";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { useBookSelection, type SelectedBookInfo } from "@/hooks/useBookSelection";
-import type * as SonnerModule from "sonner";
-import { toast } from "sonner";
+import type * as ToastModule from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi, metadataRefreshApi, operationsApi } from "@/services/api";
 
-vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof SonnerModule>();
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof ToastModule>();
   return {
     ...actual,
     toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warning: vi.fn(),
+      add: vi.fn(),
     },
   };
 });
@@ -154,7 +151,10 @@ describe("BookBulkActionBar", () => {
       expect(metadataRefreshApi.refreshSelected).toHaveBeenCalledWith([1, 7]);
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Refreshing metadata for 2 books…");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Refreshing metadata for 2 books…",
+        type: "success",
+      });
     });
   });
 
@@ -168,7 +168,10 @@ describe("BookBulkActionBar", () => {
       expect(consistencyApi.checkSelected).toHaveBeenCalledWith([1, 7]);
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Consistency check started for 2 books");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Consistency check started for 2 books",
+        type: "success",
+      });
     });
   });
 
@@ -182,7 +185,10 @@ describe("BookBulkActionBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh Metadata" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("An operation is already in progress.");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "An operation is already in progress.",
+        type: "error",
+      });
     });
   });
 
@@ -244,7 +250,10 @@ describe("BookBulkActionBar", () => {
     handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 2, failed: 0 } as never);
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Bulk edit complete: 2 updated");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Bulk edit complete: 2 updated",
+        type: "success",
+      });
     });
     expect(screen.queryByText("Bulk editing books...")).not.toBeInTheDocument();
 
@@ -265,7 +274,10 @@ describe("BookBulkActionBar", () => {
     handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 1, failed: 1 } as never);
 
     await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalledWith("Bulk edit complete: 1 updated, 1 failed");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Bulk edit complete: 1 updated, 1 failed",
+        type: "warning",
+      });
     });
     await waitFor(() => {
       expect(screen.queryByText("2 selected")).not.toBeInTheDocument();
@@ -292,9 +304,10 @@ describe("BookBulkActionBar", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith(
-        "Metadata refresh complete: 2 refreshed, 0 failed",
-      );
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Metadata refresh complete: 2 refreshed, 0 failed",
+        type: "success",
+      });
     });
     expect(screen.queryByText("Refreshing metadata...")).not.toBeInTheDocument();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
@@ -315,9 +328,10 @@ describe("BookBulkActionBar", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalledWith(
-        "Hardcover daily limit reached. 1 succeeded, 1 failed.",
-      );
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Hardcover daily limit reached. 1 succeeded, 1 failed.",
+        type: "warning",
+      });
     });
   });
 
@@ -342,7 +356,10 @@ describe("BookBulkActionBar", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Check complete: 2 books checked, 3 issues found");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Check complete: 2 books checked, 3 issues found",
+        type: "success",
+      });
     });
     expect(screen.queryByText("Checking books (3 issues found)")).not.toBeInTheDocument();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["seriesDetail"] });
@@ -380,9 +397,10 @@ describe("BookBulkActionBar", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.success).not.toHaveBeenCalledWith(
-        "Check complete: 500 books checked, 3 issues found",
-      );
+      expect(toast.add).not.toHaveBeenCalledWith({
+        title: "Check complete: 500 books checked, 3 issues found",
+        type: "success",
+      });
     });
     expect(screen.getByText("2 selected")).toBeInTheDocument();
     expect(invalidateSpy).not.toHaveBeenCalled();

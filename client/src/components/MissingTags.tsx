@@ -14,7 +14,7 @@ import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 export function MissingTags() {
   const queryClient = useQueryClient();
@@ -76,7 +76,7 @@ export function MissingTags() {
   useEffect(() => {
     const isRunning = Boolean(backfillStatus?.isRunning);
     if (prevRunningRef.current && !isRunning) {
-      toast.success("Language backfill operation completed");
+      toast.add({ title: "Language backfill operation completed", type: "success" });
       // A backfill fills in languages, so it can only shrink this list - drop back to page 0 so
       // the refetch never asks for a page the smaller result set no longer has.
       setPage(0);
@@ -114,10 +114,10 @@ export function MissingTags() {
   const handleStartLanguageBackfill = async () => {
     try {
       await missingTagsApi.startLanguageBackfill();
-      toast.success("Language backfill started in background");
+      toast.add({ title: "Language backfill started in background", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 

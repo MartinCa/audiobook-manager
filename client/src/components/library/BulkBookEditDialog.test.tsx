@@ -3,22 +3,19 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BulkBookEditDialog } from "./BulkBookEditDialog";
-import type * as SonnerModule from "sonner";
-import { toast } from "sonner";
+import type * as ToastModule from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 import type * as ApiModule from "@/services/api";
 import { bulkEditApi } from "@/services/api";
 import type { SelectedBookInfo } from "@/hooks/useBookSelection";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
 
-vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof SonnerModule>();
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof ToastModule>();
   return {
     ...actual,
     toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warning: vi.fn(),
+      add: vi.fn(),
     },
   };
 });
@@ -234,7 +231,10 @@ describe("BulkBookEditDialog", () => {
     });
     expect(screen.getByText("1 field will be set across 2 books")).toBeInTheDocument();
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Bulk edit started for 2 books");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Bulk edit started for 2 books",
+        type: "success",
+      });
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -413,7 +413,7 @@ describe("BulkBookEditDialog", () => {
     await submit();
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Nothing to apply.");
+      expect(toast.add).toHaveBeenCalledWith({ title: "Nothing to apply.", type: "error" });
     });
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Apply" })).toBeInTheDocument();

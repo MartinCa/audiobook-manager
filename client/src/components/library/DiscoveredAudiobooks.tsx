@@ -43,7 +43,7 @@ import { handleApiError } from "@/lib/api";
 import { formatDateTime, formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { pathsEqual } from "@/helpers/pathHelpers";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { Audiobook } from "@/types/Audiobook";
 
@@ -178,9 +178,10 @@ export function DiscoveredAudiobooks() {
     setScanning(false);
     setScanProgress(null);
     setScanResult(data);
-    toast.success(
-      `Scan complete: ${data.newFilesDiscovered} new files, ${data.alreadyTracked} already tracked`,
-    );
+    toast.add({
+      title: `Scan complete: ${data.newFilesDiscovered} new files, ${data.alreadyTracked} already tracked`,
+      type: "success",
+    });
     void queryClient.invalidateQueries({
       queryKey: ["discoveredAudiobooks"],
     });
@@ -196,7 +197,10 @@ export function DiscoveredAudiobooks() {
     setImporting(false);
     setImportProgress(null);
     setSelectedPaths(new Set());
-    toast.success(`Import complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`);
+    toast.add({
+      title: `Import complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
+      type: "success",
+    });
     void queryClient.invalidateQueries({
       queryKey: ["discoveredAudiobooks"],
     });
@@ -239,7 +243,7 @@ export function DiscoveredAudiobooks() {
       };
       return next;
     });
-    toast.error(`Organize failed: ${payload.error}`);
+    toast.add({ title: `Organize failed: ${payload.error}`, type: "error" });
 
     // A row retried from the Failed Organize Tasks section below gets exactly one more attempt
     // (see QueuedOrganizeTaskRepository.RetryQueuedOrganizeTaskAsync); if the JSON is still
@@ -264,9 +268,9 @@ export function DiscoveredAudiobooks() {
     setScanResult(null);
     try {
       await libraryApi.startScan();
-      toast.success("Library scan started in background");
+      toast.add({ title: "Library scan started in background", type: "success" });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setScanning(false);
     }
   };
@@ -295,9 +299,9 @@ export function DiscoveredAudiobooks() {
     setImporting(true);
     try {
       await libraryApi.bulkImport(Array.from(selectedPaths));
-      toast.success(`Import queued for ${selectedPaths.size} books`);
+      toast.add({ title: `Import queued for ${selectedPaths.size} books`, type: "success" });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setImporting(false);
     }
   };
@@ -307,9 +311,12 @@ export function DiscoveredAudiobooks() {
     setImporting(true);
     try {
       await libraryApi.bulkImportWellTagged();
-      toast.success(`Import queued for ${wellTaggedTotal} well-tagged books`);
+      toast.add({
+        title: `Import queued for ${wellTaggedTotal} well-tagged books`,
+        type: "success",
+      });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setImporting(false);
     }
   };
@@ -320,12 +327,12 @@ export function DiscoveredAudiobooks() {
     try {
       await filesApi.deleteBook(path);
       await libraryApi.deleteDiscovered(path);
-      toast.success("File deleted and record removed");
+      toast.add({ title: "File deleted and record removed", type: "success" });
       void queryClient.invalidateQueries({
         queryKey: ["discoveredAudiobooks"],
       });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -333,7 +340,7 @@ export function DiscoveredAudiobooks() {
     const path = book.fileInfo?.fullPath ?? "";
     try {
       await audiobookApi.organizeBook(book);
-      toast.success("Book added to organization queue");
+      toast.add({ title: "Book added to organization queue", type: "success" });
       if (path) {
         setOrganizeOverrides((prev) => ({
           ...prev,
@@ -341,7 +348,7 @@ export function DiscoveredAudiobooks() {
         }));
       }
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -351,11 +358,11 @@ export function DiscoveredAudiobooks() {
   const retryFailedTaskMutation = useMutation({
     mutationFn: (path: string) => queueApi.retryFailedTask(path),
     onSuccess: () => {
-      toast.success("Queued for another attempt");
+      toast.add({ title: "Queued for another attempt", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
     },
     onError: (err: unknown) => {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     },
   });
 
@@ -363,11 +370,11 @@ export function DiscoveredAudiobooks() {
     setRemovingFailedTask(true);
     try {
       await queueApi.deleteFailedTask(path);
-      toast.success("Removed from the organize queue");
+      toast.add({ title: "Removed from the organize queue", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
       setRemoveFailedTargetPath(null);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setRemovingFailedTask(false);
     }
@@ -387,7 +394,7 @@ export function DiscoveredAudiobooks() {
     try {
       await checkCollisionAndProceed(book, proceedOrganizeDiscovered);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 

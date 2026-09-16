@@ -21,7 +21,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type {
   SeriesRefreshApplyRequest,
   SeriesRefreshChange,
@@ -188,12 +188,15 @@ export function SeriesRefreshPendingDialog({
         // Nothing was applied: the pending row vanished between review and apply (dismissed
         // elsewhere, or superseded by a no-change refresh). Don't claim a success that didn't
         // happen - say so, and let the views reload to the real state.
-        toast.info("The pending changes were already gone - nothing was applied");
+        toast.add({
+          title: "The pending changes were already gone - nothing was applied",
+          type: "info",
+        });
       } else if (data.totalFailed > 0) {
         const msg = `Applied ${data.totalSucceeded} of ${data.totalProcessed} changes (${data.totalFailed} failed)`;
-        toast.success(msg);
+        toast.add({ title: msg, type: "success" });
       } else {
-        toast.success(`Applied ${data.totalSucceeded} pending changes`);
+        toast.add({ title: `Applied ${data.totalSucceeded} pending changes`, type: "success" });
       }
       invalidateViews();
       onApplied?.();
@@ -233,12 +236,12 @@ export function SeriesRefreshPendingDialog({
     if (applying) return;
     try {
       await seriesApi.dismissSeriesPending(seriesName);
-      toast.success("Pending changes discarded");
+      toast.add({ title: "Pending changes discarded", type: "success" });
       invalidateViews();
       onApplied?.();
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -283,7 +286,7 @@ export function SeriesRefreshPendingDialog({
     } catch (err: unknown) {
       setApplying(false);
       setProgress(null);
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 

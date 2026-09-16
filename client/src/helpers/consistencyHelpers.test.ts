@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
   getIssueTypeLabel,
   getIssueTypeInfo,
@@ -8,13 +8,8 @@ import {
   notifyOrphanResolveResult,
 } from "./consistencyHelpers";
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    info: vi.fn(),
-    warning: vi.fn(),
-    error: vi.fn(),
-  },
+vi.mock("@/components/ui/toast", () => ({
+  toast: { add: vi.fn() },
 }));
 
 describe("consistencyHelpers", () => {
@@ -82,8 +77,8 @@ describe("consistencyHelpers", () => {
         message: "File found on disk",
       });
 
-      expect(toast.info).toHaveBeenCalledWith("File found on disk");
-      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({ title: "File found on disk", type: "info" });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
     });
 
     it("shows success toast when actionTaken is audiobook_deleted", () => {
@@ -94,8 +89,11 @@ describe("consistencyHelpers", () => {
         message: "Audiobook deleted from library",
       });
 
-      expect(toast.success).toHaveBeenCalledWith("Audiobook deleted from library");
-      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Audiobook deleted from library",
+        type: "success",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
     });
 
     it("shows success toast when actionTaken is resolved", () => {
@@ -106,8 +104,8 @@ describe("consistencyHelpers", () => {
         message: "Tags updated",
       });
 
-      expect(toast.success).toHaveBeenCalledWith("Tags updated");
-      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({ title: "Tags updated", type: "success" });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
     });
   });
 
@@ -131,8 +129,11 @@ describe("consistencyHelpers", () => {
         message: "The media file still cannot be read.",
       });
 
-      expect(toast.warning).toHaveBeenCalledWith("The media file still cannot be read.");
-      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "The media file still cannot be read.",
+        type: "warning",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
     });
 
     it("reports success when the file can be read again", () => {
@@ -143,8 +144,11 @@ describe("consistencyHelpers", () => {
         message: "The media file can be read again.",
       });
 
-      expect(toast.success).toHaveBeenCalledWith("The media file can be read again.");
-      expect(toast.warning).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "The media file can be read again.",
+        type: "success",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
     });
   });
 
@@ -168,8 +172,11 @@ describe("consistencyHelpers", () => {
         message: "The directory still cannot be found.",
       });
 
-      expect(toast.warning).toHaveBeenCalledWith("The directory still cannot be found.");
-      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "The directory still cannot be found.",
+        type: "warning",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
     });
 
     it("reports success when the directory is readable again", () => {
@@ -180,8 +187,11 @@ describe("consistencyHelpers", () => {
         message: "The directory is available again.",
       });
 
-      expect(toast.success).toHaveBeenCalledWith("The directory is available again.");
-      expect(toast.warning).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "The directory is available again.",
+        type: "success",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
     });
 
     it("reports info (not success) when a MissingMediaFile resolve re-checks to a missing directory", () => {
@@ -192,9 +202,9 @@ describe("consistencyHelpers", () => {
         message: "The record was kept.",
       });
 
-      expect(toast.info).toHaveBeenCalledWith("The record was kept.");
-      expect(toast.success).not.toHaveBeenCalled();
-      expect(toast.warning).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({ title: "The record was kept.", type: "info" });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
     });
   });
 
@@ -207,8 +217,11 @@ describe("consistencyHelpers", () => {
         message: "Directory still contains files",
       });
 
-      expect(toast.info).toHaveBeenCalledWith("Directory still contains files");
-      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Directory still contains files",
+        type: "info",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
     });
 
     it("shows success toast when actionTaken is deleted", () => {
@@ -219,8 +232,11 @@ describe("consistencyHelpers", () => {
         message: "Orphan directory deleted from disk",
       });
 
-      expect(toast.success).toHaveBeenCalledWith("Orphan directory deleted from disk");
-      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Orphan directory deleted from disk",
+        type: "success",
+      });
+      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
     });
   });
 });

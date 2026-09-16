@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { settingsApi } from "@/services/api";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { InitialsSpacing } from "@/types/LibrarySettings";
 
 const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
@@ -37,11 +37,11 @@ export function LibrarySettingsPage() {
     mutationFn: (spacing: InitialsSpacing) =>
       settingsApi.updateLibrarySettings({ initialsSpacing: spacing }),
     onSuccess: () => {
-      toast.success("Library settings saved");
+      toast.add({ title: "Library settings saved", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["librarySettings"] });
     },
     onError: (err: unknown) => {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     },
   });
 

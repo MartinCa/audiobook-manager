@@ -6,17 +6,15 @@ import { routeTree } from "@/routeTree.gen";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import type * as SonnerModule from "sonner";
-import { toast } from "sonner";
+import type * as ToastModule from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 
-vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof SonnerModule>();
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof ToastModule>();
   return {
     ...actual,
     toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
+      add: vi.fn(),
     },
   };
 });
@@ -280,7 +278,10 @@ describe("BookDetail", () => {
     });
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Audiobook deleted from library");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Audiobook deleted from library",
+        type: "success",
+      });
     });
   });
 
@@ -317,9 +318,11 @@ describe("BookDetail", () => {
     });
 
     await waitFor(() => {
-      expect(toast.info).toHaveBeenCalledWith(
-        "Media file was found on disk. Preserved audiobook and refreshed consistency status.",
-      );
+      expect(toast.add).toHaveBeenCalledWith({
+        title:
+          "Media file was found on disk. Preserved audiobook and refreshed consistency status.",
+        type: "info",
+      });
     });
   });
 
@@ -433,7 +436,10 @@ describe("BookDetail", () => {
       expect(metadataRefreshApi.dismissPending).toHaveBeenCalledWith(42);
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Pending metadata changes discarded");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Pending metadata changes discarded",
+        type: "success",
+      });
     });
   });
 
@@ -494,7 +500,10 @@ describe("BookDetail", () => {
       expect(metadataRefreshApi.refreshAudiobook).toHaveBeenCalledWith(42);
     });
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Metadata up to date (Goodreads)");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Metadata up to date (Goodreads)",
+        type: "success",
+      });
     });
   });
 

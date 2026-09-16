@@ -13,8 +13,8 @@ vi.mock("@/services/api", () => ({
   handleApiError: vi.fn((err: unknown) => ({ message: String(err) })),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock("@/components/ui/toast", () => ({
+  toast: { add: vi.fn() },
 }));
 
 const candidateA: SeriesBookCandidate = {

@@ -18,7 +18,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type {
   ApplyMissingBookSelection,
   SeriesBookCandidate,
@@ -200,9 +200,10 @@ export function BulkMissingBookMatchDialog({
     setResumed(false);
     setApplying(false);
     setApplyProgress(null);
-    toast.success(
-      `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
-    );
+    toast.add({
+      title: `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
+      type: "success",
+    });
     // The review is now stale (the applied books are no longer missing); the series detail is
     // invalidated and the dialog closes to show the fresh state.
     setSelections({});
@@ -259,9 +260,10 @@ export function BulkMissingBookMatchDialog({
         const chosenName =
           item.candidates.find((c) => c.audiobookId === audiobookId)?.bookName ??
           `audiobook ${audiobookId}`;
-        toast.error(
-          `"${chosenName}" is already assigned to "${otherName}". Set that book to "Do not assign" first, then pick it here.`,
-        );
+        toast.add({
+          title: `"${chosenName}" is already assigned to "${otherName}". Set that book to "Do not assign" first, then pick it here.`,
+          type: "error",
+        });
         return;
       }
     }
@@ -286,11 +288,12 @@ export function BulkMissingBookMatchDialog({
     setApplyProgress(null);
     try {
       await seriesApi.startBulkMissingBookApply(seriesName, payload);
-      toast.success(
-        `Bulk match queued for ${payload.length} book${payload.length !== 1 ? "s" : ""}`,
-      );
+      toast.add({
+        title: `Bulk match queued for ${payload.length} book${payload.length !== 1 ? "s" : ""}`,
+        type: "success",
+      });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setApplying(false);
     }
   };

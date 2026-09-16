@@ -15,7 +15,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 
 interface ProgressPayload {
@@ -76,9 +76,10 @@ export function SimilarValues() {
   useSignalREvent<AlignCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
     setAligning(false);
     setAlignProgress(null);
-    toast.success(
-      `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
-    );
+    toast.add({
+      title: `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
+      type: "success",
+    });
     // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
     // below never asks for a page the smaller detection result no longer has.
     setPage(0);
@@ -116,10 +117,10 @@ export function SimilarValues() {
     const candidateStrings = selectedGroup.candidates.map((c) => c.value);
     try {
       await similarValuesApi.align(activeTab, candidateStrings, targetValue);
-      toast.success(`Alignment started for "${targetValue}"`);
+      toast.add({ title: `Alignment started for "${targetValue}"`, type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setAligning(false);
     } finally {
       setSelectedGroup(null);
