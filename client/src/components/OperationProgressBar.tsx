@@ -27,7 +27,7 @@ export function OperationProgressBar({
           <span className="text-foreground min-w-0 flex-1 truncate text-left">{label}</span>
           <span className="text-muted-foreground shrink-0">{percentage}%</span>
         </div>
-        <Progress value={percentage} className="h-1.5" />
+        <Progress value={percentage} className="[&_[data-slot=progress-track]]:h-1.5" />
         {subText && (
           <p className="text-muted-foreground truncate text-left text-[10px]">{subText}</p>
         )}
@@ -43,7 +43,7 @@ export function OperationProgressBar({
           {processed} / {total} ({percentage}%)
         </span>
       </div>
-      <Progress value={percentage} className="h-2" />
+      <Progress value={percentage} className="[&_[data-slot=progress-track]]:h-2" />
       {subText && <p className="text-muted-foreground text-xs">{subText}</p>}
     </div>
   );
