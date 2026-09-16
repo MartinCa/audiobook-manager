@@ -4,10 +4,11 @@ namespace AudiobookManager.Database.Repositories;
 public interface ISeriesMappingRepository
 {
     /// <summary>
-    /// The mapping patterns owned by one series, in insertion order. The list is per-series and
-    /// operator-curated (each row is a human-maintained regex; the global regex uniqueness means one
-    /// row per pattern across the whole table), so unlike the growing data tables it is returned
-    /// whole rather than paged, exactly like the grouped Settings list it replaces.
+    /// The mapping patterns owned by one series, in insertion order. This is the bounded-list
+    /// invariant's explicit limit: the query itself is capped at
+    /// <see cref="SeriesMappingRepository.MaxMappingsPerSeries"/> rows (a curator-sized bound -
+    /// patterns are human-maintained regex rows added one dialog at a time), so the list can
+    /// never grow to an unbounded transfer no matter how many rows the series owns.
     /// </summary>
     Task<List<SeriesMapping>> GetBySeriesNameAsync(string seriesName);
 

@@ -152,6 +152,43 @@ describe("SeriesDetail", () => {
     expect(screen.getByText("Series Mapping Patterns (0)")).toBeInTheDocument();
   });
 
+  // Regression for the review finding: the header used to hide the missing count entirely when
+  // it was zero, so a fully-owning matched series read as if the count were absent (and a series
+  // that went from 1 missing to 0 got its number silently wiped). The critical header must show
+  // owned and missing counts consistently for every matched series - 0 included.
+  it("renders the missing count in the header for a matched series with nothing missing", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/1 book owned/)).toBeInTheDocument();
+    expect(within(header).getByText(/0 missing/)).toBeInTheDocument();
+  });
+
+  it("renders the missing count in the header for a matched series with missing books", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([missingBook(20, "The Alloy of Law")], 3),
+    );
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/3 missing/)).toBeInTheDocument();
+  });
+
+  it("omits the missing count from the header for a series that is not matched", async () => {
+    const detail = makeDetail([], 0);
+    detail.overview = { ...detail.overview, isMatched: false };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/1 book owned/)).toBeInTheDocument();
+    expect(within(header).queryByText(/missing/)).not.toBeInTheDocument();
+  });
+
   // Regression: the owned section used to serve a minimal DTO with no coverFilePath, so the
   // series view's rows always showed the placeholder. A book that carries one must render its
   // cover from the browse endpoint like the library and author views.

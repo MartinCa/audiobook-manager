@@ -4,6 +4,16 @@ using Microsoft.EntityFrameworkCore;
 namespace AudiobookManager.Database.Repositories;
 public class SeriesMappingRepository : ISeriesMappingRepository
 {
+    /// <summary>
+    /// The per-series mapping list cap - the bound for the "no unbounded lists over the wire"
+    /// invariant, enforced at the query boundary with <c>Take</c> so the database never even
+    /// materializes more rows than this. A series' patterns are human-maintained regex rows
+    /// added one dialog at a time (the review of the series-scoped mappings endpoint flagged its
+    /// unbounded fetch), so a real series stays far under this; it is a defensive truss against
+    /// a pathological row count, not a sizing affordance.
+    /// </summary>
+    public const int MaxMappingsPerSeries = 250;
+
     private readonly DatabaseContext _db;
 
     public SeriesMappingRepository(DatabaseContext db)
@@ -11,12 +21,17 @@ public class SeriesMappingRepository : ISeriesMappingRepository
         _db = db;
     }
 
+    /// <summary>
+    /// The mapping patterns owned by one series, in insertion order, capped at
+    /// <see cref="MaxMappingsPerSeries"/> inside the query.
+    /// </summary>
     public async Task<List<SeriesMapping>> GetBySeriesNameAsync(string seriesName)
     {
         return await _db.SeriesMappings
             .AsNoTracking()
             .Where(m => m.Series!.Name == seriesName)
             .OrderBy(m => m.Id)
+            .Take(MaxMappingsPerSeries)
             .ToListAsync();
     }
 

@@ -590,7 +590,8 @@ export const seriesApi = {
 
   // Series mapping patterns are owned by a Series now (the target is always the owning series'
   // name, so the wire shape has no mappedSeries field and every call is scoped by seriesName in
-  // the query string). These replaced the global settings-serial mapping CRUD.
+  // the query string). These replaced the global settings-serial mapping CRUD. The list is
+  // already capped server-side at the repository's per-series limit (bounded-list invariant).
   getSeriesMappings: (seriesName: string) =>
     api.get<SeriesMapping[]>("/series/mappings", {
       query: { seriesName },

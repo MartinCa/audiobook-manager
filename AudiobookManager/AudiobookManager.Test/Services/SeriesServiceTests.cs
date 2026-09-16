@@ -2696,7 +2696,7 @@ public class SeriesServiceTests
         var ownerRow = new Series { Id = 9, Name = "Unmatched Series" };
         _seriesRepository
             .Setup(r => r.GetOrCreateByNameAsync("Unmatched Series"))
-            .ReturnsAsync(ownerRow);
+            .ReturnsAsync((ownerRow, true));
         _seriesMappingRepository
             .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
             .ReturnsAsync((DbSeriesMapping m) => new DbSeriesMapping(42, m.Regex, m.WarnAboutPart, m.SeriesId));
@@ -2719,7 +2719,7 @@ public class SeriesServiceTests
     {
         _seriesRepository
             .Setup(r => r.GetOrCreateByNameAsync("Mistborn"))
-            .ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+            .ReturnsAsync((new Series { Id = 5, Name = "Mistborn" }, false));
         _seriesMappingRepository
             .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
             .ReturnsAsync((DbSeriesMapping m) => m);
@@ -2740,7 +2740,7 @@ public class SeriesServiceTests
         // smuggle one into the DB: the payload has no target field at all, only the owner row's id.
         _seriesRepository
             .Setup(r => r.GetOrCreateByNameAsync("Mistborn"))
-            .ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+            .ReturnsAsync((new Series { Id = 5, Name = "Mistborn" }, false));
         DbSeriesMapping? captured = null;
         _seriesMappingRepository
             .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
@@ -2755,6 +2755,50 @@ public class SeriesServiceTests
 
         Assert.IsNotNull(captured);
         Assert.AreEqual(5, captured!.SeriesId);
+    }
+
+    // Regression: a duplicate-regex failure used to leave the just-created owner row behind as an
+    // orphan - an unmatched series exists only as a value on audiobooks, so an empty catalog row
+    // with no pattern surfaced it as a phantom series on the overview. The create is only atomic
+    // if the owner this call inserted is rolled back when the mapping insert fails.
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_RollsBackTheOwnerRowItCreatedWhenTheInsertFails()
+    {
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("Unmatched Series"))
+            .ReturnsAsync((new Series { Id = 9, Name = "Unmatched Series" }, true));
+        _seriesRepository
+            .Setup(r => r.DeleteAsync(9))
+            .ReturnsAsync(true);
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ThrowsAsync(new ArgumentException("A series mapping with the pattern '^dup.*$' already exists."));
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().CreateSeriesMappingAsync(
+                "Unmatched Series", new DomainSeriesMapping(null, "^dup.*$", false)));
+
+        _seriesRepository.Verify(r => r.DeleteAsync(9), Times.Once);
+        _seriesMappingRepository.Verify(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_DoesNotRollBackAnOwnerRowThatAlreadyExisted()
+    {
+        // A pre-existing owner (matched series, or a winner adopted after a concurrent create)
+        // is not this call's to delete when the mapping insert fails.
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("Mistborn"))
+            .ReturnsAsync((new Series { Id = 5, Name = "Mistborn" }, false));
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ThrowsAsync(new ArgumentException("A series mapping with the pattern '^dup.*$' already exists."));
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().CreateSeriesMappingAsync(
+                "Mistborn", new DomainSeriesMapping(null, "^dup.*$", false)));
+
+        _seriesRepository.Verify(r => r.DeleteAsync(It.IsAny<long>()), Times.Never);
     }
 
     [TestMethod]

@@ -119,8 +119,9 @@ public class SeriesRepository : ISeriesRepository
     /// Inserts the series if no row with the same <see cref="Series.Name"/> exists,
     /// otherwise updates the match metadata on the existing row.
     /// </summary>
-    public Task<Series> UpsertSeriesAsync(Series series) =>
-        UpsertByNameAsync(
+    public async Task<Series> UpsertSeriesAsync(Series series)
+    {
+        var (row, _) = await UpsertByNameAsync(
             series.Name,
             row =>
             {
@@ -133,6 +134,8 @@ public class SeriesRepository : ISeriesRepository
                 row.IncludeOmnibusEditions = series.IncludeOmnibusEditions;
             },
             () => series);
+        return row;
+    }
 
     /// <summary>
     /// Insert-or-update keyed on the unique series name, tolerating the read-then-insert race.
@@ -145,15 +148,19 @@ public class SeriesRepository : ISeriesRepository
     /// fail the whole request with a raw "UNIQUE constraint failed: series.name" 500; it now
     /// adopts the winner's row and applies its own change on top, which is what the caller
     /// asked for either way.
+    ///
+    /// The bool reports whether THIS call inserted the row (false for a pre-existing row and
+    /// for a winner adopted after losing the race) - the only caller that needs it uses it to
+    /// decide whether a downstream failure warrants deleting the row it just created.
     /// </summary>
-    private async Task<Series> UpsertByNameAsync(string name, Action<Series> applyChanges, Func<Series> createNew)
+    private async Task<(Series Series, bool Created)> UpsertByNameAsync(string name, Action<Series> applyChanges, Func<Series> createNew)
     {
         var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == name);
         if (existing is not null)
         {
             applyChanges(existing);
             await _db.SaveChangesAsync();
-            return existing;
+            return (existing, false);
         }
 
         var inserted = createNew();
@@ -162,7 +169,7 @@ public class SeriesRepository : ISeriesRepository
         try
         {
             await _db.SaveChangesAsync();
-            return inserted;
+            return (inserted, true);
         }
         catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
         {
@@ -177,7 +184,7 @@ public class SeriesRepository : ISeriesRepository
 
             applyChanges(winner);
             await _db.SaveChangesAsync();
-            return winner;
+            return (winner, false);
         }
     }
 
@@ -328,17 +335,38 @@ public class SeriesRepository : ISeriesRepository
         return null;
     }
 
-    public Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions) =>
-        UpsertByNameAsync(
+    public async Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
+    {
+        var (row, _) = await UpsertByNameAsync(
             seriesName,
             row => row.IncludeOmnibusEditions = includeOmnibusEditions,
             () => new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions });
+        return row;
+    }
 
-    public Task<Series> GetOrCreateByNameAsync(string name) =>
-        UpsertByNameAsync(
-            name,
-            _ => { },
-            () => new Series { Name = name });
+    public async Task<(Series Series, bool Created)> GetOrCreateByNameAsync(string name)
+    {
+        var (row, created) = await UpsertByNameAsync(name, _ => { }, () => new Series { Name = name });
+        return (row, created);
+    }
+
+    /// <summary>
+    /// Deletes one catalog row by id. Only the series-mapping create path's rollback uses it,
+    /// and only for a row that same call just inserted (see <c>SeriesService.CreateSeriesMappingAsync</c>),
+    /// so there is no foreign-key or inverse-navigation concern to reason about here.
+    /// </summary>
+    public async Task<bool> DeleteAsync(long id)
+    {
+        var row = await _db.Series.FindAsync(id);
+        if (row is null)
+        {
+            return false;
+        }
+
+        _db.Remove(row);
+        await _db.SaveChangesAsync();
+        return true;
+    }
 
     /// <summary>
     /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>.

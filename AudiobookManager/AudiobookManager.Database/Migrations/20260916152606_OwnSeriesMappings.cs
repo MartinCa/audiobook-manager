@@ -61,16 +61,29 @@ namespace AudiobookManager.Database.Migrations
                 name: "ix_series_mapping_series_id",
                 table: "series_mapping");
 
-            migrationBuilder.DropColumn(
-                name: "series_id",
-                table: "series_mapping");
-
+            // The old schema's mapped_series column is what the new model dropped: it held the
+            // free-text target, which the owning series_id now encodes relationally. Restoring
+            // the column must therefore copy each row's owner NAME back into mapped_series -
+            // re-adding it as "" for every row would rewrite every retained mapping's target to
+            // an empty series and silently stop routing the books it used to. The owner name is
+            // resolved via the series row and folded into mapped_series BEFORE series_id is
+            // dropped; a mapping whose owner no longer exists (cascaded away, which the FK that
+            // just came off once enforced) falls back to "" rather than inserting a NULL into a
+            // NOT NULL column.
             migrationBuilder.AddColumn<string>(
                 name: "mapped_series",
                 table: "series_mapping",
                 type: "TEXT",
                 nullable: false,
                 defaultValue: "");
+
+            migrationBuilder.Sql(
+                "UPDATE series_mapping SET mapped_series = COALESCE(" +
+                "(SELECT s.name FROM series s WHERE s.id = series_mapping.series_id), '')");
+
+            migrationBuilder.DropColumn(
+                name: "series_id",
+                table: "series_mapping");
         }
     }
 }

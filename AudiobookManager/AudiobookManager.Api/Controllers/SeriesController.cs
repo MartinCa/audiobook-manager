@@ -213,8 +213,10 @@ public class SeriesController : ControllerBase
     /// target of its own - when the incoming metadata series value matches, it is rewritten to
     /// the owning series' name - so there is no mappedSeries field on the wire shape, and the
     /// series-scoped list is the whole of this series' pattern management surface. The list is
-    /// per-series and operator-curated, so it is returned whole rather than paged, exactly like
-    /// the global grouped list it replaces.
+    /// capped at the query boundary at a curator-sized limit
+    /// (<c>SeriesMappingRepository.MaxMappingsPerSeries</c>, the bounded-list invariant's
+    /// explicit limit - patterns are human-maintained regex rows, so a real series stays far
+    /// under it), rather than returned unbounded like the global grouped list it replaces.
     /// </summary>
     [HttpGet("mappings")]
     public async Task<ActionResult<List<SeriesMapping>>> GetSeriesMappings([FromQuery] string seriesName)

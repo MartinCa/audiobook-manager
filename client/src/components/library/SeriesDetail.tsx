@@ -181,7 +181,9 @@ export function SeriesDetail() {
 
   // The regex patterns owned by this series, for the management section's mapping list. They are
   // fetched even for an unmatched series - a pattern may be the very reason it is about to be
-  // matched to a name this series owns.
+  // matched to a name this series owns. The list is already capped server-side at the
+  // repository's per-series limit (bounded-list invariant), so whatever arrives here is by
+  // construction a bounded set.
   const { data: mappings = [] } = useQuery({
     queryKey: ["seriesMappings", seriesName],
     queryFn: () => seriesApi.getSeriesMappings(seriesName),
@@ -475,7 +477,6 @@ export function SeriesDetail() {
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
   const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
-  const mappingsList = mappings;
 
   return (
     <div className="space-y-6">
@@ -497,8 +498,14 @@ export function SeriesDetail() {
           <span>
             {overview.ownedBookCount} {overview.ownedBookCount === 1 ? "book" : "books"} owned
           </span>
-          {overview.isMatched && overview.missingBookCount > 0 && (
-            <span className="font-semibold text-amber-600 dark:text-amber-400">
+          {overview.isMatched && (
+            <span
+              className={
+                overview.missingBookCount > 0
+                  ? "font-semibold text-amber-600 dark:text-amber-400"
+                  : undefined
+              }
+            >
               &middot; {overview.missingBookCount} missing
             </span>
           )}
@@ -1011,7 +1018,7 @@ export function SeriesDetail() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="space-y-0.5">
                 <span className="text-foreground font-semibold">
-                  Series Mapping Patterns ({mappingsList.length})
+                  Series Mapping Patterns ({mappings.length})
                 </span>
                 <p className="text-muted-foreground max-w-xl">
                   Regex patterns that route scraped or embedded series values to this series. A
@@ -1029,13 +1036,13 @@ export function SeriesDetail() {
               </Button>
             </div>
 
-            {mappingsList.length === 0 ? (
+            {mappings.length === 0 ? (
               <p className="text-muted-foreground border-border rounded-md border border-dashed p-4 text-center">
                 No mapping patterns yet. Add one to normalize incoming series values to this series.
               </p>
             ) : (
               <div className="space-y-1.5">
-                {mappingsList.map((m) => (
+                {mappings.map((m) => (
                   <div
                     key={m.id}
                     className="border-border bg-muted/40 flex flex-col justify-between gap-2 rounded px-3 py-2 sm:flex-row sm:items-center"

@@ -82,8 +82,9 @@ public interface ISeriesService
     /// The regex mapping patterns owned by this series, in insertion order. A pattern has no
     /// target of its own: when the incoming metadata series value matches its regex,
     /// <see cref="AudiobookManager.Scraping.BookSeriesMapper"/> rewrites it to the owning series'
-    /// name. The list is per-series and operator-curated, so it is returned whole rather than
-    /// paged, exactly like the global grouped list it replaces.
+    /// name. The list is capped at the repository's per-series limit (the bounded-list
+    /// invariant's explicit limit at the query boundary), so it can never be an unbounded
+    /// transfer no matter how many patterns the series owns.
     /// </summary>
     Task<List<Domain.SeriesMapping>> GetSeriesMappingsAsync(string seriesName);
 

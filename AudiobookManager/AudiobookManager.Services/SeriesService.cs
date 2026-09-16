@@ -492,6 +492,9 @@ public class SeriesService : ISeriesService
 
     public async Task<List<Domain.SeriesMapping>> GetSeriesMappingsAsync(string seriesName)
     {
+        // The list comes back capped at the repository's per-series limit (bounded-list
+        // invariant): the bound lives in the query, so it holds no matter how many patterns
+        // the series owns.
         var mappings = await _seriesMappingRepository.GetBySeriesNameAsync(seriesName);
         return mappings.Select(SeriesMappingMapping.ToDomain).ToList();
     }
@@ -501,12 +504,39 @@ public class SeriesService : ISeriesService
         // An unmatched series exists only as a value on audiobooks and has no catalog row, but a
         // mapping pattern is data-model-wise owned by a Series row - so creating one also creates
         // the owning row. SeriesRepository.GetOrCreateByNameAsync tolerates the read-then-insert
-        // race the same way the other upserts do.
-        var series = await _seriesRepository.GetOrCreateByNameAsync(seriesName);
+        // race the same way the other upserts do, and reports whether THIS call inserted the row,
+        // which is what lets a failed insert roll the owner back (below).
+        var (series, createdOwner) = await _seriesRepository.GetOrCreateByNameAsync(seriesName);
 
-        var dbModel = seriesMapping.ToDb(series.Id);
-        dbModel = await _seriesMappingRepository.CreateSeriesMappingAsync(dbModel);
-        return dbModel.ToDomain();
+        try
+        {
+            var dbModel = seriesMapping.ToDb(series.Id);
+            dbModel = await _seriesMappingRepository.CreateSeriesMappingAsync(dbModel);
+            return dbModel.ToDomain();
+        }
+        catch (Exception)
+        {
+            if (createdOwner)
+            {
+                // A duplicate-regex failure (or any other insert failure) must not leave the owner
+                // row this call just inserted behind as an orphan: an unmatched series exists only
+                // as a value on audiobooks, so an empty catalog row with no pattern would surface
+                // it as a phantom series on the overview. Only a row THIS call created is rolled
+                // back - a pre-existing owner (or a winner adopted after a concurrent create, where
+                // createdOwner is false) is never deleted.
+                try
+                {
+                    await _seriesRepository.DeleteAsync(series.Id);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx,
+                        "Failed to roll back the series owner row {SeriesId} after a mapping insert failure",
+                        series.Id);
+                }
+            }
+            throw;
+        }
     }
 
     public async Task<Domain.SeriesMapping?> UpdateSeriesMappingAsync(string seriesName, long mappingId, Domain.SeriesMapping seriesMapping)

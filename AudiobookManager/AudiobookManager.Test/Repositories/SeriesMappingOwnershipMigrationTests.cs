@@ -101,4 +101,51 @@ public class SeriesMappingOwnershipMigrationTests
             Assert.AreEqual(0, await db.SeriesMappings.CountAsync());
         }
     }
+
+    /// <summary>
+    /// Regression guard for the rollback shape: Down() used to re-add mapped_series with a ""
+    /// default for every row, silently rewriting every retained mapping's target to an empty
+    /// series. Rolling back must copy each row's OWNER name into mapped_series so the mapping
+    /// keeps routing to the same series it did before the upgrade.
+    /// </summary>
+    [TestMethod]
+    public async Task OwnSeriesMappings_DownRestoresTheOwningSeriesNameIntoMappedSeries()
+    {
+        // Migrate fully up, then plant owned-format rows exactly as the new schema stores them.
+        using (var seed = CreateContext())
+        {
+            await seed.Database.MigrateAsync();
+
+            var mistborn = new Series { Name = "Mistborn" };
+            seed.Series.Add(mistborn);
+            await seed.SaveChangesAsync();
+
+            seed.SeriesMappings.Add(new SeriesMapping(default, "^mistborn.*$", true, mistborn.Id));
+            seed.SeriesMappings.Add(new SeriesMapping(default, "\\bhusk\\b", false, mistborn.Id));
+            await seed.SaveChangesAsync();
+        }
+
+        // Roll back to the last pre-OwnSeriesMappings migration.
+        using (var rolledBack = CreateContext())
+        {
+            await rolledBack.Database.MigrateAsync("AddPendingSeriesRefresh");
+
+            var rows = await rolledBack.Database.SqlQueryRaw<MappingRow>(
+                "SELECT regex, mapped_series FROM series_mapping ORDER BY regex").ToListAsync();
+            Assert.AreEqual(2, rows.Count,
+                "the rollback must retain the owned rows, not delete them like the forward migration");
+
+            var byRegex = rows.ToDictionary(r => r.Regex, r => r.MappedSeries, StringComparer.Ordinal);
+            Assert.AreEqual("Mistborn", byRegex["^mistborn.*$"],
+                "the owner's name must be carried back into the target column, not blanked");
+            Assert.AreEqual("Mistborn", byRegex["\\bhusk\\b"]);
+
+            var columns = await rolledBack.Database.SqlQueryRaw<string>(
+                "SELECT name FROM pragma_table_info('series_mapping')").ToListAsync();
+            CollectionAssert.Contains(columns, "mapped_series");
+            CollectionAssert.DoesNotContain(columns, "series_id");
+        }
+    }
+
+    private record MappingRow(string Regex, string MappedSeries) { }
 }
