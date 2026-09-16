@@ -327,4 +327,7 @@ _Fill this in per repo. Everything above is shared and should stay identical acr
 - **Router / framework choice and why:**
 - **Backend and where its OpenAPI spec lives:**
 - **Pagination convention:**
-- **Deviations from the shared conventions (with reasons):**
+- **Deviations from the shared conventions (with reasons):** No intentional local forks in
+  `src/components/ui/**` — the client is on the shared shadcn **b0** preset (Base UI
+  `base-nova`, `neutral` base color, lucide icons, Inter font; verify with
+  `pnpm dlx shadcn preset resolve`).
