@@ -17,7 +17,9 @@ public class SeriesServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
+    private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<ILogger<SeriesService>> _logger = null!;
     private SeriesReconciliationCache _reconciliationCache = null!;
 
@@ -26,13 +28,24 @@ public class SeriesServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _seriesRepository = new Mock<ISeriesRepository>();
+        _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
         _audiobookService = new Mock<IAudiobookService>();
+        _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _logger = new Mock<ILogger<SeriesService>>();
         _reconciliationCache = new SeriesReconciliationCache();
     }
 
     private SeriesService MakeService(params IScraper[] scrapers) =>
-        new(_audiobookRepository.Object, _seriesRepository.Object, _audiobookService.Object, _reconciliationCache, scrapers, _logger.Object);
+        new(
+            _audiobookRepository.Object,
+            _seriesRepository.Object,
+            _pendingSeriesRefreshRepository.Object,
+            _audiobookService.Object,
+            new AudiobookSaveGate(),
+            _libraryConsistencyService.Object,
+            _reconciliationCache,
+            scrapers,
+            _logger.Object);
 
     private static SeriesExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
         new() { Id = id, SeriesId = 1, Title = title, Position = position, IsIgnored = ignored };
@@ -1334,8 +1347,9 @@ public class SeriesServiceTests
 
     // Regression test: RefreshManyAsync read the series row to check it was matched, then
     // MatchSeriesCoreAsync immediately read the very same row again to carry the ignore flags
-    // across - so refreshing N series cost 2N reads, each pulling a full roster. Fails against
-    // the pre-fix service, which reads it twice.
+    // across - so refreshing N series cost 2N reads, each pulling a full roster. The refresh
+    // path now passes the row (and the fetched roster) straight through, so the series row is
+    // read exactly once either way. Fails against the pre-fix service, which reads it twice.
     [TestMethod]
     public async Task RefreshSeriesAsync_ReadsTheSeriesRowOnce()
     {
@@ -1353,6 +1367,8 @@ public class SeriesServiceTests
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
         _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
             .Returns(Task.CompletedTask);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
         var scraper = new Mock<IScraper>();
         scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
@@ -1362,17 +1378,21 @@ public class SeriesServiceTests
         scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
             .ReturnsAsync(new SeriesSearchResult("42", "Mistborn"));
 
-        var (processed, succeeded, failed, _) = await MakeService(scraper.Object)
-            .RefreshSeriesAsync("Mistborn", (_, _, _, _) => Task.CompletedTask);
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
 
-        Assert.AreEqual(1, processed);
-        Assert.AreEqual(1, succeeded);
-        Assert.AreEqual(0, failed);
+        Assert.IsTrue(result.Success);
+        Assert.IsFalse(result.HasChanges);
+        // Exactly one catalog read, and it is the roster-inclusive shape (the single-refresh fix:
+        // a roster-less read would clear the ignore flags MatchSeriesCoreAsync carries across).
         _seriesRepository.Verify(r => r.GetByNameWithExpectedBooksAsync("Mistborn"), Times.Once);
+        _seriesRepository.Verify(r => r.GetByNameAsync("Mistborn"), Times.Never);
     }
 
     // The ignore flags a refresh carries across still have to survive the row being passed in
-    // rather than re-read - guards against "fixing" the double read by dropping the roster.
+    // rather than re-read - guards against "fixing" the query count by switching to a roster-less
+    // read. This test sets up EXACTLY the shape the repository query returns (GetByNameWithExpectedBooksAsync
+    // loads Series.ExpectedBooks; GetByNameAsync does not), so the row the service receives matches
+    // production rather than an impossible mock shape.
     [TestMethod]
     public async Task RefreshSeriesAsync_CarriesPreviouslyIgnoredEntriesAcross()
     {
@@ -1391,6 +1411,8 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
         List<SeriesExpectedBook> replaced = new();
         _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
@@ -1413,7 +1435,7 @@ public class SeriesServiceTests
         scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
         scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>())).ReturnsAsync(roster);
 
-        await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn", (_, _, _, _) => Task.CompletedTask);
+        await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
 
         Assert.AreEqual(2, replaced.Count);
         Assert.IsFalse(replaced.Single(b => b.Title == "The Final Empire").IsIgnored);
@@ -1774,6 +1796,722 @@ public class SeriesServiceTests
         var resolved = await MakeService().ResolveExpectedBookAsync("Mistborn", "9", "Nope");
 
         Assert.IsNull(resolved);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_WithChanges_StoresPendingAndReturnsHasChanges()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn Saga")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Book A") { Position = "1" },
+                    new("Book B") { Position = "2" },
+                },
+            });
+
+        Database.Models.PendingSeriesRefresh? stored = null;
+        _pendingSeriesRefreshRepository
+            .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
+            .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
+
+        // Owned nothing + a two-book roster = two missing source books.
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.HasChanges);
+        Assert.AreEqual(2, result.ChangeCount);
+        // The result's SourceName is the scraper's name, not the source series title.
+        Assert.AreEqual("Hardcover", result.SourceName);
+
+        Assert.IsNotNull(stored);
+        Assert.AreEqual("Mistborn", stored.SeriesName);
+        Assert.AreEqual("Hardcover", stored.SourceName);
+        var payload = PendingSeriesRefreshPayload.TryParse(stored.PayloadJson);
+        Assert.IsNotNull(payload);
+        Assert.AreEqual(2, payload.Changes.Count);
+        Assert.AreEqual("Mistborn Saga", payload.SourceSeriesName);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_NoChanges_DeletesAnyStalePendingRow()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        // The source roster matches the owned books exactly: no changes, so any old pending row
+        // for this series is superseded ("no-change bulk items never linger").
+        var owned = new List<SeriesOwnedKey> { new(1, "1", "Book A") };
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((owned, false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Book A") { Position = "1" },
+                },
+            });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsFalse(result.HasChanges);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_UnmatchedSeries_ThrowsKeyNotFound()
+    {
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync((Series?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => MakeService().RefreshSeriesAsync("Mistborn"));
+    }
+
+    // Regression for the refresh review finding: an entry the user has already ignored must not
+    // re-enter the pending review as a missing source book. The refresh used to diff the raw
+    // fetched roster, so the still-unowned ignored entry was reported as a change on every
+    // refresh - re-light the badge over a decision the user had already made, contradicting the
+    // detail page's ignored handling.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_IgnoredEntryStillUnowned_StoresNoPending()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "Secret History", "3.5", ignored: true),
+            },
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Secret History") { Position = "3.5" },
+                },
+            });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
+
+        Assert.IsFalse(result.HasChanges, "a still-unowned entry the user has ignored is not a change");
+        Assert.AreEqual(0, result.ChangeCount);
+        _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
+        // The no-change tail clears any stale snapshot, the same contract as before.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+    }
+
+    // The exemption is per entry: a refresh that found a genuinely new source book still stores
+    // a pending review, just without the previously-ignored entry in it.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_IgnoredEntryNotReported_RealNewBookStillStoredAsPending()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>
+            {
+                MakeExpected(1, "Secret History", "3.5", ignored: true),
+            },
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
+
+        Database.Models.PendingSeriesRefresh? stored = null;
+        _pendingSeriesRefreshRepository
+            .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
+            .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Secret History") { Position = "3.5" },
+                    new("The Hero of Ages") { Position = "3" },
+                },
+            });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
+
+        Assert.IsTrue(result.HasChanges);
+        Assert.AreEqual(1, result.ChangeCount);
+        Assert.IsNotNull(stored);
+        var payload = PendingSeriesRefreshPayload.TryParse(stored.PayloadJson);
+        Assert.IsNotNull(payload);
+        Assert.AreEqual(1, payload.Changes.Count);
+        var missing = payload.Changes.Single(c => c.Type == SeriesRefreshChangeType.MissingBook);
+        Assert.AreEqual("The Hero of Ages", missing.Title, "only the genuinely new book is pending review");
+    }
+
+    [TestMethod]
+    public async Task GetPendingSeriesRefreshAsync_UnparsablePayload_ReturnsNull()
+    {
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = "{\"foreign\":true}",
+            });
+
+        Assert.IsNull(await MakeService().GetPendingSeriesRefreshAsync("Mistborn"));
+    }
+
+    [TestMethod]
+    public async Task GetPendingSeriesRefreshPageAsync_CountsFromTheVersionedPayload()
+    {
+        var payload = MakePendingPayload(changeCount: 3);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetPageAsync(0, 50))
+            .ReturnsAsync((new List<Database.Models.PendingSeriesRefresh>
+            {
+                new()
+                {
+                    SeriesName = "Mistborn",
+                    FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                    SourceName = "Hardcover",
+                    SourceUrl = "https://hardcover.app/series/42",
+                    PayloadJson = PendingSeriesRefreshPayload.Serialize(payload),
+                },
+            }, 7));
+
+        var (items, total) = await MakeService().GetPendingSeriesRefreshPageAsync(0, 50);
+
+        Assert.AreEqual(7, total);
+        Assert.AreEqual(1, items.Count);
+        Assert.AreEqual("Mistborn", items[0].SeriesName);
+        Assert.AreEqual(3, items[0].ChangeCount);
+        Assert.AreEqual("Mistborn Saga", items[0].SourceSeriesName);
+        Assert.AreEqual(3, items[0].ChangeCount);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AppliesSelectionsThroughUpdateAudiobook()
+    {
+        var pending = MakePendingPayload(changeCount: 1);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
+
+        var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+
+        // After the update the book matches the one-entry roster, so no changes remain.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
+
+        var request = new SeriesRefreshApplyRequest(
+            AdoptSourceSeriesName: false,
+            new List<SeriesRefreshApplyChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
+            });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.AreEqual("Mistborn", book.Series);
+        // Roster entry position "1" with stored part "01" gave NewPart "1".
+        Assert.AreEqual("1", book.SeriesPart);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        // The rewrite's tail mirrors the interactive apply: a best-effort consistency recheck of
+        // the touched book (the rewrite moved tags and possibly the file, so issues are stale).
+        _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(5), Times.Once);
+    }
+
+    // Regression for the refresh review finding applied to the apply's recompute tail: an entry
+    // the user has already ignored must not re-enter the pending snapshot there either. The apply
+    // recomputes the remaining changes against the stored roster, so without the same exemption
+    // the ignored entry would come back as a missing source book the moment the user applies an
+    // unrelated change - re-lighting the review badge over a decision already made.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_IgnoredEntryDoesNotReenterTheRecomputedSnapshot()
+    {
+        var payload = new PendingSeriesRefreshPayload.Payload(
+            PendingSeriesRefreshPayload.CurrentVersion,
+            "Mistborn",
+            "Hardcover",
+            "https://hardcover.app/series/42",
+            "Mistborn Saga",
+            new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            new List<PendingSeriesRefreshPayload.RosterEntry>
+            {
+                new("1", "Book A", 2006, null, false),
+                new("3.5", "Secret History", 2006, null, false),
+            },
+            new List<PendingSeriesRefreshPayload.Change>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, "Book A", "01", "1", "Book A", null, null, null),
+            });
+
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(payload),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Name = "Mistborn" });
+        // The stored roster carries the user's ignore decision (the refresh carried it across).
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn"))
+            .ReturnsAsync(new Series
+            {
+                Name = "Mistborn",
+                ExpectedBooks = new List<SeriesExpectedBook>
+                {
+                    MakeExpected(10, "Book A", "1"),
+                    MakeExpected(13, "Secret History", "3.5", ignored: true),
+                },
+            });
+
+        var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+
+        // After the applied part update Book A matches the roster; Secret History stays unowned.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
+
+        var request = new SeriesRefreshApplyRequest(
+            AdoptSourceSeriesName: false,
+            new List<SeriesRefreshApplyChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
+            });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        // No changes remain once the ignored entry is exempt: the snapshot is dropped, never
+        // re-stored with the ignored entry back in it.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AdoptsSourceSeriesNameAcrossEveryMemberBook()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(1, "1", "Book A"),
+                new(2, "2", "Book B"),
+            }, false));
+        // After a fully successful adoption the recompute reads the owned set under the NEW
+        // series value - the old name has no books under it anymore.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn Saga", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(1, "1", "Book A"),
+                new(2, "2", "Book B"),
+            }, false));
+
+        var updated = new List<long>();
+
+        _audiobookService
+            .Setup(s => s.GetAudiobookById(It.IsAny<long>()))
+            .ReturnsAsync((long id) => new DomainAudiobook(
+                new List<DomainPerson>(), $"Book {id}", 2006,
+                new AudiobookFileInfo($"/l/book{id}.m4b", $"book{id}.m4b", 10)));
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long id, DomainAudiobook b, Func<string, int, Task> _) => { updated.Add(id); return b; });
+
+        var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.AreEqual(2, updated.Count);
+        Assert.AreEqual(2, updated.Distinct().Count());
+        _audiobookService.Verify(s => s.GetAudiobookById(1), Times.Once);
+        _audiobookService.Verify(s => s.GetAudiobookById(2), Times.Once);
+        // Every renamed member book gets the best-effort recheck tail too.
+        _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(1), Times.Once);
+        _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(2), Times.Once);
+        // The old-name pending row is always dropped once the name was fully adopted.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+    }
+
+    // Regression (review finding 1): a fully successful adoption renames every member book, so
+    // the old series value no longer owns anything. Recomputing the remaining changes against the
+    // OLD name used to report the whole roster as missing again and left a bogus pending row under
+    // a name nobody owned. The recompute must run under the ADOPTED name, and the pending row must
+    // follow it.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AdoptedSeries_MovesPendingRowToTheAdoptedName()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
+        // Adoption reads the owned set under the OLD name to know which books to rename.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(1, "1", "Book A"),
+                new(2, "2", "Book B"),
+            }, false));
+        // Book A matches the roster entry; Book C still carries part 9 the roster no longer
+        // lists, so one leftover removal must be retained under the adopted name.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn Saga", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(1, "1", "Book A"),
+                new(3, "9", "Book C"),
+            }, false));
+
+        var updated = new List<long>();
+        _audiobookService
+            .Setup(s => s.GetAudiobookById(It.IsAny<long>()))
+            .ReturnsAsync((long id) => new DomainAudiobook(
+                new List<DomainPerson>(), $"Book {id}", 2006,
+                new AudiobookFileInfo($"/l/book{id}.m4b", $"book{id}.m4b", 10)));
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long id, DomainAudiobook b, Func<string, int, Task> _) => { updated.Add(id); return b; });
+
+        var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
+
+        Database.Models.PendingSeriesRefresh? stored = null;
+        _pendingSeriesRefreshRepository
+            .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
+            .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.AreEqual(2, updated.Count);
+        // The old-name row must be gone and never replaced under the old name.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn Saga"), Times.Never);
+        // The leftover removal lives under the ADOPTED name with the adopted name on the payload.
+        Assert.IsNotNull(stored);
+        Assert.AreEqual("Mistborn Saga", stored.SeriesName);
+        var payload = PendingSeriesRefreshPayload.TryParse(stored.PayloadJson);
+        Assert.IsNotNull(payload);
+        Assert.AreEqual("Mistborn Saga", payload.SeriesName);
+        var leftover = payload.Changes.Single(c => c.Type == SeriesRefreshChangeType.PartRemoval);
+        Assert.AreEqual(3, leftover.AudiobookId);
+    }
+
+    // Regression (review finding 1): a PARTIAL adoption failure leaves some books on the old name
+    // and some on the new one. The pending row must stay addressable under the old name (the
+    // retryable state) and be recomputed against it - not against the new name, and never falsely
+    // deleted.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_FailedAdoption_KeepsPendingUnderOldName()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
+        // The old name still owns Book A and Book B after the partial failure (Book B's rename
+        // threw). Book B's part "2" is not in the one-entry roster, so a removal remains and the
+        // row must be kept under the old name.
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(1, "1", "Book A"),
+                new(2, "2", "Book B"),
+            }, false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn Saga", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
+
+        var calls = 0;
+        _audiobookService
+            .Setup(s => s.GetAudiobookById(It.IsAny<long>()))
+            .ReturnsAsync((long id) => new DomainAudiobook(
+                new List<DomainPerson>(), $"Book {id}", 2006,
+                new AudiobookFileInfo($"/l/book{id}.m4b", $"book{id}.m4b", 10)));
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Returns((long id, DomainAudiobook b, Func<string, int, Task> _) =>
+            {
+                calls++;
+                // The second member book's rename fails after the first succeeded - partial.
+                return calls == 2
+                    ? Task.FromException<DomainAudiobook>(new InvalidOperationException("rename failed"))
+                    : Task.FromResult(b);
+            });
+
+        var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
+
+        Database.Models.PendingSeriesRefresh? stored = null;
+        _pendingSeriesRefreshRepository
+            .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
+            .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(1, failed);
+        // The old-name row survives recomputed under the OLD name; nothing is written under the
+        // new name and nothing is falsely deleted.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn Saga"), Times.Never);
+        Assert.IsNotNull(stored);
+        Assert.AreEqual("Mistborn", stored.SeriesName);
+    }
+
+    // Regression for the adoption review finding: a fully successful adoption must also migrate
+    // the matched catalog row to the adopted name - the detail/refresh/candidates surface follows
+    // the books, and the old name does not keep a matched zombie row with the whole roster
+    // reported missing. The repository test pins the migration itself (old row gone, new row owns
+    // the roster with ignore flags and all matched metadata); here the apply path is proven to
+    // invoke it, and only once, after the books are renamed.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AdoptedSeries_MigratesTheCatalogRow()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Name = "Mistborn", IncludeOmnibusEditions = true });
+        // The destination name has no catalog row yet - the adoption pre-check must pass.
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn Saga")).ReturnsAsync((Series?)null);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(1, "1", "Book A") }, false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn Saga", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(1, "1", "Book A") }, false));
+
+        _audiobookService.Setup(s => s.GetAudiobookById(It.IsAny<long>()))
+            .ReturnsAsync((long id) => new DomainAudiobook(
+                new List<DomainPerson>(), "Book A", 2006,
+                new AudiobookFileInfo("/l/book1.m4b", "book1.m4b", 10)));
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+
+        var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        // The catalog row follows the books to the adopted name - exactly once.
+        _seriesRepository.Verify(r => r.RenameAsync("Mistborn", "Mistborn Saga"), Times.Once);
+        // No read path touches the old-name roster anymore on this flow (the zombie surface is gone).
+        _seriesRepository.Verify(r => r.GetByNameWithExpectedBooksAsync("Mistborn"), Times.Never);
+        // The old-name pending row is dropped exactly once, as before the migration.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+    }
+
+    // Adoption must refuse BEFORE renaming any book when a catalog row already owns the
+    // destination name: a rename would silently merge (or clobber) that row's roster, and book
+    // renames cannot be unwound. The adoption item fails on its own, nothing and nobody is
+    // touched, and the apply carries on per the batch contract.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AdoptionOntoExistingCatalogRow_FailsBeforeRenamingAnything()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Name = "Mistborn" });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn Saga"))
+            .ReturnsAsync(new Series { Name = "Mistborn Saga", MatchedSourceName = "Hardcover" });
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(1, "1", "Book A") }, false));
+
+        var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(1, failed);
+        _seriesRepository.Verify(r => r.RenameAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _audiobookService.Verify(s => s.GetAudiobookById(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_NoPendingRow_ThrowsKeyNotFound()
+    {
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn")).ReturnsAsync((Database.Models.PendingSeriesRefresh?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn",
+            new SeriesRefreshApplyRequest(false, new List<SeriesRefreshApplyChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
+            }),
+            (_, _, _, _) => Task.CompletedTask));
+    }
+
+    private static PendingSeriesRefreshPayload.Payload MakePendingPayload(int changeCount)
+    {
+        var changes = new List<PendingSeriesRefreshPayload.Change>();
+        if (changeCount > 0)
+        {
+            changes.Add(new PendingSeriesRefreshPayload.Change(
+                SeriesRefreshChangeType.PartUpdate, 5, "Book A", "01", "1", "Book A", null, null, null));
+        }
+
+        for (var i = 1; i < changeCount; i++)
+        {
+            changes.Add(new PendingSeriesRefreshPayload.Change(
+                SeriesRefreshChangeType.MissingBook, null, null, null, null, null, (i + 1).ToString(), $"Book {i + 1}", 2000 + i));
+        }
+
+        return new PendingSeriesRefreshPayload.Payload(
+            PendingSeriesRefreshPayload.CurrentVersion,
+            "Mistborn",
+            "Hardcover",
+            "https://hardcover.app/series/42",
+            "Mistborn Saga",
+            new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            new List<PendingSeriesRefreshPayload.RosterEntry>
+            {
+                new("1", "Book A", 2006, null, false),
+            },
+            changes);
     }
 
     /// <summary>

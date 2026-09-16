@@ -18,6 +18,8 @@ public interface IOrganize
     Task SeriesMatchComplete(SeriesMatchComplete result);
     Task SeriesRefreshProgress(SeriesRefreshProgress progress);
     Task SeriesRefreshComplete(SeriesRefreshComplete result);
+    Task SeriesRefreshApplyProgress(SeriesRefreshApplyProgress progress);
+    Task SeriesRefreshApplyComplete(SeriesRefreshApplyComplete result);
     Task SeriesMissingBookApplyProgress(SeriesMissingBookApplyProgress progress);
     Task SeriesMissingBookApplyComplete(SeriesMissingBookApplyComplete result);
     Task AudiobookSaveProgress(AudiobookSaveProgress progress);

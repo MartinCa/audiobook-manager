@@ -518,20 +518,92 @@ public class SeriesControllerTests
     }
 
     [TestMethod]
-    public async Task StartRefreshSeries_ReturnsOkImmediately_AndWiresCompletion()
+    public async Task RefreshSeries_Success_ReturnsMappedResult()
     {
-        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn", It.IsAny<Func<int, int, int, int, Task>>()))
-            .ReturnsAsync((2, 2, 0, (string?)null));
+        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn"))
+            .ReturnsAsync(new SeriesRefreshResult(Success: true, HasChanges: true, ChangeCount: 3, SourceName: "Hardcover"));
 
-        var finished = RegisterFinishedWaiter(SeriesController.RefreshOperationKey);
+        var result = await _controller.RefreshSeries("Mistborn");
 
-        var result = _controller.StartRefreshSeries("Mistborn");
+        var dto = ((OkObjectResult)result.Result!).Value as SeriesRefreshResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsTrue(dto.Success);
+        Assert.IsTrue(dto.HasChanges);
+        Assert.AreEqual(3, dto.ChangeCount);
+        Assert.AreEqual("Hardcover", dto.SourceName);
+    }
 
-        Assert.IsInstanceOfType(result, typeof(OkResult));
+    [TestMethod]
+    public async Task RefreshSeries_NoChanges_ReportsSuccessWithNoChanges()
+    {
+        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn"))
+            .ReturnsAsync(new SeriesRefreshResult(Success: true, HasChanges: false, ChangeCount: 0, SourceName: "Hardcover"));
 
-        await AwaitOperationFinished(finished);
+        var result = await _controller.RefreshSeries("Mistborn");
 
-        _clientProxy.Verify(c => c.SeriesRefreshComplete(It.Is<SeriesRefreshComplete>(p => p.TotalSucceeded == 2)), Times.Once);
+        var dto = ((OkObjectResult)result.Result!).Value as SeriesRefreshResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsTrue(dto.Success);
+        Assert.IsFalse(dto.HasChanges);
+        Assert.AreEqual(0, dto.ChangeCount);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeries_UnmatchedOrUnknown_ReturnsNotFound()
+    {
+        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn")).ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.RefreshSeries("Mistborn");
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    // Review finding 2: the synchronous single refresh shares the bulk refresh's gate, so a
+    // sweep (or a pending apply) that is already running refuses a second refresh with the same
+    // 409 the fire-and-forget endpoints use, instead of letting both mutate the roster in
+    // parallel (or parking the request thread on the lock).
+    [TestMethod]
+    public async Task RefreshSeries_RefreshAlreadyRunning_ReturnsConflict()
+    {
+        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
+            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        Assert.IsTrue(refreshLock.Wait(0));
+
+        try
+        {
+            var result = await _controller.RefreshSeries("Mistborn");
+
+            ProblemAssert.HasDetail(result.Result, StatusCodes.Status409Conflict, "A series refresh or pending apply is already in progress.");
+            _seriesService.Verify(s => s.RefreshSeriesAsync(It.IsAny<string>()), Times.Never);
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
+    }
+
+    [TestMethod]
+    public async Task RefreshSeries_UnexpectedException_Returns500()
+    {
+        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn")).ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.RefreshSeries("Mistborn");
+
+        Assert.AreEqual(StatusCodes.Status500InternalServerError, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeries_NoSeriesCapableScraper_ReturnsBadRequest()
+    {
+        // A series matched to a source this build has no series-capable scraper for is a
+        // caller-fixable condition, not server state: the message is relayed as a 4xx.
+        _seriesService.Setup(s => s.RefreshSeriesAsync("Mistborn"))
+            .ThrowsAsync(new ArgumentException("No series-capable scraper for source Hardcover"));
+
+        var result = await _controller.RefreshSeries("Mistborn");
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "No series-capable scraper for source Hardcover");
     }
 
     [TestMethod]
@@ -552,25 +624,248 @@ public class SeriesControllerTests
     }
 
     [TestMethod]
-    public async Task StartRefreshSeries_AlreadyRunning_ReturnsConflict()
+    public async Task StartRefreshAllSeries_AlreadyRunning_ReturnsConflict()
     {
         var release = new TaskCompletionSource();
-        _seriesService.Setup(s => s.RefreshSeriesAsync("Blocking", It.IsAny<Func<int, int, int, int, Task>>()))
-            .Returns(async () =>
+        _seriesService.Setup(s => s.RefreshAllSeriesAsync(It.IsAny<Func<int, int, int, int, Task>>()))
+            .Returns(async (Func<int, int, int, int, Task> _) =>
             {
                 await release.Task;
                 return (1, 1, 0, (string?)null);
             });
 
-        var first = _controller.StartRefreshSeries("Blocking");
+        var first = _controller.StartRefreshAllSeries();
         Assert.IsInstanceOfType(first, typeof(OkResult));
 
-        var second = _controller.StartRefreshSeries("Other");
+        var second = _controller.StartRefreshAllSeries();
         ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
 
         var finished = RegisterFinishedWaiter(SeriesController.RefreshOperationKey);
         release.SetResult();
         await AwaitOperationFinished(finished);
+    }
+
+    private static AudiobookManager.Domain.PendingSeriesRefresh MakePendingRefresh() =>
+        new(
+            "Mistborn",
+            new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            "Hardcover",
+            "https://hardcover.app/series/42",
+            "Mistborn Saga",
+            new List<SeriesRefreshChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, "Book A", "01", "02", "Book A", null, null, null),
+                new(SeriesRefreshChangeType.MissingBook, null, null, null, null, null, "4", "Book B", 2010),
+                new(SeriesRefreshChangeType.PartRemoval, 7, "Book C", "3", null, "Book C", null, null, null),
+            },
+            new List<SeriesRefreshRosterEntry>
+            {
+                new("1", "Book A", 2006, null, false),
+                new("4", "Book B", 2010, null, false),
+            });
+
+    [TestMethod]
+    public async Task GetPendingPage_Success_ReturnsMappedPage()
+    {
+        _seriesService.Setup(s => s.GetPendingSeriesRefreshPageAsync(0, 50))
+            .ReturnsAsync((
+                new List<PendingSeriesRefreshListItem>
+                {
+                    new("Mistborn", "Hardcover", "Mistborn Saga", new DateTime(2026, 9, 1), 3),
+                },
+                7));
+
+        var result = await _controller.GetPendingPage();
+
+        var page = ((OkObjectResult)result.Result!).Value as SeriesRefreshPendingPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(7, page.Total);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual("Mistborn", page.Items[0].SeriesName);
+        Assert.AreEqual(3, page.Items[0].ChangeCount);
+        Assert.AreEqual("Mistborn Saga", page.Items[0].SourceSeriesName);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetPendingPage_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetPendingPage(page: page, pageSize: pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesService.Verify(s => s.GetPendingSeriesRefreshPageAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetPendingCount_ReturnsCount()
+    {
+        _seriesService.Setup(s => s.CountPendingSeriesRefreshesAsync()).ReturnsAsync(12);
+
+        var result = await _controller.GetPendingCount();
+
+        Assert.AreEqual(12, ((OkObjectResult)result.Result!).Value);
+    }
+
+    [TestMethod]
+    public async Task GetPendingDetail_NoPendingSnapshot_ReturnsNotFound()
+    {
+        _seriesService.Setup(s => s.GetPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync((PendingSeriesRefresh?)null);
+
+        var result = await _controller.GetPendingDetail("Mistborn");
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task GetPendingDetail_Success_ReturnsMappedDto()
+    {
+        _seriesService.Setup(s => s.GetPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync(MakePendingRefresh());
+
+        var result = await _controller.GetPendingDetail("Mistborn");
+
+        var dto = ((OkObjectResult)result.Result!).Value as SeriesRefreshPendingDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("Hardcover", dto.SourceName);
+        Assert.AreEqual("Mistborn Saga", dto.SourceSeriesName);
+        Assert.AreEqual(3, dto.Changes.Count);
+        Assert.AreEqual("PartUpdate", dto.Changes[0].ChangeType);
+        Assert.AreEqual("02", dto.Changes[0].NewPart);
+        Assert.AreEqual("MissingBook", dto.Changes[1].ChangeType);
+        Assert.AreEqual("Book B", dto.Changes[1].Title);
+        Assert.AreEqual("PartRemoval", dto.Changes[2].ChangeType);
+        Assert.AreEqual(7, dto.Changes[2].AudiobookId);
+    }
+
+    [TestMethod]
+    public async Task GetPendingDetail_ServiceThrows_Returns500()
+    {
+        _seriesService.Setup(s => s.GetPendingSeriesRefreshAsync("Mistborn"))
+            .ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.GetPendingDetail("Mistborn");
+
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    [TestMethod]
+    public async Task DismissPending_ReturnsOk()
+    {
+        _seriesService.Setup(s => s.DismissPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync(true);
+
+        var result = await _controller.DismissPending("Mistborn");
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _seriesService.Verify(s => s.DismissPendingSeriesRefreshAsync("Mistborn"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartPendingApply_EmptyRequest_ReturnsBadRequest()
+    {
+        var result = _controller.StartPendingApply("Mistborn", new ApplySeriesRefreshRequestDto());
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "At least one accepted change, or the source-series-name adoption, is required.");
+    }
+
+    [TestMethod]
+    public async Task StartPendingApply_UnknownChangeType_ReturnsBadRequest()
+    {
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections = { new ApplySeriesRefreshChangeDto { ChangeType = "Bogus", AudiobookId = 5 } },
+        };
+
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Unknown ChangeType 'Bogus'.");
+    }
+
+    [TestMethod]
+    public async Task StartPendingApply_DuplicateAudiobookId_ReturnsBadRequest()
+    {
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections =
+            {
+                new ApplySeriesRefreshChangeDto { ChangeType = "PartUpdate", AudiobookId = 5 },
+                new ApplySeriesRefreshChangeDto { ChangeType = "PartRemoval", AudiobookId = 5 },
+            },
+        };
+
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "A library book can only be changed once: audiobook 5 appears more than once in the request.");
+    }
+
+    // Review finding 4: two MissingBook selections may not target the same roster entry - even
+    // when their natural keys differ only by case/whitespace, which the apply would resolve to
+    // the same row. The duplicate must be rejected before the batch starts.
+    [TestMethod]
+    public async Task StartPendingApply_DuplicateMissingBookTarget_ReturnsBadRequest()
+    {
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections =
+            {
+                new ApplySeriesRefreshChangeDto { ChangeType = "MissingBook", AudiobookId = 5, Position = "4", Title = "Book B" },
+                new ApplySeriesRefreshChangeDto { ChangeType = "MissingBook", AudiobookId = 6, Position = " 4 ", Title = " book b " },
+            },
+        };
+
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "A missing book can only be applied once: more than one selection targets the same roster entry.");
+    }
+
+    [TestMethod]
+    public async Task StartPendingApply_MissingBookWithoutANaturalKey_ReturnsBadRequest()
+    {
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections =
+            {
+                new ApplySeriesRefreshChangeDto { ChangeType = "MissingBook", AudiobookId = 5 },
+            },
+        };
+
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Every MissingBook change needs a Position or Title to identify the roster entry.");
+    }
+
+    [TestMethod]
+    public async Task StartPendingApply_ReturnsOkImmediately_AndWiresProgressAndCompletion()
+    {
+        _seriesService
+            .Setup(s => s.ApplyPendingSeriesRefreshAsync(
+                "Mistborn",
+                It.Is<SeriesRefreshApplyRequest>(r =>
+                    r.Selections.Count == 1 &&
+                    r.Selections[0].Type == SeriesRefreshChangeType.PartUpdate &&
+                    r.Selections[0].AudiobookId == 5),
+                It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((string _, SeriesRefreshApplyRequest __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0);
+            });
+
+        var finished = RegisterFinishedWaiter(SeriesController.PendingApplyOperationKey);
+
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections = { new ApplySeriesRefreshChangeDto { ChangeType = "PartUpdate", AudiobookId = 5 } },
+        };
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesRefreshApplyProgress(It.Is<SeriesRefreshApplyProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
     }
 
     [TestMethod]

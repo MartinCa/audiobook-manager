@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
-import { metadataRefreshApi } from "@/services/api";
+import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
+import { metadataRefreshApi, seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
@@ -39,6 +40,9 @@ export function MetadataRefresh() {
   const [refreshing, setRefreshing] = useState(false);
   const [progress, setProgress] = useState<RefreshProgressPayload | null>(null);
   const [cutoffDate, setCutoffDate] = useState("");
+
+  const [refreshingSeries, setRefreshingSeries] = useState(false);
+  const [seriesProgress, setSeriesProgress] = useState<RefreshProgressPayload | null>(null);
 
   const [page, setPage] = useState(0);
 
@@ -110,6 +114,53 @@ export function MetadataRefresh() {
     } else {
       setRefreshing(false);
       setProgress(null);
+    }
+  });
+
+  // The bulk series refresh mirrors the book sweep: fire-and-forget, SignalR progress, and the
+  // same operation-status recovery. Completion invalidates the pending list (only series whose
+  // refresh found changes appear in it).
+  const startBulkSeriesRefresh = async () => {
+    setRefreshingSeries(true);
+    try {
+      await seriesApi.startRefreshAll();
+    } catch (err: unknown) {
+      setRefreshingSeries(false);
+      toast.error(handleApiError(err).message);
+    }
+  };
+
+  useSignalREvent<RefreshProgressPayload>(SignalREvents.SeriesRefreshProgress, (data) => {
+    setRefreshingSeries(true);
+    setSeriesProgress(data);
+  });
+
+  useSignalREvent<RefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (data) => {
+    setRefreshingSeries(false);
+    setSeriesProgress(null);
+    if (data.stopReason) {
+      toast.warning(
+        `Series refresh stopped: ${data.stopReason}. ${data.totalSucceeded} refreshed, ${data.totalFailed} failed.`,
+      );
+    } else {
+      toast.success(
+        `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
+    }
+    void queryClient.invalidateQueries({ queryKey: ["seriesPending"] });
+  });
+
+  useOperationResync(OperationKeys.seriesRefresh, (status) => {
+    if (status.isRunning) {
+      setRefreshingSeries(true);
+      setSeriesProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setRefreshingSeries(false);
+      setSeriesProgress(null);
     }
   });
 
@@ -191,6 +242,47 @@ export function MetadataRefresh() {
           />
         )}
       </Card>
+
+      <Card className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1.5">
+            <label className="text-muted-foreground text-xs font-semibold uppercase">
+              Refresh matched series from their online source
+            </label>
+            <p className="text-muted-foreground text-xs">
+              Re-fetches every matched series' roster. Series whose source now differs from the
+              library get a reviewable pending snapshot below; no-change series have nothing
+              pending.
+            </p>
+          </div>
+
+          <Button
+            onClick={() => {
+              void startBulkSeriesRefresh();
+            }}
+            disabled={refreshingSeries}
+            className="w-full sm:w-auto"
+          >
+            {refreshingSeries ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            {refreshingSeries ? "Refreshing series..." : "Refresh Series"}
+          </Button>
+        </div>
+
+        {refreshingSeries && seriesProgress && (
+          <OperationProgressBar
+            processed={seriesProgress.processed}
+            total={seriesProgress.total}
+            label="Refreshing series..."
+            subText={`${seriesProgress.succeeded} refreshed, ${seriesProgress.failed} failed`}
+          />
+        )}
+      </Card>
+
+      <SeriesRefreshPendingList />
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -2,38 +2,22 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Database.Search;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
-using AudiobookManager.Services.Similarity;
 using Microsoft.Extensions.Logging;
+using PendingSeriesRefresh = AudiobookManager.Domain.PendingSeriesRefresh;
 
 namespace AudiobookManager.Services;
 
 public class SeriesService : ISeriesService
 {
     /// <summary>
-    /// Minimum normalized title similarity for an owned book to be considered the same book
-    /// as a roster entry when positions don't settle it.
-    /// </summary>
-    private const double TitleMatchThreshold = 0.85;
-
-    /// <summary>
-    /// Sanity floor applied when positions match: sources renumber and split series
-    /// differently than a hand-maintained library does (a novella at source position 2.5 vs a
-    /// manually typed "2.5" on an unrelated book), so a matching position must not on its own
-    /// declare an obviously different title to be the same book - which would silently hide a
-    /// genuinely missing entry. Edit-distance similarity alone is a poor floor here (two
-    /// unrelated titles routinely score around 0.3), so shared whole words count too: a
-    /// subtitled or abridged edition keeps the words even when the string lengths diverge.
-    /// </summary>
-    private const double PositionMatchTitleFloor = 0.5;
-
-    /// <summary>
     /// Minimum normalized title similarity for a library book to surface as a candidate for a
-    /// missing expected book. Deliberately looser than <see cref="TitleMatchThreshold"/>: these
-    /// are advisory candidates a human confirms, and a subtitled or lightly renamed edition must
-    /// still surface - a false positive costs a glance, a false negative hides the very book the
-    /// user is looking for.
+    /// missing expected book. Deliberately looser than the matcher's
+    /// <see cref="SeriesRosterMatcher.TitleMatchThreshold"/>: these are advisory candidates a
+    /// human confirms, and a subtitled or lightly renamed edition must still surface - a false
+    /// positive costs a glance, a false negative hides the very book the user is looking for.
     /// </summary>
     private const double CandidateTitleSimilarityThreshold = 0.7;
 
@@ -87,7 +71,10 @@ public class SeriesService : ISeriesService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
     private readonly IAudiobookService _audiobookService;
+    private readonly IAudiobookSaveGate _saveGate;
+    private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
@@ -95,14 +82,20 @@ public class SeriesService : ISeriesService
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
         IAudiobookService audiobookService,
+        IAudiobookSaveGate saveGate,
+        ILibraryConsistencyService libraryConsistencyService,
         ISeriesReconciliationCache reconciliationCache,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
         _audiobookService = audiobookService;
+        _saveGate = saveGate;
+        _libraryConsistencyService = libraryConsistencyService;
         _reconciliationCache = reconciliationCache;
         _scrapers = scrapers;
         _logger = logger;
@@ -262,11 +255,11 @@ public class SeriesService : ISeriesService
             .ToList();
         var active = visible.Where(e => !e.IsIgnored).ToList();
 
-        var ownedIndex = new OwnedBookIndex(ownedKeys);
+        var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(ownedKeys);
         var missing = active
             .Where(e => !IsOwned(e, ownedIndex))
             .Select(ToExpectedInfo)
-            .OrderBy(e => PositionSortKey(e.Position))
+            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
@@ -274,7 +267,7 @@ public class SeriesService : ISeriesService
         var ignored = visible
             .Where(e => e.IsIgnored)
             .Select(ToExpectedInfo)
-            .OrderBy(e => PositionSortKey(e.Position))
+            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
@@ -297,7 +290,7 @@ public class SeriesService : ISeriesService
         // "2.0" is not a mismatch while "2" vs "" (or "7") is.
         var entries = active
             .Where(e => !string.IsNullOrWhiteSpace(e.Position))
-            .OrderBy(e => PositionSortKey(e.Position))
+            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
@@ -305,7 +298,7 @@ public class SeriesService : ISeriesService
         var matchesByBook = new Dictionary<long, List<SeriesExpectedBook>>();
         foreach (var entry in entries)
         {
-            foreach (var owned in ownedIndex.FindMatches(BookKey.From(entry.Position, entry.Title)))
+            foreach (var owned in ownedIndex.FindMatches(SeriesRosterMatcher.BookKey.From(entry.Position, entry.Title)))
             {
                 if (!matchesByBook.TryGetValue(owned.AudiobookId, out var bookEntries))
                 {
@@ -326,7 +319,7 @@ public class SeriesService : ISeriesService
                 continue;
             }
 
-            if (matchesByBook[audiobookId].Any(e => PartsEquivalent(owned.SeriesPart, e.Position!)))
+            if (matchesByBook[audiobookId].Any(e => SeriesRosterMatcher.PartsEquivalent(owned.SeriesPart, e.Position)))
             {
                 continue;
             }
@@ -348,7 +341,7 @@ public class SeriesService : ISeriesService
             missing,
             ignored,
             partMismatches
-                .OrderBy(m => PositionSortKey(m.ExpectedPart))
+                .OrderBy(m => SeriesRosterMatcher.PositionSortKey(m.ExpectedPart))
                 .ThenBy(m => m.BookName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(m => m.AudiobookId)
                 .ToList(),
@@ -495,7 +488,9 @@ public class SeriesService : ISeriesService
 
     /// <summary>
     /// Matches the series to a source and replaces its stored roster, returning the catalog
-    /// row. Does no read-side projection work.
+    /// row. Does no read-side projection work. A caller that already fetched the roster (the
+    /// refresh path needs it to compute its diff) passes it in via <paramref name="fetched"/>
+    /// so the source is not hit twice.
     /// </summary>
     private async Task<Series> MatchSeriesCoreAsync(
         string seriesName,
@@ -503,12 +498,14 @@ public class SeriesService : ISeriesService
         string sourceSeriesId,
         double? confidence,
         bool includeOmnibusEditions,
-        Series? existingRow = null)
+        Series? existingRow = null,
+        SeriesSearchResult? fetched = null)
     {
         var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
             ?? throw new ArgumentException($"No series-capable scraper for source {sourceName}");
 
-        var roster = await scraper.GetSeriesBooks(sourceSeriesId)
+        var roster = fetched
+            ?? await scraper.GetSeriesBooks(sourceSeriesId)
             ?? throw new Exception($"Source {sourceName} returned no series for id {sourceSeriesId}");
 
         // A caller that already read this row (RefreshManyAsync checks it is matched before
@@ -531,7 +528,7 @@ public class SeriesService : ISeriesService
         // Normalize the previously-ignored titles once rather than once per roster entry.
         var previouslyIgnored = (existing?.ExpectedBooks ?? new List<SeriesExpectedBook>())
             .Where(p => p.IsIgnored)
-            .Select(p => BookKey.From(p.Position, p.Title))
+            .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
             .ToList();
 
         // The full roster is always stored, compilations included - IncludeOmnibusEditions only
@@ -539,7 +536,7 @@ public class SeriesService : ISeriesService
         // later doesn't require re-fetching from the source.
         var newExpected = roster.Books.Select(b =>
         {
-            var key = BookKey.From(b.Position, b.Title);
+            var key = SeriesRosterMatcher.BookKey.From(b.Position, b.Title);
             return new SeriesExpectedBook
             {
                 Position = b.Position,
@@ -549,7 +546,7 @@ public class SeriesService : ISeriesService
                 IsCompilation = b.IsCompilation,
                 // Re-matching or refreshing replaces the roster wholesale, so carry the user's
                 // ignore decisions across for entries that are recognisably the same book.
-                IsIgnored = previouslyIgnored.Any(p => IsSameBook(p, key)),
+                IsIgnored = previouslyIgnored.Any(p => SeriesRosterMatcher.IsSameBook(p, key)),
             };
         }).ToList();
 
@@ -601,10 +598,31 @@ public class SeriesService : ISeriesService
         });
     }
 
-    public Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshSeriesAsync(
-        string seriesName,
-        Func<int, int, int, int, Task> progressAction) =>
-        RefreshManyAsync(new List<string> { seriesName }, progressAction);
+    /// <summary>
+    /// Refreshes one series from its matched source, synchronously: the fetch is bounded by the
+    /// scraper's own HTTP timeouts, the same latency profile the single-book metadata refresh
+    /// already has. Refreshing always re-fetches and re-stores the roster and stamps
+    /// <c>LastRefreshedAt</c>; a refresh that found explicit changes (part updates, missing
+    /// source books, part removals) also stores a pending snapshot for the series, and a
+    /// no-change refresh clears any stale one so it never lingers in the pending list. Throws
+    /// <see cref="KeyNotFoundException"/> when the series is not in the catalog or has no
+    /// matched source.
+    /// </summary>
+    public async Task<SeriesRefreshResult> RefreshSeriesAsync(string seriesName)
+    {
+        // Loaded WITH the roster (GetByNameWithExpectedBooksAsync), the same shape the bulk
+        // refresh reads: MatchSeriesCoreAsync re-stores the roster wholesale and carries the
+        // user's ignore decisions across from the row passed in, so a roster-less row would
+        // silently clear every ignored entry on the next single-series refresh.
+        var row = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
+        if (row is null || string.IsNullOrEmpty(row.MatchedSourceName) || string.IsNullOrEmpty(row.MatchedSourceId))
+        {
+            throw new KeyNotFoundException($"Series '{seriesName}' is not matched to a metadata source, so it cannot be refreshed.");
+        }
+
+        var (hasChanges, changeCount, sourceName) = await RefreshOneSeriesCoreAsync(seriesName, row);
+        return new SeriesRefreshResult(Success: true, hasChanges, changeCount, sourceName);
+    }
 
     public async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllSeriesAsync(
         Func<int, int, int, int, Task> progressAction)
@@ -752,7 +770,7 @@ public class SeriesService : ISeriesService
     /// <summary>
     /// Other books already carrying the given (series, series part) combination, excluding the
     /// current book. Advisory: a blank series or part returns nothing (an empty part cannot be
-    /// equivalent to any part via <see cref="SeriesPartEquivalence.PartsEquivalentClr"/>, and is
+    /// equivalent to any part via <see cref="AudiobookManager.Database.Search.SeriesPartEquivalence.PartsEquivalentClr"/>, and is
     /// its own informational state in the edit form anyway). The equivalence is applied in SQL,
     /// so the returned conflicts are exact and nothing is silently skipped; the cap and its
     /// truncation flag are carried back for the UI to surface.
@@ -788,11 +806,512 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await MatchSeriesCoreAsync(
-                name, row.MatchedSourceName, row.MatchedSourceId, row.MatchConfidence, row.IncludeOmnibusEditions, row);
+            await RefreshOneSeriesCoreAsync(name, row);
             return true;
         });
     }
+
+    /// <summary>
+    /// The one-series refresh workload shared by the synchronous single refresh and the bulk
+    /// sweep: re-fetch the roster from the matched source, store it (stamping
+    /// <c>LastRefreshedAt</c> and carrying ignore decisions across like a re-match), then diff
+    /// the fresh roster against the series' owned books and keep the pending snapshot in step -
+    /// upserted when the refresh found explicit changes, deleted when it found none, so a
+    /// no-change bulk item never appears in the pending list.
+    /// </summary>
+    private async Task<(bool HasChanges, int ChangeCount, string? SourceName)> RefreshOneSeriesCoreAsync(
+        string seriesName, Series row)
+    {
+        var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(row.MatchedSourceName!))
+            ?? throw new ArgumentException($"No series-capable scraper for source {row.MatchedSourceName}");
+
+        var roster = await scraper.GetSeriesBooks(row.MatchedSourceId!)
+            ?? throw new Exception($"Source {row.MatchedSourceName} returned no series for id {row.MatchedSourceId}");
+
+        // The roster is the stored source page (capped by the same bound the reconciliation
+        // enforces), and the owned-key fetch is bounded too, so the diff is computed against
+        // explicitly limited inputs - it never materializes the whole owned set of a series.
+        var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
+            seriesName, MaxReconciliationOwnedKeys);
+        if (ownedOverflow)
+        {
+            throw new InvalidOperationException(
+                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} the refresh diffs against.");
+        }
+
+        var changes = SeriesRefreshDiffer.Diff(
+            ToRosterEntries(roster.Books),
+            ownedKeys,
+            includeOmnibusEditions: row.IncludeOmnibusEditions,
+            // The entries the user has already ignored are deliberately NOT part of the review:
+            // they are excluded from the visible series on the detail page, so re-reporting them
+            // as missing here would contradict that handling and re-litigate the same decision on
+            // every refresh. The same-book rule the roster replace uses to carry the flags across
+            // is what exempts them here, so a source-renumbered (but recognisably the same) entry
+            // stays quiet too.
+            previouslyIgnored: (row.ExpectedBooks ?? new List<SeriesExpectedBook>())
+                .Where(p => p.IsIgnored)
+                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
+                .ToList());
+
+        await MatchSeriesCoreAsync(
+            seriesName, row.MatchedSourceName!, row.MatchedSourceId!,
+            row.MatchConfidence, row.IncludeOmnibusEditions, row, roster);
+
+        await PersistPendingChangesAsync(seriesName, scraper.SourceName, roster, changes);
+
+        // The result's SourceName is the scraper/source name (e.g. "Hardcover"), the same value
+        // the pending snapshot and catalog row carry as SourceName - never the source's own
+        // series title, which is a separate piece of data (SourceSeriesName on the payload, the
+        // catalog row's MatchedSeriesName).
+        return (changes.Count > 0, changes.Count, scraper.SourceName);
+    }
+
+    /// <summary>
+    /// Stores the pending snapshot for a refreshed series, or clears any stale one when the
+    /// refresh found no changes. This is the "no-change bulk items are omitted" guarantee's
+    /// write side: the pending list is only ever populated from here, and only rows with
+    /// changes are written.
+    /// </summary>
+    private async Task PersistPendingChangesAsync(
+        string seriesName, string sourceName, SeriesSearchResult roster, IReadOnlyList<SeriesRefreshChange> changes)
+    {
+        if (changes.Count == 0)
+        {
+            await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+            return;
+        }
+
+        var pending = new PendingSeriesRefresh(
+            seriesName,
+            DateTime.UtcNow,
+            sourceName,
+            roster.SourceUrl ?? string.Empty,
+            string.IsNullOrWhiteSpace(roster.SeriesName) ? null : roster.SeriesName,
+            changes,
+            ToRosterEntries(roster.Books));
+
+        await _pendingSeriesRefreshRepository.UpsertAsync(new Database.Models.PendingSeriesRefresh
+        {
+            SeriesName = pending.SeriesName,
+            FetchedAt = pending.FetchedAt,
+            SourceName = pending.SourceName,
+            SourceUrl = pending.SourceUrl,
+            PayloadJson = PendingSeriesRefreshPayload.Serialize(ToPayload(pending)),
+        });
+    }
+
+    public async Task<PendingSeriesRefresh?> GetPendingSeriesRefreshAsync(string seriesName)
+    {
+        var row = await _pendingSeriesRefreshRepository.GetBySeriesNameAsync(seriesName);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var payload = PendingSeriesRefreshPayload.TryParse(row.PayloadJson);
+        return payload is null ? null : ToDomain(payload);
+    }
+
+    public async Task<(List<PendingSeriesRefreshListItem> Items, int Total)> GetPendingSeriesRefreshPageAsync(int page, int pageSize)
+    {
+        var (rows, total) = await _pendingSeriesRefreshRepository.GetPageAsync(page * pageSize, pageSize);
+
+        var items = new List<PendingSeriesRefreshListItem>();
+        foreach (var row in rows)
+        {
+            var parsed = PendingSeriesRefreshPayload.TryParse(row.PayloadJson);
+            items.Add(new PendingSeriesRefreshListItem(
+                row.SeriesName,
+                row.SourceName,
+                parsed?.SourceSeriesName,
+                row.FetchedAt,
+                parsed?.Changes.Count ?? 0));
+        }
+
+        return (items, total);
+    }
+
+    public Task<int> CountPendingSeriesRefreshesAsync() =>
+        _pendingSeriesRefreshRepository.CountAsync();
+
+    public async Task<bool> DismissPendingSeriesRefreshAsync(string seriesName)
+    {
+        // A dismissed (or already-applied) snapshot is simply absent from the pending list.
+        // DeleteBySeriesNameAsync returns whether a row actually existed - the idempotent
+        // success the dismiss UX wants either way.
+        return await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+    }
+
+    /// <summary>
+    /// Applies the accepted selections of a pending series refresh, and optionally adopts the
+    /// source's own series name across every member book. Each applied change rewrites its book
+    /// through <see cref="IAudiobookService.UpdateAudiobook"/> under the per-audiobook save gate
+    /// - the same pipeline the interactive edit uses, so tags, path, sidecars and database stay
+    /// in step (the "no DB-only field updates" binding invariant). After the batch, the pending
+    /// snapshot is recomputed against the stored roster and the now-current owned books: a
+    /// series whose changes are all resolved drops out of the pending list, one with leftovers
+    /// keeps a snapshot containing exactly them.
+    ///
+    /// The batch contract mirrors the other bulk rewrites: one try/catch per selection so a busy
+    /// or missing book fails just its own item and the rest carry on, plus a (processed, total,
+    /// succeeded, failed) progress report after every item. The optional source-series-name
+    /// adoption is one item of that total: it renames every member book, migrates the matched
+    /// catalog row (roster, ignore flags and all matched metadata) to the adopted name, and any
+    /// failure inside it fails just that item.
+    /// </summary>
+    public async Task<(int Processed, int Succeeded, int Failed)> ApplyPendingSeriesRefreshAsync(
+        string seriesName,
+        SeriesRefreshApplyRequest request,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var row = await _pendingSeriesRefreshRepository.GetBySeriesNameAsync(seriesName)
+            ?? throw new KeyNotFoundException($"No pending series refresh exists for '{seriesName}'.");
+
+        var payload = PendingSeriesRefreshPayload.TryParse(row.PayloadJson);
+        if (payload is null)
+        {
+            // A foreign/corrupt payload is not reviewable; drop it and let the caller see the
+            // same "nothing pending" state a missing row would produce.
+            await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+            throw new KeyNotFoundException($"No pending series refresh exists for '{seriesName}'.");
+        }
+
+        var pending = ToDomain(payload);
+        var catalog = await _seriesRepository.GetByNameAsync(seriesName);
+        var includeOmnibusEditions = catalog?.IncludeOmnibusEditions ?? false;
+
+        var total = request.Selections.Count + (request.AdoptSourceSeriesName ? 1 : 0);
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+
+        foreach (var selection in request.Selections)
+        {
+            processed++;
+            try
+            {
+                await ApplySingleSeriesRefreshChangeAsync(seriesName, pending, selection);
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Applying series refresh change {ChangeType} (audiobook {AudiobookId}) for series {SeriesName} failed",
+                    selection.Type, selection.AudiobookId, seriesName);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        // Adoption runs after the accepted changes on purpose: a missing-book selection assigned
+        // during this apply still lands on the NEW series value via the rename - the final value
+        // of every member book is the adopted name regardless of when it joined the series. Only a
+        // FULLY successful adoption flips the effective series name; a partial failure leaves books
+        // on both names, and the pending state stays addressable under the original name so the
+        // user can retry.
+        var adoptedName = (string?)null;
+        var adoptionSelected = request.AdoptSourceSeriesName
+            && !string.IsNullOrWhiteSpace(payload.SourceSeriesName)
+            && payload.SourceSeriesName != seriesName;
+        if (adoptionSelected)
+        {
+            processed++;
+            try
+            {
+                await AdoptSourceSeriesNameAsync(seriesName, payload.SourceSeriesName!);
+                adoptedName = payload.SourceSeriesName;
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Adopting source series name '{NewName}' for series {SeriesName} failed", payload.SourceSeriesName, seriesName);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        // The roster the user reviewed is the apply's source of truth (re-fetching would apply
+        // whatever the source says NOW, and an HTTP failure would block the apply). Recompute the
+        // remaining changes against the stored roster and the books as they are after the batch,
+        // under the EFFECTIVE series name: the adopted name when the adoption fully succeeded (a
+        // fully adopted series has no books under the old name, so re-checking the old name would
+        // report the whole roster as missing and leave a bogus pending row under a name nobody
+        // owns), the original name otherwise - including a partial adoption failure, where the old
+        // name is the addressable, retryable state.
+        var effectiveSeriesName = adoptedName ?? seriesName;
+        var (freshOwnedKeys, freshOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
+            effectiveSeriesName, MaxReconciliationOwnedKeys);
+        if (freshOverflow)
+        {
+            // A pathological owned set cannot be diffed safely. Fabricating an "everything is
+            // resolved" outcome would falsely delete the pending snapshot; retaining it untouched
+            // keeps the apply retryable. The accepted changes were already written, and re-applying
+            // them is idempotent, so the (now stale) change list is the right failure mode.
+            _logger.LogWarning(
+                "Series '{SeriesName}' has at least {OwnedCount} owned books; keeping the pending refresh snapshot instead of recomputing it after the apply",
+                effectiveSeriesName, MaxReconciliationOwnedKeys + 1);
+            return (processed, succeeded, failed);
+        }
+
+        var remaining = SeriesRefreshDiffer.Diff(
+            pending.Roster,
+            freshOwnedKeys,
+            includeOmnibusEditions,
+            // Same exemption the refresh applies: an entry the user has already ignored must not
+            // re-enter the pending review here either, or it would come back the moment the
+            // apply recomputes the snapshot. The authoritative flags live on the stored roster
+            // under the effective name, where the refresh carried them (and adoption has since
+            // moved them, if it succeeded).
+            previouslyIgnored: ((await _seriesRepository.GetByNameWithExpectedBooksAsync(effectiveSeriesName))
+                    ?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+                .Where(p => p.IsIgnored)
+                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
+                .ToList()).ToList();
+
+        // The pending row is always removed from the ORIGINAL name on this path: a fully adopted
+        // series has no books under it anymore, and a non-adopted series either resolved all its
+        // changes or keeps its snapshot under that same name (upserted just below).
+        if (adoptedName is not null)
+        {
+            await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+        }
+
+        if (remaining.Count == 0)
+        {
+            await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(effectiveSeriesName);
+        }
+        else
+        {
+            await _pendingSeriesRefreshRepository.UpsertAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = effectiveSeriesName,
+                FetchedAt = row.FetchedAt,
+                SourceName = row.SourceName,
+                SourceUrl = row.SourceUrl,
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(ToPayload(
+                    new PendingSeriesRefresh(
+                        effectiveSeriesName,
+                        row.FetchedAt,
+                        row.SourceName,
+                        row.SourceUrl,
+                        payload.SourceSeriesName,
+                        remaining,
+                        pending.Roster))),
+            });
+        }
+
+        // Every accepted change rewrote an owned book's Series/SeriesPart; the rename changes all
+        // of them. The cached reconciliations for both names (when they differ) are stale - and on
+        // a partial adoption failure both names genuinely changed.
+        _reconciliationCache.Invalidate(seriesName);
+        if (adoptionSelected)
+        {
+            _reconciliationCache.Invalidate(payload.SourceSeriesName!);
+        }
+
+        return (processed, succeeded, failed);
+    }
+
+    private async Task ApplySingleSeriesRefreshChangeAsync(
+        string seriesName,
+        PendingSeriesRefresh pending,
+        SeriesRefreshApplyChange selection)
+    {
+        var change = FindPendingChange(pending, selection)
+            ?? throw new InvalidOperationException(
+                $"Pending change {selection.Type} (audiobook {selection.AudiobookId}, position '{selection.Position}', title '{selection.Title}') not found in the stored snapshot.");
+
+        var audiobookId = selection.AudiobookId
+            ?? throw new InvalidOperationException("An accepted series refresh change must address a library audiobook.");
+
+        var audiobook = await _audiobookService.GetAudiobookById(audiobookId)
+            ?? throw new KeyNotFoundException($"Audiobook {audiobookId} not found");
+
+        switch (selection.Type)
+        {
+            case SeriesRefreshChangeType.PartUpdate:
+                audiobook.Series = seriesName;
+                audiobook.SeriesPart = change.NewPart;
+                break;
+            case SeriesRefreshChangeType.PartRemoval:
+                audiobook.Series = seriesName;
+                audiobook.SeriesPart = null;
+                break;
+            case SeriesRefreshChangeType.MissingBook:
+                audiobook.Series = seriesName;
+                audiobook.SeriesPart = change.Position;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+
+        // One library book is never rewritten by two writers concurrently; a book a save or
+        // another batch is already touching fails just this item and the batch carries on. The
+        // follow-up consistency recheck mirrors the interactive apply's tail, run inside the
+        // lease the same way: the rewrite moved tags and possibly the file, so stored issues for
+        // this book are stale until rechecked, and a recheck failure is best-effort - it must not
+        // turn a successful rewrite into a failed item.
+        using var lease = _saveGate.Acquire(audiobookId);
+        await _audiobookService.UpdateAudiobook(audiobookId, audiobook);
+        try
+        {
+            await _libraryConsistencyService.RecheckAudiobookAsync(audiobookId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after a pending series refresh change", audiobookId);
+        }
+    }
+
+    /// <summary>
+    /// Matches an accepted selection to the stored change it acts on. Part updates and removals
+    /// are addressed by the target audiobook id; a missing book is addressed by its roster
+    /// natural key (position and/or title, trimmed and case-insensitive), the same way the
+    /// expected-book endpoints address roster entries. Anything else is "not found" and fails
+    /// just its own item.
+    /// </summary>
+    private static SeriesRefreshChange? FindPendingChange(
+        PendingSeriesRefresh pending,
+        SeriesRefreshApplyChange selection)
+    {
+        foreach (var change in pending.Changes)
+        {
+            if (change.Type != selection.Type)
+            {
+                continue;
+            }
+
+            if (selection.Type == SeriesRefreshChangeType.MissingBook)
+            {
+                if (string.Equals(change.Position?.Trim(), selection.Position?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(change.Title?.Trim(), selection.Title?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return change;
+                }
+
+                continue;
+            }
+
+            if (change.AudiobookId == selection.AudiobookId)
+            {
+                return change;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Renames the series value to <paramref name="newName"/> on every member book, one
+    /// <see cref="UpdateAudiobook"/> per book under the per-audiobook save gate - opt-in (the
+    /// user checks "rename this series to match the source" in the review dialog) and routed
+    /// through the normal save pipeline so tags, folders and sidecars move with the rename.
+    /// Only the series value changes; parts, names and years are untouched. After the books,
+    /// the matched catalog row follows (see <see cref="ISeriesRepository.RenameAsync"/>): the
+    /// fully adopted series otherwise keeps a matched zombie row under the old name while the
+    /// adopted name owns no roster at all.
+    /// </summary>
+    private async Task AdoptSourceSeriesNameAsync(string seriesName, string newName)
+    {
+        // Refuse BEFORE renaming any book when the destination is already a catalog row: a
+        // rename would silently merge two rosters (or clobber one), and book renames cannot be
+        // unwound. The pre-check is the common case in practice - a stale row under the name
+        // books are being renamed onto - and the rename below re-checks the uniqueness anyway.
+        var existingCatalog = await _seriesRepository.GetByNameAsync(newName);
+        if (existingCatalog is not null)
+        {
+            throw new InvalidOperationException(
+                $"A series named '{newName}' already exists in the catalog; refusing to rename onto it.");
+        }
+
+        var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
+            seriesName, MaxReconciliationOwnedKeys);
+        if (ownedOverflow)
+        {
+            throw new InvalidOperationException(
+                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} an adoption can rename.");
+        }
+
+        foreach (var owned in ownedKeys)
+        {
+            using var lease = _saveGate.Acquire(owned.AudiobookId);
+            var audiobook = await _audiobookService.GetAudiobookById(owned.AudiobookId)
+                ?? throw new KeyNotFoundException($"Audiobook {owned.AudiobookId} not found");
+            audiobook.Series = newName;
+            await _audiobookService.UpdateAudiobook(owned.AudiobookId, audiobook);
+
+            // Same best-effort tail as the per-change rewrites: the rename moved tags and
+            // possibly the file, so stored issues for this book are stale until rechecked.
+            try
+            {
+                await _libraryConsistencyService.RecheckAudiobookAsync(owned.AudiobookId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after adopting series name '{NewName}'", owned.AudiobookId, newName);
+            }
+        }
+
+        // The catalog row follows the books only once every book rename succeeded: a partial
+        // adoption failure keeps the catalog under the old name, which is the addressable,
+        // retryable state (the pending row stays there too).
+        await _seriesRepository.RenameAsync(seriesName, newName);
+    }
+
+    private static IReadOnlyList<SeriesRefreshRosterEntry> ToRosterEntries(IEnumerable<SeriesExpectedBookResult> books) =>
+        books.Select(b => new SeriesRefreshRosterEntry(
+            b.Position,
+            b.Title,
+            b.Year,
+            b.SourceUrl,
+            b.IsCompilation)).ToList();
+
+    private static PendingSeriesRefreshPayload.Payload ToPayload(PendingSeriesRefresh pending) =>
+        new(
+            PendingSeriesRefreshPayload.CurrentVersion,
+            pending.SeriesName,
+            pending.SourceName,
+            pending.SourceUrl,
+            pending.SourceSeriesName,
+            pending.FetchedAt,
+            pending.Roster.Select(e => new PendingSeriesRefreshPayload.RosterEntry(
+                e.Position, e.Title, e.Year, e.SourceUrl, e.IsCompilation)).ToList(),
+            pending.Changes.Select(ToPayloadChange).ToList());
+
+    private static PendingSeriesRefreshPayload.Change ToPayloadChange(SeriesRefreshChange change) =>
+        new(
+            change.Type,
+            change.AudiobookId,
+            change.BookName,
+            change.StoredPart,
+            change.NewPart,
+            change.RosterTitle,
+            change.Position,
+            change.Title,
+            change.Year);
+
+    private static PendingSeriesRefresh ToDomain(PendingSeriesRefreshPayload.Payload payload) =>
+        new(
+            payload.SeriesName,
+            payload.FetchedAt,
+            payload.SourceName,
+            payload.SourceUrl,
+            payload.SourceSeriesName,
+            payload.Changes.Select(c => new SeriesRefreshChange(
+                c.Type,
+                c.AudiobookId,
+                c.BookName,
+                c.StoredPart,
+                c.NewPart,
+                c.RosterTitle,
+                c.Position,
+                c.Title,
+                c.Year)).ToList(),
+            payload.Roster.Select(e => new SeriesRefreshRosterEntry(
+                e.Position, e.Title, e.Year, e.SourceUrl, e.IsCompilation)).ToList());
 
     /// <summary>
     /// Runs a per-series operation with the shared bulk contract: one try/catch per item so a
@@ -858,7 +1377,7 @@ public class SeriesService : ISeriesService
         var active = expected.Where(e => !e.IsIgnored).ToList();
         // The overview index only answers "is this roster entry owned" - never the part-mismatch
         // pass - so the owned books can be reduced to synthetic keys without their row ids.
-        var ownedIndex = new OwnedBookIndex(
+        var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(
             ownedBooks.Select(b => new SeriesOwnedKey(0, b.SeriesPart, b.BookName)));
 
         return BuildOverview(
@@ -930,202 +1449,19 @@ public class SeriesService : ISeriesService
     };
 
     /// <summary>
-    /// A book reduced to what the owned/expected comparison needs, with its title normalized
-    /// once up front - the matching loop is O(expected x owned), so re-normalizing per
-    /// comparison would repeat the same work for every candidate.
-    /// </summary>
-    private readonly record struct BookKey(string? Position, string NormalizedTitle)
-    {
-        public static BookKey From(string? position, string? title) => new(position, NameNormalizer.Normalize(title));
-    }
-
-    /// <summary>
-    /// The owned books of a series, with an index over their positions. The matching loop is
-    /// O(expected x owned) and every miss pays for a Levenshtein matrix, so the common case -
-    /// source and library agreeing on the position - is settled by a dictionary hit before any
-    /// scanning starts. The scan itself is still over *every* owned book: a position match is
-    /// only one of the two ways <see cref="IsSameBook"/> can succeed, and a roster entry with no
-    /// position (or a position nobody else uses) must still be compared on title against books
-    /// that do have one. Partitioning the fallback by position instead of just short-circuiting
-    /// ahead of it silently reported owned books as missing.
-    /// </summary>
-    private sealed class OwnedBookIndex
-    {
-        private readonly List<OwnedBookIndexItem> _items;
-        private readonly ILookup<string, OwnedBookIndexItem> _byPosition;
-
-        public OwnedBookIndex(IEnumerable<SeriesOwnedKey> ownedKeys)
-        {
-            _items = ownedKeys.Select(k => new OwnedBookIndexItem(k, BookKey.From(k.SeriesPart, k.BookName))).ToList();
-            _byPosition = _items
-                .Where(i => !string.IsNullOrWhiteSpace(i.Key.SeriesPart))
-                .ToLookup(i => NormalizePosition(i.Key.SeriesPart!), StringComparer.OrdinalIgnoreCase);
-        }
-
-        public bool Contains(BookKey expected)
-        {
-            if (!string.IsNullOrWhiteSpace(expected.Position))
-            {
-                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
-                {
-                    if (IsSameBook(expected, item.BookKey))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return _items.Any(item => IsSameBook(expected, item.BookKey));
-        }
-
-        /// <summary>
-        /// Every owned book this roster entry corresponds to. A book can match more than one
-        /// roster entry (duplicate titles across positions), so the callers that need exactly one
-        /// answer (<see cref="Contains"/>) take "any"; the part-mismatch pass reports each matched
-        /// book and deduplicates itself.
-        /// </summary>
-        public List<SeriesOwnedKey> FindMatches(BookKey expected)
-        {
-            var matches = new List<SeriesOwnedKey>();
-
-            // Fast path only - never a substitute for the scan below.
-            if (!string.IsNullOrWhiteSpace(expected.Position))
-            {
-                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
-                {
-                    if (IsSameBook(expected, item.BookKey))
-                    {
-                        matches.Add(item.Key);
-                    }
-                }
-            }
-
-            foreach (var item in _items)
-            {
-                if (IsSameBook(expected, item.BookKey)
-                    && !matches.Contains(item.Key))
-                {
-                    matches.Add(item.Key);
-                }
-            }
-
-            return matches;
-        }
-
-        /// <summary>
-        /// Positions are free text that may or may not parse as a number ("2", "2.0", "2.5",
-        /// "Book 2"). Numeric ones are keyed by their invariant round-trip so the index groups
-        /// them exactly as <see cref="PositionsEqual"/> compares them; the rest key on their
-        /// trimmed text, which is the fallback that method uses too.
-        /// </summary>
-        private static string NormalizePosition(string position) =>
-            double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric)
-                ? numeric.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                : position.Trim();
-    }
-
-    private sealed record OwnedBookIndexItem(SeriesOwnedKey Key, BookKey BookKey);
-
-    /// <summary>
     /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
     /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
-    /// are compared fuzzily.
+    /// are compared fuzzily - the shared rule in <see cref="SeriesRosterMatcher"/>.
     /// </summary>
-    private static bool IsOwned(SeriesExpectedBook expected, OwnedBookIndex ownedBooks) =>
-        ownedBooks.Contains(BookKey.From(expected.Position, expected.Title));
-
-    /// <summary>
-    /// Whether an owned book's stored part agrees with the position of the roster entry it was
-    /// matched to. The caller has already skipped roster entries with no position (nothing to fix
-    /// a part against), so a stored empty part is a genuine miss and a stored one is compared
-    /// with the same equivalence <see cref="PositionsEqual"/> applies during matching - "2" and
-    /// "2.0" are the same part, "2" and "7" are not.
-    /// </summary>
-    private static bool PartsEquivalent(string? storedPart, string expectedPosition) =>
-        !string.IsNullOrWhiteSpace(storedPart) && PositionsEqual(storedPart, expectedPosition);
-
-    private static bool IsSameBook(BookKey expected, BookKey owned)
-    {
-        var positionsMatch =
-            !string.IsNullOrWhiteSpace(expected.Position) &&
-            !string.IsNullOrWhiteSpace(owned.Position) &&
-            PositionsEqual(expected.Position, owned.Position);
-
-        // With no title to compare on either side, the position is all there is to go on.
-        if (positionsMatch && (expected.NormalizedTitle.Length == 0 || owned.NormalizedTitle.Length == 0))
-        {
-            return true;
-        }
-
-        // A matching position only needs the titles to be non-contradictory; a strong title
-        // match stands on its own even when the positions disagree (users mistype them).
-        if (positionsMatch)
-        {
-            return TitlesNotContradictory(expected.NormalizedTitle, owned.NormalizedTitle);
-        }
-
-        return NormalizedSimilarity(expected.NormalizedTitle, owned.NormalizedTitle, TitleMatchThreshold) >= TitleMatchThreshold;
-    }
-
-    private static bool TitlesNotContradictory(string normA, string normB)
-    {
-        if (NormalizedSimilarity(normA, normB, PositionMatchTitleFloor) >= PositionMatchTitleFloor)
-        {
-            return true;
-        }
-
-        var tokensA = normA.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-        var tokensB = normB.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-
-        if (tokensA.Count == 0 || tokensB.Count == 0)
-        {
-            return false;
-        }
-
-        var shared = tokensA.Count(t => tokensB.Contains(t));
-        return shared / (double)Math.Min(tokensA.Count, tokensB.Count) >= PositionMatchTitleFloor;
-    }
-
-    private static bool PositionsEqual(string a, string b) =>
-        SeriesPartEquivalence.PartsEquivalentClr(a, b);
+    private static bool IsOwned(SeriesExpectedBook expected, SeriesRosterMatcher.OwnedBookIndex ownedBooks) =>
+        ownedBooks.Contains(SeriesRosterMatcher.BookKey.From(expected.Position, expected.Title));
 
     /// <summary>
     /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer
     /// and edit distance scaled by the longer string's length.
     /// </summary>
     public static double TitleSimilarity(string? a, string? b) =>
-        NormalizedSimilarity(NameNormalizer.Normalize(a), NameNormalizer.Normalize(b));
-
-    /// <summary>
-    /// Similarity of two already-normalized strings. When the caller only cares whether the
-    /// score reaches <paramref name="threshold"/>, the length difference (a lower bound on
-    /// the edit distance) can rule the pair out before the O(n*m) distance matrix is built.
-    /// The threshold stays here rather than inside LevenshteinDistance, which is
-    /// general-purpose.
-    /// </summary>
-    private static double NormalizedSimilarity(string normA, string normB, double threshold = 0)
-    {
-        if (normA.Length == 0 || normB.Length == 0)
-        {
-            return 0;
-        }
-
-        if (normA == normB)
-        {
-            return 1;
-        }
-
-        var longest = Math.Max(normA.Length, normB.Length);
-
-        if (threshold > 0 && Math.Abs(normA.Length - normB.Length) / (double)longest > 1 - threshold)
-        {
-            return 0;
-        }
-
-        var distance = LevenshteinDistance.Compute(normA, normB);
-
-        return Math.Max(0, 1.0 - (double)distance / longest);
-    }
+        SeriesRosterMatcher.TitleSimilarity(a, b);
 
     /// <summary>
     /// Scores a source series against the library's series value: mostly name similarity,
@@ -1152,20 +1488,5 @@ public class SeriesService : ISeriesService
         var score = authorOverlap ? nameScore + (1 - nameScore) * 0.25 : nameScore * 0.95;
 
         return Math.Round(Math.Clamp(score, 0, 1), 4);
-    }
-
-    private static (double Numeric, string Text) PositionSortKey(string? position)
-    {
-        if (string.IsNullOrWhiteSpace(position))
-        {
-            return (double.MaxValue, string.Empty);
-        }
-
-        if (double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric))
-        {
-            return (numeric, string.Empty);
-        }
-
-        return (double.MaxValue - 1, position);
     }
 }

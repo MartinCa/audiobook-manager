@@ -38,6 +38,19 @@ public interface ISeriesRepository
     /// </summary>
     Task<(Series? Series, bool Overflow)> GetByNameWithExpectedBooksBoundedAsync(string name, int maxExpectedBooks);
     Task<Series> UpsertSeriesAsync(Series series);
+
+    /// <summary>
+    /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>,
+    /// moving the roster (expected-book rows, ignore flags included) and every matched-source
+    /// metadata field with it. Used by the source-series-name adoption, which renames every
+    /// member book: the catalog row must follow or the old name keeps a matched zombie row
+    /// with the whole roster reported missing while the adopted name owns no roster at all.
+    /// Only <see cref="Series.Name"/> changes - the row id and its expected-book children are
+    /// untouched, so nothing else needs re-pointing. Throws <see cref="KeyNotFoundException"/>
+    /// when no row owns the old name, and an <see cref="InvalidOperationException"/> when a row
+    /// already owns the new name (a rename would silently merge or clobber its roster).
+    /// </summary>
+    Task<Series> RenameAsync(string oldName, string newName);
     Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks);
     Task<SeriesExpectedBook?> GetExpectedBookAsync(long id);
 

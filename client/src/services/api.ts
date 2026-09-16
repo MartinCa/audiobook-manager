@@ -40,6 +40,12 @@ import type {
   SeriesOverview,
   SeriesOverviewPage,
 } from "@/types/Series";
+import type {
+  SeriesRefreshApplyRequest,
+  SeriesRefreshPending,
+  SeriesRefreshPendingPage,
+  SeriesRefreshResult,
+} from "@/types/SeriesRefresh";
 import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroups } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
@@ -488,12 +494,46 @@ export const seriesApi = {
       seriesNames,
     }),
 
-  startRefresh: (seriesName: string) =>
-    api.post<void>("/series/refresh", undefined, {
+  // Synchronous single-series refresh from its matched source: returns whether the source
+  // differed from the library (and by how many explicit changes). A refresh that found changes
+  // stores a pending snapshot for the series; a no-change refresh reports HasChanges=false.
+  refreshSeries: (seriesName: string) =>
+    api.post<SeriesRefreshResult>("/series/refresh", undefined, {
       query: { seriesName },
     }),
 
+  // Fire-and-forget bulk refresh of every matched series. Progress/completion arrive over
+  // SignalR (SeriesRefreshProgress/Complete); only series whose refresh found changes appear
+  // in the pending list afterwards.
   startRefreshAll: () => api.post<void>("/series/refresh-all"),
+
+  // Paged server-side (bounded-list invariant): one page of the series with a pending refresh
+  // snapshot, all of whose rows exist only because a refresh found explicit changes.
+  getSeriesPendingPage: (page: number, pageSize: number) =>
+    api.get<SeriesRefreshPendingPage>("/series/pending", {
+      query: { page, pageSize },
+    }),
+
+  getSeriesPendingCount: () => api.get<number>("/series/pending/count"),
+
+  getSeriesPending: (seriesName: string) =>
+    api.get<SeriesRefreshPending>("/series/pending/detail", {
+      query: { seriesName },
+    }),
+
+  dismissSeriesPending: (seriesName: string) =>
+    api.post<void>("/series/pending/dismiss", undefined, {
+      query: { seriesName },
+    }),
+
+  // Fire-and-forget: applies the accepted changes of a pending series refresh (and optionally
+  // adopts the source's series name). Progress/completion arrive over SignalR
+  // (SeriesRefreshApplyProgress/Complete) and via the GET
+  // /operations/series-refresh-apply/status endpoint.
+  applySeriesPending: (seriesName: string, request: SeriesRefreshApplyRequest) =>
+    api.post<void>("/series/pending/apply", request, {
+      query: { seriesName },
+    }),
 
   ignoreExpectedBook: (seriesName: string, position?: string | null, title?: string | null) =>
     api.post<void>(
