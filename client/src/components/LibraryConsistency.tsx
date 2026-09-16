@@ -473,7 +473,7 @@ export function LibraryConsistency() {
               </p>
             </Card>
           ) : (
-            <Accordion type="multiple" className="mt-3 space-y-3">
+            <Accordion multiple className="mt-3 space-y-3">
               {issueTypes.map((type) => {
                 const typeCount = countsByType[type] ?? 0;
                 const visibleIssues = issuesForType(type);
@@ -695,7 +695,7 @@ export function LibraryConsistency() {
 
         {orphanDirs.length > 0 && (
           <div>
-            <Accordion type="multiple" className="mt-3 space-y-3">
+            <Accordion multiple className="mt-3 space-y-3">
               <AccordionItem value="orphans" className={ACCORDION_ITEM_CLASS}>
                 <AccordionTrigger className="py-3 hover:no-underline">
                   <div className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-2 text-left">

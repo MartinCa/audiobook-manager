@@ -157,10 +157,8 @@ export function BookList() {
         </Card>
       ) : (
         <Accordion
-          type="single"
-          collapsible
-          value={activeItem}
-          onValueChange={setActiveItem}
+          value={activeItem ? [activeItem] : []}
+          onValueChange={(items: string[]) => setActiveItem(items[0])}
           className="space-y-2"
         >
           {books.map((book) => {

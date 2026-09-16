@@ -592,7 +592,7 @@ export function DiscoveredAudiobooks() {
           </p>
         </Card>
       ) : (
-        <Accordion type="single" collapsible className="space-y-2">
+        <Accordion className="space-y-2">
           {books.map((book) => {
             const isSelected = selectedPaths.has(book.fullPath);
             const overrideKey = Object.keys(organizeOverrides).find((k) =>
