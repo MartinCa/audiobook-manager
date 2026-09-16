@@ -208,6 +208,97 @@ public class SeriesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// The regex mapping patterns owned by one series, in insertion order. A pattern has no
+    /// target of its own - when the incoming metadata series value matches, it is rewritten to
+    /// the owning series' name - so there is no mappedSeries field on the wire shape, and the
+    /// series-scoped list is the whole of this series' pattern management surface. The list is
+    /// capped at the query boundary at a curator-sized limit
+    /// (<c>SeriesMappingRepository.MaxMappingsPerSeries</c>, the bounded-list invariant's
+    /// explicit limit - patterns are human-maintained regex rows, so a real series stays far
+    /// under it), rather than returned unbounded like the global grouped list it replaces.
+    /// </summary>
+    [HttpGet("mappings")]
+    public async Task<ActionResult<List<SeriesMapping>>> GetSeriesMappings([FromQuery] string seriesName)
+    {
+        try
+        {
+            return await _seriesService.GetSeriesMappingsAsync(seriesName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching series mappings for {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpPost("mappings")]
+    public async Task<ActionResult<SeriesMapping>> CreateSeriesMapping([FromQuery] string seriesName, [FromBody] SeriesMapping? dto)
+    {
+        if (dto is null || string.IsNullOrWhiteSpace(dto.Regex))
+        {
+            return this.InvalidRequest("A regex pattern is required.");
+        }
+
+        if (dto.Id is not null && dto.Id != default(long))
+        {
+            return this.InvalidRequest("The frontend may not specify an id for a new mapping.");
+        }
+
+        try
+        {
+            return await _seriesService.CreateSeriesMappingAsync(seriesName, dto);
+        }
+        catch (ArgumentException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating a series mapping for {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpPut("mappings/{mappingId}")]
+    public async Task<ActionResult<SeriesMapping>> UpdateSeriesMapping(long mappingId, [FromQuery] string seriesName, [FromBody] SeriesMapping? dto)
+    {
+        if (dto is null || string.IsNullOrWhiteSpace(dto.Regex))
+        {
+            return this.InvalidRequest("A regex pattern is required.");
+        }
+
+        try
+        {
+            var updated = await _seriesService.UpdateSeriesMappingAsync(seriesName, mappingId, dto);
+            return updated is null ? NotFound() : updated;
+        }
+        catch (ArgumentException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating series mapping {MappingId} for {SeriesName}", mappingId, seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpDelete("mappings/{mappingId}")]
+    public async Task<IActionResult> DeleteSeriesMapping(long mappingId, [FromQuery] string seriesName)
+    {
+        try
+        {
+            var deleted = await _seriesService.DeleteSeriesMappingAsync(seriesName, mappingId);
+            return deleted ? Ok() : NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting series mapping {MappingId} for {SeriesName}", mappingId, seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
     [HttpPost("match/bulk")]
     public IActionResult StartBulkMatch([FromBody] BulkMatchSeriesDto dto)
     {

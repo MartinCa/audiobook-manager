@@ -5,6 +5,7 @@ using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
+using AudiobookManager.Services.MappingExtensions;
 using Microsoft.Extensions.Logging;
 using PendingSeriesRefresh = AudiobookManager.Domain.PendingSeriesRefresh;
 
@@ -71,6 +72,7 @@ public class SeriesService : ISeriesService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly ISeriesMappingRepository _seriesMappingRepository;
     private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
@@ -82,6 +84,7 @@ public class SeriesService : ISeriesService
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        ISeriesMappingRepository seriesMappingRepository,
         IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
@@ -92,6 +95,7 @@ public class SeriesService : ISeriesService
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _seriesMappingRepository = seriesMappingRepository;
         _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
@@ -484,6 +488,99 @@ public class SeriesService : ISeriesService
 
         var reconciliation = await GetReconciliationAsync(seriesName);
         return BuildReconciledOverview(seriesName, saved, reconciliation);
+    }
+
+    public async Task<List<Domain.SeriesMapping>> GetSeriesMappingsAsync(string seriesName)
+    {
+        // The list comes back capped at the repository's per-series limit (bounded-list
+        // invariant): the bound lives in the query, so it holds no matter how many patterns
+        // the series owns.
+        var mappings = await _seriesMappingRepository.GetBySeriesNameAsync(seriesName);
+        return mappings.Select(SeriesMappingMapping.ToDomain).ToList();
+    }
+
+    public async Task<Domain.SeriesMapping> CreateSeriesMappingAsync(string seriesName, Domain.SeriesMapping seriesMapping)
+    {
+        // An unmatched series exists only as a value on audiobooks and has no catalog row, but a
+        // mapping pattern is data-model-wise owned by a Series row - so creating one also creates
+        // the owning row. SeriesRepository.GetOrCreateByNameAsync tolerates the read-then-insert
+        // race the same way the other upserts do, and reports whether THIS call inserted the row,
+        // which is what lets a failed insert roll the owner back (below).
+        var (series, createdOwner) = await _seriesRepository.GetOrCreateByNameAsync(seriesName);
+
+        try
+        {
+            var dbModel = seriesMapping.ToDb(series.Id);
+            dbModel = await _seriesMappingRepository.CreateSeriesMappingAsync(dbModel);
+            return dbModel.ToDomain();
+        }
+        catch (Exception)
+        {
+            if (createdOwner)
+            {
+                // A duplicate-regex failure (or any other insert failure) must not leave the owner
+                // row this call just inserted behind as an orphan: an unmatched series exists only
+                // as a value on audiobooks, so an empty catalog row with no pattern would surface
+                // it as a phantom series on the overview. The rollback is a single conditional
+                // delete - only a row still holding nothing but what this call created (unmatched,
+                // no patterns, no roster, no omnibus flag) is removed, re-checked atomically at
+                // delete time. A concurrent caller that lost the create race but inserted its own
+                // pattern (or matched the series, or toggled omnibus) onto this row in the window
+                // since it was created keeps its data: deleting the row would cascade it all away
+                // with no error surfaced to that caller, which believes its write succeeded.
+                // createdOwner is still worth checking first - a pre-existing owner (or a winner
+                // adopted after a concurrent create) is never even considered for rollback.
+                try
+                {
+                    await _seriesRepository.DeleteIfEmptyAsync(series.Id);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx,
+                        "Failed to roll back the series owner row {SeriesId} after a mapping insert failure",
+                        series.Id);
+                }
+            }
+            throw;
+        }
+    }
+
+    public async Task<Domain.SeriesMapping?> UpdateSeriesMappingAsync(string seriesName, long mappingId, Domain.SeriesMapping seriesMapping)
+    {
+        var series = await _seriesRepository.GetByNameAsync(seriesName);
+        if (series is null)
+        {
+            return null;
+        }
+
+        var existing = await _seriesMappingRepository.GetSeriesMappingAsync(mappingId);
+        if (existing is null || existing.SeriesId != series.Id)
+        {
+            // The mapping (or the ownership the caller claims) does not exist in this series'
+            // scope - an id that belongs to another series is not this series' mapping.
+            return null;
+        }
+
+        seriesMapping.Id = mappingId;
+        var updated = await _seriesMappingRepository.UpdateSeriesMappingAsync(seriesMapping.ToDb(series.Id));
+        return updated?.ToDomain();
+    }
+
+    public async Task<bool> DeleteSeriesMappingAsync(string seriesName, long mappingId)
+    {
+        var series = await _seriesRepository.GetByNameAsync(seriesName);
+        if (series is null)
+        {
+            return false;
+        }
+
+        var existing = await _seriesMappingRepository.GetSeriesMappingAsync(mappingId);
+        if (existing is null || existing.SeriesId != series.Id)
+        {
+            return false;
+        }
+
+        return await _seriesMappingRepository.DeleteSeriesMappingAsync(mappingId);
     }
 
     /// <summary>

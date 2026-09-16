@@ -119,8 +119,9 @@ public class SeriesRepository : ISeriesRepository
     /// Inserts the series if no row with the same <see cref="Series.Name"/> exists,
     /// otherwise updates the match metadata on the existing row.
     /// </summary>
-    public Task<Series> UpsertSeriesAsync(Series series) =>
-        UpsertByNameAsync(
+    public async Task<Series> UpsertSeriesAsync(Series series)
+    {
+        var (row, _) = await UpsertByNameAsync(
             series.Name,
             row =>
             {
@@ -133,6 +134,8 @@ public class SeriesRepository : ISeriesRepository
                 row.IncludeOmnibusEditions = series.IncludeOmnibusEditions;
             },
             () => series);
+        return row;
+    }
 
     /// <summary>
     /// Insert-or-update keyed on the unique series name, tolerating the read-then-insert race.
@@ -145,15 +148,19 @@ public class SeriesRepository : ISeriesRepository
     /// fail the whole request with a raw "UNIQUE constraint failed: series.name" 500; it now
     /// adopts the winner's row and applies its own change on top, which is what the caller
     /// asked for either way.
+    ///
+    /// The bool reports whether THIS call inserted the row (false for a pre-existing row and
+    /// for a winner adopted after losing the race) - the only caller that needs it uses it to
+    /// decide whether a downstream failure warrants deleting the row it just created.
     /// </summary>
-    private async Task<Series> UpsertByNameAsync(string name, Action<Series> applyChanges, Func<Series> createNew)
+    private async Task<(Series Series, bool Created)> UpsertByNameAsync(string name, Action<Series> applyChanges, Func<Series> createNew)
     {
         var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == name);
         if (existing is not null)
         {
             applyChanges(existing);
             await _db.SaveChangesAsync();
-            return existing;
+            return (existing, false);
         }
 
         var inserted = createNew();
@@ -162,7 +169,7 @@ public class SeriesRepository : ISeriesRepository
         try
         {
             await _db.SaveChangesAsync();
-            return inserted;
+            return (inserted, true);
         }
         catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
         {
@@ -177,7 +184,7 @@ public class SeriesRepository : ISeriesRepository
 
             applyChanges(winner);
             await _db.SaveChangesAsync();
-            return winner;
+            return (winner, false);
         }
     }
 
@@ -328,11 +335,56 @@ public class SeriesRepository : ISeriesRepository
         return null;
     }
 
-    public Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions) =>
-        UpsertByNameAsync(
+    public async Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions)
+    {
+        var (row, _) = await UpsertByNameAsync(
             seriesName,
             row => row.IncludeOmnibusEditions = includeOmnibusEditions,
             () => new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions });
+        return row;
+    }
+
+    public async Task<(Series Series, bool Created)> GetOrCreateByNameAsync(string name)
+    {
+        var (row, created) = await UpsertByNameAsync(name, _ => { }, () => new Series { Name = name });
+        return (row, created);
+    }
+
+    /// <summary>
+    /// Deletes one catalog row, but only when it is still the untouched shell a create path just
+    /// inserted: unmatched, no omnibus flag, no mapping patterns and no roster. The emptiness is
+    /// checked in the same statement as the delete, so a concurrent write - a mapping another
+    /// request inserted onto the row, a match, a roster replace, an omnibus toggle - makes the
+    /// condition fail at delete time and the row survives, instead of being cascaded away with the
+    /// other request's data. Only the series-mapping create path's rollback uses it, and only for
+    /// a row <c>SeriesService.CreateSeriesMappingAsync</c> itself just created; this conditional
+    /// re-check is what keeps that rollback safe against a concurrent request that adopted the row.
+    /// Returns whether the row was actually deleted.
+    /// </summary>
+    public async Task<bool> DeleteIfEmptyAsync(long id)
+    {
+        var deletedRows = await _db.Series
+            .Where(s => s.Id == id
+                && s.MatchedSourceName == null
+                && s.MatchedSourceId == null
+                && !s.IncludeOmnibusEditions
+                && !s.Mappings.Any()
+                && !s.ExpectedBooks.Any())
+            .ExecuteDeleteAsync();
+
+        if (deletedRows > 0)
+        {
+            // ExecuteDeleteAsync bypasses the change tracker: the row this call inserted is still
+            // tracked here, and a deleted rowid SQLite may hand to a later insert must never
+            // resolve back to it inside this request-scoped context.
+            foreach (var entry in _db.ChangeTracker.Entries<Series>().Where(e => e.Entity.Id == id).ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+        }
+
+        return deletedRows > 0;
+    }
 
     /// <summary>
     /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>.

@@ -1,253 +1,37 @@
-import { useCallback, useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-  Settings as SettingsIcon,
-  Plus,
-  Trash2,
-  Edit2,
-  Loader2,
-  BookMarked,
-  Info,
-  ExternalLink,
-  Search,
-  X,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Settings as SettingsIcon, Info, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { TypeaheadInput } from "@/components/TypeaheadInput";
-import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
-import { settingsApi, similarValuesApi } from "@/services/api";
-import { handleApiError } from "@/lib/api";
+import { settingsApi } from "@/services/api";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
-import { toast } from "sonner";
-import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroup } from "@/types/SeriesMapping";
 
+/**
+ * System information. Series mapping patterns used to be maintained here as global
+ * regex -> target rules; they are owned by a series now and live on that series' detail page
+ * (the Management section), so only the system/about card remains.
+ */
 export function Settings() {
-  const queryClient = useQueryClient();
-
-  // Dialog state
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingMapping, setEditingMapping] = useState<SeriesMapping | null>(null);
-  const [mappedSeries, setMappedSeries] = useState("");
-  const [regex, setRegex] = useState("");
-  const [warnAboutPart, setWarnAboutPart] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  // The mapping list is grouped and filtered server-side now - the flat table used to be
-  // shipped whole and reduced into buckets client-side. Search is debounced into the query key.
-  const [mappingSearchQuery, setMappingSearchQuery] = useState("");
-  const [mappingSearch, setMappingSearch] = useState("");
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const trimmed = mappingSearchQuery.trim();
-      if (trimmed !== mappingSearch) {
-        setMappingSearch(trimmed);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [mappingSearchQuery, mappingSearch]);
-
-  const { data: grouped = null, isLoading: loading } = useQuery({
-    queryKey: ["seriesMappings", mappingSearch],
-    queryFn: () => settingsApi.getSeriesMappingGroups(mappingSearch),
-  });
-
-  const mappings = (grouped?.items ?? []) as SeriesMappingGroup[];
-
-  // The target-series type-ahead in the mapping dialog is a bounded server-side lookup of the
-  // typed query, not a preloaded list of every series value - the same bounded replacement the
-  // book form's series field uses. The provider identity is stable (it closes over nothing
-  // changeable) so TypeaheadInput's debounced fetch is not reset on every render.
-  const fetchSeriesTargets = useCallback(
-    (query: string) =>
-      similarValuesApi.getAutocomplete("series", query, TYPEAHEAD_SUGGESTION_COUNT),
-    [],
-  );
-
   const { data: systemInfo } = useQuery({
     queryKey: ["systemInfo"],
     queryFn: () => settingsApi.getSystemInfo(),
     staleTime: 60 * 60 * 1000,
   });
 
-  const handleOpenCreate = () => {
-    setEditingMapping(null);
-    setMappedSeries("");
-    setRegex("");
-    setWarnAboutPart(false);
-    setDialogOpen(true);
-  };
-
-  const handleOpenEdit = (m: SeriesMapping) => {
-    setEditingMapping(m);
-    setMappedSeries(m.mappedSeries);
-    setRegex(m.regex);
-    setWarnAboutPart(m.warnAboutPart);
-    setDialogOpen(true);
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mappedSeries.trim() || !regex.trim()) return;
-
-    setSaving(true);
-    try {
-      if (editingMapping) {
-        await settingsApi.updateSeriesMapping(editingMapping.id, {
-          id: editingMapping.id,
-          mappedSeries: mappedSeries.trim(),
-          regex: regex.trim(),
-          warnAboutPart,
-        });
-        toast.success("Series mapping updated");
-      } else {
-        const payload: SeriesMappingBase = {
-          mappedSeries: mappedSeries.trim(),
-          regex: regex.trim(),
-          warnAboutPart,
-        };
-        await settingsApi.createSeriesMapping(payload);
-        toast.success("Series mapping created");
-      }
-      setDialogOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["seriesMappings"] });
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await settingsApi.deleteSeriesMapping(id);
-      toast.success("Series mapping deleted");
-      void queryClient.invalidateQueries({ queryKey: ["seriesMappings"] });
-    } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
-    }
-  };
-
   return (
     <div className="max-w-4xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
-            <SettingsIcon className="text-primary h-6 w-6" />
-            Settings — Series Mappings
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Configure series name regular expression mappings. Library-wide settings live on the{" "}
-            <Link to="/settings/library" className="text-primary hover:underline">
-              Library Settings
-            </Link>{" "}
-            page.
-          </p>
-        </div>
-
-        <Button onClick={handleOpenCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Series Mapping
-        </Button>
+      <div>
+        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
+          <SettingsIcon className="text-primary h-6 w-6" />
+          Settings
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          System information and about this installation. Library-wide settings live on the{" "}
+          <Link to="/settings/library" className="text-primary hover:underline">
+            Library Settings
+          </Link>{" "}
+          page.
+        </p>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <BookMarked className="text-primary h-5 w-5" />
-            Series Regex Mappings ({grouped?.total ?? mappings.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground mb-3 text-xs">
-            Regular expressions match scraped or embedded series names and normalize them to a
-            standard canonical series title.
-          </p>
-
-          <div className="relative mb-4 max-w-md">
-            <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-            <Input
-              placeholder="Filter patterns or targets..."
-              value={mappingSearchQuery}
-              onChange={(e) => setMappingSearchQuery(e.target.value)}
-              className="pr-9 pl-9"
-            />
-            {mappingSearchQuery ? (
-              <button
-                type="button"
-                onClick={() => setMappingSearchQuery("")}
-                aria-label="Clear search"
-                className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-
-          {loading ? (
-            <div className="text-muted-foreground flex items-center justify-center py-12">
-              <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
-              <span className="text-sm">Loading mappings...</span>
-            </div>
-          ) : (grouped?.total ?? 0) === 0 ? (
-            <div className="text-muted-foreground border-border rounded-lg border border-dashed p-8 text-center text-sm">
-              {mappingSearch
-                ? "No series mappings match your filter."
-                : "No series mappings configured yet."}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {mappings.map((group) => (
-                <div
-                  key={group.mappedSeries}
-                  className="border-border bg-card space-y-2 rounded-lg border p-4"
-                >
-                  <div className="text-foreground text-sm font-semibold">
-                    Target: {group.mappedSeries}
-                  </div>
-                  <div className="space-y-1.5 pl-2">
-                    {(group.items as SeriesMapping[]).map((item) => (
-                      <div
-                        key={item.id}
-                        className="bg-muted/40 flex flex-col justify-between gap-2 rounded px-3 py-2 text-xs sm:flex-row sm:items-center"
-                      >
-                        <div className="text-muted-foreground min-w-0 flex-1 font-mono break-all">
-                          Pattern:{" "}
-                          <span className="text-foreground font-semibold">{item.regex}</span>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1 self-end sm:self-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleOpenEdit(item)}
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive h-7 w-7"
-                            onClick={() => {
-                              void handleDelete(item.id);
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -304,80 +88,6 @@ export function Settings() {
           </div>
         </CardContent>
       </Card>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>
-              {editingMapping ? "Edit Series Mapping" : "Create Series Mapping"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <form
-            onSubmit={(e) => {
-              void handleSave(e);
-            }}
-            className="space-y-4 py-2"
-          >
-            <div className="space-y-1">
-              <label className="text-muted-foreground text-xs font-semibold uppercase">
-                Target Series Name <span className="text-destructive">*</span>
-              </label>
-              <TypeaheadInput
-                placeholder="The Wheel of Time"
-                value={mappedSeries}
-                onValueChange={setMappedSeries}
-                fetchCandidates={fetchSeriesTargets}
-                required
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-muted-foreground text-xs font-semibold uppercase">
-                Regex Pattern <span className="text-destructive">*</span>
-              </label>
-              <Input
-                placeholder="(?i)^wheel of time.*"
-                value={regex}
-                onChange={(e) => setRegex(e.target.value)}
-                className="font-mono"
-                required
-              />
-            </div>
-
-            <div className="flex items-center space-x-2 pt-1">
-              <input
-                type="checkbox"
-                id="warnAboutPart"
-                checked={warnAboutPart}
-                onChange={(e) => setWarnAboutPart(e.target.checked)}
-                className="border-border h-4 w-4 rounded"
-              />
-              <label
-                htmlFor="warnAboutPart"
-                className="text-muted-foreground cursor-pointer text-xs"
-              >
-                Warn if series part is found
-              </label>
-            </div>
-
-            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => setDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
-                {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
-                {editingMapping ? "Save Changes" : "Create Mapping"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

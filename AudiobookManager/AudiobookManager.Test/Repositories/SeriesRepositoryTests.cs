@@ -359,4 +359,100 @@ public class SeriesRepositoryTests
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _repository.RenameAsync("No Such Series", "New Name"));
     }
+
+    // --- DeleteIfEmptyAsync (the atomic rollback for a failed series-mapping create) ---
+
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_DeletesAnUnmatchedShellRow()
+    {
+        var series = await _repository.GetOrCreateByNameAsync("Lonely Unmatched");
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Series.Id);
+
+        Assert.IsTrue(deleted);
+        Assert.IsNull(await _repository.GetByNameAsync("Lonely Unmatched"));
+    }
+
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_RefusesWhenARowOwnsMappings()
+    {
+        var series = await _repository.GetOrCreateByNameAsync("Mapped Series");
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^mapped.*$", false, series.Series.Id));
+        await _db.SaveChangesAsync();
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Series.Id);
+
+        Assert.IsFalse(deleted);
+        Assert.IsNotNull(await _repository.GetByNameAsync("Mapped Series"));
+    }
+
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_RefusesWhenTheRowIsMatched()
+    {
+        var series = await _repository.UpsertSeriesAsync(new Series
+        {
+            Name = "Matched Series",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "123",
+        });
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Id);
+
+        Assert.IsFalse(deleted);
+        Assert.IsNotNull(await _repository.GetByNameAsync("Matched Series"));
+    }
+
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_RefusesWhenTheRowHasARoster()
+    {
+        var series = await _repository.GetOrCreateByNameAsync("Rostered Series");
+        _db.SeriesExpectedBooks.Add(new SeriesExpectedBook
+        {
+            SeriesId = series.Series.Id,
+            Title = "The Only Book",
+            Position = "1",
+        });
+        await _db.SaveChangesAsync();
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Series.Id);
+
+        Assert.IsFalse(deleted);
+        Assert.IsNotNull(await _repository.GetByNameAsync("Rostered Series"));
+    }
+
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_RefusesWhenTheOmnibusFlagWasToggled()
+    {
+        var series = await _repository.SetIncludeOmnibusEditionsAsync("Toggled Series", true);
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Id);
+
+        Assert.IsFalse(deleted);
+        Assert.IsNotNull(await _repository.GetByNameAsync("Toggled Series"));
+    }
+
+    // Regression for the review finding: the rollback path used to DeleteAsync unconditionally,
+    // so a request that lost the create race but had inserted its own (valid) pattern onto the
+    // just-created row in the meantime had its pattern cascaded away. The conditional delete must
+    // see that mapping - written by another context, as a real concurrent request would be - and
+    // refuse to delete the row.
+    [TestMethod]
+    public async Task DeleteIfEmptyAsync_SeesAMappingAConcurrentContextWroteAndRefusesToDelete()
+    {
+        var series = (await _repository.GetOrCreateByNameAsync("Race Series")).Series;
+
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        using (var concurrent = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings))
+        {
+            concurrent.SeriesMappings.Add(new SeriesMapping(default, "^racer.*$", false, series.Id));
+            await concurrent.SaveChangesAsync();
+        }
+
+        var deleted = await _repository.DeleteIfEmptyAsync(series.Id);
+
+        Assert.IsFalse(deleted, "a row another request mapped onto must survive the rollback");
+        Assert.IsNotNull(await _repository.GetByNameAsync("Race Series"));
+        Assert.AreEqual(1, await _db.SeriesMappings.AsNoTracking().CountAsync(m => m.SeriesId == series.Id),
+            "the concurrent mapping must not have been cascaded away");
+    }
 }

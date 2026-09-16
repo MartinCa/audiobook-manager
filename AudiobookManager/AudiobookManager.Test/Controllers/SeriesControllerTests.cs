@@ -1262,4 +1262,115 @@ public class SeriesControllerTests
             s => s.SetRunning(SeriesController.MissingBookApplyOperationKey),
             Times.Never, "no background operation may start for a batch with a duplicate target");
     }
+
+    // --- Series mapping patterns (owned by this series; target is always the owner's name) ---
+
+    [TestMethod]
+    public async Task GetSeriesMappings_ReturnsTheSeriesMappingsAndKeepsNameInTheQueryString()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesMappingsAsync("Mistborn"))
+            .ReturnsAsync(new List<SeriesMapping>
+            {
+                new(1, "^mistborn.*$", false),
+            });
+
+        var result = await _controller.GetSeriesMappings("Mistborn");
+
+        Assert.IsNotNull(result.Value);
+        var mappings = result.Value!;
+        Assert.AreEqual(1, mappings.Count);
+        Assert.AreEqual("^mistborn.*$", mappings[0].Regex);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMapping_RejectsBlankRegexWithProblem()
+    {
+        var result = await _controller.CreateSeriesMapping("Mistborn", new SeriesMapping(null, "   ", false));
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "A regex pattern is required.");
+        _seriesService.Verify(
+            s => s.CreateSeriesMappingAsync(It.IsAny<string>(), It.IsAny<SeriesMapping>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMapping_RejectsClientSuppliedId()
+    {
+        var result = await _controller.CreateSeriesMapping("Mistborn", new SeriesMapping(5, "^x$", false));
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "The frontend may not specify an id for a new mapping.");
+        _seriesService.Verify(
+            s => s.CreateSeriesMappingAsync(It.IsAny<string>(), It.IsAny<SeriesMapping>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMapping_ReturnsTheSavedMapping()
+    {
+        _seriesService
+            .Setup(s => s.CreateSeriesMappingAsync("Mistborn", It.IsAny<SeriesMapping>()))
+            .ReturnsAsync((string _, SeriesMapping m) =>
+                new SeriesMapping(42, m.Regex, m.WarnAboutPart));
+
+        var result = await _controller.CreateSeriesMapping(
+            "Mistborn", new SeriesMapping(null, "^mistborn.*$", true));
+
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual(42, result.Value!.Id);
+        Assert.IsTrue(result.Value!.WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMapping_ReturnsNotFoundWhenTheMappingIsNotOwnedByTheSeries()
+    {
+        _seriesService
+            .Setup(s => s.UpdateSeriesMappingAsync("Mistborn", 7, It.IsAny<SeriesMapping>()))
+            .ReturnsAsync((SeriesMapping?)null);
+
+        var result = await _controller.UpdateSeriesMapping(
+            7, "Mistborn", new SeriesMapping(null, "^new.*$", false));
+
+        Assert.IsInstanceOfType<NotFoundResult>(result.Result);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMapping_ReturnsTheUpdatedMapping()
+    {
+        _seriesService
+            .Setup(s => s.UpdateSeriesMappingAsync("Mistborn", 7, It.IsAny<SeriesMapping>()))
+            .ReturnsAsync((string _, long _, SeriesMapping m) => new SeriesMapping(7, m.Regex, m.WarnAboutPart));
+
+        var result = await _controller.UpdateSeriesMapping(
+            7, "Mistborn", new SeriesMapping(null, "^new.*$", true));
+
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual("^new.*$", result.Value!.Regex);
+        Assert.IsTrue(result.Value!.WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesMapping_ReturnsNotFoundWhenTheMappingIsNotOwnedByTheSeries()
+    {
+        _seriesService
+            .Setup(s => s.DeleteSeriesMappingAsync("Mistborn", 7))
+            .ReturnsAsync(false);
+
+        var result = await _controller.DeleteSeriesMapping(7, "Mistborn");
+
+        Assert.IsInstanceOfType<NotFoundResult>(result);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesMapping_DeletesAnOwnedMapping()
+    {
+        _seriesService
+            .Setup(s => s.DeleteSeriesMappingAsync("Mistborn", 7))
+            .ReturnsAsync(true);
+
+        var result = await _controller.DeleteSeriesMapping(7, "Mistborn");
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _seriesService.Verify(s => s.DeleteSeriesMappingAsync("Mistborn", 7), Times.Once);
+    }
 }

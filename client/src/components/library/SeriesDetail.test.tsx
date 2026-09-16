@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
@@ -125,8 +125,7 @@ describe("SeriesDetail", () => {
     const ownedBookLink = await screen.findByRole("link", { name: /The Final Empire/ });
     expect(ownedBookLink).toHaveAttribute("href", "/library/book/10");
     expect(ownedBookLink).not.toHaveAttribute("target");
-    expect(screen.getByText("Matched to Hardcover")).toBeInTheDocument();
-    expect(screen.getByText(/The Alloy of Law/)).toBeInTheDocument();
+    expect(screen.getAllByText(/The Alloy of Law/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Ignore")).toBeInTheDocument();
     expect(
       screen.getByText("Include omnibus/box-set editions in missing books list"),
@@ -134,6 +133,90 @@ describe("SeriesDetail", () => {
     // Sections display their full totals, not just the loaded page.
     expect(screen.getByText(/Owned Books \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/Missing Books \(7\)/)).toBeInTheDocument();
+
+    // Critical info first: the header shows the matched-to source indication twice - once in the
+    // header where the source NAME is the link to the source page, and once in the Management
+    // section's metadata block. There is no separate "View at source" link - the name is the link.
+    const sourceLinks = screen.getAllByRole("link", { name: "Hardcover" });
+    expect(sourceLinks.length).toBeGreaterThanOrEqual(2);
+    expect(
+      sourceLinks.every((l) => l.getAttribute("href") === "https://hardcover.app/series/mistborn"),
+    ).toBe(true);
+    expect(screen.getAllByText(/Matched to/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/View at source/)).not.toBeInTheDocument();
+
+    // The management section owns the metadata provider details and the match/refresh actions.
+    expect(screen.getByText("Management & Settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-match to Source" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh Online" })).toBeInTheDocument();
+    expect(screen.getByText("Confidence: 98%")).toBeInTheDocument();
+    expect(screen.getByText("Series Mapping Patterns (0)")).toBeInTheDocument();
+  });
+
+  // Regression for the review finding: the header already guarded "Matched to" with a non-empty
+  // source name, but the Management card only checked isMatched and rendered "Matched to " against
+  // an empty source name (still styled as a link when matchedSourceUrl happened to be set). Both
+  // must share the guard - a matched series without a source name is the incomplete state, not a
+  // dangling label.
+  it("renders the incomplete-provider message for a matched series with no source name", async () => {
+    const detail = makeDetail([], 0);
+    detail.overview = {
+      ...detail.overview,
+      matchedSourceName: null,
+      matchedSourceId: null,
+      matchedSourceUrl: null,
+    };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    await screen.findByRole("heading", { name: "Mistborn" });
+    // Same guard in header and management card: never "Matched to " with an empty source name.
+    expect(screen.queryByText(/Matched to/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Hardcover|View at source/ }),
+    ).not.toBeInTheDocument();
+    // Also no stray "View at source" (the source name is the only source link, and there is none).
+    expect(screen.queryByText(/View at source/)).not.toBeInTheDocument();
+    // The management card shows the incomplete-state guidance instead.
+    expect(screen.getByText(/Not matched to an online metadata provider yet/)).toBeInTheDocument();
+  });
+
+  // Regression for the review finding: the header used to hide the missing count entirely when
+  // it was zero, so a fully-owning matched series read as if the count were absent (and a series
+  // that went from 1 missing to 0 got its number silently wiped). The critical header must show
+  // owned and missing counts consistently for every matched series - 0 included.
+  it("renders the missing count in the header for a matched series with nothing missing", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/1 book owned/)).toBeInTheDocument();
+    expect(within(header).getByText(/0 missing/)).toBeInTheDocument();
+  });
+
+  it("renders the missing count in the header for a matched series with missing books", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([missingBook(20, "The Alloy of Law")], 3),
+    );
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/3 missing/)).toBeInTheDocument();
+  });
+
+  it("omits the missing count from the header for a series that is not matched", async () => {
+    const detail = makeDetail([], 0);
+    detail.overview = { ...detail.overview, isMatched: false };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    const header = (await screen.findByRole("heading", { name: "Mistborn" })).closest("div")!;
+    expect(within(header).getByText(/1 book owned/)).toBeInTheDocument();
+    expect(within(header).queryByText(/missing/)).not.toBeInTheDocument();
   });
 
   // Regression: the owned section used to serve a minimal DTO with no coverFilePath, so the
@@ -462,5 +545,103 @@ describe("SeriesDetail", () => {
 
     await screen.findByRole("heading", { name: "Mistborn" });
     expect(screen.queryByRole("button", { name: "Match Missing Books" })).not.toBeInTheDocument();
+  });
+
+  // --- Series mapping patterns (owned by this series, managed in the Management section) ---
+
+  it("renders the series' mapping patterns in the management section", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([
+      { id: 1, regex: "^mistborn.*$", warnAboutPart: false },
+      { id: 2, regex: "\\bhusk\\b", warnAboutPart: true },
+    ]);
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Series Mapping Patterns (2)")).toBeInTheDocument();
+    expect(screen.getByText("^mistborn.*$")).toBeInTheDocument();
+    expect(screen.getByText("\\bhusk\\b")).toBeInTheDocument();
+    // Only the second pattern carries warn-on-part, so only one badge renders.
+    expect(screen.getByText("warn on part")).toBeInTheDocument();
+    expect(screen.queryAllByText("warn on part")).toHaveLength(1);
+  });
+
+  it("adds a mapping pattern through the management dialog with no target field", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([]);
+    const create = vi
+      .spyOn(seriesApi, "createSeriesMapping")
+      .mockResolvedValue({ id: 1, regex: "^wot.*$", warnAboutPart: false });
+
+    renderWithProviders();
+
+    await screen.findByText("Series Mapping Patterns (0)");
+    fireEvent.click(screen.getByRole("button", { name: "Add Pattern" }));
+
+    const dialog = await screen.findByRole("dialog");
+    // The pattern has no target of its own: the dialog explains the target is this series and
+    // offers only regex + warn-on-part.
+    expect(dialog).toHaveTextContent('normalized to this series: "Mistborn"');
+    expect(within(dialog).queryByLabelText(/Target Series Name/)).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText(/Regex Pattern/), {
+      target: { value: "^wot.*$" },
+    });
+    fireEvent.click(within(dialog).getByLabelText("Warn if series part is found"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Pattern" }));
+
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith("Mistborn", {
+        regex: "^wot.*$",
+        warnAboutPart: true,
+      });
+    });
+  });
+
+  it("edits a mapping pattern's regex and warn-on-part through the dialog", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([
+      { id: 5, regex: "^old.*$", warnAboutPart: false },
+    ]);
+    const update = vi
+      .spyOn(seriesApi, "updateSeriesMapping")
+      .mockResolvedValue({ id: 5, regex: "^new.*$", warnAboutPart: true });
+
+    renderWithProviders();
+
+    await screen.findByText("^old.*$");
+    fireEvent.click(screen.getByRole("button", { name: "Edit pattern 5" }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/Regex Pattern/), {
+      target: { value: "^new.*$" },
+    });
+    fireEvent.click(within(dialog).getByLabelText("Warn if series part is found"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledWith("Mistborn", 5, {
+        id: 5,
+        regex: "^new.*$",
+        warnAboutPart: true,
+      });
+    });
+  });
+
+  it("deletes a mapping pattern from the management list", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([
+      { id: 5, regex: "^mistborn.*$", warnAboutPart: false },
+    ]);
+    const remove = vi.spyOn(seriesApi, "deleteSeriesMapping").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    await screen.findByText("^mistborn.*$");
+    fireEvent.click(screen.getByRole("button", { name: "Delete pattern 5" }));
+
+    await waitFor(() => {
+      expect(remove).toHaveBeenCalledWith("Mistborn", 5);
+    });
   });
 });

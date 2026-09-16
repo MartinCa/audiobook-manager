@@ -40,6 +40,25 @@ public interface ISeriesRepository
     Task<Series> UpsertSeriesAsync(Series series);
 
     /// <summary>
+    /// Ensures a catalog row exists for <paramref name="name"/> (an unmatched series value has
+    /// no catalog row yet, but series-mapping patterns are owned by a Series row, so creating a
+    /// mapping for one must create the owning row). Tolerates the read-then-insert race like the
+    /// other upserts. Returns the row, existing or freshly inserted, and whether THIS call
+    /// inserted it - a freshly-inserted row is safe for the caller to roll back (via
+    /// <see cref="DeleteIfEmptyAsync"/>, which re-checks emptiness atomically) if the operation
+    /// that needed it fails; a pre-existing (or race-adopted) row is not.
+    /// </summary>
+    Task<(Series Series, bool Created)> GetOrCreateByNameAsync(string name);
+
+    /// <summary>
+    /// Deletes one catalog row only if it is still empty and unmatched - no match metadata, no
+    /// omnibus flag, no mapping patterns, no roster. The check happens in the same conditional
+    /// delete, so a row a concurrent request has written to (or is building on) is never removed.
+    /// Returns whether the row was deleted.
+    /// </summary>
+    Task<bool> DeleteIfEmptyAsync(long id);
+
+    /// <summary>
     /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>,
     /// moving the roster (expected-book rows, ignore flags included) and every matched-source
     /// metadata field with it. Used by the source-series-name adoption, which renames every

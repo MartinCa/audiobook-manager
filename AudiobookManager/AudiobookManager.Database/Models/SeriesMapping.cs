@@ -3,6 +3,11 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AudiobookManager.Database.Models;
 
+/// <summary>
+/// One regex mapping pattern owned by a <see cref="Series"/>. When a scraped or embedded series
+/// value matches <see cref="Regex"/>, it is normalized to the owning series' <see cref="Series.Name"/>
+/// - the pattern never carries its own target.
+/// </summary>
 [Table("series_mapping")]
 public class SeriesMapping
 {
@@ -14,17 +19,18 @@ public class SeriesMapping
     [Column("regex")]
     public string Regex { get; set; }
     [Required]
-    [Column("mapped_series")]
-    public string MappedSeries { get; set; }
-    [Required]
     [Column("warn_about_part")]
     public bool WarnAboutPart { get; set; }
 
-    public SeriesMapping(long id, string regex, string mappedSeries, bool warnAboutPart)
+    [Column("series_id")]
+    public long SeriesId { get; set; }
+    public Series? Series { get; set; }
+
+    public SeriesMapping(long id, string regex, bool warnAboutPart, long seriesId = default)
     {
         Id = id;
         Regex = regex;
-        MappedSeries = mappedSeries;
         WarnAboutPart = warnAboutPart;
+        SeriesId = seriesId;
     }
 }

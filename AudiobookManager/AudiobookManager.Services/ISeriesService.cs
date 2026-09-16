@@ -79,6 +79,35 @@ public interface ISeriesService
     Task<SeriesOverview> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
 
     /// <summary>
+    /// The regex mapping patterns owned by this series, in insertion order. A pattern has no
+    /// target of its own: when the incoming metadata series value matches its regex,
+    /// <see cref="AudiobookManager.Scraping.BookSeriesMapper"/> rewrites it to the owning series'
+    /// name. The list is capped at the repository's per-series limit (the bounded-list
+    /// invariant's explicit limit at the query boundary), so it can never be an unbounded
+    /// transfer no matter how many patterns the series owns.
+    /// </summary>
+    Task<List<Domain.SeriesMapping>> GetSeriesMappingsAsync(string seriesName);
+
+    /// <summary>
+    /// Adds a regex pattern owned by <paramref name="seriesName"/>. Creating a mapping for a
+    /// series that has no catalog row yet (an unmatched series exists only as a value on
+    /// audiobooks) also creates the owning catalog row.
+    /// </summary>
+    Task<Domain.SeriesMapping> CreateSeriesMappingAsync(string seriesName, Domain.SeriesMapping seriesMapping);
+
+    /// <summary>
+    /// Updates a pattern owned by the named series; null when the series has no catalog row or no
+    /// mapping with <paramref name="mappingId"/> belongs to it.
+    /// </summary>
+    Task<Domain.SeriesMapping?> UpdateSeriesMappingAsync(string seriesName, long mappingId, Domain.SeriesMapping seriesMapping);
+
+    /// <summary>
+    /// Deletes a pattern owned by the named series; false when the series has no catalog row or no
+    /// mapping with <paramref name="mappingId"/> belongs to it.
+    /// </summary>
+    Task<bool> DeleteSeriesMappingAsync(string seriesName, long mappingId);
+
+    /// <summary>
     /// StopReason is set (and the batch stops early) only when the Hardcover daily request
     /// budget is exhausted mid-run - every other per-item failure is folded into Failed and
     /// the batch keeps going.

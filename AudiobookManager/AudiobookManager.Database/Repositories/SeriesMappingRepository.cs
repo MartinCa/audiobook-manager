@@ -1,10 +1,19 @@
 ﻿using AudiobookManager.Database.Models;
-using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
 namespace AudiobookManager.Database.Repositories;
 public class SeriesMappingRepository : ISeriesMappingRepository
 {
+    /// <summary>
+    /// The per-series mapping list cap - the bound for the "no unbounded lists over the wire"
+    /// invariant, enforced at the query boundary with <c>Take</c> so the database never even
+    /// materializes more rows than this. A series' patterns are human-maintained regex rows
+    /// added one dialog at a time (the review of the series-scoped mappings endpoint flagged its
+    /// unbounded fetch), so a real series stays far under this; it is a defensive truss against
+    /// a pathological row count, not a sizing affordance.
+    /// </summary>
+    public const int MaxMappingsPerSeries = 250;
+
     private readonly DatabaseContext _db;
 
     public SeriesMappingRepository(DatabaseContext db)
@@ -12,66 +21,87 @@ public class SeriesMappingRepository : ISeriesMappingRepository
         _db = db;
     }
 
-    public async Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping)
+    /// <summary>
+    /// The mapping patterns owned by one series, in insertion order, capped at
+    /// <see cref="MaxMappingsPerSeries"/> inside the query.
+    /// </summary>
+    public async Task<List<SeriesMapping>> GetBySeriesNameAsync(string seriesName)
+    {
+        return await _db.SeriesMappings
+            .AsNoTracking()
+            .Where(m => m.Series!.Name == seriesName)
+            .OrderBy(m => m.Id)
+            .Take(MaxMappingsPerSeries)
+            .ToListAsync();
+    }
+
+    public async Task<SeriesMapping> CreateSeriesMappingAsync(SeriesMapping seriesMapping)
     {
         _db.SeriesMappings.Add(seriesMapping);
-        await _db.SaveChangesAsync();
-
-        return seriesMapping;
-    }
-
-    public async Task DeleteSeriesMapping(long id)
-    {
-        var entity = await _db.SeriesMappings.FindAsync(id);
-        if (entity != null)
+        try
         {
-            _db.Remove(entity);
             await _db.SaveChangesAsync();
         }
-    }
-
-    public async Task<SeriesMapping?> GetSeriesMapping(long id)
-    {
-        return await _db.SeriesMappings.FindAsync(id);
-    }
-
-    public async Task<(List<(string MappedSeries, List<SeriesMapping> Items)> Groups, int Total)> GetSeriesMappingGroupsAsync(
-        string? search)
-    {
-        var query = _db.SeriesMappings.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(search))
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
         {
-            // Accent-insensitive over both the pattern and the target name, per the search
-            // invariant. The mappings table has no folded shadow column, so this folds per row -
-            // acceptable for an operator-curated table of well under a few thousand rows.
-            var pattern = $"%{AccentFolding.FoldPlain(search!.Trim())}%";
-            query = query.Where(m =>
-                EF.Functions.Like(AccentFolding.Fold(m.Regex), pattern) ||
-                EF.Functions.Like(AccentFolding.Fold(m.MappedSeries), pattern));
+            // regex is globally unique (first-match determinism), so a duplicate pattern can
+            // only come from a user error the caller should hear about as a 4xx, never a 500.
+            _db.Entry(seriesMapping).State = EntityState.Detached;
+            throw new ArgumentException($"A series mapping with the pattern '{seriesMapping.Regex}' already exists.");
         }
 
-        // Grouped in memory rather than as an EF GroupBy: aggregating a *list* of patterns per
-        // target is not expressible as a grouped query, and the input set is the curated
-        // mappings table, bounded by humans maintaining it.
-        var all = await query
-            .OrderBy(m => m.MappedSeries)
-            .ThenBy(m => m.Id)
-            .ToListAsync();
-
-        var groups = all
-            .GroupBy(m => m.MappedSeries, StringComparer.Ordinal)
-            .Select(g => (g.Key, g.ToList()))
-            .ToList();
-
-        return (groups, all.Count);
+        return seriesMapping;
     }
 
-    public async Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping)
+    /// <summary>
+    /// Lookup of one mapping row (with its owner id), or null when the id is unknown. Deliberately
+    /// TRACKED, not AsNoTracking: the only callers are the update/delete ownership checks in
+    /// <c>SeriesService</c>, which hand the id straight to
+    /// <see cref="UpdateSeriesMappingAsync"/> / <see cref="DeleteSeriesMappingAsync"/> in the same
+    /// request scope, and those re-fetch the row via <c>FindAsync</c>. A tracked fetch puts the
+    /// row in the identity map, so the second lookup short-circuits there instead of issuing a
+    /// second SELECT. (An AsNoTracking fetch forked the row instead, so every edit/delete cost two
+    /// reads of the same row.)
+    /// </summary>
+    public async Task<SeriesMapping?> GetSeriesMappingAsync(long id)
     {
-        _db.Update(seriesMapping);
-        await _db.SaveChangesAsync();
+        return await _db.SeriesMappings
+            .FirstOrDefaultAsync(m => m.Id == id);
+    }
 
-        return seriesMapping;
+    public async Task<SeriesMapping?> UpdateSeriesMappingAsync(SeriesMapping seriesMapping)
+    {
+        var existing = await _db.SeriesMappings.FindAsync(seriesMapping.Id);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        existing.Regex = seriesMapping.Regex;
+        existing.WarnAboutPart = seriesMapping.WarnAboutPart;
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            // Same duplicate-pattern path as CreateSeriesMappingAsync: a 4xx, not a 500.
+            throw new ArgumentException($"A series mapping with the pattern '{seriesMapping.Regex}' already exists.");
+        }
+
+        return existing;
+    }
+
+    public async Task<bool> DeleteSeriesMappingAsync(long id)
+    {
+        var entity = await _db.SeriesMappings.FindAsync(id);
+        if (entity is null)
+        {
+            return false;
+        }
+
+        _db.Remove(entity);
+        await _db.SaveChangesAsync();
+        return true;
     }
 }

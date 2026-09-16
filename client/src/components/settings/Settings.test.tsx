@@ -9,30 +9,11 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@/services/api", () => ({
   settingsApi: {
-    getSeriesMappingGroups: vi.fn().mockResolvedValue({
-      items: [
-        {
-          mappedSeries: "The Wheel of Time",
-          items: [
-            {
-              id: 1,
-              regex: "^wheel of time.*$",
-              mappedSeries: "The Wheel of Time",
-              warnAboutPart: false,
-            },
-          ],
-        },
-      ],
-      total: 2,
-    }),
     getSystemInfo: vi.fn().mockResolvedValue({
       version: "0.9.0",
       commitHash: "abc1234",
       dotNetVersion: ".NET 10.0.0",
     }),
-  },
-  similarValuesApi: {
-    getAutocomplete: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -44,12 +25,16 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("Settings", () => {
-  it("renders Settings page with Series Mapping and About & System Information", async () => {
+  it("renders Settings with About & System Information and no series mapping UI", async () => {
     renderWithProviders(<Settings />);
 
-    expect(screen.getByRole("heading", { name: "Settings — Series Mappings" })).toBeInTheDocument();
-    expect(screen.getByText(/Series Regex Mappings/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("About & System Information")).toBeInTheDocument();
+
+    // The regex mappings moved to each series' Management section; the Settings page keeps only
+    // system info and must not reference the removed mapping surface.
+    expect(screen.queryByText(/Series Mapping/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Series Mapping" })).not.toBeInTheDocument();
 
     expect(await screen.findByText("v0.9.0")).toBeInTheDocument();
     expect(screen.getByText("abc1234")).toBeInTheDocument();

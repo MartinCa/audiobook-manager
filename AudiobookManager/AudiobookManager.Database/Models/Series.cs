@@ -52,4 +52,11 @@ public class Series
     public bool IncludeOmnibusEditions { get; set; }
 
     public List<SeriesExpectedBook> ExpectedBooks { get; set; } = new();
+
+    /// <summary>
+    /// The regex mapping patterns that route scraped/embedded series values to this series.
+    /// Data-model-wise this is the ownership the Settings page's global mappings table used to
+    /// approximate with a free-text target column.
+    /// </summary>
+    public List<SeriesMapping> Mappings { get; set; } = new();
 }

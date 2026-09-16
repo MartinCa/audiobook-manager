@@ -47,13 +47,13 @@ public partial class BookSeriesMapper : IBookSeriesMapper
     /// everyone else awaits the same Task. Per-scope rather than cached longer, so a mapping the
     /// user just edited is picked up by the next request.
     /// </summary>
-    private readonly Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>>> _mappings;
+    private readonly Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>>> _mappings;
 
     public BookSeriesMapper(DatabaseContext db, ILogger<BookSeriesMapper> logger)
     {
         _db = db;
         _logger = logger;
-        _mappings = new Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>>>(
+        _mappings = new Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>>>(
             LoadRegexMappings, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
@@ -83,7 +83,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         return mappedGroups.ToList();
     }
 
-    public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping)>? mappings = null)
+    public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>? mappings = null)
     {
         var allMappings = mappings ?? await GetRegexMappings();
 
@@ -92,7 +92,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(cleanedResult.SeriesName));
         if (matchingMapping != default)
         {
-            return new MetadataSeriesSearchResult(matchingMapping.Mapping.MappedSeries)
+            return new MetadataSeriesSearchResult(matchingMapping.TargetSeriesName)
             {
                 OriginalSeriesName = cleanedResult.SeriesName,
                 SeriesPart = cleanedResult.SeriesPart,
@@ -113,11 +113,14 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         };
     }
 
-    private Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>> GetRegexMappings() => _mappings.Value;
+    private Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>> GetRegexMappings() => _mappings.Value;
 
-    private async Task<IList<(Regex CompiledRegex, SeriesMapping Mapping)>> LoadRegexMappings()
+    private async Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>> LoadRegexMappings()
     {
-        var mappings = await _db.SeriesMappings.AsNoTracking().ToListAsync();
+        // Mappings are owned by a Series row now: the target is always the owner's name, never a
+        // value on the mapping itself. The Include resolves it in one LEFT JOIN, so this stays a
+        // single read of the table (the BookSeriesMapperTests counters assert exactly that).
+        var mappings = await _db.SeriesMappings.AsNoTracking().Include(m => m.Series).ToListAsync();
 
         // No RegexOptions.Compiled: these are now built once per scope rather than once per call,
         // but a scope is a single request, so the handful of matches a pattern is then used for
@@ -127,12 +130,20 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         // A user-supplied pattern that does not compile must not take the whole search result set
         // down with it: every scraped result runs through this, so one bad mapping row otherwise
         // turned every metadata search into a 500 with a regex parse error.
-        var compiled = new List<(Regex CompiledRegex, SeriesMapping Mapping)>(mappings.Count);
+        var compiled = new List<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>(mappings.Count);
         foreach (var mapping in mappings)
         {
+            var targetSeriesName = mapping.Series?.Name;
+            if (string.IsNullOrWhiteSpace(targetSeriesName))
+            {
+                // A mapping row whose owner row is missing (should not happen - the FK is
+                // required and cascade-deletes with its series) can only map to nothing.
+                continue;
+            }
+
             try
             {
-                compiled.Add((new Regex(mapping.Regex), mapping));
+                compiled.Add((new Regex(mapping.Regex), mapping, targetSeriesName));
             }
             catch (ArgumentException ex)
             {

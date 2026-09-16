@@ -3,16 +3,30 @@
 namespace AudiobookManager.Database.Repositories;
 public interface ISeriesMappingRepository
 {
-    Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping);
-    Task DeleteSeriesMapping(long id);
-    Task<SeriesMapping?> GetSeriesMapping(long id);
+    /// <summary>
+    /// The mapping patterns owned by one series, in insertion order. This is the bounded-list
+    /// invariant's explicit limit: the query itself is capped at
+    /// <see cref="SeriesMappingRepository.MaxMappingsPerSeries"/> rows (a curator-sized bound -
+    /// patterns are human-maintained regex rows added one dialog at a time), so the list can
+    /// never grow to an unbounded transfer no matter how many rows the series owns.
+    /// </summary>
+    Task<List<SeriesMapping>> GetBySeriesNameAsync(string seriesName);
+
+    Task<SeriesMapping> CreateSeriesMappingAsync(SeriesMapping seriesMapping);
 
     /// <summary>
-    /// The series mappings already grouped by target series name, for the Settings page. The
-    /// grouping happens here (server-side) because the client used to fetch the flat table and
-    /// reduce it itself; <paramref name="search"/> folds accents over both the regex pattern and
-    /// the target name. Returns the groups and the total number of matching mapping rows.
+    /// Lookup of one mapping row (with its owner id), or null when the id is unknown. Tracked, not
+    /// AsNoTracking: the update/delete ownership checks are the only callers and they hand the id
+    /// straight to <see cref="ISeriesMappingRepository.UpdateSeriesMappingAsync"/> /
+    /// <see cref="ISeriesMappingRepository.DeleteSeriesMappingAsync"/> in the same request scope,
+    /// which re-fetch by <c>FindAsync</c> - a tracked fetch makes that second lookup hit the
+    /// identity map instead of issuing a second SELECT.
     /// </summary>
-    Task<(List<(string MappedSeries, List<SeriesMapping> Items)> Groups, int Total)> GetSeriesMappingGroupsAsync(string? search);
-    Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping);
+    Task<SeriesMapping?> GetSeriesMappingAsync(long id);
+
+    /// <summary>Updates Regex/WarnAboutPart on an existing row; null when the id is unknown.</summary>
+    Task<SeriesMapping?> UpdateSeriesMappingAsync(SeriesMapping seriesMapping);
+
+    /// <summary>Deletes one mapping row; false when no row had the id.</summary>
+    Task<bool> DeleteSeriesMappingAsync(long id);
 }
