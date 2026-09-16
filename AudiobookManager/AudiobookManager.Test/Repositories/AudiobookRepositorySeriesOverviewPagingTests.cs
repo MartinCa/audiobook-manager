@@ -189,6 +189,31 @@ public class AudiobookRepositorySeriesOverviewPagingTests
         Assert.AreEqual("Mistborn", items.Single());
     }
 
+    // Regression: the paged search interpolated the folded query into the LIKE pattern without
+    // escaping, so a literal '%' or '_' the user typed acted as a wildcard.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_LikeWildcardsInTheSearch_AreTreatedLiterally()
+    {
+        await SeedBookAsync("Book", "B_eta Series");
+        await SeedBookAsync("Book", "Breta Series");
+        await SeedBookAsync("Book", "100% Series");
+        await SeedBookAsync("Book", "100 Friends");
+
+        var (underscore, totalUnderscore) = await _repository.GetSeriesValuesPageAsync("B_eta", null, skip: 0, take: 10);
+        CollectionAssert.AreEqual(
+            new List<string> { "B_eta Series" },
+            underscore,
+            "an underscore in the search matches a literal underscore, not 'any character'");
+        Assert.AreEqual(1, totalUnderscore);
+
+        var (percent, totalPercent) = await _repository.GetSeriesValuesPageAsync("100%", null, skip: 0, take: 10);
+        CollectionAssert.AreEqual(
+            new List<string> { "100% Series" },
+            percent,
+            "'%' in the search matches a literal '%', not a wildcard");
+        Assert.AreEqual(1, totalPercent);
+    }
+
     [TestMethod]
     public async Task GetSeriesValuesPageAsync_MatchedFilter_IncludesOnlyCatalogMatchedValues()
     {

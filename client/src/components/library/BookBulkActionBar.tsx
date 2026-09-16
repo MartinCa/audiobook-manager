@@ -96,7 +96,6 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
       toast.success(`Bulk edit complete: ${data.succeeded} updated`);
     }
     invalidateCommonViews();
-    void queryClient.invalidateQueries({ queryKey: ["similarValueNames"] });
     // The applied edits changed the books; the selection that described them is stale now.
     selection.clear();
   });

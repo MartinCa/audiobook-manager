@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  foldAccents,
-  normalizeForMatch,
-  isNearMatch,
-  narrowByQuery,
-  findSimilarExisting,
-} from "./similarValueMatcher";
+import { foldAccents, normalizeForMatch, isNearMatch, narrowByQuery } from "./similarValueMatcher";
 
 describe("similarValueMatcher helper", () => {
   it("folds accents", () => {
@@ -59,10 +53,5 @@ describe("similarValueMatcher helper", () => {
     expect(isNearMatch("J. K. Rowling", "J.K. Rowling")).toBe(true);
     expect(isNearMatch("J.K. Rowling", "J. K. Rowling")).toBe(true);
     expect(isNearMatch("J.R.R. Tolkien", "J. R. R. Tolkien")).toBe(true);
-  });
-
-  it("finds similar existing candidates", () => {
-    const list = ["JK Rowling", "J.K. Rowling", "Brandon Sanderson"];
-    expect(findSimilarExisting("J. K. Rowling", list)).toEqual(["JK Rowling", "J.K. Rowling"]);
   });
 });

@@ -1,4 +1,5 @@
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Database.Search;
 using AudiobookManager.Domain;
 using AudiobookManager.Services.Similarity;
 using AudiobookManager.Settings;
@@ -19,6 +20,16 @@ public class SimilarValueService : ISimilarValueService
 
     private const string AuthorGroupsKind = "authors";
     private const string SeriesGroupsKind = "series";
+
+    /// <summary>
+    /// The candidate-prefilter cap for the entry-status classification. The fuzzy scoring runs
+    /// over this bounded set - never the whole distinct-value list - selected by an
+    /// accent-insensitive LIKE, the same containment filter the search dialogs use.
+    /// </summary>
+    private const int EntryStatusCandidatePrefilterLimit = 20;
+
+    /// <summary>Hard cap on the similar matches one entry-status response can carry.</summary>
+    private const int EntryStatusMaxMatches = 3;
 
     public SimilarValueService(
         IAudiobookRepository audiobookRepository,
@@ -64,6 +75,163 @@ public class SimilarValueService : ISimilarValueService
 
         return (items, total);
     }
+
+    /// <summary>
+    /// Classifies one typed entry: an accent-/case-insensitive existing value is "exact";
+    /// otherwise a normalizer/edit-distance/substring close value is "similar"; otherwise "new".
+    /// The reads are bounded (exact lookup + capped LIKE prefilter), so this never scans the
+    /// library's whole set of distinct values, and the response is capped at <paramref name="limit"/>.
+    /// </summary>
+    public async Task<EntryValueStatus> GetEntryStatusAsync(EntryValueKind kind, string value, int limit)
+    {
+        var trimmed = value?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            return new EntryValueStatus(trimmed, EntryValueStatusKind.New, null, new List<EntryValueMatch>());
+        }
+
+        var resultLimit = Math.Max(1, Math.Min(limit, EntryStatusMaxMatches));
+
+        if (kind == EntryValueKind.Author)
+        {
+            return await GetPersonEntryStatusAsync(
+                trimmed,
+                resultLimit,
+                _personRepository.FindAuthorByFoldedNameAsync,
+                _personRepository.SearchAuthorNamesAsync);
+        }
+
+        if (kind == EntryValueKind.Narrator)
+        {
+            // Narrators are Person rows too, so the classification is the author one with the
+            // narrator-owned queries - a person that only authors books is not an existing
+            // narrator, exactly as a narrator-only person is not an existing author.
+            return await GetPersonEntryStatusAsync(
+                trimmed,
+                resultLimit,
+                _personRepository.FindNarratorByFoldedNameAsync,
+                _personRepository.SearchNarratorNamesAsync);
+        }
+
+        var exactSeries = await _audiobookRepository.FindSeriesValueByFoldedNameAsync(trimmed);
+        if (exactSeries is not null)
+        {
+            return new EntryValueStatus(
+                trimmed,
+                EntryValueStatusKind.Exact,
+                new EntryValueMatch(null, exactSeries),
+                new List<EntryValueMatch>());
+        }
+
+        var seriesCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
+            trimmed, EntryStatusCandidatePrefilterLimit);
+        return BuildSimilarOrNew(trimmed,
+            seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit);
+    }
+
+    private async Task<EntryValueStatus> GetPersonEntryStatusAsync(
+        string trimmed,
+        int resultLimit,
+        Func<string, Task<AuthorSummaryRow?>> findExact,
+        Func<string, int, Task<List<AuthorSummaryRow>>> searchCandidates)
+    {
+        var exact = await findExact(trimmed);
+        if (exact is not null)
+        {
+            return new EntryValueStatus(
+                trimmed,
+                EntryValueStatusKind.Exact,
+                new EntryValueMatch(exact.Id, exact.Name),
+                new List<EntryValueMatch>());
+        }
+
+        var candidates = await searchCandidates(trimmed, EntryStatusCandidatePrefilterLimit);
+        return BuildSimilarOrNew(trimmed,
+            candidates.Select(c => new EntryValueMatch(c.Id, c.Name)), resultLimit);
+    }
+
+    private EntryValueStatus BuildSimilarOrNew(
+        string value, IEnumerable<EntryValueMatch> candidates, int limit)
+    {
+        var matches = ScoreSimilarMatches(value, candidates).Take(limit).ToList();
+        return matches.Count > 0
+            ? new EntryValueStatus(value, EntryValueStatusKind.Similar, null, matches)
+            : new EntryValueStatus(value, EntryValueStatusKind.New, null, new List<EntryValueMatch>());
+    }
+
+    /// <summary>
+    /// The candidate values that are genuinely similar to the typed one, ranked closest first
+    /// (edit distance, then name). The exact lookup has already run, so a normalized-equal or
+    /// folded-equal candidate here means "same value, different raw spelling" (e.g. "Jane
+    /// Authorr" vs "Jane Author" is a near match; "René" vs "Rene" was already exact).
+    /// </summary>
+    private List<EntryValueMatch> ScoreSimilarMatches(string value, IEnumerable<EntryValueMatch> candidates)
+    {
+        var normInput = NameNormalizer.Normalize(value);
+        var foldedInput = Folded(value);
+        var scored = new List<(EntryValueMatch Match, int Distance)>();
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Name == value || string.IsNullOrWhiteSpace(candidate.Name))
+            {
+                continue;
+            }
+
+            var normCandidate = NameNormalizer.Normalize(candidate.Name);
+            if (normCandidate == normInput
+                || normCandidate.Contains(normInput)
+                || normInput.Contains(normCandidate))
+            {
+                scored.Add((candidate, 0));
+                continue;
+            }
+
+            var foldedCandidate = Folded(candidate.Name);
+            if (foldedCandidate == foldedInput
+                || foldedCandidate.Contains(foldedInput)
+                || foldedInput.Contains(foldedCandidate))
+            {
+                scored.Add((candidate, 0));
+                continue;
+            }
+
+            var distance = LevenshteinDistance.Compute(normInput, normCandidate);
+            if (distance <= MaxSimilarDistance(normInput.Length, normCandidate.Length))
+            {
+                scored.Add((candidate, distance));
+            }
+        }
+
+        return scored
+            .OrderBy(s => s.Distance)
+            .ThenBy(s => s.Match.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(s => s.Match)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The length-scaled edit-distance bar, mirroring <see cref="SimilarityGrouper"/>'s blocking:
+    /// short values (at or under <see cref="AudiobookManagerSettings.SimilarityShortLength"/>)
+    /// never fuzzy-match on edit distance alone (a two-letter author would match almost anything),
+    /// medium ones allow one edit, longer ones two. Substring/normalized equality is scored
+    /// separately above, so this only gates genuine near-spelling fuzzy matches.
+    /// </summary>
+    private int MaxSimilarDistance(int inputLength, int candidateLength)
+    {
+        var length = Math.Min(inputLength, candidateLength);
+        if (length <= _settings.SimilarityShortLength)
+        {
+            return 0;
+        }
+
+        return length <= _settings.SimilarityMediumLength
+            ? _settings.SimilarityMaxDistanceMedium
+            : _settings.SimilarityMaxDistanceLong;
+    }
+
+    private static string Folded(string value) =>
+        (AccentFolding.FoldPlain(value) ?? string.Empty).ToLowerInvariant();
 
     /// <summary>
     /// The clustered groups for one value kind, computing them from the distinct values when the

@@ -94,6 +94,98 @@ public class SimilarValuesController : ControllerBase
         return await _audiobookRepository.GetSeriesNamesAsync();
     }
 
+    /// <summary>
+    /// The bounded, server-side author/narrator/series type-ahead: existing names matching the
+    /// typed query, accent-insensitively, capped at <paramref name="limit"/>. This is what the
+    /// author, narrator and series entry fields feed their suggestion dropdowns from - replacing
+    /// the unbounded flat name lists, whose size grew with the library. Narrator is supported
+    /// where the narrator entry field uses it; every other valueType is refused. The query
+    /// travels in the query string, never a path segment (see the note on SeriesController for
+    /// why a free-text tag name cannot be addressed in a path).
+    /// </summary>
+    [HttpGet("autocomplete")]
+    public async Task<ActionResult<List<string>>> GetAutocomplete(
+        [FromQuery] string valueType,
+        [FromQuery] string query,
+        [FromQuery] int limit = 8)
+    {
+        if (valueType != "author" && valueType != "narrator" && valueType != "series")
+        {
+            return this.InvalidRequest("valueType must be 'author', 'narrator' or 'series'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return this.InvalidRequest("query is required.");
+        }
+
+        if (limit < 1 || limit > 50)
+        {
+            return this.InvalidRequest("limit must be between 1 and 50.");
+        }
+
+        return valueType switch
+        {
+            "author" => (await _personRepository.SearchAuthorNamesAsync(query, limit))
+                .Select(a => a.Name)
+                .ToList(),
+            "narrator" => (await _personRepository.SearchNarratorNamesAsync(query, limit))
+                .Select(a => a.Name)
+                .ToList(),
+            _ => await _audiobookRepository.SearchSeriesValuesAsync(query, limit),
+        };
+    }
+
+    /// <summary>
+    /// The bounded, server-side classification of a single typed author/narrator/series entry
+    /// for the entry fields' exact/new/similar indicators. One input value in, a capped result
+    /// out - this is the bounded alternative to a client pulling the whole name list to classify
+    /// locally. Narrator is supported where the narrator entry field uses it; every other
+    /// valueType is refused. The series name travels in the query string, never a path segment
+    /// (see the note on SeriesController for why a free-text m4b tag cannot be addressed in a
+    /// path).
+    /// </summary>
+    [HttpGet("entry-status")]
+    public async Task<ActionResult<EntryStatusDto>> GetEntryStatus(
+        [FromQuery] string valueType,
+        [FromQuery] string value,
+        [FromQuery] int limit = 3)
+    {
+        if (valueType != "author" && valueType != "narrator" && valueType != "series")
+        {
+            return this.InvalidRequest("valueType must be 'author', 'narrator' or 'series'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return this.InvalidRequest("value is required.");
+        }
+
+        if (limit < 1 || limit > 10)
+        {
+            return this.InvalidRequest("limit must be between 1 and 10.");
+        }
+
+        var kind = valueType switch
+        {
+            "author" => Domain.EntryValueKind.Author,
+            "narrator" => Domain.EntryValueKind.Narrator,
+            _ => Domain.EntryValueKind.Series,
+        };
+        var status = await _similarValueService.GetEntryStatusAsync(kind, value, limit);
+
+        return new EntryStatusDto(
+            status.Value,
+            status.Kind switch
+            {
+                Domain.EntryValueStatusKind.Exact => "exact",
+                Domain.EntryValueStatusKind.Similar => "similar",
+                _ => "new",
+            },
+            status.ExactMatch is null ? null : new EntryMatchDto(status.ExactMatch.Id, status.ExactMatch.Name),
+            status.SimilarMatches.Select(m => new EntryMatchDto(m.Id, m.Name)).ToList());
+    }
+
     [HttpPost("align")]
     public IActionResult StartAlign([FromBody] AlignSimilarValuesDto dto)
     {

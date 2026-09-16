@@ -57,23 +57,6 @@ export function narrowByQuery(
     .slice(0, limit);
 }
 
-export function findSimilarExisting(
-  input: string | null | undefined,
-  candidates: string[],
-): string[] {
-  if (!input || !input.trim()) return [];
-  const normInput = normalizeForMatch(input);
-  if (!normInput) return [];
-  return candidates.filter((c) => {
-    const normCandidate = normalizeForMatch(c);
-    return (
-      normCandidate.includes(normInput) ||
-      normInput.includes(normCandidate) ||
-      normCandidate.replace(/\s/g, "") === normInput.replace(/\s/g, "")
-    );
-  });
-}
-
 // Applies a "similar existing value" hint's suggestion at a given index. A plain
 // current.map((v, i) => i === index ? suggestion : v) can silently create a duplicate: the
 // suggestion is, by construction, already very close to another entry, and is sometimes an

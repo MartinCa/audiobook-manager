@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { useState } from "react";
 import { TagsInput, type TagsInputProps } from "./tags-input";
 
@@ -211,6 +211,35 @@ describe("TagsInput", () => {
       fireEvent.keyDown(editInput, { key: "Enter" });
 
       expect(onValueChange).toHaveBeenCalledWith(["Fiction"]);
+    });
+
+    // Regression: commitEdit/applyEditSuggestion used to leave editDraft holding the old value,
+    // and the debounced provider effect reads (draft || editDraft || "").trim() - so with an
+    // empty add-new box a stale editDraft fed a wasted suggestionsProvider fetch. The commit
+    // must reset editDraft so nothing stale can drive a fetch.
+    it("does not fetch suggestions from a stale editDraft after the edit is committed", () => {
+      vi.useFakeTimers();
+      try {
+        const provider = vi.fn().mockResolvedValue(["Existing Author"]);
+        render(<ControlledTagsInput initial={["Old Author"]} suggestionsProvider={provider} />);
+
+        fireEvent.click(screen.getByLabelText("Edit Old Author"));
+        const editInput = screen.getByDisplayValue("Old Author");
+        fireEvent.keyDown(editInput, { key: "Enter" });
+
+        // The edit is committed; focus the now-empty add-new box. Before the fix, the stale
+        // "Old Author" draft fed the debounced effect and fetched after the debounce window.
+        const addNewInput = screen.getByRole("textbox");
+        fireEvent.focus(addNewInput);
+
+        act(() => {
+          vi.advanceTimersByTime(200);
+        });
+
+        expect(provider).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("rejects an edit that would duplicate another existing entry", () => {

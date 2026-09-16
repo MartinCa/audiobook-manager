@@ -1,8 +1,10 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { TagsInput } from "@/components/tags-input";
 import { similarValuesApi } from "@/services/api";
-import { applyHintSuggestion, findSimilarExisting } from "@/helpers/similarValueMatcher";
+import { useEntryStatus } from "@/hooks/useEntryStatus";
+import { EntryStatusHint } from "@/components/fields/EntryStatusHint";
+import { applyHintSuggestion } from "@/helpers/similarValueMatcher";
+import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 
 export interface AuthorsFieldProps {
   value: string[];
@@ -24,30 +26,16 @@ export function AuthorsField({
   placeholder = "Author Name, Second Author",
   showLabel = true,
 }: AuthorsFieldProps) {
-  // Entry-time duplicate prevention: flat author-name list to check a typed value against.
-  // Non-critical — the hint just won't show if this fails to load. Shared via the TanStack
-  // Query cache by every form instance that renders an authors field.
-  const { data: authorNames = [] } = useQuery({
-    queryKey: ["similarValueNames", "authors"],
-    queryFn: () => similarValuesApi.getAuthorNames(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Derived, not event-driven: a hint exists for every entry (by index) that currently has a
-  // similar-but-not-identical existing name, recomputed on every relevant change. This covers
-  // every way an entry can get into the array - typed one at a time, bulk-applied from a scraped
-  // metadata search result, or already present when the book was loaded - not just the one chip
-  // most recently typed into the field. It also can't go stale: there's no separate "which chip
-  // triggered this" state to fall out of sync when an entry is edited, removed, or reordered.
-  const hints = useMemo(() => {
-    const hintMap = new Map<number, string>();
-    value.forEach((author, index) => {
-      if (!author?.trim()) return;
-      const matches = findSimilarExisting(author, authorNames);
-      if (matches[0] && matches[0] !== author) hintMap.set(index, matches[0]);
-    });
-    return hintMap;
-  }, [value, authorNames]);
+  // The type-ahead suggestions come from a bounded server-side lookup keyed by the typed query
+  // (see TagsInput's suggestionsProvider), not a preloaded list of every existing author. The
+  // exact-existing / similar / new indicators use their own single-value bounded classification -
+  // never a client scan of the whole library's name set. The provider identity is stable (it
+  // closes over nothing changeable) so TagsInput's debounced fetch is not reset on every render.
+  const fetchSuggestions = useCallback(
+    (query: string) =>
+      similarValuesApi.getAutocomplete("author", query, TYPEAHEAD_SUGGESTION_COUNT),
+    [],
+  );
 
   return (
     <div className="min-w-0 flex-1">
@@ -59,22 +47,40 @@ export function AuthorsField({
       <TagsInput
         value={value}
         onValueChange={onChange}
-        suggestions={authorNames}
         reorderable
         placeholder={placeholder}
         aria-invalid={Boolean(error)}
+        suggestionsProvider={fetchSuggestions}
       />
       {error && <p className="text-destructive mt-1 text-xs">{error}</p>}
-      {Array.from(hints.entries()).map(([index, suggestion]) => (
-        <button
-          key={index}
-          type="button"
-          className="text-muted-foreground hover:text-foreground mt-1 block text-xs underline decoration-dotted"
-          onClick={() => onChange(applyHintSuggestion(value, index, suggestion))}
-        >
-          Similar existing author: {suggestion} (click to use)
-        </button>
-      ))}
+      <div className="mt-1 space-y-0.5">
+        {value.map((author, index) =>
+          author.trim() ? (
+            <AuthorEntryStatus
+              key={`${index}-${author}`}
+              entry={author}
+              onUseMatch={(suggestion) => onChange(applyHintSuggestion(value, index, suggestion))}
+            />
+          ) : null,
+        )}
+      </div>
     </div>
   );
+}
+
+/**
+ * One author entry's exact/similar/new indicator. A dedicated hook instance per entry gives each
+ * its own cached, debounced `entry-status` query, so typed and bulk-applied entries alike are
+ * classified - and the call itself stays out of `.map`'s render path. Query failures surface as an
+ * explicit error note rather than a silent "new" guess.
+ */
+function AuthorEntryStatus({
+  entry,
+  onUseMatch,
+}: {
+  entry: string;
+  onUseMatch: (name: string) => void;
+}) {
+  const { status, isError } = useEntryStatus("author", entry);
+  return <EntryStatusHint status={status} isError={isError} onUseMatch={onUseMatch} />;
 }

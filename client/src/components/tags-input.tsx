@@ -28,6 +28,14 @@ export interface TagsInputProps {
    */
   suggestions?: string[];
   /**
+   * When present, the suggestions shown while typing come from this bounded server-side lookup
+   * (query + server-side limit) instead of a preloaded list - the type-ahead for fields whose
+   * candidate list is too large to ship whole (the entry fields). Called debounced with the
+   * draft text; errors fall back to an empty list. Mutually advisory with `suggestions`; when
+   * both are present the provider wins.
+   */
+  suggestionsProvider?: (query: string) => Promise<string[]>;
+  /**
    * Enables drag-and-drop reordering of committed chips. Off by default: array position only
    * matters for fields like Authors/Narrators (folder naming, credits order), not Genres.
    */
@@ -100,6 +108,7 @@ export function TagsInput({
   className,
   disabled,
   suggestions = [],
+  suggestionsProvider,
   reorderable = false,
   ...props
 }: TagsInputProps) {
@@ -110,6 +119,38 @@ export function TagsInput({
   const [editDraft, setEditDraft] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editHighlightedIndex, setEditHighlightedIndex] = useState(-1);
+  const [serverSuggestions, setServerSuggestions] = useState<string[]>([]);
+
+  // When a provider is given, the candidate list is fetched server-side, bounded by the typed
+  // query, rather than preloaded whole. Debounced so a keystroke does not fire one request per
+  // character; the fetch is only for the active draft (new-entry or in-place edit). Errors
+  // degrade to an empty list - a broken type-ahead must not block committing a value.
+  useEffect(() => {
+    if (!suggestionsProvider) return;
+    const query = (draft || editDraft || "").trim();
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!query) {
+        // Nothing to look up; clear the previous lookup so a later keystroke cannot resurrect
+        // it. Done inside the timer (async), never synchronously in the effect itself.
+        if (!cancelled) setServerSuggestions([]);
+        return;
+      }
+      suggestionsProvider(query)
+        .then((names) => {
+          if (!cancelled) setServerSuggestions(names);
+        })
+        .catch(() => {
+          if (!cancelled) setServerSuggestions([]);
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [draft, editDraft, suggestionsProvider]);
+
+  const suggestionSource = suggestionsProvider ? serverSuggestions : suggestions;
 
   // FormKit keeps its own mutable list of entries; this component is controlled (`value` +
   // `onValueChange`), so the entries are held in a ref that both our sync effect and the
@@ -240,10 +281,10 @@ export function TagsInput({
     value.some((v, i) => i !== excludeIndex && v.toLowerCase() === candidate.toLowerCase());
 
   const draftSuggestions = useMemo(() => {
-    if (suggestions.length === 0) return [];
+    if (suggestionSource.length === 0) return [];
     const trimmed = draft.trim();
     if (!trimmed) return [];
-    const matches = narrowByQuery(suggestions, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
+    const matches = narrowByQuery(suggestionSource, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
       (s) => !isDuplicate(s),
     );
     if (matches.length === 1 && normalizeForMatch(matches[0]) === normalizeForMatch(trimmed)) {
@@ -251,15 +292,15 @@ export function TagsInput({
     }
     return matches;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, suggestions, value]);
+  }, [draft, suggestionSource, value]);
 
   // Same narrowing as draftSuggestions, but excludes the entry currently being edited from the
   // duplicate check (it's fine to retype a value back toward itself) rather than every entry.
   const editSuggestions = useMemo(() => {
-    if (suggestions.length === 0 || editingIndex === null) return [];
+    if (suggestionSource.length === 0 || editingIndex === null) return [];
     const trimmed = editDraft.trim();
     if (!trimmed) return [];
-    const matches = narrowByQuery(suggestions, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
+    const matches = narrowByQuery(suggestionSource, trimmed, TYPEAHEAD_SUGGESTION_COUNT).filter(
       (s) => !isDuplicate(s, editingIndex),
     );
     if (matches.length === 1 && normalizeForMatch(matches[0]) === normalizeForMatch(trimmed)) {
@@ -267,7 +308,7 @@ export function TagsInput({
     }
     return matches;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editDraft, suggestions, value, editingIndex]);
+  }, [editDraft, suggestionSource, value, editingIndex]);
 
   const commitValue = (raw: string) => {
     const trimmed = raw.trim();
@@ -314,6 +355,9 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // Clear the edit draft so the debounced provider effect below cannot fall back to the stale
+    // value after the edit is committed (it reads (draft || editDraft || "").trim()).
+    setEditDraft("");
 
     if (trimmed.length === 0) {
       removeAt(index);
@@ -331,6 +375,8 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // See commitEdit: a stale editDraft must not drive a provider fetch after the edit is applied.
+    setEditDraft("");
 
     if (suggestion === value[index]) return;
     if (isDuplicate(suggestion, index)) return;
@@ -342,6 +388,9 @@ export function TagsInput({
     setEditingIndex(null);
     setIsEditOpen(false);
     setEditHighlightedIndex(-1);
+    // Same stale-draft rule as commitEdit: cancelling ends the edit too, so the draft it carried
+    // must not drive a provider fetch once the add-new box is focused again.
+    setEditDraft("");
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
