@@ -1,14 +1,12 @@
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
-import { Circle } from "lucide-react";
-
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
   return (
     <RadioGroupPrimitive
       data-slot="radio-group"
-      className={cn("grid gap-2", className)}
+      className={cn("grid w-full gap-2", className)}
       {...props}
     />
   );
@@ -19,16 +17,16 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props) {
     <RadioPrimitive.Root
       data-slot="radio-group-item"
       className={cn(
-        "border-primary text-primary ring-offset-background focus-visible:ring-ring grid aspect-square h-4 w-4 cursor-pointer place-content-center rounded-full border focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+        "group/radio-group-item peer border-input group-has-[:focus-visible]/field-label:not-data-checked:border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-primary dark:data-checked:bg-primary relative flex aspect-square size-4 shrink-0 rounded-full border outline-none group-has-[:focus-visible]/field-label:ring-0 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3",
         className,
       )}
       {...props}
     >
       <RadioPrimitive.Indicator
         data-slot="radio-group-indicator"
-        className="flex items-center justify-center"
+        className="flex size-4 items-center justify-center"
       >
-        <Circle className="h-2.5 w-2.5 fill-current text-current" />
+        <span className="bg-primary-foreground absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full" />
       </RadioPrimitive.Indicator>
     </RadioPrimitive.Root>
   );
