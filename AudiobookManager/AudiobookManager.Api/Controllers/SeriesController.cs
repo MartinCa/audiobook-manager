@@ -639,19 +639,27 @@ public class SeriesController : ControllerBase
     [HttpGet("pending/detail")]
     public async Task<ActionResult<SeriesRefreshPendingDto>> GetPendingDetail([FromQuery] string seriesName)
     {
-        var pending = await _seriesService.GetPendingSeriesRefreshAsync(seriesName);
-        if (pending is null)
+        try
         {
-            return NotFound();
-        }
+            var pending = await _seriesService.GetPendingSeriesRefreshAsync(seriesName);
+            if (pending is null)
+            {
+                return NotFound();
+            }
 
-        return Ok(new SeriesRefreshPendingDto(
-            pending.SeriesName,
-            pending.SourceName,
-            pending.SourceUrl,
-            pending.SourceSeriesName,
-            pending.FetchedAt,
-            pending.Changes.Select(ToChangeDto).ToList()));
+            return Ok(new SeriesRefreshPendingDto(
+                pending.SeriesName,
+                pending.SourceName,
+                pending.SourceUrl,
+                pending.SourceSeriesName,
+                pending.FetchedAt,
+                pending.Changes.Select(ToChangeDto).ToList()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the pending series refresh detail for {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
     }
 
     /// <summary>

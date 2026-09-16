@@ -196,6 +196,49 @@ describe("SeriesRefreshPendingDialog", () => {
     });
   });
 
+  it("still allows dismissing when the pending detail fetch fails", async () => {
+    // The stored pending payload can't be parsed (e.g. after a downgrade or corruption), so the
+    // detail call fails - but dismiss only needs the series name, not the payload, and must stay
+    // available so the stuck pending row can still be cleared from the UI.
+    vi.mocked(seriesApi.getSeriesPending).mockRejectedValue(new Error("boom"));
+
+    renderDialog();
+    await screen.findByText(/Failed to load pending changes/);
+
+    expect(screen.getByRole("button", { name: /Dismiss/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Apply/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
+
+    await waitFor(() => {
+      expect(seriesApi.dismissSeriesPending).toHaveBeenCalledWith("Mistborn");
+    });
+  });
+
+  it("allows an adoption-only apply with no individual changes selected", async () => {
+    renderDialog();
+    await screen.findByText(/Book A · part 01 → 02/);
+
+    // Uncheck every individual change (the two part changes start selected) and keep only the
+    // source-series-name adoption, mirroring the backend's supported adoption-only request.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Book A · part 01 → 02/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Book C · part 3 → no part/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Adopt source series name/ }));
+
+    const applyButton = screen.getByRole("button", { name: /Apply/ });
+    expect(applyButton).toHaveTextContent("Apply rename");
+    expect(applyButton).toBeEnabled();
+
+    fireEvent.click(applyButton);
+
+    await waitFor(() => {
+      expect(seriesApi.applySeriesPending).toHaveBeenCalledWith("Mistborn", {
+        adoptSourceSeriesName: true,
+        selections: [],
+      });
+    });
+  });
+
   it("does not report a vanished apply as a success", async () => {
     const { toast } = await import("sonner");
     renderDialog();

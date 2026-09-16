@@ -141,8 +141,10 @@ export function SeriesRefreshPendingDialog({
   );
 
   const selectedCount = selected.size;
+  const willAdoptSourceName = hasAdoptableName && adoptName;
   const readyToApply =
-    selectedCount > 0 && [...selected].every((key) => !missingChoiceMissing(key));
+    (selectedCount > 0 || willAdoptSourceName) &&
+    [...selected].every((key) => !missingChoiceMissing(key));
 
   function missingChoiceMissing(key: string): boolean {
     return key.startsWith("missing:") && !missingChoice[key];
@@ -263,7 +265,7 @@ export function SeriesRefreshPendingDialog({
     }
 
     const request: SeriesRefreshApplyRequest = {
-      adoptSourceSeriesName: hasAdoptableName && adoptName,
+      adoptSourceSeriesName: willAdoptSourceName,
       selections,
     };
 
@@ -495,7 +497,7 @@ export function SeriesRefreshPendingDialog({
           <Button
             variant="outline"
             className="text-destructive hover:bg-destructive/10 border-destructive/30 hover:border-destructive/60 w-full sm:w-auto"
-            disabled={applying || isFetching || !pending}
+            disabled={applying || isFetching || (!pending && !isError)}
             onClick={() => {
               void handleDismiss();
             }}
@@ -515,7 +517,15 @@ export function SeriesRefreshPendingDialog({
             ) : (
               <Check className="mr-2 h-4 w-4" />
             )}
-            {applying ? "Applying..." : `Apply ${selectedCount || ""}`.trim()}
+            {applying
+              ? "Applying..."
+              : selectedCount > 0
+                ? willAdoptSourceName
+                  ? `Apply ${selectedCount} + rename`
+                  : `Apply ${selectedCount}`
+                : willAdoptSourceName
+                  ? "Apply rename"
+                  : "Apply"}
           </Button>
         </div>
       </DialogContent>

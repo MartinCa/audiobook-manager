@@ -739,6 +739,18 @@ public class SeriesControllerTests
     }
 
     [TestMethod]
+    public async Task GetPendingDetail_ServiceThrows_Returns500()
+    {
+        _seriesService.Setup(s => s.GetPendingSeriesRefreshAsync("Mistborn"))
+            .ThrowsAsync(new Exception("boom"));
+
+        var result = await _controller.GetPendingDetail("Mistborn");
+
+        ProblemAssert.HasDetail(
+            result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
+    }
+
+    [TestMethod]
     public async Task DismissPending_ReturnsOk()
     {
         _seriesService.Setup(s => s.DismissPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync(true);
