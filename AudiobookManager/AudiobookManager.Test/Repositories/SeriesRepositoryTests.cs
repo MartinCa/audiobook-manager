@@ -283,4 +283,80 @@ public class SeriesRepositoryTests
         Assert.IsNull(row);
         Assert.IsFalse(overflow);
     }
+
+    // Regression for the adoption review finding: a fully successful source-name adoption must
+    // migrate the matched catalog row to the new name - roster (ignore flags included), matched
+    // metadata, omnibus setting and last-refreshed all follow - and leave nothing addressable
+    // under the old name. The old name otherwise stays a matched zombie row in the overview with
+    // the whole roster reported missing while the adopted name owns no roster at all.
+    [TestMethod]
+    public async Task RenameAsync_MigratesCatalogRowRosterAndMetadataToTheNewName()
+    {
+        var series = await _repository.UpsertSeriesAsync(new Series
+        {
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            MatchedSourceUrl = "https://hardcover.app/series/42",
+            MatchedSeriesName = "Mistborn Saga",
+            MatchConfidence = 0.9,
+            LastRefreshedAt = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc),
+            IncludeOmnibusEditions = true,
+        });
+        await _repository.ReplaceExpectedBooksAsync(series.Id, new List<SeriesExpectedBook>
+        {
+            new() { Title = "The Final Empire", Position = "1" },
+            new() { Title = "Secret History", Position = "3.5", IsIgnored = true },
+        });
+
+        var renamed = await _repository.RenameAsync("Mistborn", "Mistborn Saga");
+
+        // The old name no longer resolves through either read shape.
+        Assert.IsNull(await _repository.GetByNameAsync("Mistborn"));
+        Assert.IsNull(await _repository.GetByNameWithExpectedBooksAsync("Mistborn"));
+
+        var underNewName = await _repository.GetByNameWithExpectedBooksAsync("Mistborn Saga");
+        Assert.IsNotNull(underNewName);
+        Assert.AreEqual(renamed.Id, underNewName!.Id, "the row keeps its id - only the name changes");
+        Assert.AreEqual("Hardcover", underNewName.MatchedSourceName);
+        Assert.AreEqual("42", underNewName.MatchedSourceId);
+        Assert.AreEqual("https://hardcover.app/series/42", underNewName.MatchedSourceUrl);
+        Assert.AreEqual("Mistborn Saga", underNewName.MatchedSeriesName);
+        Assert.AreEqual(0.9, underNewName.MatchConfidence);
+        Assert.AreEqual(new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc), underNewName.LastRefreshedAt,
+            "last-refreshed must survive the rename");
+        Assert.IsTrue(underNewName.IncludeOmnibusEditions);
+        Assert.AreEqual(2, underNewName.ExpectedBooks.Count);
+        Assert.IsTrue(underNewName.ExpectedBooks.Single(b => b.Title == "Secret History").IsIgnored,
+            "the ignore flag must survive the rename");
+
+        // The migrated row is fully re-addressable: natural-key lookups and ignore flips now
+        // resolve under the new name, which is what keeps detail/refresh/candidates working.
+        Assert.IsNotNull(await _repository.FindExpectedBookAsync("Mistborn Saga", "1", "The Final Empire"));
+        Assert.IsNotNull(await _repository.FindExpectedBookStrictAsync("Mistborn Saga", "3.5", "Secret History"));
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn Saga", "3.5", "Secret History", false);
+        Assert.IsFalse((await _repository.GetByNameWithExpectedBooksAsync("Mistborn Saga"))!
+            .ExpectedBooks.Single(b => b.Title == "Secret History").IsIgnored);
+    }
+
+    [TestMethod]
+    public async Task RenameAsync_RefusesWhenTheDestinationNameIsAlreadyACatalogRow()
+    {
+        await _repository.UpsertSeriesAsync(new Series { Name = "Mistborn" });
+        await _repository.UpsertSeriesAsync(new Series { Name = "Mistborn Saga" });
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => _repository.RenameAsync("Mistborn", "Mistborn Saga"));
+
+        // Neither row was clobbered: both names still resolve on their own rows.
+        Assert.IsNotNull(await _repository.GetByNameAsync("Mistborn"));
+        Assert.IsNotNull(await _repository.GetByNameAsync("Mistborn Saga"));
+    }
+
+    [TestMethod]
+    public async Task RenameAsync_UnknownSeries_ThrowsKeyNotFound()
+    {
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _repository.RenameAsync("No Such Series", "New Name"));
+    }
 }

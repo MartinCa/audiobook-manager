@@ -2722,7 +2722,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["SeriesRefreshResultDto"];
+                        "application/json": components["schemas"]["SeriesRefreshResultDto"];
+                        "text/json": components["schemas"]["SeriesRefreshResultDto"];
+                    };
                 };
             };
         };
@@ -2911,6 +2915,198 @@ export interface paths {
                     "application/json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
                     "text/json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
                     "application/*+json": components["schemas"]["ApplyMissingBookBulkRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesRefreshPendingPageDto"];
+                        "application/json": components["schemas"]["SeriesRefreshPendingPageDto"];
+                        "text/json": components["schemas"]["SeriesRefreshPendingPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/pending/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": number;
+                        "application/json": number;
+                        "text/json": number;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/pending/detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesRefreshPendingDto"];
+                        "application/json": components["schemas"]["SeriesRefreshPendingDto"];
+                        "text/json": components["schemas"]["SeriesRefreshPendingDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/pending/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/pending/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApplySeriesRefreshRequestDto"];
+                    "text/json": components["schemas"]["ApplySeriesRefreshRequestDto"];
+                    "application/*+json": components["schemas"]["ApplySeriesRefreshRequestDto"];
                 };
             };
             responses: {
@@ -3648,6 +3844,17 @@ export interface components {
             /** Format: int64 */
             audiobookId: number;
         };
+        ApplySeriesRefreshChangeDto: {
+            changeType?: string | null;
+            /** Format: int64 */
+            audiobookId?: number | null;
+            position?: string | null;
+            title?: string | null;
+        };
+        ApplySeriesRefreshRequestDto: {
+            adoptSourceSeriesName?: boolean;
+            selections?: components["schemas"]["ApplySeriesRefreshChangeDto"][] | null;
+        };
         ApplyUrlCleanupDto: {
             audiobookIds?: number[] | null;
         };
@@ -4325,6 +4532,49 @@ export interface components {
             items?: components["schemas"]["SeriesPartMismatchDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
+        };
+        SeriesRefreshChangeDto: {
+            changeType?: string | null;
+            /** Format: int64 */
+            audiobookId?: number | null;
+            bookName?: string | null;
+            storedPart?: string | null;
+            newPart?: string | null;
+            rosterTitle?: string | null;
+            position?: string | null;
+            title?: string | null;
+            /** Format: int32 */
+            year?: number | null;
+        };
+        SeriesRefreshPendingDto: {
+            seriesName?: string | null;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
+            sourceSeriesName?: string | null;
+            /** Format: date-time */
+            fetchedAt?: string;
+            changes?: components["schemas"]["SeriesRefreshChangeDto"][] | null;
+        };
+        SeriesRefreshPendingListItemDto: {
+            seriesName?: string | null;
+            sourceName?: string | null;
+            sourceSeriesName?: string | null;
+            /** Format: date-time */
+            fetchedAt?: string;
+            /** Format: int32 */
+            changeCount?: number;
+        };
+        SeriesRefreshPendingPageDto: {
+            items?: components["schemas"]["SeriesRefreshPendingListItemDto"][] | null;
+            /** Format: int32 */
+            total?: number;
+        };
+        SeriesRefreshResultDto: {
+            success?: boolean;
+            hasChanges?: boolean;
+            /** Format: int32 */
+            changeCount?: number;
+            sourceName?: string | null;
         };
         SimilarValueCandidateDto: {
             value?: string | null;

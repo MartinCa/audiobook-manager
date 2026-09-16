@@ -120,7 +120,7 @@ describe("api service mappings and contracts", () => {
         .spyOn(globalThis, "fetch")
         .mockResolvedValue(new Response(null, { status: 200 }));
 
-      await seriesApi.startRefresh("Mistborn");
+      await seriesApi.refreshSeries("Mistborn");
 
       expect(fetchSpy).toHaveBeenCalledWith(
         "/api/series/refresh?seriesName=Mistborn",
@@ -282,6 +282,103 @@ describe("api service mappings and contracts", () => {
             selections: [
               { audiobookId: 42, position: "4", title: "Secret History" },
               { audiobookId: 43, position: null, title: "The Lost Metal" },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it("calls pending page with paged query params", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ items: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getSeriesPendingPage(2, 50);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/pending?page=2&pageSize=50",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("calls pending count for the list header badge", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("3", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getSeriesPendingCount();
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/pending/count",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("calls pending detail with seriesName in query", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ changes: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getSeriesPending("Mistborn");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/pending/detail?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("calls pending dismiss with seriesName in query", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.dismissSeriesPending("Mistborn");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/pending/dismiss?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+
+    it("calls pending apply with seriesName in query and the request body", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.applySeriesPending("Mistborn", {
+        adoptSourceSeriesName: true,
+        selections: [
+          { changeType: "PartUpdate", audiobookId: 5 },
+          { changeType: "MissingBook", audiobookId: 9, position: "4", title: "Book B" },
+        ],
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/pending/apply?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            adoptSourceSeriesName: true,
+            selections: [
+              { changeType: "PartUpdate", audiobookId: 5 },
+              { changeType: "MissingBook", audiobookId: 9, position: "4", title: "Book B" },
             ],
           }),
         }),

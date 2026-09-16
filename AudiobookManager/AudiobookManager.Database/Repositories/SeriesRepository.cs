@@ -333,4 +333,32 @@ public class SeriesRepository : ISeriesRepository
             seriesName,
             row => row.IncludeOmnibusEditions = includeOmnibusEditions,
             () => new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions });
+
+    /// <summary>
+    /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>.
+    /// Only <see cref="Series.Name"/> is rewritten - the row's id and its expected-book
+    /// children (roster, ignore flags, source urls, years) are untouched, so no child rows
+    /// need re-pointing and nothing else in the schema references the row by name.
+    /// </summary>
+    public async Task<Series> RenameAsync(string oldName, string newName)
+    {
+        var existing = await _db.Series.FirstOrDefaultAsync(s => s.Name == oldName)
+            ?? throw new KeyNotFoundException($"Series '{oldName}' not found");
+
+        existing.Name = newName;
+        try
+        {
+            await _db.SaveChangesAsync();
+            return existing;
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            // series.name is unique and a row already owns the destination. A rename here would
+            // silently merge two rosters (or clobber one); detach so the half-mutated loser never
+            // stays in the identity map for the caller, then report it as an adoption failure the
+            // batch can count rather than a raw constraint 500.
+            _db.Entry(existing).State = EntityState.Detached;
+            throw new InvalidOperationException($"A series named '{newName}' already exists.");
+        }
+    }
 }

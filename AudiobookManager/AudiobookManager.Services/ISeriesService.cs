@@ -88,9 +88,15 @@ public interface ISeriesService
         List<string>? seriesNames,
         Func<int, int, int, int, Task> progressAction);
 
-    Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshSeriesAsync(
-        string seriesName,
-        Func<int, int, int, int, Task> progressAction);
+    /// <summary>
+    /// Refreshes one series from its matched source, synchronously, returning whether the
+    /// source differed from the library (and by how many explicit changes). Refreshing always
+    /// re-fetches and re-stores the roster and stamps LastRefreshedAt; a refresh that found
+    /// changes stores a pending snapshot for the series, and a no-change refresh clears any
+    /// stale one. Throws <see cref="KeyNotFoundException"/> when the series has no matched
+    /// source.
+    /// </summary>
+    Task<SeriesRefreshResult> RefreshSeriesAsync(string seriesName);
 
     Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllSeriesAsync(
         Func<int, int, int, int, Task> progressAction);
@@ -138,4 +144,36 @@ public interface ISeriesService
     /// call - the gate is non-reentrant, so this method must never take it itself.
     /// </summary>
     Task ApplyMissingBookAsync(string seriesName, string? position, string? title, long audiobookId);
+
+    /// <summary>The stored pending refresh snapshot for one series, or null when none exists.</summary>
+    Task<PendingSeriesRefresh?> GetPendingSeriesRefreshAsync(string seriesName);
+
+    /// <summary>
+    /// One page of the pending series-refresh list, newest fetch first. Rows exist only for
+    /// series whose refresh produced changes - a no-change bulk item never appears here.
+    /// </summary>
+    Task<(List<PendingSeriesRefreshListItem> Items, int Total)> GetPendingSeriesRefreshPageAsync(int page, int pageSize);
+
+    /// <summary>The number of series with a pending snapshot, for the list header badge.</summary>
+    Task<int> CountPendingSeriesRefreshesAsync();
+
+    /// <summary>Deletes the pending snapshot for one series; true when a row actually existed.</summary>
+    Task<bool> DismissPendingSeriesRefreshAsync(string seriesName);
+
+    /// <summary>
+    /// Applies the accepted selections of a pending series refresh (and optionally adopts the
+    /// source's series name). Every accepted change - and every member book of a name adoption -
+    /// is rewritten through AudiobookService.UpdateAudiobook under the per-audiobook save gate,
+    /// with one try/catch per item so a busy or missing book fails just its own item. A fully
+    /// successful adoption also migrates the matched catalog row (roster, ignore flags, matched
+    /// metadata) to the adopted name, so the old name does not keep a matched zombie row. The
+    /// apply is the entry point that takes the gate; nothing below it may take it again. After
+    /// the batch the pending snapshot is recomputed against the stored roster, so a series whose
+    /// changes are all resolved drops out of the pending list and one with leftovers keeps a
+    /// snapshot containing exactly them.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> ApplyPendingSeriesRefreshAsync(
+        string seriesName,
+        SeriesRefreshApplyRequest request,
+        Func<int, int, int, int, Task> progressAction);
 }

@@ -116,6 +116,18 @@ public class Client : IOrganize
         return Task.CompletedTask;
     }
 
+    public Task SeriesRefreshApplyProgress(SeriesRefreshApplyProgress progress)
+    {
+        Console.WriteLine($"Series refresh apply: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task SeriesRefreshApplyComplete(SeriesRefreshApplyComplete result)
+    {
+        Console.WriteLine($"Series refresh apply complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
+
     public Task SeriesMissingBookApplyProgress(SeriesMissingBookApplyProgress progress)
     {
         Console.WriteLine($"Series missing-book apply: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");

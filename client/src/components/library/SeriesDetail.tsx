@@ -22,13 +22,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
-import { SignalREvents } from "@/constants/signalrEvents";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
+import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
+import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { seriesApi } from "@/services/api";
-import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
@@ -41,7 +41,6 @@ import type {
   SeriesPartMismatch,
 } from "@/types/Series";
 import { Route } from "@/routes/library/series/$seriesName";
-import { formatDate } from "@/helpers/formatHelpers";
 
 // SeriesOwnedBookDto omits some summary-row fields BookListRow renders through its
 // ManagedAudiobook prop (no series, no genres); fill the gaps with the values the owned row
@@ -59,13 +58,6 @@ function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
     durationInSeconds: b.durationInSeconds ?? undefined,
     coverFilePath: b.coverFilePath ?? undefined,
   };
-}
-
-interface SeriesRefreshCompletePayload {
-  totalProcessed: number;
-  totalSucceeded: number;
-  totalFailed: number;
-  stopReason?: string;
 }
 
 export function SeriesDetail() {
@@ -116,6 +108,11 @@ export function SeriesDetail() {
 
   // Bulk missing-book match dialog: one review over every missing book at once.
   const [bulkMatchOpen, setBulkMatchOpen] = useState(false);
+
+  // Pending series-refresh review (the "review changes" banner): a snapshot exists only when a
+  // refresh found explicit changes. The detail endpoint 404s when none exists, and that absent
+  // case must not surface as an error - the banner renders from `pendingReviews` being defined.
+  const [pendingReviewOpen, setPendingReviewOpen] = useState(false);
 
   // Each section pages server-side: a matched series with a large roster (or a book-heavy
   // series) used to send every owned and expected book over the wire and into the DOM at once.
@@ -192,26 +189,36 @@ export function SeriesDetail() {
   useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
   useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
 
-  useSignalREvent<SeriesRefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (arg) => {
-    setRefreshing(false);
-    const msg = arg.stopReason
-      ? `Refresh stopped: ${arg.stopReason}`
-      : arg.totalFailed > 0
-        ? `Refresh finished with ${arg.totalFailed} failure(s)`
-        : "Refresh complete";
-    toast.success(msg);
-    void queryClient.invalidateQueries({
-      queryKey: ["seriesDetail", seriesName, authorId],
-    });
+  // The review banner shares the dialog's query key, so the banner and the open dialog never
+  // disagree about whether a snapshot exists. 404 (no snapshot) is the normal absent case and
+  // must not surface as an error.
+  const { data: pendingReviews } = useQuery({
+    queryKey: ["seriesPending", seriesName],
+    queryFn: () => seriesApi.getSeriesPending(seriesName),
+    enabled: Boolean(seriesName) && seriesDetailQuery.data?.overview.isMatched === true,
   });
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await seriesApi.startRefresh(seriesName);
-      toast.success("Series refresh queued");
+      const result = await seriesApi.refreshSeries(seriesName);
+      if (result.hasChanges) {
+        toast.success(
+          `Refresh found ${result.changeCount} change${result.changeCount === 1 ? "" : "s"} to review`,
+        );
+        setPendingReviewOpen(true);
+      } else {
+        toast.success("No changes from source");
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["seriesDetail", seriesName, authorId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["seriesPending", seriesName] });
+      void queryClient.invalidateQueries({ queryKey: ["series"] });
+      void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     } catch (err: unknown) {
       toast.error(handleApiError(err).message);
+    } finally {
       setRefreshing(false);
     }
   };
@@ -475,17 +482,37 @@ export function SeriesDetail() {
                   Confidence: {Math.round(overview.matchConfidence * 100)}%
                 </span>
               )}
-              {overview.lastRefreshedAt && (
-                <span className="text-muted-foreground">
-                  Last refreshed: {formatDate(overview.lastRefreshedAt)}
-                </span>
-              )}
+              <span className="text-muted-foreground">
+                <LastRefreshedHint lastRefreshedAt={overview.lastRefreshedAt} />
+              </span>
             </div>
           ) : (
             <p className="text-muted-foreground">
               Not matched to an online metadata provider yet. Click "Match to Source" or search
               below to associate this series.
             </p>
+          )}
+
+          {pendingReviews && (
+            <div className="border-border flex flex-col justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center">
+              <div className="text-xs">
+                <span className="text-foreground font-semibold">
+                  {pendingReviews.changes.length} pending change
+                  {pendingReviews.changes.length === 1 ? "" : "s"}
+                </span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  from the last refresh. Review them before they are written to your books.
+                </span>
+              </div>
+              <Button
+                size="sm"
+                className="h-7 shrink-0 self-end text-xs sm:self-center"
+                onClick={() => setPendingReviewOpen(true)}
+              >
+                Review Changes
+              </Button>
+            </div>
           )}
 
           <div className="flex items-center space-x-2 pt-1">
@@ -896,6 +923,15 @@ export function SeriesDetail() {
         open={bulkMatchOpen}
         onOpenChange={setBulkMatchOpen}
         seriesName={seriesName}
+      />
+
+      <SeriesRefreshPendingDialog
+        open={pendingReviewOpen}
+        onOpenChange={setPendingReviewOpen}
+        seriesName={seriesName}
+        onApplied={() => {
+          void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
+        }}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -30,6 +31,7 @@ public class SeriesController : ControllerBase
     public const string MatchOperationKey = "series-match";
     public const string RefreshOperationKey = "series-refresh";
     public const string MissingBookApplyOperationKey = "series-missing-book-apply";
+    public const string PendingApplyOperationKey = "series-refresh-apply";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -244,10 +246,59 @@ public class SeriesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    /// <summary>
+    /// Refreshes one series from its matched source, synchronously. The fetch is bounded by the
+    /// scraper's own HTTP timeouts, the same latency profile the single-book metadata refresh
+    /// has. Refreshing always re-fetches and re-stores the roster and stamps LastRefreshedAt;
+    /// the result reports whether anything changed, and a refresh that found changes also stores
+    /// a pending snapshot the review dialog applies.
+    ///
+    /// The <see cref="_refreshLock"/> held here is the SAME gate the bulk refresh (and the
+    /// pending apply, which recomputes the same pending state) uses, so a single refresh never
+    /// runs concurrently with a sweep that is re-fetching the same rosters - and a busy gate
+    /// returns 409 immediately, exactly like the fire-and-forget endpoints, rather than parking
+    /// the request thread.
+    /// </summary>
     [HttpPost("refresh")]
-    public IActionResult StartRefreshSeries([FromQuery] string seriesName)
+    public async Task<ActionResult<SeriesRefreshResultDto>> RefreshSeries([FromQuery] string seriesName)
     {
-        return StartRefresh(service => service.RefreshSeriesAsync(seriesName, RefreshProgressAction));
+        if (!_refreshLock.Wait(0))
+        {
+            return this.ConflictingState("A series refresh or pending apply is already in progress.", "Operation in progress");
+        }
+
+        try
+        {
+            var result = await _seriesService.RefreshSeriesAsync(seriesName);
+            return Ok(new SeriesRefreshResultDto(result.Success, result.HasChanges, result.ChangeCount, result.SourceName));
+        }
+        catch (KeyNotFoundException)
+        {
+            // The name is the whole message - the caller supplied it and can see it.
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            // A matched source with no series-capable scraper in this build (e.g. the source was
+            // removed since the series was matched). The message names the source and the remedy,
+            // both safe for the caller - a 4xx, not a 500 about server state.
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (HardcoverDailyLimitExceededException ex)
+        {
+            // 4xx detail is relayed to the user by design; this message names the cause and the
+            // remedy without leaking anything about the environment.
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing series {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     [HttpPost("refresh-all")]
@@ -538,6 +589,203 @@ public class SeriesController : ControllerBase
         return (processed, succeeded, failed);
     }
 
+    /// <summary>
+    /// One page of the pending series-refresh list - the series whose last refresh found
+    /// explicit changes, newest fetch first. Rows exist only for refresh runs that produced
+    /// changes (a no-change bulk item never appears here), so this page IS the "something to
+    /// review" surface, not a log of every refresh.
+    /// </summary>
+    [HttpGet("pending")]
+    public async Task<ActionResult<SeriesRefreshPendingPageDto>> GetPendingPage(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+    {
+        var pagingError = ValidatePageSelection(page, pageSize, "pending series refreshes");
+        if (pagingError != null)
+        {
+            return pagingError;
+        }
+
+        try
+        {
+            var (items, total) = await _seriesService.GetPendingSeriesRefreshPageAsync(page, pageSize);
+            return Ok(new SeriesRefreshPendingPageDto(
+                items.Select(ToListItemDto).ToList(),
+                total));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the pending series-refresh page");
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>The number of series with a pending snapshot, for the list header badge.</summary>
+    [HttpGet("pending/count")]
+    public async Task<ActionResult<int>> GetPendingCount()
+    {
+        try
+        {
+            return Ok(await _seriesService.CountPendingSeriesRefreshesAsync());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error counting pending series refreshes");
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>The stored pending snapshot for one series, for the review dialog.</summary>
+    [HttpGet("pending/detail")]
+    public async Task<ActionResult<SeriesRefreshPendingDto>> GetPendingDetail([FromQuery] string seriesName)
+    {
+        var pending = await _seriesService.GetPendingSeriesRefreshAsync(seriesName);
+        if (pending is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(new SeriesRefreshPendingDto(
+            pending.SeriesName,
+            pending.SourceName,
+            pending.SourceUrl,
+            pending.SourceSeriesName,
+            pending.FetchedAt,
+            pending.Changes.Select(ToChangeDto).ToList()));
+    }
+
+    /// <summary>
+    /// Deletes the pending snapshot for a series - after the user applied (or decided to
+    /// discard) the changes. Deliberately not idempotent-failing: dismissing an already-dismissed
+    /// snapshot is a no-op success.
+    /// </summary>
+    [HttpPost("pending/dismiss")]
+    public async Task<IActionResult> DismissPending([FromQuery] string seriesName)
+    {
+        try
+        {
+            await _seriesService.DismissPendingSeriesRefreshAsync(seriesName);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dismissing the pending series refresh for {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>
+    /// Fire-and-forget application of the accepted pending changes for one series. The selections
+    /// are the {"PartUpdate", "MissingBook", "PartRemoval"} rows the review dialog accepted; part
+    /// updates and removals are addressed by the target audiobook id, missing books by the roster
+    /// natural key (position/title) plus the chosen library audiobook. Each change runs through
+    /// the same UpdateAudiobook pipeline the interactive edit uses, under the per-audiobook save
+    /// gate, so a busy book fails just its own item and the batch carries on. The request's
+    /// optional <c>AdoptSourceSeriesName</c> renames every member book to the source's own series
+    /// name through the same pipeline. Progress is reported over SignalR; the operation status is
+    /// recorded under <see cref="PendingApplyOperationKey"/> so a client can recover it after a
+    /// reconnect.
+    /// </summary>
+    [HttpPost("pending/apply")]
+    public IActionResult StartPendingApply([FromQuery] string seriesName, [FromBody] ApplySeriesRefreshRequestDto? dto)
+    {
+        if (dto is null || (dto.Selections.Count == 0 && !dto.AdoptSourceSeriesName))
+        {
+            return this.InvalidRequest("At least one accepted change, or the source-series-name adoption, is required.");
+        }
+
+        foreach (var selection in dto.Selections)
+        {
+            if (SeriesRefreshChangeTypeDto.FromDto(selection.ChangeType) is null)
+            {
+                return this.InvalidRequest($"Unknown ChangeType '{selection.ChangeType}'.");
+            }
+
+            if (selection.AudiobookId is not > 0)
+            {
+                return this.InvalidRequest("A valid AudiobookId is required for every accepted change.");
+            }
+        }
+
+        // One library book is written once per apply: two selections touching the same book
+        // would both count as succeeded while the second clobbers the first, exactly the
+        // duplicate-selection collision the bulk missing-book apply rejects up front.
+        var duplicateAudiobookId = dto.Selections
+            .Where(s => s.AudiobookId is > 0)
+            .GroupBy(s => s.AudiobookId)
+            .FirstOrDefault(g => g.Count() > 1)
+            ?.Key ?? 0;
+        if (duplicateAudiobookId != 0)
+        {
+            return this.InvalidRequest(
+                $"A library book can only be changed once: audiobook {duplicateAudiobookId} appears more than once in the request.");
+        }
+
+        // Symmetric guard on the other side: two MissingBook selections may not target the same
+        // roster entry. The natural keys are compared the way the apply resolves them - trimmed,
+        // case-insensitive - so "4" + "Book B" and "4" + " book b " name the same row even though
+        // the raw strings differ. A duplicate would assign two different library books to one
+        // missing slot.
+        var missingBookTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var selection in dto.Selections)
+        {
+            if (SeriesRefreshChangeTypeDto.FromDto(selection.ChangeType) != SeriesRefreshChangeType.MissingBook)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(selection.Position) && string.IsNullOrWhiteSpace(selection.Title))
+            {
+                return this.InvalidRequest("Every MissingBook change needs a Position or Title to identify the roster entry.");
+            }
+
+            var key = $"{selection.Position?.Trim() ?? ""}\u0001{selection.Title?.Trim() ?? ""}";
+            if (!missingBookTargets.Add(key))
+            {
+                return this.InvalidRequest("A missing book can only be applied once: more than one selection targets the same roster entry.");
+            }
+        }
+
+        var request = new SeriesRefreshApplyRequest(
+            dto.AdoptSourceSeriesName,
+            dto.Selections
+                .Select(s => new SeriesRefreshApplyChange(
+                    SeriesRefreshChangeTypeDto.FromDto(s.ChangeType)!.Value,
+                    s.AudiobookId,
+                    s.Position,
+                    s.Title))
+                .ToList());
+
+        // The apply shares the refresh gate on purpose: both operations read and then replace the
+        // same pending snapshot, so they must be mutually exclusive or a refresh running mid-apply
+        // could wipe the row the apply is about to recompute (and vice versa).
+        return BackgroundOperationRunner.Start(
+            _refreshLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            PendingApplyOperationKey,
+            async sp =>
+            {
+                var seriesService = sp.GetRequiredService<ISeriesService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(PendingApplyOperationKey, processed, total);
+                    return _organizeHub.Clients.All.SeriesRefreshApplyProgress(
+                        new SeriesRefreshApplyProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) = await seriesService.ApplyPendingSeriesRefreshAsync(
+                    seriesName, request, ProgressAction);
+
+                await _organizeHub.Clients.All.SeriesRefreshApplyComplete(
+                    new SeriesRefreshApplyComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.SeriesRefreshApplyComplete(new SeriesRefreshApplyComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
     // Roster entries are addressed by their natural key (series name plus position and/or
     // title), not by row id: matching and refreshing delete and re-insert the whole roster,
     // so an id a client cached earlier can point at a different book by the time it is used.
@@ -632,6 +880,24 @@ public class SeriesController : ControllerBase
 
     private static SeriesPartMismatchDto ToMismatchDto(SeriesPartMismatch m) => new(
         m.AudiobookId, m.BookName, m.StoredPart, m.ExpectedPart, m.RosterTitle);
+
+    private static SeriesRefreshPendingListItemDto ToListItemDto(PendingSeriesRefreshListItem item) => new(
+        item.SeriesName,
+        item.SourceName,
+        item.SourceSeriesName,
+        item.FetchedAt,
+        item.ChangeCount);
+
+    private static SeriesRefreshChangeDto ToChangeDto(SeriesRefreshChange change) => new(
+        SeriesRefreshChangeTypeDto.ToDto(change.Type),
+        change.AudiobookId,
+        change.BookName,
+        change.StoredPart,
+        change.NewPart,
+        change.RosterTitle,
+        change.Position,
+        change.Title,
+        change.Year);
 
     /// <summary>
     /// Human-readable label of a resolved roster entry for an error the caller sees. Uses the
