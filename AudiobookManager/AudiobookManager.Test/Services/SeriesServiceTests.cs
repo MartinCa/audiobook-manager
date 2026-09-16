@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using DomainAudiobook = AudiobookManager.Domain.Audiobook;
 using DomainPerson = AudiobookManager.Domain.Person;
+using DbSeriesMapping = AudiobookManager.Database.Models.SeriesMapping;
+using DomainSeriesMapping = AudiobookManager.Domain.SeriesMapping;
 
 namespace AudiobookManager.Test.Services;
 
@@ -17,6 +19,7 @@ public class SeriesServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<ISeriesMappingRepository> _seriesMappingRepository = null!;
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
@@ -28,6 +31,7 @@ public class SeriesServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _seriesRepository = new Mock<ISeriesRepository>();
+        _seriesMappingRepository = new Mock<ISeriesMappingRepository>();
         _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
@@ -39,6 +43,7 @@ public class SeriesServiceTests
         new(
             _audiobookRepository.Object,
             _seriesRepository.Object,
+            _seriesMappingRepository.Object,
             _pendingSeriesRefreshRepository.Object,
             _audiobookService.Object,
             new AudiobookSaveGate(),
@@ -2660,5 +2665,182 @@ public class SeriesServiceTests
 
         Assert.AreEqual(3, result.Conflicts.Count);
         Assert.IsTrue(result.Truncated, "the caller must be told the list is partial, not complete");
+    }
+
+    // --- Series mapping patterns (owned by a Series row: the target is always the owner's name) ---
+
+    [TestMethod]
+    public async Task GetSeriesMappingsAsync_ReturnsTheSeriesOwnPatternsInInsertionOrder()
+    {
+        _seriesMappingRepository
+            .Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new List<DbSeriesMapping>
+            {
+                new(1, "^mistborn.*$", false, seriesId: 5),
+                new(2, "^(alloy|shadows|lost).*$", true, seriesId: 5),
+            });
+
+        var result = await MakeService().GetSeriesMappingsAsync("Mistborn");
+
+        Assert.AreEqual(2, result.Count);
+        Assert.AreEqual("^mistborn.*$", result[0].Regex);
+        Assert.IsFalse(result[0].WarnAboutPart);
+        Assert.IsTrue(result[1].WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_CreatesTheOwningCatalogRowForAnUnmatchedSeries()
+    {
+        // An unmatched series exists only as a value on audiobooks, so it has no catalog row yet -
+        // but patterns are owned by a Series row, so the create must produce one.
+        var ownerRow = new Series { Id = 9, Name = "Unmatched Series" };
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("Unmatched Series"))
+            .ReturnsAsync(ownerRow);
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ReturnsAsync((DbSeriesMapping m) => new DbSeriesMapping(42, m.Regex, m.WarnAboutPart, m.SeriesId));
+
+        var result = await MakeService().CreateSeriesMappingAsync(
+            "Unmatched Series", new DomainSeriesMapping(null, "^unmatched.*$", true));
+
+        _seriesRepository.Verify(r => r.GetOrCreateByNameAsync("Unmatched Series"), Times.Once);
+        _seriesMappingRepository.Verify(
+            r => r.CreateSeriesMappingAsync(
+                It.Is<DbSeriesMapping>(m => m.Regex == "^unmatched.*$" && m.WarnAboutPart && m.SeriesId == 9)),
+            Times.Once);
+        Assert.AreEqual(42, result.Id);
+        Assert.AreEqual("^unmatched.*$", result.Regex);
+        Assert.IsTrue(result.WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_UsesTheExistingOwnerRowForAMatchedSeries()
+    {
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ReturnsAsync((DbSeriesMapping m) => m);
+
+        await MakeService().CreateSeriesMappingAsync(
+            "Mistborn", new DomainSeriesMapping(null, "^mistborn.*$", false));
+
+        _seriesMappingRepository.Verify(
+            r => r.CreateSeriesMappingAsync(
+                It.Is<DbSeriesMapping>(m => m.SeriesId == 5)),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_PersistsTheOwnersIdNotANonexistentTarget()
+    {
+        // The old global mapping carried its own mappedSeries target. The new pattern must never
+        // smuggle one into the DB: the payload has no target field at all, only the owner row's id.
+        _seriesRepository
+            .Setup(r => r.GetOrCreateByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        DbSeriesMapping? captured = null;
+        _seriesMappingRepository
+            .Setup(r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ReturnsAsync((DbSeriesMapping m) =>
+            {
+                captured = m;
+                return m;
+            });
+
+        await MakeService().CreateSeriesMappingAsync(
+            "Mistborn", new DomainSeriesMapping(null, "\\bmistborn\\b", false));
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(5, captured!.SeriesId);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMappingAsync_UpdatesRegexAndWarnAboutPartOfAnOwnedPattern()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        _seriesMappingRepository
+            .Setup(r => r.GetSeriesMappingAsync(7))
+            .ReturnsAsync(new DbSeriesMapping(7, "^old.*$", false, seriesId: 5));
+        _seriesMappingRepository
+            .Setup(r => r.UpdateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()))
+            .ReturnsAsync((DbSeriesMapping m) => new DbSeriesMapping(m.Id, m.Regex, m.WarnAboutPart, m.SeriesId));
+
+        var result = await MakeService().UpdateSeriesMappingAsync(
+            "Mistborn", 7, new DomainSeriesMapping(null, "^new.*$", true));
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(7, result!.Id);
+        Assert.AreEqual("^new.*$", result.Regex);
+        Assert.IsTrue(result.WarnAboutPart);
+        _seriesMappingRepository.Verify(
+            r => r.UpdateSeriesMappingAsync(
+                It.Is<DbSeriesMapping>(m => m.Id == 7 && m.Regex == "^new.*$" && m.WarnAboutPart && m.SeriesId == 5)),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMappingAsync_MappingBelongingToAnotherSeries_ReturnsNull()
+    {
+        // series-scoped ownership: an id that belongs to another series is not this series' pattern.
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        _seriesMappingRepository
+            .Setup(r => r.GetSeriesMappingAsync(7))
+            .ReturnsAsync(new DbSeriesMapping(7, "^other.*$", false, seriesId: 6));
+
+        var result = await MakeService().UpdateSeriesMappingAsync(
+            "Mistborn", 7, new DomainSeriesMapping(null, "^new.*$", false));
+
+        Assert.IsNull(result);
+        _seriesMappingRepository.Verify(
+            r => r.UpdateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMappingAsync_UnknownMappingOrSeries_ReturnsNull()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync((Series?)null);
+        _seriesMappingRepository
+            .Setup(r => r.GetSeriesMappingAsync(7))
+            .ReturnsAsync((DbSeriesMapping?)null);
+
+        var result = await MakeService().UpdateSeriesMappingAsync(
+            "Mistborn", 7, new DomainSeriesMapping(null, "^new.*$", false));
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesMappingAsync_DeletesAnOwnedPattern()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        _seriesMappingRepository
+            .Setup(r => r.GetSeriesMappingAsync(7))
+            .ReturnsAsync(new DbSeriesMapping(7, "^mistborn.*$", false, seriesId: 5));
+        _seriesMappingRepository
+            .Setup(r => r.DeleteSeriesMappingAsync(7))
+            .ReturnsAsync(true);
+
+        var result = await MakeService().DeleteSeriesMappingAsync("Mistborn", 7);
+
+        Assert.IsTrue(result);
+        _seriesMappingRepository.Verify(r => r.DeleteSeriesMappingAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesMappingAsync_MappingBelongingToAnotherSeries_ReturnsFalse()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Id = 5, Name = "Mistborn" });
+        _seriesMappingRepository
+            .Setup(r => r.GetSeriesMappingAsync(7))
+            .ReturnsAsync(new DbSeriesMapping(7, "^other.*$", false, seriesId: 6));
+
+        var result = await MakeService().DeleteSeriesMappingAsync("Mistborn", 7);
+
+        Assert.IsFalse(result);
+        _seriesMappingRepository.Verify(
+            r => r.DeleteSeriesMappingAsync(It.IsAny<long>()), Times.Never);
     }
 }

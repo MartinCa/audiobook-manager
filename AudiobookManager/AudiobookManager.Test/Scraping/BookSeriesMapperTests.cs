@@ -68,8 +68,18 @@ public class BookSeriesMapperTests
         _db = new DatabaseContext(options, settings);
         _db.Database.EnsureCreated();
 
-        _db.SeriesMappings.Add(new SeriesMapping(default, "^Stormlight.*", "The Stormlight Archive", false));
-        _db.SeriesMappings.Add(new SeriesMapping(default, "^Mistborn.*", "Mistborn", false));
+        // Mappings are owned by a Series row now: the target is always the owner's name, so the
+        // seed must create the owning rows and point the patterns at them.
+        _db.Series.AddRange(
+            new Series { Name = "The Stormlight Archive" },
+            new Series { Name = "Mistborn" });
+        _db.SaveChanges();
+
+        var stormlight = _db.Series.Single(s => s.Name == "The Stormlight Archive");
+        var mistborn = _db.Series.Single(s => s.Name == "Mistborn");
+        _db.SeriesMappings.AddRange(
+            new SeriesMapping(default, "^Stormlight.*", false, stormlight.Id),
+            new SeriesMapping(default, "^Mistborn.*", false, mistborn.Id));
         _db.SaveChanges();
     }
 
@@ -146,6 +156,40 @@ public class BookSeriesMapperTests
     }
 
     [TestMethod]
+    public async Task MapBookSeries_TargetIsTheOwningSeriesName_NotAValueOnTheMapping()
+    {
+        // The mapping pattern has no target of its own: renaming the owning series row must
+        // change what the pattern maps to. (This is the data-model ownership the old global
+        // mapped_series column approximated.)
+        var owner = _db.Series.Single(s => s.Name == "The Stormlight Archive");
+        owner.Name = "The Stormlight Archive (renamed)";
+        _db.SaveChanges();
+
+        var mapper = CreateMapper();
+
+        var mapped = await mapper.MapBookSeries(Results("Stormlight Archive"));
+
+        Assert.AreEqual("The Stormlight Archive (renamed)", mapped.Single().SeriesName);
+    }
+
+    [TestMethod]
+    public async Task MapSingleBookSeries_StillLoadsTheMappingsWithTheirOwnerInOneRead()
+    {
+        // The Include that joins the owner's name must not turn the single-select guarantee into
+        // a per-result N+1: MapSingleBookSeries fanned out 20 ways must still hit the table once.
+        var mapper = CreateMapper();
+
+        var tasks = Enumerable.Range(0, 20)
+            .Select(i => mapper.MapSingleBookSeries(new MetadataSeriesSearchResult($"Mistborn {i}")))
+            .ToList();
+
+        var mapped = await Task.WhenAll(tasks);
+
+        Assert.AreEqual("Mistborn", mapped[0].SeriesName);
+        Assert.AreEqual(1, _interceptor.SeriesMappingReads);
+    }
+
+    [TestMethod]
     public async Task MapBookSeriesPerBook_PreservesPerBookGrouping()
     {
         // The contract the grouped overload exists for: group i out is group i in, entry for
@@ -186,8 +230,11 @@ public class BookSeriesMapperTests
     public async Task MapBookSeries_InvalidPatternRow_IsSkippedNotThrown()
     {
         // A user-supplied pattern that does not compile must not take the whole result set down;
-        // caching the compiled list must not change that.
-        _db.SeriesMappings.Add(new SeriesMapping(default, "([unclosed", "Broken", false));
+        // caching the compiled list must not change that. The mapping still needs an owning row.
+        var brokenOwner = new Series { Name = "Broken" };
+        _db.Series.Add(brokenOwner);
+        _db.SaveChanges();
+        _db.SeriesMappings.Add(new SeriesMapping(default, "([unclosed", false, brokenOwner.Id));
         await _db.SaveChangesAsync();
 
         var mapper = CreateMapper();

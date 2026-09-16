@@ -384,6 +384,84 @@ describe("api service mappings and contracts", () => {
         }),
       );
     });
+
+    it("calls series mappings list with seriesName in the query string", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify([{ id: 1, regex: "^mistborn.*$", warnAboutPart: false }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.getSeriesMappings("Mistborn");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/mappings?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
+    });
+
+    it("creates a series mapping without a target field", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ id: 1, regex: "^mistborn.*$", warnAboutPart: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.createSeriesMapping("Mistborn", {
+        regex: "^mistborn.*$",
+        warnAboutPart: true,
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/mappings?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ regex: "^mistborn.*$", warnAboutPart: true }),
+        }),
+      );
+    });
+
+    it("updates a series mapping under the series-scoped endpoint", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ id: 7, regex: "^new.*$", warnAboutPart: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await seriesApi.updateSeriesMapping("Mistborn", 7, {
+        id: 7,
+        regex: "^new.*$",
+        warnAboutPart: false,
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/mappings/7?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ id: 7, regex: "^new.*$", warnAboutPart: false }),
+        }),
+      );
+    });
+
+    it("deletes a series mapping under the series-scoped endpoint", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await seriesApi.deleteSeriesMapping("Mistborn", 7);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/series/mappings/7?seriesName=Mistborn",
+        expect.objectContaining({
+          method: "DELETE",
+        }),
+      );
+    });
   });
 
   describe("Files API endpoints", () => {

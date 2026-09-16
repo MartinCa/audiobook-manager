@@ -46,7 +46,7 @@ import type {
   SeriesRefreshPendingPage,
   SeriesRefreshResult,
 } from "@/types/SeriesRefresh";
-import type { SeriesMapping, SeriesMappingBase, SeriesMappingGroups } from "@/types/SeriesMapping";
+import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
@@ -587,6 +587,29 @@ export const seriesApi = {
   // entry, audiobookId the chosen library book), reports progress over SignalR.
   startBulkMissingBookApply: (seriesName: string, selections: ApplyMissingBookSelection[]) =>
     api.post<void>("/series/expected-books/apply-bulk", { selections }, { query: { seriesName } }),
+
+  // Series mapping patterns are owned by a Series now (the target is always the owning series'
+  // name, so the wire shape has no mappedSeries field and every call is scoped by seriesName in
+  // the query string). These replaced the global settings-serial mapping CRUD.
+  getSeriesMappings: (seriesName: string) =>
+    api.get<SeriesMapping[]>("/series/mappings", {
+      query: { seriesName },
+    }),
+
+  createSeriesMapping: (seriesName: string, mapping: SeriesMappingBase) =>
+    api.post<SeriesMapping>("/series/mappings", mapping, {
+      query: { seriesName },
+    }),
+
+  updateSeriesMapping: (seriesName: string, mappingId: number, mapping: SeriesMapping) =>
+    api.put<SeriesMapping>(`/series/mappings/${mappingId}`, mapping, {
+      query: { seriesName },
+    }),
+
+  deleteSeriesMapping: (seriesName: string, mappingId: number) =>
+    api.delete<void>(`/series/mappings/${mappingId}`, {
+      query: { seriesName },
+    }),
 };
 
 // Metadata Search
@@ -616,22 +639,6 @@ export const settingsApi = {
   getSystemInfo: () => api.get<SystemInfo>("/settings/system_info"),
 
   getLanguages: () => api.get<LanguageOptions>("/settings/languages"),
-
-  // Grouped server-side (the client used to reduce the flat table into buckets itself), with an
-  // accent-insensitive server-side filter over pattern and target name.
-  getSeriesMappingGroups: (search?: string) =>
-    api.get<SeriesMappingGroups>("/settings/series_mappings/grouped", {
-      query: { search: search || undefined },
-    }),
-
-  createSeriesMapping: (mapping: SeriesMappingBase) =>
-    api.post<SeriesMapping>("/settings/series_mappings", mapping),
-
-  updateSeriesMapping: (mappingId: number, mapping: SeriesMapping) =>
-    api.put<SeriesMapping>(`/settings/series_mappings/${mappingId}`, mapping),
-
-  deleteSeriesMapping: (mappingId: number) =>
-    api.delete<void>(`/settings/series_mappings/${mappingId}`),
 
   getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
 

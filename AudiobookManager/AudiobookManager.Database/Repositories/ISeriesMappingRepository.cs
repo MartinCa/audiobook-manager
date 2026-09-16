@@ -3,16 +3,22 @@
 namespace AudiobookManager.Database.Repositories;
 public interface ISeriesMappingRepository
 {
-    Task<SeriesMapping> CreateSeriesMapping(SeriesMapping seriesMapping);
-    Task DeleteSeriesMapping(long id);
-    Task<SeriesMapping?> GetSeriesMapping(long id);
-
     /// <summary>
-    /// The series mappings already grouped by target series name, for the Settings page. The
-    /// grouping happens here (server-side) because the client used to fetch the flat table and
-    /// reduce it itself; <paramref name="search"/> folds accents over both the regex pattern and
-    /// the target name. Returns the groups and the total number of matching mapping rows.
+    /// The mapping patterns owned by one series, in insertion order. The list is per-series and
+    /// operator-curated (each row is a human-maintained regex; the global regex uniqueness means one
+    /// row per pattern across the whole table), so unlike the growing data tables it is returned
+    /// whole rather than paged, exactly like the grouped Settings list it replaces.
     /// </summary>
-    Task<(List<(string MappedSeries, List<SeriesMapping> Items)> Groups, int Total)> GetSeriesMappingGroupsAsync(string? search);
-    Task<SeriesMapping> UpdateSeriesMapping(SeriesMapping seriesMapping);
+    Task<List<SeriesMapping>> GetBySeriesNameAsync(string seriesName);
+
+    Task<SeriesMapping> CreateSeriesMappingAsync(SeriesMapping seriesMapping);
+
+    /// <summary>Read-only lookup of one mapping row (with its owner id), or null when the id is unknown.</summary>
+    Task<SeriesMapping?> GetSeriesMappingAsync(long id);
+
+    /// <summary>Updates Regex/WarnAboutPart on an existing row; null when the id is unknown.</summary>
+    Task<SeriesMapping?> UpdateSeriesMappingAsync(SeriesMapping seriesMapping);
+
+    /// <summary>Deletes one mapping row; false when no row had the id.</summary>
+    Task<bool> DeleteSeriesMappingAsync(long id);
 }

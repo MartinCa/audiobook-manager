@@ -15,12 +15,16 @@ import {
   CheckCircle2,
   BookPlus,
   Wand2,
+  Plus,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
@@ -40,6 +44,7 @@ import type {
   SeriesOwnedBook,
   SeriesPartMismatch,
 } from "@/types/Series";
+import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import { Route } from "@/routes/library/series/$seriesName";
 
 // SeriesOwnedBookDto omits some summary-row fields BookListRow renders through its
@@ -58,6 +63,28 @@ function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
     durationInSeconds: b.durationInSeconds ?? undefined,
     coverFilePath: b.coverFilePath ?? undefined,
   };
+}
+
+/** The matched-to indication shared by the header and the management card: the source name is the link. */
+function MatchedSourceLink({
+  sourceName,
+  sourceUrl,
+}: {
+  sourceName: string;
+  sourceUrl?: string | null;
+}) {
+  return sourceUrl ? (
+    <a
+      href={sourceUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary font-semibold hover:underline"
+    >
+      {sourceName}
+    </a>
+  ) : (
+    <span className="text-foreground font-semibold">{sourceName}</span>
+  );
 }
 
 export function SeriesDetail() {
@@ -150,6 +177,15 @@ export function SeriesDetail() {
       }),
     enabled: Boolean(seriesName),
     placeholderData: keepPreviousData,
+  });
+
+  // The regex patterns owned by this series, for the management section's mapping list. They are
+  // fetched even for an unmatched series - a pattern may be the very reason it is about to be
+  // matched to a name this series owns.
+  const { data: mappings = [] } = useQuery({
+    queryKey: ["seriesMappings", seriesName],
+    queryFn: () => seriesApi.getSeriesMappings(seriesName),
+    enabled: Boolean(seriesName),
   });
 
   const overview = seriesDetailQuery.data?.overview;
@@ -352,6 +388,70 @@ export function SeriesDetail() {
     }
   };
 
+  // --- Series mapping pattern CRUD (the patterns belong to THIS series; the target is always
+  // its name, so the dialog carries no target field) ---
+
+  const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<SeriesMapping | null>(null);
+  const [mappingRegex, setMappingRegex] = useState("");
+  const [mappingWarnAboutPart, setMappingWarnAboutPart] = useState(false);
+  const [savingMapping, setSavingMapping] = useState(false);
+
+  const handleOpenCreateMapping = () => {
+    setEditingMapping(null);
+    setMappingRegex("");
+    setMappingWarnAboutPart(false);
+    setMappingDialogOpen(true);
+  };
+
+  const handleOpenEditMapping = (m: SeriesMapping) => {
+    setEditingMapping(m);
+    setMappingRegex(m.regex);
+    setMappingWarnAboutPart(m.warnAboutPart);
+    setMappingDialogOpen(true);
+  };
+
+  const handleSaveMapping = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const regex = mappingRegex.trim();
+    if (!regex) return;
+
+    setSavingMapping(true);
+    try {
+      if (editingMapping) {
+        await seriesApi.updateSeriesMapping(seriesName, editingMapping.id, {
+          id: editingMapping.id,
+          regex,
+          warnAboutPart: mappingWarnAboutPart,
+        });
+        toast.success("Pattern updated");
+      } else {
+        const payload: SeriesMappingBase = {
+          regex,
+          warnAboutPart: mappingWarnAboutPart,
+        };
+        await seriesApi.createSeriesMapping(seriesName, payload);
+        toast.success("Pattern added");
+      }
+      setMappingDialogOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    } finally {
+      setSavingMapping(false);
+    }
+  };
+
+  const handleDeleteMapping = async (id: number) => {
+    try {
+      await seriesApi.deleteSeriesMapping(seriesName, id);
+      toast.success("Pattern removed");
+      void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
+    } catch (err: unknown) {
+      toast.error(handleApiError(err).message);
+    }
+  };
+
   if (!overview && seriesDetailQuery.isLoading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
@@ -375,277 +475,44 @@ export function SeriesDetail() {
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
   const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
+  const mappingsList = mappings;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {authorId ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start sm:w-auto"
-            onClick={handleBack}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Author
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start sm:w-auto"
-            onClick={handleBack}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Series
-          </Button>
-        )}
-
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full sm:w-auto"
-            disabled={loadingCandidates || matchingCandidate}
-            onClick={() => {
-              void handleLoadCandidates();
-            }}
-          >
-            {loadingCandidates ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <LinkIcon className="mr-1.5 h-4 w-4" />
-            )}
-            {overview.isMatched ? "Re-match to Source" : "Match to Source"}
-          </Button>
-
-          {overview.isMatched && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-              disabled={refreshing}
-              onClick={() => {
-                void handleRefresh();
-              }}
-            >
-              <RefreshCw className={`mr-1.5 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              Refresh Online
-            </Button>
-          )}
-        </div>
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start sm:w-auto"
+          onClick={handleBack}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {authorId ? "Back to Author" : "Back to Series"}
+        </Button>
       </div>
 
       <div className="border-border border-b pb-4">
         <h1 className="text-foreground text-2xl font-bold break-words">{seriesName}</h1>
-        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           <span>
-            {ownedBooks.length} {ownedBooks.length === 1 ? "book" : "books"} owned
+            {overview.ownedBookCount} {overview.ownedBookCount === 1 ? "book" : "books"} owned
           </span>
           {overview.isMatched && overview.missingBookCount > 0 && (
             <span className="font-semibold text-amber-600 dark:text-amber-400">
               &middot; {overview.missingBookCount} missing
             </span>
           )}
+          {overview.isMatched && overview.matchedSourceName && (
+            <span>
+              &middot; Matched to{" "}
+              <MatchedSourceLink
+                sourceName={overview.matchedSourceName}
+                sourceUrl={overview.matchedSourceUrl}
+              />
+            </span>
+          )}
         </div>
       </div>
-
-      <Card>
-        <CardHeader className="py-3">
-          <CardTitle className="text-muted-foreground text-sm font-semibold uppercase">
-            Metadata Provider Match
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-xs">
-          {overview.isMatched ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge
-                variant="secondary"
-                className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-              >
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                Matched to {overview.matchedSourceName}
-              </Badge>
-              {overview.matchedSourceUrl && (
-                <a
-                  href={overview.matchedSourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary flex items-center hover:underline"
-                >
-                  <ExternalLink className="mr-1 h-3 w-3" />
-                  View at source
-                </a>
-              )}
-              {overview.matchConfidence != null && (
-                <span className="text-muted-foreground">
-                  Confidence: {Math.round(overview.matchConfidence * 100)}%
-                </span>
-              )}
-              <span className="text-muted-foreground">
-                <LastRefreshedHint lastRefreshedAt={overview.lastRefreshedAt} />
-              </span>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">
-              Not matched to an online metadata provider yet. Click "Match to Source" or search
-              below to associate this series.
-            </p>
-          )}
-
-          {pendingReviews && (
-            <div className="border-border flex flex-col justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center">
-              <div className="text-xs">
-                <span className="text-foreground font-semibold">
-                  {pendingReviews.changes.length} pending change
-                  {pendingReviews.changes.length === 1 ? "" : "s"}
-                </span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  from the last refresh. Review them before they are written to your books.
-                </span>
-              </div>
-              <Button
-                size="sm"
-                className="h-7 shrink-0 self-end text-xs sm:self-center"
-                onClick={() => setPendingReviewOpen(true)}
-              >
-                Review Changes
-              </Button>
-            </div>
-          )}
-
-          <div className="flex items-center space-x-2 pt-1">
-            <Checkbox
-              id="includeOmnibus"
-              checked={overview.includeOmnibusEditions}
-              disabled={updatingOmnibus}
-              onCheckedChange={(checked) => {
-                void handleToggleOmnibus(Boolean(checked));
-              }}
-            />
-            <label
-              htmlFor="includeOmnibus"
-              className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
-            >
-              Include omnibus/box-set editions in missing books list
-            </label>
-          </div>
-
-          <div className="border-border space-y-2 border-t pt-3">
-            <label className="text-muted-foreground font-semibold">
-              Search title/author or paste a series URL
-            </label>
-            <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
-              <Input
-                placeholder="e.g. Harry Potter, or https://hardcover.app/series/..."
-                value={manualQuery}
-                onChange={(e) => setManualQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void handleSearchManualCandidates();
-                  }
-                }}
-                className="h-8 flex-1 text-xs"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-8 w-full text-xs sm:w-auto"
-                disabled={searchingCandidates || !manualQuery.trim()}
-                onClick={() => {
-                  void handleSearchManualCandidates();
-                }}
-              >
-                {searchingCandidates ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Search className="mr-1 h-3.5 w-3.5" />
-                )}
-                Search
-              </Button>
-            </div>
-          </div>
-
-          {candidatesLoaded && (
-            <div className="border-border space-y-2 border-t pt-3">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold">Match Candidates ({candidates.length})</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[11px]"
-                  onClick={() => {
-                    setCandidates([]);
-                    setCandidatesLoaded(false);
-                  }}
-                >
-                  Clear Candidates
-                </Button>
-              </div>
-
-              {candidates.length === 0 ? (
-                <p className="text-muted-foreground py-2 italic">
-                  No candidates found for that search.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {candidates.map((c) => (
-                    <div
-                      key={`${c.sourceName}-${c.sourceId}`}
-                      className="border-border bg-muted/30 flex flex-col justify-between gap-3 rounded-md border p-2.5 sm:flex-row sm:items-center"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className="font-semibold break-words">{c.seriesName}</span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {c.sourceName}
-                          </Badge>
-                          <span className="text-muted-foreground text-[11px]">
-                            {Math.round(c.confidence * 100)}% match
-                          </span>
-                        </div>
-                        <div className="text-muted-foreground text-[11px] break-words">
-                          {c.authors.join(", ") || "Unknown author"}
-                          {c.bookCount != null ? ` · ${c.bookCount} books` : ""}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-                        {c.sourceUrl && (
-                          <a
-                            href={c.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs"
-                          disabled={matchingCandidate}
-                          onClick={() => {
-                            void handleApplyMatch(c);
-                          }}
-                        >
-                          {matchingCandidate ? (
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          ) : (
-                            <Check className="mr-1 h-3 w-3" />
-                          )}
-                          Apply Match
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -898,6 +765,319 @@ export function SeriesDetail() {
         </div>
       )}
 
+      {/* Management & Settings: match/refresh actions, the metadata provider details, and this
+          series' mapping patterns. Moved here from the page header and the global Settings page
+          so the series' critical info and books stay on top and its settings travel with it. */}
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-muted-foreground text-sm font-semibold uppercase">
+            Management &amp; Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              disabled={loadingCandidates || matchingCandidate}
+              onClick={() => {
+                void handleLoadCandidates();
+              }}
+            >
+              {loadingCandidates ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <LinkIcon className="mr-1.5 h-4 w-4" />
+              )}
+              {overview.isMatched ? "Re-match to Source" : "Match to Source"}
+            </Button>
+
+            {overview.isMatched && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={refreshing}
+                onClick={() => {
+                  void handleRefresh();
+                }}
+              >
+                <RefreshCw className={`mr-1.5 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                Refresh Online
+              </Button>
+            )}
+          </div>
+
+          {/* Metadata Provider */}
+          <div className="border-border space-y-4 border-t pt-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              {overview.isMatched ? (
+                <>
+                  <Badge
+                    variant="secondary"
+                    className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  >
+                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                    Matched to{" "}
+                    <MatchedSourceLink
+                      sourceName={overview.matchedSourceName ?? ""}
+                      sourceUrl={overview.matchedSourceUrl}
+                    />
+                  </Badge>
+                  {overview.matchedSourceUrl && (
+                    <a
+                      href={overview.matchedSourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary flex items-center hover:underline"
+                    >
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                      View at source
+                    </a>
+                  )}
+                  {overview.matchConfidence != null && (
+                    <span className="text-muted-foreground">
+                      Confidence: {Math.round(overview.matchConfidence * 100)}%
+                    </span>
+                  )}
+                  <span className="text-muted-foreground">
+                    <LastRefreshedHint lastRefreshedAt={overview.lastRefreshedAt} />
+                  </span>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  Not matched to an online metadata provider yet. Click "Match to Source" or search
+                  below to associate this series.
+                </p>
+              )}
+            </div>
+
+            {pendingReviews && (
+              <div className="border-border flex flex-col justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center">
+                <div className="text-xs">
+                  <span className="text-foreground font-semibold">
+                    {pendingReviews.changes.length} pending change
+                    {pendingReviews.changes.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    from the last refresh. Review them before they are written to your books.
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-7 shrink-0 self-end text-xs sm:self-center"
+                  onClick={() => setPendingReviewOpen(true)}
+                >
+                  Review Changes
+                </Button>
+              </div>
+            )}
+
+            <div className="flex items-center space-x-2 pt-1">
+              <Checkbox
+                id="includeOmnibus"
+                checked={overview.includeOmnibusEditions}
+                disabled={updatingOmnibus}
+                onCheckedChange={(checked) => {
+                  void handleToggleOmnibus(Boolean(checked));
+                }}
+              />
+              <label
+                htmlFor="includeOmnibus"
+                className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+              >
+                Include omnibus/box-set editions in missing books list
+              </label>
+            </div>
+
+            <div className="border-border space-y-2 border-t pt-3">
+              <label className="text-muted-foreground font-semibold">
+                Search title/author or paste a series URL
+              </label>
+              <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
+                <Input
+                  placeholder="e.g. Harry Potter, or https://hardcover.app/series/..."
+                  value={manualQuery}
+                  onChange={(e) => setManualQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSearchManualCandidates();
+                    }
+                  }}
+                  className="h-8 flex-1 text-xs"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 w-full text-xs sm:w-auto"
+                  disabled={searchingCandidates || !manualQuery.trim()}
+                  onClick={() => {
+                    void handleSearchManualCandidates();
+                  }}
+                >
+                  {searchingCandidates ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  Search
+                </Button>
+              </div>
+            </div>
+
+            {candidatesLoaded && (
+              <div className="border-border space-y-2 border-t pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">Match Candidates ({candidates.length})</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[11px]"
+                    onClick={() => {
+                      setCandidates([]);
+                      setCandidatesLoaded(false);
+                    }}
+                  >
+                    Clear Candidates
+                  </Button>
+                </div>
+
+                {candidates.length === 0 ? (
+                  <p className="text-muted-foreground py-2 italic">
+                    No candidates found for that search.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {candidates.map((c) => (
+                      <div
+                        key={`${c.sourceName}-${c.sourceId}`}
+                        className="border-border bg-muted/30 flex flex-col justify-between gap-3 rounded-md border p-2.5 sm:flex-row sm:items-center"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                            <span className="font-semibold break-words">{c.seriesName}</span>
+                            <Badge variant="outline" className="text-[10px]">
+                              {c.sourceName}
+                            </Badge>
+                            <span className="text-muted-foreground text-[11px]">
+                              {Math.round(c.confidence * 100)}% match
+                            </span>
+                          </div>
+                          <div className="text-muted-foreground text-[11px] break-words">
+                            {c.authors.join(", ") || "Unknown author"}
+                            {c.bookCount != null ? ` · ${c.bookCount} books` : ""}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+                          {c.sourceUrl && (
+                            <a
+                              href={c.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={matchingCandidate}
+                            onClick={() => {
+                              void handleApplyMatch(c);
+                            }}
+                          >
+                            {matchingCandidate ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 h-3 w-3" />
+                            )}
+                            Apply Match
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mapping patterns owned by this series */}
+          <div className="border-border space-y-3 border-t pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <span className="text-foreground font-semibold">
+                  Series Mapping Patterns ({mappingsList.length})
+                </span>
+                <p className="text-muted-foreground max-w-xl">
+                  Regex patterns that route scraped or embedded series values to this series. A
+                  matching value is rewritten to "{seriesName}".
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleOpenCreateMapping}
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                Add Pattern
+              </Button>
+            </div>
+
+            {mappingsList.length === 0 ? (
+              <p className="text-muted-foreground border-border rounded-md border border-dashed p-4 text-center">
+                No mapping patterns yet. Add one to normalize incoming series values to this series.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {mappingsList.map((m) => (
+                  <div
+                    key={m.id}
+                    className="border-border bg-muted/40 flex flex-col justify-between gap-2 rounded px-3 py-2 sm:flex-row sm:items-center"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-mono text-[11px] break-all">{m.regex}</span>
+                      {m.warnAboutPart && (
+                        <Badge variant="outline" className="text-muted-foreground ml-2 text-[10px]">
+                          warn on part
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1 self-end sm:self-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label={`Edit pattern ${m.id}`}
+                        onClick={() => handleOpenEditMapping(m)}
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive h-7 w-7"
+                        aria-label={`Delete pattern ${m.id}`}
+                        onClick={() => {
+                          void handleDeleteMapping(m.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <MissingBookCandidatesDialog
         open={typeof missingCandidatesOpen === "object"}
         onOpenChange={(open) => {
@@ -933,6 +1113,75 @@ export function SeriesDetail() {
           void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
         }}
       />
+
+      <Dialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-md sm:p-6">
+          <DialogHeader>
+            <DialogTitle>
+              {editingMapping ? "Edit Mapping Pattern" : "Add Mapping Pattern"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              void handleSaveMapping(e);
+            }}
+            className="space-y-4 py-2"
+          >
+            <p className="text-muted-foreground text-xs">
+              Values matching this regex are normalized to this series: "{seriesName}".
+            </p>
+
+            <div className="space-y-1">
+              <label
+                htmlFor="mappingRegex"
+                className="text-muted-foreground text-xs font-semibold uppercase"
+              >
+                Regex Pattern <span className="text-destructive">*</span>
+              </label>
+              <Input
+                id="mappingRegex"
+                placeholder="(?i)^wheel of time.*"
+                value={mappingRegex}
+                onChange={(e) => setMappingRegex(e.target.value)}
+                className="font-mono"
+                required
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 pt-1">
+              <input
+                type="checkbox"
+                id="mappingWarnAboutPart"
+                checked={mappingWarnAboutPart}
+                onChange={(e) => setMappingWarnAboutPart(e.target.checked)}
+                className="border-border h-4 w-4 rounded"
+              />
+              <label
+                htmlFor="mappingWarnAboutPart"
+                className="text-muted-foreground cursor-pointer text-xs"
+              >
+                Warn if series part is found
+              </label>
+            </div>
+
+            <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setMappingDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={savingMapping}>
+                {savingMapping ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                {editingMapping ? "Save Changes" : "Add Pattern"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

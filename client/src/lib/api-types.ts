@@ -2700,6 +2700,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesMapping"][];
+                        "application/json": components["schemas"]["SeriesMapping"][];
+                        "text/json": components["schemas"]["SeriesMapping"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SeriesMapping"];
+                    "text/json": components["schemas"]["SeriesMapping"];
+                    "application/*+json": components["schemas"]["SeriesMapping"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesMapping"];
+                        "application/json": components["schemas"]["SeriesMapping"];
+                        "text/json": components["schemas"]["SeriesMapping"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/mappings/{mappingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path: {
+                    mappingId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SeriesMapping"];
+                    "text/json": components["schemas"]["SeriesMapping"];
+                    "application/*+json": components["schemas"]["SeriesMapping"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesMapping"];
+                        "application/json": components["schemas"]["SeriesMapping"];
+                        "text/json": components["schemas"]["SeriesMapping"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path: {
+                    mappingId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/match/bulk": {
         parameters: {
             query?: never;
@@ -3318,152 +3454,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/series_mappings/grouped": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    search?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["SeriesMappingGroupsDto"];
-                        "application/json": components["schemas"]["SeriesMappingGroupsDto"];
-                        "text/json": components["schemas"]["SeriesMappingGroupsDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/series_mappings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["SeriesMapping"];
-                    "text/json": components["schemas"]["SeriesMapping"];
-                    "application/*+json": components["schemas"]["SeriesMapping"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["SeriesMapping"];
-                        "application/json": components["schemas"]["SeriesMapping"];
-                        "text/json": components["schemas"]["SeriesMapping"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/series_mappings/{mappingId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    mappingId: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["SeriesMapping"];
-                    "text/json": components["schemas"]["SeriesMapping"];
-                    "application/*+json": components["schemas"]["SeriesMapping"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["SeriesMapping"];
-                        "application/json": components["schemas"]["SeriesMapping"];
-                        "text/json": components["schemas"]["SeriesMapping"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    mappingId: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
         options?: never;
         head?: never;
         patch?: never;
@@ -4585,17 +4575,7 @@ export interface components {
             /** Format: int64 */
             id?: number | null;
             regex?: string | null;
-            mappedSeries?: string | null;
             warnAboutPart?: boolean;
-        };
-        SeriesMappingGroupDto: {
-            mappedSeries?: string | null;
-            items?: components["schemas"]["SeriesMapping"][] | null;
-        };
-        SeriesMappingGroupsDto: {
-            items?: components["schemas"]["SeriesMappingGroupDto"][] | null;
-            /** Format: int32 */
-            total?: number;
         };
         SeriesMatchCandidateDto: {
             sourceName?: string | null;

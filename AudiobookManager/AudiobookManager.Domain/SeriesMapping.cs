@@ -1,34 +1,21 @@
 ﻿namespace AudiobookManager.Domain;
+
+/// <summary>
+/// One regex mapping pattern owned by a series. The pattern has no target of its own: when the
+/// incoming metadata series value matches <see cref="Regex"/>, <see cref="AudiobookManager.Scraping.BookSeriesMapper"/>
+/// rewrites it to the owning series' name. <see cref="Id"/> is null only while the mapping has not
+/// been persisted (the same model doubles as the create-request body).
+/// </summary>
 public class SeriesMapping
 {
     public long? Id { get; set; }
     public string Regex { get; set; }
-    public string MappedSeries { get; set; }
     public bool WarnAboutPart { get; set; }
 
-    public SeriesMapping(long? id, string regex, string mappedSeries, bool warnAboutParth)
+    public SeriesMapping(long? id, string regex, bool warnAboutPart)
     {
         Id = id;
         Regex = regex;
-        MappedSeries = mappedSeries;
-        WarnAboutPart = warnAboutParth;
+        WarnAboutPart = warnAboutPart;
     }
-}
-
-/// <summary>
-/// All mapping rows that target one canonical series name, plus their target. The grouped shape is
-/// what the Settings page renders; grouping lives on the server so the client no longer reduces a
-/// flat table into group buckets itself.
-/// </summary>
-public class SeriesMappingGroup
-{
-    public string MappedSeries { get; set; } = string.Empty;
-    public List<SeriesMapping> Mappings { get; set; } = new();
-}
-
-/// <summary>All groups, with the total number of mapping rows (the badge the page header shows).</summary>
-public class SeriesMappingGroups
-{
-    public List<SeriesMappingGroup> Items { get; set; } = new();
-    public int Total { get; set; }
 }

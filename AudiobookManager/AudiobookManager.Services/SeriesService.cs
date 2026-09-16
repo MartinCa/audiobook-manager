@@ -5,6 +5,7 @@ using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
+using AudiobookManager.Services.MappingExtensions;
 using Microsoft.Extensions.Logging;
 using PendingSeriesRefresh = AudiobookManager.Domain.PendingSeriesRefresh;
 
@@ -71,6 +72,7 @@ public class SeriesService : ISeriesService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly ISeriesMappingRepository _seriesMappingRepository;
     private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
@@ -82,6 +84,7 @@ public class SeriesService : ISeriesService
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        ISeriesMappingRepository seriesMappingRepository,
         IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
@@ -92,6 +95,7 @@ public class SeriesService : ISeriesService
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _seriesMappingRepository = seriesMappingRepository;
         _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
@@ -484,6 +488,63 @@ public class SeriesService : ISeriesService
 
         var reconciliation = await GetReconciliationAsync(seriesName);
         return BuildReconciledOverview(seriesName, saved, reconciliation);
+    }
+
+    public async Task<List<Domain.SeriesMapping>> GetSeriesMappingsAsync(string seriesName)
+    {
+        var mappings = await _seriesMappingRepository.GetBySeriesNameAsync(seriesName);
+        return mappings.Select(SeriesMappingMapping.ToDomain).ToList();
+    }
+
+    public async Task<Domain.SeriesMapping> CreateSeriesMappingAsync(string seriesName, Domain.SeriesMapping seriesMapping)
+    {
+        // An unmatched series exists only as a value on audiobooks and has no catalog row, but a
+        // mapping pattern is data-model-wise owned by a Series row - so creating one also creates
+        // the owning row. SeriesRepository.GetOrCreateByNameAsync tolerates the read-then-insert
+        // race the same way the other upserts do.
+        var series = await _seriesRepository.GetOrCreateByNameAsync(seriesName);
+
+        var dbModel = seriesMapping.ToDb(series.Id);
+        dbModel = await _seriesMappingRepository.CreateSeriesMappingAsync(dbModel);
+        return dbModel.ToDomain();
+    }
+
+    public async Task<Domain.SeriesMapping?> UpdateSeriesMappingAsync(string seriesName, long mappingId, Domain.SeriesMapping seriesMapping)
+    {
+        var series = await _seriesRepository.GetByNameAsync(seriesName);
+        if (series is null)
+        {
+            return null;
+        }
+
+        var existing = await _seriesMappingRepository.GetSeriesMappingAsync(mappingId);
+        if (existing is null || existing.SeriesId != series.Id)
+        {
+            // The mapping (or the ownership the caller claims) does not exist in this series'
+            // scope - an id that belongs to another series is not this series' mapping.
+            return null;
+        }
+
+        seriesMapping.Id = mappingId;
+        var updated = await _seriesMappingRepository.UpdateSeriesMappingAsync(seriesMapping.ToDb(series.Id));
+        return updated?.ToDomain();
+    }
+
+    public async Task<bool> DeleteSeriesMappingAsync(string seriesName, long mappingId)
+    {
+        var series = await _seriesRepository.GetByNameAsync(seriesName);
+        if (series is null)
+        {
+            return false;
+        }
+
+        var existing = await _seriesMappingRepository.GetSeriesMappingAsync(mappingId);
+        if (existing is null || existing.SeriesId != series.Id)
+        {
+            return false;
+        }
+
+        return await _seriesMappingRepository.DeleteSeriesMappingAsync(mappingId);
     }
 
     /// <summary>

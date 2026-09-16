@@ -334,6 +334,12 @@ public class SeriesRepository : ISeriesRepository
             row => row.IncludeOmnibusEditions = includeOmnibusEditions,
             () => new Series { Name = seriesName, IncludeOmnibusEditions = includeOmnibusEditions });
 
+    public Task<Series> GetOrCreateByNameAsync(string name) =>
+        UpsertByNameAsync(
+            name,
+            _ => { },
+            () => new Series { Name = name });
+
     /// <summary>
     /// Re-keys a catalog row from <paramref name="oldName"/> to <paramref name="newName"/>.
     /// Only <see cref="Series.Name"/> is rewritten - the row's id and its expected-book
