@@ -2,5 +2,3 @@
 trustLockfile: true
 minimumReleaseAgeExclude:
   - "@martinrun/*"
-  - react-hook-form@7.87.0
-  - zod@4.5.4

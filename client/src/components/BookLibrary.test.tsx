@@ -379,4 +379,15 @@ describe("BookLibrary", () => {
       "mixed",
     );
   });
+
+  it("shows skeleton loading rows while the library list loads", async () => {
+    vi.mocked(browseApi.getAudiobooks).mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderWithRouter();
+
+    expect(
+      await screen.findByRole("status", { name: "Loading library audiobooks..." }),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
 });
