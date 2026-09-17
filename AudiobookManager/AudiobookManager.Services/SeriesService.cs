@@ -954,7 +954,20 @@ public class SeriesService : ISeriesService
         var catalog = await _seriesRepository.GetByNameAsync(seriesName);
         var includeOmnibusEditions = catalog?.IncludeOmnibusEditions ?? false;
 
-        var total = request.Selections.Count + (request.AdoptSourceSeriesName ? 1 : 0);
+        // The adoption is one item of the batch's total only when it will actually run. The source
+        // name is trimmed before it is compared and before it is adopted, matching the review
+        // dialog's own gate on the checkbox - and keeping a series from being renamed to a value
+        // with leading or trailing whitespace.
+        var adoptedSourceName = payload.SourceSeriesName?.Trim();
+        var adoptionSelected = request.AdoptSourceSeriesName
+            && !string.IsNullOrEmpty(adoptedSourceName)
+            && adoptedSourceName != seriesName;
+
+        // Counting request.AdoptSourceSeriesName here instead would overstate the total whenever
+        // the request asks to adopt a name that is blank or already the series' own: nothing is
+        // processed for it, so the progress bar stopped one short of its total and never reached
+        // 100%.
+        var total = request.Selections.Count + (adoptionSelected ? 1 : 0);
         var processed = 0;
         var succeeded = 0;
         var failed = 0;
@@ -985,21 +998,18 @@ public class SeriesService : ISeriesService
         // on both names, and the pending state stays addressable under the original name so the
         // user can retry.
         var adoptedName = (string?)null;
-        var adoptionSelected = request.AdoptSourceSeriesName
-            && !string.IsNullOrWhiteSpace(payload.SourceSeriesName)
-            && payload.SourceSeriesName != seriesName;
         if (adoptionSelected)
         {
             processed++;
             try
             {
-                await AdoptSourceSeriesNameAsync(seriesName, payload.SourceSeriesName!);
-                adoptedName = payload.SourceSeriesName;
+                await AdoptSourceSeriesNameAsync(seriesName, adoptedSourceName!);
+                adoptedName = adoptedSourceName;
                 succeeded++;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Adopting source series name '{NewName}' for series {SeriesName} failed", payload.SourceSeriesName, seriesName);
+                _logger.LogWarning(ex, "Adopting source series name '{NewName}' for series {SeriesName} failed", adoptedSourceName, seriesName);
                 failed++;
             }
 
@@ -1038,8 +1048,14 @@ public class SeriesService : ISeriesService
             // apply recomputes the snapshot. The authoritative flags live on the stored roster
             // under the effective name, where the refresh carried them (and adoption has since
             // moved them, if it succeeded).
-            previouslyIgnored: ((await _seriesRepository.GetByNameWithExpectedBooksAsync(effectiveSeriesName))
-                    ?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+            // Read through the bounded variant, like every other roster read on the reconciliation
+            // paths: this one fetched the whole roster unbounded to pick the ignored entries off
+            // it. The overflow flag is deliberately ignored rather than thrown on - an
+            // over-cap roster here costs at most a re-reported ignored entry, and failing the
+            // apply's recompute after the books are already rewritten would be worse than that.
+            previouslyIgnored: ((await _seriesRepository.GetByNameWithExpectedBooksBoundedAsync(
+                        effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationRosterEntries))
+                    .Series?.ExpectedBooks ?? new List<SeriesExpectedBook>())
                 .Where(p => p.IsIgnored)
                 .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
                 .ToList()).ToList();
@@ -1082,7 +1098,7 @@ public class SeriesService : ISeriesService
         _reconciliationCache.Invalidate(seriesName);
         if (adoptionSelected)
         {
-            _reconciliationCache.Invalidate(payload.SourceSeriesName!);
+            _reconciliationCache.Invalidate(adoptedSourceName!);
         }
 
         return (processed, succeeded, failed);

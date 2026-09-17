@@ -2118,6 +2118,73 @@ public class SeriesServiceTests
         _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(5), Times.Once);
     }
 
+    /// <summary>
+    /// The batch total counts the source-name adoption only when it will actually run. It used to
+    /// be counted straight off the request flag, while the adoption itself additionally required a
+    /// source name that is non-blank and different from the current one - so a request asking to
+    /// adopt a name that is already the series' own reported a total one higher than anything that
+    /// could ever be processed, and the review dialog's progress bar stopped one short of its end.
+    ///
+    /// The trimmed comparison is the same gate the dialog puts on the checkbox, so the two sides
+    /// now agree on what counts as an adoptable name.
+    /// </summary>
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AnAdoptionThatCannotRun_IsNotCountedInTheTotal()
+    {
+        var payload = new PendingSeriesRefreshPayload.Payload(
+            PendingSeriesRefreshPayload.CurrentVersion,
+            "Mistborn",
+            "Hardcover",
+            "https://hardcover.app/series/42",
+            // Only whitespace apart from the series' own name: nothing to adopt.
+            "  Mistborn  ",
+            new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            new List<PendingSeriesRefreshPayload.RosterEntry> { new("1", "Book A", 2006, null, false) },
+            new List<PendingSeriesRefreshPayload.Change>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, "Book A", "01", "1", "Book A", null, null, null),
+            });
+
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(payload),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Name = "Mistborn" });
+
+        var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
+
+        var totals = new List<(int Processed, int Total)>();
+        var request = new SeriesRefreshApplyRequest(
+            AdoptSourceSeriesName: true,
+            new List<SeriesRefreshApplyChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
+            });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (p, t, _, _) => { totals.Add((p, t)); return Task.CompletedTask; });
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        // One progress report, and it is a completed batch rather than 1 of 2.
+        CollectionAssert.AreEqual(new[] { (1, 1) }, totals);
+        // Nothing was renamed: the "adopted" name is the series' own, modulo whitespace.
+        Assert.AreEqual("Mistborn", book.Series);
+    }
+
     // Regression for the refresh review finding applied to the apply's recompute tail: an entry
     // the user has already ignored must not re-enter the pending snapshot there either. The apply
     // recomputes the remaining changes against the stored roster, so without the same exemption
@@ -2155,8 +2222,9 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
             .ReturnsAsync(new Series { Name = "Mistborn" });
         // The stored roster carries the user's ignore decision (the refresh carried it across).
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn"))
-            .ReturnsAsync(new Series
+        // Read through the bounded variant, like the rest of the reconciliation paths.
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new Series
             {
                 Name = "Mistborn",
                 ExpectedBooks = new List<SeriesExpectedBook>
@@ -2164,7 +2232,7 @@ public class SeriesServiceTests
                     MakeExpected(10, "Book A", "1"),
                     MakeExpected(13, "Secret History", "3.5", ignored: true),
                 },
-            });
+            }, false));
 
         var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
         _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);

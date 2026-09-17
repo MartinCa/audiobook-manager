@@ -101,24 +101,15 @@ internal static class SeriesRosterMatcher
         /// </summary>
         public List<SeriesOwnedKey> FindMatches(BookKey expected)
         {
+            // No position fast path here, unlike Contains. That index can only short-circuit a
+            // search that stops at the first hit; this one needs every match, so the full scan
+            // below runs regardless and the index pass could only re-find books the scan already
+            // reaches - paying for a linear dedupe scan per hit to add nothing.
             var matches = new List<SeriesOwnedKey>();
-
-            // Fast path only - never a substitute for the scan below.
-            if (!string.IsNullOrWhiteSpace(expected.Position))
-            {
-                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
-                {
-                    if (IsSameBook(expected, item.BookKey))
-                    {
-                        matches.Add(item.Key);
-                    }
-                }
-            }
 
             foreach (var item in _items)
             {
-                if (IsSameBook(expected, item.BookKey)
-                    && !matches.Contains(item.Key))
+                if (IsSameBook(expected, item.BookKey))
                 {
                     matches.Add(item.Key);
                 }

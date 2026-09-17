@@ -1,4 +1,4 @@
-using AudiobookManager.Domain;
+﻿using AudiobookManager.Domain;
 using AudiobookManager.Services;
 
 namespace AudiobookManager.Test.Services;
@@ -32,6 +32,61 @@ public class PendingSeriesRefreshPayloadTests
                 new(SeriesRefreshChangeType.MissingBook, null, null, null, null, null, "4", "Book B", 2010),
                 new(SeriesRefreshChangeType.PartRemoval, 7, "Book C", "3", null, "Book C", null, null, null),
             });
+
+    /// <summary>
+    /// Change types are written as names, not ordinals. Web defaults would write the ordinal, and
+    /// this payload is re-read long after it was written - inserting a member into
+    /// SeriesRefreshChangeType would then silently reinterpret every stored row (a PartRemoval
+    /// reading back as a MissingBook) without changing the version the reader checks. Names are
+    /// stable under reordering; the ordinal is not.
+    /// </summary>
+    [TestMethod]
+    public void Serialize_WritesChangeTypesByName_NotByOrdinal()
+    {
+        var json = PendingSeriesRefreshPayload.Serialize(MakePayload());
+
+        StringAssert.Contains(json, "\"PartUpdate\"");
+        StringAssert.Contains(json, "\"MissingBook\"");
+        StringAssert.Contains(json, "\"PartRemoval\"");
+    }
+
+    /// <summary>
+    /// Snapshots written before the change above carry numeric types, and they are still
+    /// reviewable: the converter reads a number as well as a name, so no stored row is orphaned
+    /// by the switch. The numbers here are the ordinals the previous writer produced.
+    /// </summary>
+    [TestMethod]
+    public void TryParse_ASnapshotWithNumericChangeTypes_StillParses()
+    {
+        var legacy = """
+            {
+              "version": 1,
+              "seriesName": "Mistborn",
+              "sourceName": "Hardcover",
+              "sourceUrl": "https://hardcover.app/series/42",
+              "sourceSeriesName": "Mistborn Saga",
+              "fetchedAt": "2026-09-01T12:00:00Z",
+              "roster": [],
+              "changes": [
+                { "type": 0, "audiobookId": 5, "bookName": "Book A", "storedPart": "01", "newPart": "02" },
+                { "type": 1, "position": "4", "title": "Book B", "year": 2010 },
+                { "type": 2, "audiobookId": 7, "bookName": "Book C", "storedPart": "3" }
+              ]
+            }
+            """;
+
+        var parsed = PendingSeriesRefreshPayload.TryParse(legacy);
+
+        Assert.IsNotNull(parsed);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                SeriesRefreshChangeType.PartUpdate,
+                SeriesRefreshChangeType.MissingBook,
+                SeriesRefreshChangeType.PartRemoval,
+            },
+            parsed.Changes.Select(c => c.Type).ToList());
+    }
 
     [TestMethod]
     public void SerializeAndTryParse_RoundTripsEveryField()
