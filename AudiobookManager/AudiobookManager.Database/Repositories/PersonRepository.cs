@@ -116,21 +116,6 @@ public class PersonRepository : IPersonRepository
         return names;
     }
 
-    public async Task<List<string>> GetNarratorNamesAsync()
-    {
-        // Same reasoning (and the same comparer) as GetAuthorNamesAsync: sort in memory rather
-        // than in SQL so the ordering is culture-aware, not SQLite's code-point BINARY collation.
-        var names = await _db.Persons
-            .AsNoTracking()
-            .Where(p => p.BooksNarrated.Any())
-            .Select(p => p.Name)
-            .Distinct()
-            .ToListAsync();
-
-        names.Sort(StringComparer.InvariantCulture);
-        return names;
-    }
-
     /// <summary>
     /// The author whose folded name equals the input's folded name, or null. Folded-column
     /// equality via SQLite LIKE semantics (no wildcards, ESCAPE applied): case-insensitive for
