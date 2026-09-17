@@ -13,8 +13,8 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock("@/components/ui/toast", () => ({
+  toast: { add: vi.fn() },
 }));
 
 const mockSignalRValue = {

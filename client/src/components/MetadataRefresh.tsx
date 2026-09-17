@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { metadataRefreshApi, seriesApi } from "@/services/api";
@@ -16,7 +17,7 @@ import { useOperationResync } from "@/hooks/useOperationResync";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
 
 interface RefreshProgressPayload {
@@ -64,10 +65,10 @@ export function MetadataRefresh() {
   const startBulkMutation = useMutation({
     mutationFn: () => metadataRefreshApi.startBulkRefresh(cutoffDateToUtcIso(cutoffDate)),
     onSuccess: () => {
-      toast.success("Metadata refresh started in background");
+      toast.add({ title: "Metadata refresh started in background", type: "success" });
     },
     onError: (err: unknown) => {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     },
   });
 
@@ -89,13 +90,15 @@ export function MetadataRefresh() {
     setRefreshing(false);
     setProgress(null);
     if (data.stopReason) {
-      toast.warning(
-        `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
-      );
+      toast.add({
+        title: `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
+        type: "warning",
+      });
     } else {
-      toast.success(
-        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-      );
+      toast.add({
+        title: `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+        type: "success",
+      });
     }
     invalidateRefreshViews();
   });
@@ -126,7 +129,7 @@ export function MetadataRefresh() {
       await seriesApi.startRefreshAll();
     } catch (err: unknown) {
       setRefreshingSeries(false);
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -139,13 +142,15 @@ export function MetadataRefresh() {
     setRefreshingSeries(false);
     setSeriesProgress(null);
     if (data.stopReason) {
-      toast.warning(
-        `Series refresh stopped: ${data.stopReason}. ${data.totalSucceeded} refreshed, ${data.totalFailed} failed.`,
-      );
+      toast.add({
+        title: `Series refresh stopped: ${data.stopReason}. ${data.totalSucceeded} refreshed, ${data.totalFailed} failed.`,
+        type: "warning",
+      });
     } else {
-      toast.success(
-        `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-      );
+      toast.add({
+        title: `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+        type: "success",
+      });
     }
     void queryClient.invalidateQueries({ queryKey: ["seriesPending"] });
   });
@@ -167,10 +172,10 @@ export function MetadataRefresh() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
       </div>
 
       <div>

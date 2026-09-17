@@ -3,17 +3,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibrarySettingsPage } from "./LibrarySettingsPage";
-import type * as SonnerModule from "sonner";
-import { toast } from "sonner";
+import type * as ToastModule from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 
-vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof SonnerModule>();
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof ToastModule>();
   return {
     ...actual,
     toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
+      add: vi.fn(),
     },
   };
 });
@@ -80,7 +78,7 @@ describe("LibrarySettingsPage", () => {
         initialsSpacing: "Spaced",
       });
     });
-    expect(toast.success).toHaveBeenCalledWith("Library settings saved");
+    expect(toast.add).toHaveBeenCalledWith({ title: "Library settings saved", type: "success" });
   });
 
   it("surfaces save errors via toast", async () => {
@@ -102,7 +100,7 @@ describe("LibrarySettingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalled();
+      expect(toast.add).toHaveBeenCalled();
     });
   });
 });

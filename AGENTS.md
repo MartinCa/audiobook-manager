@@ -638,24 +638,37 @@ payload, but also a multi-kilobyte description — is re-uploaded on every edit 
 server ignores. Watchers that trigger those calls must also avoid *reading* the cover fields, or
 they track them as reactive dependencies and retrigger on cover edits.
 
-### Tailwind v4's theme registration is hand-maintained here, not CLI-generated
+### Tailwind v4's theme registration comes from the shared b0 preset scaffold
 
-A normal `npx shadcn init` scaffold writes a `globals.css` that both defines the shadcn color
-variables *and* registers them under Tailwind v4's `--color-*`/`--radius-*` namespace via an
-`@theme inline` block, plus a `@custom-variant dark (&:is(.dark *))` declaration and the
-`tw-animate-css` package. This project's Tailwind v4 setup was hand-assembled during the
-frontend-kit migration instead of CLI-scaffolded, so none of that came for free — `theme.css`
-only ever defined the bare `--background`/`--popover`/etc. custom properties, never registered
-them. **A missing registration produces no build error or lint warning — the utility class is
-simply absent from the compiled CSS, so the only symptom is a UI bug** (this is how dialogs,
-dropdowns, and the header ended up rendering see-through, `dark:` overrides silently doing
-nothing unless the OS was also dark, and every dialog/select/tooltip losing its open/close
-animation — see `client/src/index.css` and its comments for the fixes).
+The client vendors the shared shadcn **b0** preset, so `client/src/index.css` is the standard
+base-nova scaffold: `@import "shadcn/tailwind.css"` (brings the `scroll-fade-*`/`shimmer`
+utilities), `@custom-variant dark (&:is(.dark *))`, a full `@theme inline` block registering
+every `--color-*`/`--radius-*` token (chart and sidebar tokens included), and the `@layer base`
+block (`*{ @apply border-border outline-ring/50 }`, `body{ @apply bg-background text-foreground }`,
+`html{ @apply font-sans }`). The scaffold's `:root`/`.dark` standard token values are **not**
+copied in: `styles/theme.css` (shared from frontend-kit) is the sole source for them — the
+standard palette (background/foreground, card, popover, primary/secondary/muted/accent,
+destructive, border/input/ring) and `--radius: 0.5rem`, plus the `--status-*` tokens — defined in
+its own `@layer base :root`/`.dark` and registered in its own `@theme inline` block. `index.css`'s
+`:root`/`.dark` blocks carry only the chart/sidebar tokens, which frontend-kit's `theme.css` does
+not supply, so a `shadcn add MartinCa/frontend-kit/theme` update to the standard palette or radius
+takes visible effect instead of being shadowed by an un-layered duplicate.
 
-**When something in the vendored `components/ui/` layer looks visually broken and the classes
-look right, suspect a missing theme registration before assuming a design or component-choice
-problem.** To audit for others: scaffold a throwaway reference project in a scratch directory
-with matching options and diff its generated setup against `client/src/index.css` —
+Two local bits are preserved on top of the scaffold, both intentional:
+
+- The `@keyframes accordion-down`/`accordion-up` override inside `@theme inline`. Tw-animate-css's
+  bundled keyframes check Radix/Bits/Reka/Kb/Ngp's panel-height variable names, none of which
+  match Base UI's own `--accordion-panel-height`, so they fell through to the `auto` fallback a
+  CSS transition cannot animate to/from. The override points them at the real variable.
+- The `html, body { max-width: 100%; overflow-x: clip }` and
+  `body { font-feature-settings: "rlig" 1, "calt" 1 }` shell guards.
+
+This was once hand-assembled during the frontend-kit migration, and the lesson is still live:
+**a missing theme registration produces no build error or lint warning — the utility class is
+simply absent from the compiled CSS, so the only symptom is a UI bug.** If something in the
+vendored `components/ui/` layer looks visually broken and the classes look right, suspect the
+registration before the component choice. To audit, scaffold a throwaway reference project in
+a scratch directory with matching options
 ```bash
 npm create vite@latest . -- --template react-ts
 npm install tailwindcss @tailwindcss/vite
@@ -663,29 +676,16 @@ npm install tailwindcss @tailwindcss/vite
 # project's setup, then:
 npx shadcn@latest init -t vite -b base -p nova --pointer -y
 ```
-— then read the generated `src/index.css`. This is how the `tw-animate-css` gap and the
-`--accordion-panel-height` keyframe mismatch (its bundled `accordion-down`/`accordion-up`
-keyframes check Radix/Bits/Reka/Kb/Ngp's panel-height variable names, none of which match Base
-UI's own `--accordion-panel-height`) were found. Delete the scratch project when done; never run
-`shadcn init` for real against this repo — it would overwrite `components.json`, `index.css`,
-and every `ui/*.tsx` file, clobbering the Base UI migration and any local customization.
+— and diff its generated `src/index.css` against `client/src/index.css`. Delete the scratch
+project when done; never run `shadcn init` for real against this repo — it would overwrite
+`components.json`, `index.css`, and every `ui/*.tsx` file.
 
-**Only what this project actually uses is registered — this is deliberate, not an oversight.**
-The reference scaffold's `@theme inline` block also included `--color-chart-1`..`-5` and
-`--color-sidebar*` tokens (for shadcn's chart/sidebar components) and its bundled
-`shadcn/tailwind.css` package adds `scroll-fade-*`/`shimmer` utilities — none of which appear
-anywhere in this codebase, so they were left out rather than imported unused. **Adding a chart or
-sidebar component later needs its own theme.css color tokens plus a matching `@theme inline`
-registration in `index.css` first** — don't assume the plumbing already exists just because
-other shadcn tokens are registered.
+### A scrollable `DialogContent` needs a flex header/body/footer split, not an inner second scroll region
 
-### A scrollable `DialogContent` needs a flex header/body/footer split, not `overflow-y-auto` on the whole thing
-
-The vendored `DialogContent` (`components/ui/dialog.tsx`) applies no `max-h`/`overflow` of its
-own — that matches the upstream shadcn recipe, which expects a tall dialog to be structured with
-a fixed header, one scrollable body, and a fixed footer (shadcn's own docs call this out as
-"Scrollable Content": the header stays in view while the body scrolls). Three dialogs
-(`BookSearchDialog`, `SeriesMatchDialog`, `TagPreviewDialog`) independently reached for the
+The vendored `DialogContent` (`components/ui/dialog.tsx`, current base-nova) already ships
+viewport-safe bounds (`max-h-[90dvh]`, `overflow-y-auto`) — the trap is nesting a second
+scrollable box inside it. Three dialogs
+(`BookSearchDialog`, `SeriesMatchDialog`, `TagPreviewDialog`) individually reached for the
 simpler-looking `<DialogContent className="max-h-[85vh] overflow-y-auto">` instead, and then
 *also* wrapped their own list/table in a second `max-h-96 overflow-y-auto` box for a bounded
 look — producing two independently-scrolling regions nested inside each other, visibly two

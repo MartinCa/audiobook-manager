@@ -43,7 +43,8 @@ drop-in replacement for `clsx` + `tailwind-merge`, installed via `npx shadcn mig
 on Tailwind v4 projects; new `shadcn init` scaffolds already use it — the migration
 command is a no-op if the project doesn't already have `clsx`/`tailwind-merge` in
 `lib/utils.ts`, so don't go looking for something to run on a fresh project),
-`class-variance-authority` (these come with shadcn), `sonner` for toasts, `cmdk` for
+`class-variance-authority` (these come with shadcn), the shadcn `toast` component for Base UI
+toasts, `cmdk` for
 command palettes.
 
 Everything else requires a one-line justification in the PR description. Prefer writing
@@ -102,60 +103,23 @@ Components are **copied into this repo** and are therefore our code. That has co
   occasional chore — Renovate cannot do it. Run it when there is a reason to, not on a schedule.
 - Use `shadcn docs <component>` to get current API surface rather than recalling props.
 
-### Known Base UI component quirks & overlay mobile safety
+### Known Base UI quirks — fixed upstream in current base-nova
 
-Found empirically, not documented by shadcn or Base UI — no build error, no lint
-warning, no console message, just a UI bug the first time real content or a real
-form hits the component. Patch these right after `add`, the same way you'd handle
-the Accordion keyframe gotcha in [MIGRATION.md](../docs/MIGRATION.md).
+Quirks found empirically during the earlier Base UI migration (no build error, no lint
+warning, just a UI bug the first time real content or a real form hit the component) are all
+fixed in the current base-nova registry this client vendors, so **`components/ui/**` carries no
+intentional local patches**:
 
-**`radio-group.tsx`: the indicator doesn't self-center.** Base UI's
-`Radio.Indicator` centers its own children (the dot icon) but not itself within
-the root circle — unlike `checkbox.tsx`'s root, which already carries
-`grid place-content-center` for the same reason. Add the same two classes to
-`RadioGroupItem`'s root:
-
-```diff
-  <RadioPrimitive.Root
-    className={cn(
--     "border-primary text-primary ... aspect-square h-4 w-4 cursor-pointer rounded-full border ...",
-+     "border-primary text-primary ... grid aspect-square h-4 w-4 cursor-pointer place-content-center rounded-full border ...",
-```
-
-**`dialog.tsx` & `alert-dialog.tsx`: default classes clip and overflow on mobile.**
-The upstream default classes (`w-full max-w-lg p-6 sm:rounded-lg`) cause modals on mobile
-(<640px) to touch the viewport edges without margins, and tall modals (or when the
-virtual keyboard opens) overflow past the screen height without scrolling, making footer
-action buttons unclickable. Furthermore, defaulting to `sm:space-x-2` without `gap-2` in
-`DialogFooter` / `AlertDialogFooter` results in zero vertical spacing between buttons when
-stacked on mobile.
-
-Update `DialogContent` and `DialogFooter` in `src/components/ui/dialog.tsx` (and mirror
-in `src/components/ui/alert-dialog.tsx`):
-
-```diff
-  <DialogPrimitive.Content
-    className={cn(
--     "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 sm:rounded-lg",
-+     "bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-left-1/2 data-closed:slide-out-to-top-[48%] data-open:slide-in-from-left-1/2 data-open:slide-in-from-top-[48%] fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-2rem)] sm:w-full max-w-lg max-h-[90dvh] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 border p-4 sm:p-6 shadow-lg duration-200 rounded-lg sm:rounded-lg",
-      className
-    )}
-```
-
-```diff
-  function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
-    return (
-      <div
-        className={cn(
--         "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
-+         "flex flex-col-reverse sm:flex-row sm:justify-end gap-2",
-          className
-        )}
-        {...props}
-      />
-    )
-  }
-```
+- **`radio-group.tsx`: the indicator doesn't self-center.** Upstream now centers the dot by
+  absolutely positioning it inside the root circle, so the old `grid place-content-center`
+  workaround is gone.
+- **`dialog.tsx`: default classes clipped and overflowed on mobile.** Current base-nova
+  `DialogContent` ships viewport-safe bounds (`max-h-[90dvh]`, `overflow-y-auto`,
+  `w-full max-w-[calc(100%-2rem)]`, `p-4 sm:p-6`) and `DialogFooter` uses `gap-2`, so the
+  hand-patched Radix-era classes no longer apply.
+- **Accordion animation.** The `--accordion-panel-height` keyframe mismatch described in
+  `AGENTS.md` is still real; the override lives in `client/src/index.css`, not in the vendored
+  component.
 
 **Dialog Footer Buttons recipe:**
 Buttons inside `DialogFooter` and `AlertDialogFooter` should use `className="w-full sm:w-auto"`
@@ -327,4 +291,7 @@ _Fill this in per repo. Everything above is shared and should stay identical acr
 - **Router / framework choice and why:**
 - **Backend and where its OpenAPI spec lives:**
 - **Pagination convention:**
-- **Deviations from the shared conventions (with reasons):**
+- **Deviations from the shared conventions (with reasons):** No intentional local forks in
+  `src/components/ui/**` — the client is on the shared shadcn **b0** preset (Base UI
+  `base-nova`, `neutral` base color, lucide icons, Inter font; verify with
+  `pnpm dlx shadcn preset resolve`).

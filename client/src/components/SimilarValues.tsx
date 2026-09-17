@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { LinkButton } from "./LinkButton";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
@@ -15,7 +16,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
 
 interface ProgressPayload {
@@ -76,9 +77,10 @@ export function SimilarValues() {
   useSignalREvent<AlignCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
     setAligning(false);
     setAlignProgress(null);
-    toast.success(
-      `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
-    );
+    toast.add({
+      title: `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
+      type: "success",
+    });
     // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
     // below never asks for a page the smaller detection result no longer has.
     setPage(0);
@@ -116,10 +118,10 @@ export function SimilarValues() {
     const candidateStrings = selectedGroup.candidates.map((c) => c.value);
     try {
       await similarValuesApi.align(activeTab, candidateStrings, targetValue);
-      toast.success(`Alignment started for "${targetValue}"`);
+      toast.add({ title: `Alignment started for "${targetValue}"`, type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setAligning(false);
     } finally {
       setSelectedGroup(null);
@@ -129,10 +131,10 @@ export function SimilarValues() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
 
         <Button
           variant="outline"

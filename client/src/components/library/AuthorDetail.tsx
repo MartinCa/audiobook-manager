@@ -8,6 +8,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { SeriesListEntry } from "./SeriesListEntry";
+import { LinkButton } from "../LinkButton";
 import { browseApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
@@ -91,7 +92,7 @@ export function AuthorDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Author not found</h2>
-        <Button render={<Link to="/library/authors" />}>Back to Authors</Button>
+        <LinkButton render={<Link to="/library/authors" />}>Back to Authors</LinkButton>
       </div>
     );
   }

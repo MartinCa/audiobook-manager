@@ -8,13 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
+import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 export function MissingTags() {
   const queryClient = useQueryClient();
@@ -76,7 +77,7 @@ export function MissingTags() {
   useEffect(() => {
     const isRunning = Boolean(backfillStatus?.isRunning);
     if (prevRunningRef.current && !isRunning) {
-      toast.success("Language backfill operation completed");
+      toast.add({ title: "Language backfill operation completed", type: "success" });
       // A backfill fills in languages, so it can only shrink this list - drop back to page 0 so
       // the refetch never asks for a page the smaller result set no longer has.
       setPage(0);
@@ -114,10 +115,10 @@ export function MissingTags() {
   const handleStartLanguageBackfill = async () => {
     try {
       await missingTagsApi.startLanguageBackfill();
-      toast.success("Language backfill started in background");
+      toast.add({ title: "Language backfill started in background", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -126,10 +127,10 @@ export function MissingTags() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
 
         <Button
           variant="outline"

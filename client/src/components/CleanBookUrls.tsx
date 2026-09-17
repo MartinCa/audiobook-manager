@@ -3,13 +3,14 @@ import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "./LinkButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { urlCleanupApi } from "@/services/api";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 
 export function CleanBookUrls() {
   const queryClient = useQueryClient();
@@ -55,13 +56,16 @@ export function CleanBookUrls() {
   const applyMutation = useMutation({
     mutationFn: (audiobookIds: number[]) => urlCleanupApi.apply(audiobookIds),
     onSuccess: (result) => {
-      toast.success(`Cleaned ${result.updated ?? 0} book URL${result.updated === 1 ? "" : "s"}`);
+      toast.add({
+        title: `Cleaned ${result.updated ?? 0} book URL${result.updated === 1 ? "" : "s"}`,
+        type: "success",
+      });
       // Drop back to page 0 too: whatever page was being looked at may now be a stale slice.
       goToPage(0);
       void queryClient.invalidateQueries({ queryKey: ["urlCleanup"] });
     },
     onError: (err: unknown) => {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     },
   });
 
@@ -81,10 +85,10 @@ export function CleanBookUrls() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
       </div>
 
       <div>

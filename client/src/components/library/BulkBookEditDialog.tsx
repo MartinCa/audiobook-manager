@@ -26,7 +26,7 @@ import { LanguageField } from "@/components/fields/LanguageField";
 import { bulkEditApi } from "@/services/api";
 import { computeMultiFieldState, computeSingleFieldState } from "@/helpers/bulkEdit";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { SelectedBookInfo } from "@/hooks/useBookSelection";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
@@ -363,10 +363,10 @@ function BulkEditForm({
     setSubmitting(true);
     try {
       await bulkEditApi.apply(ids, { ...changes, audiobookIds: ids });
-      toast.success(`Bulk edit started for ${count} books`);
+      toast.add({ title: `Bulk edit started for ${count} books`, type: "success" });
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setSubmitting(false);
     }

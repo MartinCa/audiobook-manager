@@ -110,7 +110,7 @@ export function BulkDeleteDirectoriesDialog({
               `This will permanently delete all ${directories.length} directories and their contained files from disk.`}
           </p>
 
-          <Accordion type="multiple" className="space-y-2">
+          <Accordion multiple className="space-y-2">
             {directories.map((dir) => (
               <BulkDirectoryItem
                 key={dir.id ? String(dir.id) : dir.directoryPath}

@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toast";
 import LibrarySearch from "@/components/LibrarySearch";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 
@@ -424,7 +424,7 @@ export function RootLayout() {
         </div>
       </footer>
 
-      <Toaster richColors />
+      <Toaster />
     </div>
   );
 }

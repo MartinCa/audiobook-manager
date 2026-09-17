@@ -3,17 +3,15 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MissingTags } from "./MissingTags";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
-import type * as SonnerModule from "sonner";
-import { toast } from "sonner";
+import type * as ToastModule from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 
-vi.mock("sonner", async (importOriginal) => {
-  const actual = await importOriginal<typeof SonnerModule>();
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof ToastModule>();
   return {
     ...actual,
     toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
+      add: vi.fn(),
     },
   };
 });
@@ -154,7 +152,10 @@ describe("MissingTags", () => {
     await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Language backfill operation completed");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Language backfill operation completed",
+        type: "success",
+      });
     });
     await waitFor(() => {
       expect(getBooks).toHaveBeenLastCalledWith(expect.anything(), {
@@ -201,14 +202,23 @@ describe("MissingTags", () => {
     await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith("Language backfill operation completed");
+      expect(toast.add).toHaveBeenCalledWith({
+        title: "Language backfill operation completed",
+        type: "success",
+      });
     });
 
     // Verify toast was only triggered once (not looped)
     expect(
       vi
-        .mocked(toast.success)
-        .mock.calls.filter((call) => call[0] === "Language backfill operation completed"),
+        .mocked(toast.add)
+        .mock.calls.filter(
+          (call) =>
+            typeof call[0] === "object" &&
+            call[0] !== null &&
+            "title" in call[0] &&
+            call[0].title === "Language backfill operation completed",
+        ),
     ).toHaveLength(1);
   });
 });

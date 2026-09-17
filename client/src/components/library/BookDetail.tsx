@@ -5,6 +5,7 @@ import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2, Pencil } fr
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
+import { LinkButton } from "../LinkButton";
 import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
@@ -18,7 +19,7 @@ import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { Audiobook } from "@/types/Audiobook";
 import { Route } from "@/routes/library/book.$bookId";
@@ -112,7 +113,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       setSaving(false);
       setSaveProgress(null);
       setSaveMessage(null);
-      toast.success("Audiobook saved successfully");
+      toast.add({ title: "Audiobook saved successfully", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
       void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
       void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
@@ -130,7 +131,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       // The save that carried an applied pending-refresh snapshot failed, so there is nothing
       // to dismiss — clear the arm so a later unrelated save can't dismiss it either.
       setPendingApplied(false);
-      toast.error(`Save error: ${payload.error}`);
+      toast.add({ title: `Save error: ${payload.error}`, type: "error" });
     }
   });
 
@@ -160,9 +161,9 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await audiobookApi.updateBook(id, updated);
       if (applyingPendingRefresh) setPendingApplied(true);
-      toast.success("Update queued");
+      toast.add({ title: "Update queued", type: "success" });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setSaving(false);
     }
   };
@@ -175,7 +176,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await checkCollisionAndProceed(updated, proceedSave);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -192,10 +193,10 @@ export function BookDetail({ mode }: BookDetailProps) {
     setCheckingConsistency(true);
     try {
       await consistencyApi.recheckAudiobook(id);
-      toast.success("Consistency check complete");
+      toast.add({ title: "Consistency check complete", type: "success" });
       invalidateConsistencyViews();
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setCheckingConsistency(false);
     }
@@ -213,7 +214,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       }
       invalidateConsistencyViews();
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setResolvingIssueId(null);
     }
@@ -224,12 +225,12 @@ export function BookDetail({ mode }: BookDetailProps) {
     setDeleting(true);
     try {
       await audiobookApi.deleteAudiobook(id);
-      toast.success("Audiobook deleted from library");
+      toast.add({ title: "Audiobook deleted from library", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["books"] });
       void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
       void navigate({ to: "/library" });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
       setDeleting(false);
     }
   };
@@ -251,16 +252,19 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       const result = await metadataRefreshApi.refreshAudiobook(id);
       if (!result.success) {
-        toast.error(result.error || "Metadata refresh failed");
+        toast.add({ title: result.error || "Metadata refresh failed", type: "error" });
       } else if (result.hasDifferences) {
         setPendingOpen(true);
         void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
       } else {
-        toast.success(`Metadata up to date (${result.sourceName ?? "source"})`);
+        toast.add({
+          title: `Metadata up to date (${result.sourceName ?? "source"})`,
+          type: "success",
+        });
       }
       invalidateRefreshViews();
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setRefreshing(false);
     }
@@ -270,13 +274,13 @@ export function BookDetail({ mode }: BookDetailProps) {
     setPendingApplied(false);
     try {
       await metadataRefreshApi.dismissPending(id);
-      toast.success("Pending metadata changes discarded");
+      toast.add({ title: "Pending metadata changes discarded", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
       void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
       void queryClient.invalidateQueries({ queryKey: ["books"] });
       setPendingOpen(false);
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -293,7 +297,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Audiobook not found</h2>
-        <Button render={<Link to="/library" />}>Back to Library</Button>
+        <LinkButton render={<Link to="/library" />}>Back to Library</LinkButton>
       </div>
     );
   }

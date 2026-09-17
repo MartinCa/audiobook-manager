@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { ConsistencyResolveResult } from "@/types/ConsistencyIssue";
 import type { OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 
@@ -75,52 +75,65 @@ export function notifyConsistencyResolveResult(result: ConsistencyResolveResult)
   if (result.actionTaken === "still_unreadable") {
     // Not a success: the resolve ran, found the file no more readable than before, and left the
     // issue in place. A green "Issue resolved" would say the opposite of what happened.
-    toast.warning(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "The media file still cannot be read. It is most likely corrupt, incompletely copied, or not readable by the user this application runs as.",
-    );
+      type: "warning",
+    });
   } else if (result.actionTaken === "file_readable") {
-    toast.success(
-      result.message || "The media file can be read again. Refreshed consistency status.",
-    );
+    toast.add({
+      title: result.message || "The media file can be read again. Refreshed consistency status.",
+      type: "success",
+    });
   } else if (result.actionTaken === "file_recovered") {
-    toast.info(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "Media file found on disk. Preserved audiobook and refreshed consistency status.",
-    );
+      type: "info",
+    });
   } else if (result.actionTaken === "directory_still_unavailable") {
     // Not a success: the directory is still gone, so the issue stays in place. Warn, exactly
     // like still_unreadable - the record was preserved, but nothing was fixed.
-    toast.warning(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "The media file's directory still cannot be found. It is most likely an unmounted drive or share - check the mount and re-run.",
-    );
+      type: "warning",
+    });
   } else if (result.actionTaken === "directory_readable_again") {
-    toast.success(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "The media file's directory is available again. Refreshed consistency status.",
-    );
+      type: "success",
+    });
   } else if (result.actionTaken === "directory_unavailable") {
     // A stored MissingMediaFile re-resolved against a now-missing directory: the record was
     // preserved (a share may have died), but the finding changed. Info, not success.
-    toast.info(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "Media file not found and its directory is also unavailable - the record was kept, but if the book really is gone, delete it once the directory is back.",
-    );
+      type: "info",
+    });
   } else if (result.actionTaken === "audiobook_deleted") {
-    toast.success(result.message || "Audiobook removed from library");
+    toast.add({ title: result.message || "Audiobook removed from library", type: "success" });
   } else {
-    toast.success(result.message || "Issue resolved");
+    toast.add({ title: result.message || "Issue resolved", type: "success" });
   }
 }
 
 export function notifyOrphanResolveResult(result: OrphanDirectoryResolveResult): void {
   if (result.actionTaken === "retained_not_empty") {
-    toast.info(
-      result.message ||
+    toast.add({
+      title:
+        result.message ||
         "Directory still contains files; preserved on disk and removed from orphan list.",
-    );
+      type: "info",
+    });
   } else {
-    toast.success(result.message || "Orphan directory deleted from disk");
+    toast.add({ title: result.message || "Orphan directory deleted from disk", type: "success" });
   }
 }

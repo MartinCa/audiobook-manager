@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { LinkButton } from "../LinkButton";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
@@ -36,7 +37,7 @@ import { seriesApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type {
   SeriesExpectedBook,
@@ -241,12 +242,13 @@ export function SeriesDetail() {
     try {
       const result = await seriesApi.refreshSeries(seriesName);
       if (result.hasChanges) {
-        toast.success(
-          `Refresh found ${result.changeCount} change${result.changeCount === 1 ? "" : "s"} to review`,
-        );
+        toast.add({
+          title: `Refresh found ${result.changeCount} change${result.changeCount === 1 ? "" : "s"} to review`,
+          type: "success",
+        });
         setPendingReviewOpen(true);
       } else {
-        toast.success("No changes from source");
+        toast.add({ title: "No changes from source", type: "success" });
       }
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
@@ -255,7 +257,7 @@ export function SeriesDetail() {
       void queryClient.invalidateQueries({ queryKey: ["series"] });
       void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setRefreshing(false);
     }
@@ -268,10 +270,13 @@ export function SeriesDetail() {
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
-        toast.info("No candidates found automatically. Try searching manually.");
+        toast.add({
+          title: "No candidates found automatically. Try searching manually.",
+          type: "info",
+        });
       }
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setLoadingCandidates(false);
     }
@@ -286,10 +291,10 @@ export function SeriesDetail() {
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
-        toast.info("No candidates found for that query.");
+        toast.add({ title: "No candidates found for that query.", type: "info" });
       }
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setSearchingCandidates(false);
     }
@@ -307,13 +312,16 @@ export function SeriesDetail() {
       );
       setCandidates([]);
       setCandidatesLoaded(false);
-      toast.success(`Matched to ${candidate.seriesName} (${candidate.sourceName})`);
+      toast.add({
+        title: `Matched to ${candidate.seriesName} (${candidate.sourceName})`,
+        type: "success",
+      });
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
       });
       void queryClient.invalidateQueries({ queryKey: ["series"] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setMatchingCandidate(false);
     }
@@ -323,12 +331,15 @@ export function SeriesDetail() {
     setUpdatingOmnibus(true);
     try {
       await seriesApi.setIncludeOmnibusEditions(seriesName, checked);
-      toast.success(checked ? "Omnibus editions included" : "Omnibus editions excluded");
+      toast.add({
+        title: checked ? "Omnibus editions included" : "Omnibus editions excluded",
+        type: "success",
+      });
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setUpdatingOmnibus(false);
     }
@@ -342,13 +353,13 @@ export function SeriesDetail() {
     try {
       if (ignored) {
         await seriesApi.ignoreExpectedBook(seriesName, book.position, book.title);
-        toast.success(`Ignored "${book.title || "book"}"`);
+        toast.add({ title: `Ignored "${book.title || "book"}"`, type: "success" });
         // Ignoring moves a book out of the missing list; drop that section back to page 0 so
         // the refetch below never asks for a page the shrunk section no longer has.
         setMissingPage(0);
       } else {
         await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
-        toast.success(`Unignored "${book.title || "book"}"`);
+        toast.add({ title: `Unignored "${book.title || "book"}"`, type: "success" });
         // Unignoring moves a book out of the ignored list; same drop for the ignored section.
         setIgnoredPage(0);
       }
@@ -356,7 +367,7 @@ export function SeriesDetail() {
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setIgnoringBookId(null);
     }
@@ -376,7 +387,10 @@ export function SeriesDetail() {
         mismatch.expectedPart,
         mismatch.rosterTitle,
       );
-      toast.success(`Set part ${mismatch.expectedPart} on "${mismatch.bookName}"`);
+      toast.add({
+        title: `Set part ${mismatch.expectedPart} on "${mismatch.bookName}"`,
+        type: "success",
+      });
       // The fix shrinks this list; drop the section back to page 0 so the refetch below never
       // asks for a page the shrunk section no longer has.
       setPartMismatchPage(0);
@@ -384,7 +398,7 @@ export function SeriesDetail() {
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setFixingMismatchId(null);
     }
@@ -426,19 +440,19 @@ export function SeriesDetail() {
           regex,
           warnAboutPart: mappingWarnAboutPart,
         });
-        toast.success("Pattern updated");
+        toast.add({ title: "Pattern updated", type: "success" });
       } else {
         const payload: SeriesMappingBase = {
           regex,
           warnAboutPart: mappingWarnAboutPart,
         };
         await seriesApi.createSeriesMapping(seriesName, payload);
-        toast.success("Pattern added");
+        toast.add({ title: "Pattern added", type: "success" });
       }
       setMappingDialogOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
       setSavingMapping(false);
     }
@@ -447,10 +461,10 @@ export function SeriesDetail() {
   const handleDeleteMapping = async (id: number) => {
     try {
       await seriesApi.deleteSeriesMapping(seriesName, id);
-      toast.success("Pattern removed");
+      toast.add({ title: "Pattern removed", type: "success" });
       void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
     } catch (err: unknown) {
-      toast.error(handleApiError(err).message);
+      toast.add({ title: handleApiError(err).message, type: "error" });
     }
   };
 
@@ -467,7 +481,7 @@ export function SeriesDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Series not found</h2>
-        <Button render={<Link to="/library/series" />}>Back to Series</Button>
+        <LinkButton render={<Link to="/library/series" />}>Back to Series</LinkButton>
       </div>
     );
   }
