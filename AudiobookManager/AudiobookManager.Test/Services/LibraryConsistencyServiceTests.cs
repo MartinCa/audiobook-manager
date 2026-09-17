@@ -1,4 +1,4 @@
-using AudiobookManager.Database.Models;
+﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.FileManager;
@@ -23,7 +23,7 @@ public class LibraryConsistencyServiceTests
     private IAudiobookFileHandler _fileHandler = null!;
     private IFileOperations _fileOperations = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
-    private Mock<ISeriesService> _seriesService = null!;
+    private Mock<ISeriesReconciliationProvider> _seriesReconciliation = null!;
     private Mock<IInitialsSpacingIssueDetector> _initialsSpacingIssueDetector = null!;
     private Mock<IPartMismatchIssueDetector> _partMismatchIssueDetector = null!;
     private Mock<ILibrarySettingsRepository> _librarySettingsRepository = null!;
@@ -66,7 +66,7 @@ public class LibraryConsistencyServiceTests
                 NullLogger<TagOrPathMismatchResolver>.Instance),
             new SeriesPartMismatchResolver(
                 _audiobookRepository.Object, _audiobookService.Object, _issueRepository.Object,
-                _seriesService.Object,
+                _seriesReconciliation.Object,
                 NullLogger<SeriesPartMismatchResolver>.Instance),
             new MissingCoverResolver(
                 _tagHandler.Object, _fileHandler, _audiobookRepository.Object, _issueRepository.Object,
@@ -124,7 +124,7 @@ public class LibraryConsistencyServiceTests
         _fileOperations = new FileOperations();
         _fileHandler = new AudiobookFileHandler(_fileOperations);
         _audiobookService = new Mock<IAudiobookService>();
-        _seriesService = new Mock<ISeriesService>();
+        _seriesReconciliation = new Mock<ISeriesReconciliationProvider>();
         _initialsSpacingIssueDetector = new Mock<IInitialsSpacingIssueDetector>();
         _partMismatchIssueDetector = new Mock<IPartMismatchIssueDetector>();
         _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
@@ -1671,7 +1671,7 @@ public class LibraryConsistencyServiceTests
 
         _issueRepository.Setup(r => r.GetByIdAsync(41)).ReturnsAsync(issue);
         _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
-        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Mistborn"))
             .ReturnsAsync(MakeReconciliationWithPartMismatch(1, "2", "7"));
 
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>()))
@@ -1743,7 +1743,7 @@ public class LibraryConsistencyServiceTests
 
         _issueRepository.Setup(r => r.GetByIdAsync(44)).ReturnsAsync(issue);
         _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
-        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Mistborn"))
             .ReturnsAsync(MakeReconciliationWithPartMismatch(1, "3", "7"));
 
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Domain.Audiobook>()))
@@ -1794,7 +1794,7 @@ public class LibraryConsistencyServiceTests
 
         _issueRepository.Setup(r => r.GetByIdAsync(45)).ReturnsAsync(issue);
         _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(1)).ReturnsAsync(dbAudiobook);
-        _seriesService.Setup(s => s.GetReconciliationAsync("Mistborn"))
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Mistborn"))
             .ReturnsAsync(new SeriesReconciliation(
                 new List<SeriesExpectedBookInfo>(),
                 new List<SeriesExpectedBookInfo>(),
@@ -1853,7 +1853,7 @@ public class LibraryConsistencyServiceTests
             "a book that left its series is reported factually, not as a roster that now agrees with the stored part");
         _issueRepository.Verify(r => r.DeleteAsync(46), Times.Once);
         _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>()), Times.Never);
-        _seriesService.Verify(s => s.GetReconciliationAsync(It.IsAny<string>()), Times.Never,
+        _seriesReconciliation.Verify(s => s.GetReconciliationAsync(It.IsAny<string>()), Times.Never,
             "a book outside any series cannot be reconciled against one");
     }
 

@@ -49,6 +49,11 @@ public class SeriesServiceTests
             new AudiobookSaveGate(),
             _libraryConsistencyService.Object,
             _reconciliationCache,
+            // A real provider over the same mocked repositories, not a mock of it: the
+            // reconciliation is what most of these tests actually assert on, and it is only
+            // behind its own interface to keep the consistency graph off SeriesService.
+            new SeriesReconciliationProvider(
+                _audiobookRepository.Object, _seriesRepository.Object, _reconciliationCache),
             scrapers,
             _logger.Object);
 
@@ -513,13 +518,13 @@ public class SeriesServiceTests
             .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
             .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
         _seriesRepository
-            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .ReturnsAsync((new Series { Id = 1, Name = "Mistborn" }, Overflow: true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
 
         _seriesRepository.Verify(
-            r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries),
+            r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries),
             Times.Once,
             "the roster fetch is bounded to the reconciliation cap");
         _audiobookRepository.Verify(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()), Times.Never,
@@ -544,16 +549,16 @@ public class SeriesServiceTests
             .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
             .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
         _seriesRepository
-            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .ReturnsAsync((catalogRow, Overflow: false));
         _audiobookRepository
-            .Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys))
+            .Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationOwnedKeys))
             .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
 
         _audiobookRepository.Verify(
-            r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys),
+            r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationOwnedKeys),
             Times.Once,
             "the owned-key fetch is bounded to the reconciliation cap");
     }

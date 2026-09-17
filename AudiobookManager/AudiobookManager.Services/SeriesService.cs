@@ -46,25 +46,6 @@ public class SeriesService : ISeriesService
     private const int CandidatePrefilterLimit = 1000;
 
     /// <summary>
-    /// The largest roster the reconciliation will classify in memory. The roster is stored from a
-    /// metadata source's series page, so this is a defensive floor far above any real source
-    /// (Hardcover returns one series at a time). It is enforced BEFORE materialization: the
-    /// repository fetch is bounded to cap + 1 rows, so a pathological roster is detected and
-    /// refused without ever being loaded whole. It is a hard bound on purpose - a series past it
-    /// indicates corrupted data, and failing loudly beats showing wrong missing counts.
-    /// </summary>
-    internal const int MaxReconciliationRosterEntries = 5_000;
-
-    /// <summary>
-    /// The largest owned-book key set (per series) the reconciliation will classify against. Same
-    /// rationale as <see cref="MaxReconciliationRosterEntries"/>: the fuzzy matching is
-    /// O(roster x owned), so both sides must be explicitly bounded for the computation to be
-    /// genuinely bounded rather than merely usually-small - and the owned-key fetch is bounded to
-    /// cap + 1 rows so an oversized set is detected without materializing it.
-    /// </summary>
-    internal const int MaxReconciliationOwnedKeys = 20_000;
-
-    /// <summary>
     /// Cap on the advisory series-part conflict check's result. The check runs on every edit
     /// keystroke, is bounded by design, and the shared (series, part) combination is a small set
     /// in any sane library - a pathological one is truncated rather than materialized whole.
@@ -79,6 +60,7 @@ public class SeriesService : ISeriesService
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly ISeriesReconciliationCache _reconciliationCache;
+    private readonly ISeriesReconciliationProvider _reconciliation;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
 
@@ -91,6 +73,7 @@ public class SeriesService : ISeriesService
         IAudiobookSaveGate saveGate,
         ILibraryConsistencyService libraryConsistencyService,
         ISeriesReconciliationCache reconciliationCache,
+        ISeriesReconciliationProvider reconciliation,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
@@ -102,6 +85,7 @@ public class SeriesService : ISeriesService
         _saveGate = saveGate;
         _libraryConsistencyService = libraryConsistencyService;
         _reconciliationCache = reconciliationCache;
+        _reconciliation = reconciliation;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -217,143 +201,13 @@ public class SeriesService : ISeriesService
     }
 
     /// <summary>
-    /// The series' reconciliation for the whole library-wide surface (the detail page's sections
-    /// and the consistency detector both consume this cached view), computed once per series per
-    /// change. The computation classifies the full roster against the series' owned (id, position,
-    /// title) keys - the fuzzy ownership semantics demand the whole key set, which SQL cannot
-    /// express - so it is the one step that touches per-series data beyond the requested page, and
-    /// it is bounded: the roster is the metadata source's stored series page and both inputs sit
-    /// under the <see cref="MaxReconciliationRosterEntries"/>/<see cref="MaxReconciliationOwnedKeys"/>
-    /// caps. The single-flight gate, the version check and the capacity-bounded eviction all live
-    /// inside <see cref="ISeriesReconciliationCache"/>, so a page-flip stampede shares one
-    /// computation and the cache cannot grow with the library.
+    /// Delegates to <see cref="ISeriesReconciliationProvider"/>, which owns the computation and
+    /// its cache. It stays on <see cref="ISeriesService"/> because the series-facing callers read
+    /// it through this service; the split exists to keep the consistency graph off the whole of
+    /// this type (see that interface for the cycle it broke), not to move the concept.
     /// </summary>
     public Task<SeriesReconciliation> GetReconciliationAsync(string seriesName) =>
-        _reconciliationCache.GetOrComputeAsync(seriesName, () => ComputeReconciliationAsync(seriesName));
-
-    private async Task<SeriesReconciliation> ComputeReconciliationAsync(string seriesName)
-    {
-        // Both inputs are read through bounded repository queries (cap + 1 rows with an overflow
-        // flag), so a pathological roster or owned set is detected and refused BEFORE it is ever
-        // fully materialized or transferred - the service never sees the unbounded collection.
-        var (catalogRow, rosterOverflow) = await _seriesRepository.GetByNameWithExpectedBooksBoundedAsync(
-            seriesName, MaxReconciliationRosterEntries);
-        if (rosterOverflow)
-        {
-            throw new InvalidOperationException(
-                $"Series '{seriesName}' has at least {MaxReconciliationRosterEntries + 1} roster entries, exceeding the {MaxReconciliationRosterEntries} the detail view reconciles.");
-        }
-
-        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
-
-        var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
-            seriesName, MaxReconciliationOwnedKeys);
-        if (ownedOverflow)
-        {
-            throw new InvalidOperationException(
-                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} the detail view reconciles.");
-        }
-
-        var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
-        var visible = expected
-            .Where(e => includeOmnibusEditions || !e.IsCompilation)
-            .ToList();
-        var active = visible.Where(e => !e.IsIgnored).ToList();
-
-        var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(ownedKeys);
-        var missing = active
-            .Where(e => !IsOwned(e, ownedIndex))
-            .Select(ToExpectedInfo)
-            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(e => e.Id)
-            .ToList();
-
-        var ignored = visible
-            .Where(e => e.IsIgnored)
-            .Select(ToExpectedInfo)
-            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(e => e.Id)
-            .ToList();
-
-        // Owned books that matched a roster entry but carry no part - or a part the roster does
-        // not assign to that entry - are not missing (the book is there), they are mislabeled.
-        // A mismatch needs a roster-assigned position to fix against: an entry with no position
-        // defines nothing to differ from, and a hand-typed part under it is not evidence to clear
-        // the book on.
-        //
-        // Attribution is per book over ALL the entries it matches, not per entry over the books
-        // it matches. A book can match several entries (a title repeated across positions - the
-        // omnibus and individual editions of one book), and the first entry in display order is
-        // not necessarily the right one to judge it against: a stored part that agrees with any
-        // of the book's matched entries is correct, however many title-only sibling entries
-        // disagree with it - flagging it there would misassign the expected part. Only a book
-        // whose part agrees with NO matched entry is a genuine mismatch, and it is then reported
-        // against the earliest-position match, the entry the display-order iteration reaches
-        // first. The parts are compared with the same equivalence the matching uses, so "2" vs
-        // "2.0" is not a mismatch while "2" vs "" (or "7") is.
-        var entries = active
-            .Where(e => !string.IsNullOrWhiteSpace(e.Position))
-            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
-            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(e => e.Id)
-            .ToList();
-
-        var matchesByBook = new Dictionary<long, List<SeriesExpectedBook>>();
-        foreach (var entry in entries)
-        {
-            foreach (var owned in ownedIndex.FindMatches(SeriesRosterMatcher.BookKey.From(entry.Position, entry.Title)))
-            {
-                if (!matchesByBook.TryGetValue(owned.AudiobookId, out var bookEntries))
-                {
-                    bookEntries = new List<SeriesExpectedBook>();
-                    matchesByBook[owned.AudiobookId] = bookEntries;
-                }
-
-                bookEntries.Add(entry);
-            }
-        }
-
-        var ownedKeyById = ownedKeys.ToDictionary(k => k.AudiobookId);
-        var partMismatches = new List<SeriesPartMismatch>();
-        foreach (var audiobookId in matchesByBook.Keys)
-        {
-            if (!ownedKeyById.TryGetValue(audiobookId, out var owned))
-            {
-                continue;
-            }
-
-            if (matchesByBook[audiobookId].Any(e => SeriesRosterMatcher.PartsEquivalent(owned.SeriesPart, e.Position)))
-            {
-                continue;
-            }
-
-            var attributed = matchesByBook[audiobookId].First();
-            partMismatches.Add(new SeriesPartMismatch
-            {
-                AudiobookId = owned.AudiobookId,
-                BookName = owned.BookName,
-                StoredPart = owned.SeriesPart,
-                ExpectedPart = attributed.Position!,
-                RosterTitle = attributed.Title,
-            });
-        }
-
-        var authors = await _audiobookRepository.GetAuthorNamesBySeriesAsync(seriesName);
-
-        return new SeriesReconciliation(
-            missing,
-            ignored,
-            partMismatches
-                .OrderBy(m => SeriesRosterMatcher.PositionSortKey(m.ExpectedPart))
-                .ThenBy(m => m.BookName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(m => m.AudiobookId)
-                .ToList(),
-            ExpectedBookCount: active.Count,
-            OwnedCount: ownedKeys.Count,
-            authors);
-    }
+        _reconciliation.GetReconciliationAsync(seriesName);
 
     public async Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName)
     {
@@ -864,7 +718,7 @@ public class SeriesService : ISeriesService
         // bulk apply's pre-flight duplicate check and the apply itself can never disagree about
         // which natural key addresses which roster entry.
         var book = await _seriesRepository.FindExpectedBookStrictAsync(seriesName, position, title);
-        return book is null ? null : ToExpectedInfo(book);
+        return book is null ? null : SeriesReconciliationProvider.ToExpectedInfo(book);
     }
 
     public async Task ApplyMissingBookAsync(string seriesName, string? position, string? title, long audiobookId)
@@ -951,11 +805,11 @@ public class SeriesService : ISeriesService
         // enforces), and the owned-key fetch is bounded too, so the diff is computed against
         // explicitly limited inputs - it never materializes the whole owned set of a series.
         var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
-            seriesName, MaxReconciliationOwnedKeys);
+            seriesName, SeriesReconciliationProvider.MaxReconciliationOwnedKeys);
         if (ownedOverflow)
         {
             throw new InvalidOperationException(
-                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} the refresh diffs against.");
+                $"Series '{seriesName}' has at least {SeriesReconciliationProvider.MaxReconciliationOwnedKeys + 1} owned books, exceeding the {SeriesReconciliationProvider.MaxReconciliationOwnedKeys} the refresh diffs against.");
         }
 
         var changes = SeriesRefreshDiffer.Diff(
@@ -1162,7 +1016,7 @@ public class SeriesService : ISeriesService
         // name is the addressable, retryable state.
         var effectiveSeriesName = adoptedName ?? seriesName;
         var (freshOwnedKeys, freshOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
-            effectiveSeriesName, MaxReconciliationOwnedKeys);
+            effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationOwnedKeys);
         if (freshOverflow)
         {
             // A pathological owned set cannot be diffed safely. Fabricating an "everything is
@@ -1171,7 +1025,7 @@ public class SeriesService : ISeriesService
             // them is idempotent, so the (now stale) change list is the right failure mode.
             _logger.LogWarning(
                 "Series '{SeriesName}' has at least {OwnedCount} owned books; keeping the pending refresh snapshot instead of recomputing it after the apply",
-                effectiveSeriesName, MaxReconciliationOwnedKeys + 1);
+                effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationOwnedKeys + 1);
             return (processed, succeeded, failed);
         }
 
@@ -1347,11 +1201,11 @@ public class SeriesService : ISeriesService
         }
 
         var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
-            seriesName, MaxReconciliationOwnedKeys);
+            seriesName, SeriesReconciliationProvider.MaxReconciliationOwnedKeys);
         if (ownedOverflow)
         {
             throw new InvalidOperationException(
-                $"Series '{seriesName}' has at least {MaxReconciliationOwnedKeys + 1} owned books, exceeding the {MaxReconciliationOwnedKeys} an adoption can rename.");
+                $"Series '{seriesName}' has at least {SeriesReconciliationProvider.MaxReconciliationOwnedKeys + 1} owned books, exceeding the {SeriesReconciliationProvider.MaxReconciliationOwnedKeys} an adoption can rename.");
         }
 
         foreach (var owned in ownedKeys)
@@ -1510,7 +1364,7 @@ public class SeriesService : ISeriesService
             ownedBooks.Count,
             active.Count,
             expected.Count - active.Count,
-            active.Count(e => !IsOwned(e, ownedIndex)));
+            active.Count(e => !SeriesReconciliationProvider.IsOwned(e, ownedIndex)));
     }
 
     /// <summary>
@@ -1556,24 +1410,6 @@ public class SeriesService : ISeriesService
             MissingBookCount = missingBookCount,
             IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
         };
-
-    private static SeriesExpectedBookInfo ToExpectedInfo(SeriesExpectedBook book) => new()
-    {
-        Id = book.Id,
-        Title = book.Title,
-        Position = book.Position,
-        Year = book.Year,
-        SourceUrl = book.SourceUrl,
-        IsIgnored = book.IsIgnored,
-    };
-
-    /// <summary>
-    /// Whether any owned book corresponds to this roster entry. Owned book names rarely match
-    /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
-    /// are compared fuzzily - the shared rule in <see cref="SeriesRosterMatcher"/>.
-    /// </summary>
-    private static bool IsOwned(SeriesExpectedBook expected, SeriesRosterMatcher.OwnedBookIndex ownedBooks) =>
-        ownedBooks.Contains(SeriesRosterMatcher.BookKey.From(expected.Position, expected.Title));
 
     /// <summary>
     /// 0..1 similarity of two free-text values, using the shared comparison-only normalizer
