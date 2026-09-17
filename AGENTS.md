@@ -388,6 +388,37 @@ controller's own request-scoped instances. At startup, use `app.Services.CreateS
 `builder.Services.BuildServiceProvider()`, which builds a second, never-disposed container whose
 singletons are not the ones the app runs with (the compiler flags this as `ASP0000`).
 
+### The service graph must stay acyclic — and only one test can tell you
+
+The series and consistency layers point at each other, and it is easy to close the loop by
+reaching for the wide interface when you need one method off it. That happened:
+`PartMismatchIssueDetector` took `ISeriesService` to call `GetReconciliationAsync`, while
+`SeriesService` takes `ILibraryConsistencyService` to recheck a book it rewrote, and
+`LibraryConsistencyService` owns the detector —
+
+```
+SeriesService -> ILibraryConsistencyService -> IPartMismatchIssueDetector -> ISeriesService
+```
+
+The container refuses to construct that. Under Development, `ValidateOnBuild` walks every
+descriptor, so the **API did not start at all**; under Production it started and then **500'd
+every `/api/series` request**. The whole test suite stayed green through both, because every
+test hands its subject mocks directly and nothing built the real container.
+
+Two rules follow:
+
+- **Depend on the narrowest interface that has what you need.** The reconciliation lives behind
+  `ISeriesReconciliationProvider` (repositories and its cache, nothing else) precisely so the
+  consistency graph can read it without dragging in the half of `SeriesService` that depends on
+  the consistency graph. **Nothing reachable from `ILibraryConsistencyService` may depend on
+  `ISeriesService`.** Break a cycle by splitting the dependency, not by hiding the edge behind an
+  `IServiceProvider` lazy resolve.
+- **`AudiobookManager.Test/Api/ServiceGraphTests.cs` is the only test that builds the real
+  container** (with Development's `ValidateOnBuild`/`ValidateScopes`), resolves the services on
+  that former cycle, and activates the controllers. A registration the container cannot construct
+  is invisible to every other test in the suite, so keep this one passing and extend it when a new
+  service joins that graph.
+
 ### Reading only what the response needs
 
 Repository methods project in SQL rather than materializing entity graphs the caller then reduces.

@@ -12,7 +12,7 @@ namespace AudiobookManager.Services;
 /// drift apart:
 ///
 /// <list type="bullet">
-/// <item><see cref="SeriesService.ComputeReconciliationAsync"/> (the detail page's missing /
+/// <item><c>SeriesReconciliationProvider.ComputeReconciliationAsync</c> (the detail page's missing /
 /// ignored / part-mismatch sections and the library-wide consistency detector), and</item>
 /// <item>the series refresh diff (part updates, missing source books and part removals a pending
 /// refresh surfaces).</item>
