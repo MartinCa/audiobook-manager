@@ -643,10 +643,16 @@ they track them as reactive dependencies and retrigger on cover edits.
 The client vendors the shared shadcn **b0** preset, so `client/src/index.css` is the standard
 base-nova scaffold: `@import "shadcn/tailwind.css"` (brings the `scroll-fade-*`/`shimmer`
 utilities), `@custom-variant dark (&:is(.dark *))`, a full `@theme inline` block registering
-every `--color-*`/`--radius-*` token (chart and sidebar tokens included), the `:root`/`.dark`
-token blocks, and the `@layer base` block (`*{ @apply border-border outline-ring/50 }`,
-`body{ @apply bg-background text-foreground }`, `html{ @apply font-sans }`). `styles/theme.css`
-keeps supplying the `--status-*` tokens and registers them in its own `@theme inline` block.
+every `--color-*`/`--radius-*` token (chart and sidebar tokens included), and the `@layer base`
+block (`*{ @apply border-border outline-ring/50 }`, `body{ @apply bg-background text-foreground }`,
+`html{ @apply font-sans }`). The scaffold's `:root`/`.dark` standard token values are **not**
+copied in: `styles/theme.css` (shared from frontend-kit) is the sole source for them — the
+standard palette (background/foreground, card, popover, primary/secondary/muted/accent,
+destructive, border/input/ring) and `--radius: 0.5rem`, plus the `--status-*` tokens — defined in
+its own `@layer base :root`/`.dark` and registered in its own `@theme inline` block. `index.css`'s
+`:root`/`.dark` blocks carry only the chart/sidebar tokens, which frontend-kit's `theme.css` does
+not supply, so a `shadcn add MartinCa/frontend-kit/theme` update to the standard palette or radius
+takes visible effect instead of being shadowed by an un-layered duplicate.
 
 Two local bits are preserved on top of the scaffold, both intentional:
 
