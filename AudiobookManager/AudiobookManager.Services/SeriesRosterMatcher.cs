@@ -1,5 +1,6 @@
-using AudiobookManager.Database.Repositories;
+﻿using AudiobookManager.Database.Repositories;
 using AudiobookManager.Database.Search;
+using AudiobookManager.Database.Sort;
 using AudiobookManager.Domain;
 using AudiobookManager.Services.Similarity;
 
@@ -233,21 +234,23 @@ internal static class SeriesRosterMatcher
 
     /// <summary>
     /// The total-order key a roster's positions sort by for display: numeric parts by value,
-    /// non-numeric parts after them alphabetically, blank parts last. Mirrors the SQL
-    /// <c>SeriesPartSortKey</c> the owned-books page orders by.
+    /// non-numeric parts after them alphabetically, blank parts last.
+    ///
+    /// The tier decision is <see cref="SeriesPartSortKey.KeyPlain"/>'s, not a restatement of it -
+    /// the same function the owned-books page orders by in SQL. It used to be restated here, and
+    /// the copy got the blank tier wrong: blanks keyed on <c>Double.MaxValue</c> and non-numeric
+    /// parts on <c>Double.MaxValue - 1</c>, which is the same double, so the two tiers tied and
+    /// the empty text this key pairs with a blank sorted them ahead of every named position
+    /// instead of last. Only the text tiebreaker is this method's own.
     /// </summary>
     internal static (double Numeric, string Text) PositionSortKey(string? position)
     {
-        if (string.IsNullOrWhiteSpace(position))
-        {
-            return (double.MaxValue, string.Empty);
-        }
+        var tier = SeriesPartSortKey.KeyPlain(position);
 
-        if (double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric))
-        {
-            return (numeric, string.Empty);
-        }
-
-        return (double.MaxValue - 1, position);
+        // Only the non-numeric tier wants a text tiebreaker: numeric parts are already ordered by
+        // their value, and blanks are indistinguishable from each other. A position that parses to
+        // exactly Double.MaxValue lands here too and simply carries its text along, which orders
+        // it no differently against the ties it shares that key with.
+        return (tier, tier == SeriesPartSortKey.NonNumericTier ? position!.Trim() : string.Empty);
     }
 }
