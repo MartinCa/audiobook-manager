@@ -1,4 +1,4 @@
-using AudiobookManager.Domain;
+﻿using AudiobookManager.Domain;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
@@ -2686,6 +2686,41 @@ public class SeriesServiceTests
         Assert.AreEqual("^mistborn.*$", result[0].Regex);
         Assert.IsFalse(result[0].WarnAboutPart);
         Assert.IsTrue(result[1].WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_APatternThatDoesNotCompile_IsRefusedBeforeAnythingIsWritten()
+    {
+        // The pattern used to be accepted and then silently skipped on every mappings load, so
+        // the mapping simply never fired and the only evidence was a server log line - which a
+        // user cannot tell apart from a valid pattern that matches nothing. ArgumentException is
+        // what the controller turns into a 400 carrying the message.
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().CreateSeriesMappingAsync(
+                "Some Series", new DomainSeriesMapping(null, "([unclosed", false)));
+
+        StringAssert.Contains(ex.Message, "([unclosed");
+
+        // Refused up front: no owner row is created for a mapping that cannot be stored, which
+        // would otherwise surface as a phantom series on the overview.
+        _seriesRepository.Verify(r => r.GetOrCreateByNameAsync(It.IsAny<string>()), Times.Never);
+        _seriesMappingRepository.Verify(
+            r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMappingAsync_APatternThatDoesNotCompile_IsRefusedBeforeAnythingIsWritten()
+    {
+        // Same guard on the edit path: an existing working pattern must not be replaceable by one
+        // that can never fire.
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().UpdateSeriesMappingAsync(
+                "Some Series", 7, new DomainSeriesMapping(7, "a{2,1}", false)));
+
+        StringAssert.Contains(ex.Message, "a{2,1}");
+
+        _seriesMappingRepository.Verify(
+            r => r.UpdateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Never);
     }
 
     [TestMethod]

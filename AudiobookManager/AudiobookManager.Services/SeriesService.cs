@@ -1,7 +1,8 @@
-using AudiobookManager.Database.Models;
+﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Database.Search;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
@@ -501,6 +502,8 @@ public class SeriesService : ISeriesService
 
     public async Task<Domain.SeriesMapping> CreateSeriesMappingAsync(string seriesName, Domain.SeriesMapping seriesMapping)
     {
+        EnsurePatternCompiles(seriesMapping.Regex);
+
         // An unmatched series exists only as a value on audiobooks and has no catalog row, but a
         // mapping pattern is data-model-wise owned by a Series row - so creating one also creates
         // the owning row. SeriesRepository.GetOrCreateByNameAsync tolerates the read-then-insert
@@ -547,6 +550,8 @@ public class SeriesService : ISeriesService
 
     public async Task<Domain.SeriesMapping?> UpdateSeriesMappingAsync(string seriesName, long mappingId, Domain.SeriesMapping seriesMapping)
     {
+        EnsurePatternCompiles(seriesMapping.Regex);
+
         var series = await _seriesRepository.GetByNameAsync(seriesName);
         if (series is null)
         {
@@ -564,6 +569,23 @@ public class SeriesService : ISeriesService
         seriesMapping.Id = mappingId;
         var updated = await _seriesMappingRepository.UpdateSeriesMappingAsync(seriesMapping.ToDb(series.Id));
         return updated?.ToDomain();
+    }
+
+    /// <summary>
+    /// Refuses a mapping pattern that is not a valid regular expression, at the point the user
+    /// submits it. Without this the row is accepted and then silently skipped every time the
+    /// mappings load - the pattern simply never fires, with only a server log line saying why,
+    /// which is indistinguishable from a pattern that is valid but matches nothing.
+    ///
+    /// ArgumentException is what the controllers translate into a 400 carrying the message, and
+    /// the framework's own regex-parse message names the offending position and construct.
+    /// </summary>
+    private static void EnsurePatternCompiles(string pattern)
+    {
+        if (!SeriesMappingPattern.TryCompile(pattern, out _, out var error))
+        {
+            throw new ArgumentException($"'{pattern}' is not a valid regular expression: {error}");
+        }
     }
 
     public async Task<bool> DeleteSeriesMappingAsync(string seriesName, long mappingId)

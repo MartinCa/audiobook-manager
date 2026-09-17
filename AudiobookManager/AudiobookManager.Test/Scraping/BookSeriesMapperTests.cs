@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Scraping;
@@ -242,6 +242,78 @@ public class BookSeriesMapperTests
         var mapped = await mapper.MapBookSeries(Results("Stormlight Archive"));
 
         Assert.AreEqual("The Stormlight Archive", mapped.Single().SeriesName);
+    }
+
+    /// <summary>
+    /// A pattern that compiles but backtracks catastrophically must cost its own mapping and
+    /// nothing else. Before the match timeout this did not "fail" - it never returned: every
+    /// scraped result runs through the mapping scan, so one such row wedged the request thread
+    /// and with it every metadata search from then on. The test can only exist because the match
+    /// is now bounded; against the untimed code it hangs rather than going red.
+    ///
+    /// No fixed wait is involved: the assertion is on the real outcome (the other mapping still
+    /// applied), and the elapsed check only states that the scan returned in a bounded time
+    /// rather than running to completion, which for this input would take longer than the suite.
+    /// </summary>
+    [TestMethod]
+    public async Task MapBookSeries_CatastrophicallyBacktrackingPattern_IsSkippedNotHung()
+    {
+        var evilOwner = new Series { Name = "Evil" };
+        _db.Series.Add(evilOwner);
+        _db.SaveChanges();
+        // The classic nested-quantifier blowup. Ordered before the Stormlight row by id, so the
+        // scan reaches it first and has to survive it to get to the mapping that does apply.
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^(a+)+$", false, evilOwner.Id));
+        await _db.SaveChangesAsync();
+
+        var mapper = CreateMapper();
+        // Every prefix matches (a+)+ and the trailing "!" defeats the anchor, so the engine walks
+        // every partition of the a-run before giving up - exponential in the run's length.
+        var pathological = new string('a', 40) + "!";
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var mapped = await mapper.MapBookSeries(Results(pathological, "Stormlight Archive"));
+        started.Stop();
+
+        // The runaway row does not match, so its input is passed through untouched...
+        Assert.AreEqual(pathological, mapped[0].SeriesName);
+        // ...and the scan carried on to the mapping that does apply.
+        Assert.AreEqual("The Stormlight Archive", mapped[1].SeriesName);
+        Assert.IsTrue(
+            started.Elapsed < TimeSpan.FromSeconds(10),
+            $"the mapping scan must be bounded by the match timeout, took {started.Elapsed}");
+    }
+
+    /// <summary>
+    /// The timeout is applied by construction in SeriesMappingPattern, so it cannot be forgotten
+    /// at a call site. Asserted on the compiled Regex itself rather than only through behaviour:
+    /// a future call site that builds one with `new Regex(...)` would still pass the test above
+    /// on a fast enough machine, but not this one.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_Compile_CarriesTheMatchTimeout()
+    {
+        var regex = SeriesMappingPattern.Compile("^Stormlight.*");
+
+        Assert.AreEqual(SeriesMappingPattern.MatchTimeout, regex.MatchTimeout);
+        Assert.AreNotEqual(System.Text.RegularExpressions.Regex.InfiniteMatchTimeout, regex.MatchTimeout);
+    }
+
+    /// <summary>
+    /// TryCompile reports a syntax error instead of throwing, which is what lets the write
+    /// endpoints refuse the pattern with a message rather than accepting a row that is silently
+    /// skipped forever after.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_TryCompile_ReportsASyntaxErrorInsteadOfThrowing()
+    {
+        Assert.IsFalse(SeriesMappingPattern.TryCompile("([unclosed", out var broken, out var error));
+        Assert.IsNull(broken);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error));
+
+        Assert.IsTrue(SeriesMappingPattern.TryCompile("^ok$", out var good, out var noError));
+        Assert.IsNotNull(good);
+        Assert.IsNull(noError);
     }
 
     [TestMethod]

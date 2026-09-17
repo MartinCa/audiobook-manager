@@ -89,7 +89,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
 
         var cleanedResult = CleanSeriesName(result);
 
-        var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(cleanedResult.SeriesName));
+        var matchingMapping = FirstMatch(allMappings, cleanedResult.SeriesName);
         if (matchingMapping != default)
         {
             return new MetadataSeriesSearchResult(matchingMapping.TargetSeriesName)
@@ -101,6 +101,40 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         }
 
         return cleanedResult;
+    }
+
+    /// <summary>
+    /// The first mapping whose pattern matches, in load order (first-match wins - the unique index
+    /// on the pattern is what makes that deterministic).
+    ///
+    /// A pattern that blows SeriesMappingPattern.MatchTimeout is treated as not matching and the
+    /// scan carries on with the rest. These are user-authored patterns run against every scraped
+    /// result, so one catastrophically backtracking row must cost its own mapping and nothing
+    /// else; without the timeout it wedged the request thread outright, and failing the whole
+    /// search instead would hand one bad row the same power for a different reason.
+    /// </summary>
+    private (Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName) FirstMatch(
+        IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)> mappings,
+        string seriesName)
+    {
+        foreach (var mapping in mappings)
+        {
+            try
+            {
+                if (mapping.CompiledRegex.IsMatch(seriesName))
+                {
+                    return mapping;
+                }
+            }
+            catch (RegexMatchTimeoutException ex)
+            {
+                _logger.LogWarning(ex,
+                    "Series mapping {MappingId} ('{Pattern}') timed out matching '{SeriesName}' and was skipped; the pattern backtracks catastrophically and should be simplified",
+                    mapping.Mapping.Id, mapping.Mapping.Regex, seriesName);
+            }
+        }
+
+        return default;
     }
 
     private MetadataSeriesSearchResult CleanSeriesName(MetadataSeriesSearchResult result)
@@ -127,9 +161,14 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         // still does not repay compiling it to IL. That trade would only change if these were
         // cached across requests, which they deliberately are not - see the note on _mappings.
         //
+        // SeriesMappingPattern.Compile applies the per-match timeout that bounds a catastrophically
+        // backtracking pattern; see that class for why these two failure modes are handled here
+        // rather than trusted to the pattern's author.
+        //
         // A user-supplied pattern that does not compile must not take the whole search result set
         // down with it: every scraped result runs through this, so one bad mapping row otherwise
-        // turned every metadata search into a 500 with a regex parse error.
+        // turned every metadata search into a 500 with a regex parse error. The write endpoints
+        // reject such a pattern up front now, so reaching this is a row that predates that check.
         var compiled = new List<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>(mappings.Count);
         foreach (var mapping in mappings)
         {
@@ -143,7 +182,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
 
             try
             {
-                compiled.Add((new Regex(mapping.Regex), mapping, targetSeriesName));
+                compiled.Add((SeriesMappingPattern.Compile(mapping.Regex), mapping, targetSeriesName));
             }
             catch (ArgumentException ex)
             {
