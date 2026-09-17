@@ -1,4 +1,4 @@
-using AudiobookManager.Database.Models;
+﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,8 +45,13 @@ public class DiscoveredAudiobookRepository : IDiscoveredAudiobookRepository
         var query = _db.DiscoveredAudiobooks.AsNoTracking().OrderBy(d => d.FileInfoFullPath).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var pattern = $"%{AccentFolding.FoldPlain(search)}%";
-            query = query.Where(d => EF.Functions.Like(AccentFolding.Fold(d.FileInfoFileName), pattern));
+            // Escaped through LikePatterns like every other search path: a '%' or '_' the user
+            // typed is a character in a filename, not a wildcard. Folding first and escaping
+            // after is the right order - folding only strips combining marks, so it can neither
+            // introduce nor consume one of the characters being escaped.
+            var pattern = $"%{LikePatterns.EscapeLikePattern(AccentFolding.FoldPlain(search))}%";
+            query = query.Where(d => EF.Functions.Like(
+                AccentFolding.Fold(d.FileInfoFileName), pattern, LikePatterns.EscapeCharacter));
         }
         var total = await query.CountAsync();
         var items = await query.Skip(offset).Take(limit).ToListAsync();
