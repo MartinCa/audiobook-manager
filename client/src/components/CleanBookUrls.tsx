@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LinkButton } from "./LinkButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
@@ -84,10 +85,10 @@ export function CleanBookUrls() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
       </div>
 
       <div>

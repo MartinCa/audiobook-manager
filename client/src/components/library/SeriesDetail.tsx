@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { LinkButton } from "../LinkButton";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
@@ -480,7 +481,7 @@ export function SeriesDetail() {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Series not found</h2>
-        <Button render={<Link to="/library/series" />}>Back to Series</Button>
+        <LinkButton render={<Link to="/library/series" />}>Back to Series</LinkButton>
       </div>
     );
   }

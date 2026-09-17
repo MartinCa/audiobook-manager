@@ -34,6 +34,7 @@ import { BookEditForm } from "@/components/BookEditForm";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
+import { LinkButton } from "../LinkButton";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
@@ -403,10 +404,10 @@ export function DiscoveredAudiobooks() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
 
         <Button
           variant="default"

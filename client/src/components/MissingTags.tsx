@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
+import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
@@ -126,10 +127,10 @@ export function MissingTags() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Button variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
 
         <Button
           variant="outline"

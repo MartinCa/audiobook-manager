@@ -5,6 +5,7 @@ import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2, Pencil } fr
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
+import { LinkButton } from "../LinkButton";
 import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
@@ -296,7 +297,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     return (
       <div className="space-y-4 py-12 text-center">
         <h2 className="text-xl font-bold">Audiobook not found</h2>
-        <Button render={<Link to="/library" />}>Back to Library</Button>
+        <LinkButton render={<Link to="/library" />}>Back to Library</LinkButton>
       </div>
     );
   }
