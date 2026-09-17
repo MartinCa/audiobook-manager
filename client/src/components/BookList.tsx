@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, RefreshCw, HardDrive, AlertCircle, Loader2 } from "lucide-react";
+import { FolderInput, RefreshCw, HardDrive, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Accordion,
   AccordionContent,
@@ -143,9 +144,28 @@ export function BookList() {
       </div>
 
       {loading && books.length === 0 ? (
-        <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
-          <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
-          <p className="text-sm">Loading files from import directory...</p>
+        <div
+          role="status"
+          aria-label="Loading files from import directory..."
+          className="space-y-2"
+        >
+          {Array.from({ length: 5 }, (_, i) => (
+            <div
+              key={i}
+              className="border-border bg-card overflow-hidden rounded-lg border shadow-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3 pr-2">
+                  <Skeleton className="h-9 w-9 rounded-md" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-3/5 max-w-72" />
+                    <Skeleton className="h-3 w-1/3 max-w-40" />
+                  </div>
+                </div>
+                <Skeleton className="h-4 w-24 shrink-0" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : books.length === 0 ? (
         <Card className="p-12 text-center">

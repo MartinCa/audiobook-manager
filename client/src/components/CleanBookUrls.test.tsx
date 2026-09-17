@@ -189,4 +189,15 @@ describe("CleanBookUrls", () => {
     await screen.findByText(/Second Book/);
     expect(screen.getByRole("button", { name: /clean 1 url/i })).toBeEnabled();
   });
+
+  it("shows skeleton loading rows while the dirty URL list loads", async () => {
+    vi.mocked(urlCleanupApi.getDirtyUrlPage).mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderComponent();
+
+    expect(
+      await screen.findByRole("status", { name: "Scanning saved URLs..." }),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
 });

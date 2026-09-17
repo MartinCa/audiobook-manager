@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { LinkButton } from "./LinkButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZE } from "@/constants/paging";
 import { urlCleanupApi } from "@/services/api";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
@@ -139,9 +140,20 @@ export function CleanBookUrls() {
         </div>
 
         {isLoading ? (
-          <div className="text-muted-foreground flex flex-col items-center justify-center py-16">
-            <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
-            <p className="text-sm">Scanning saved URLs...</p>
+          <div role="status" aria-label="Scanning saved URLs..." className="space-y-2">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div
+                key={i}
+                className="border-border bg-card flex items-start gap-3 rounded-lg border p-3"
+              >
+                <Skeleton className="mt-1 size-4 shrink-0 rounded-[4px]" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-2/5 max-w-80" />
+                  <Skeleton className="h-3 w-4/5 max-w-120" />
+                  <Skeleton className="h-3 w-3/5 max-w-96" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : totalCount === 0 ? (
           <Card className="p-12 text-center">

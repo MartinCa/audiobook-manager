@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Library, Search, X, RefreshCw, Loader2 } from "lucide-react";
+import { Library, Search, X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BookListRow } from "./library/BookListRow";
 import { BookBulkActionBar } from "./library/BookBulkActionBar";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
@@ -206,9 +207,21 @@ export function BookLibrary() {
       </div>
 
       {loading && books.length === 0 ? (
-        <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
-          <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
-          <p className="text-sm">Loading library audiobooks...</p>
+        <div role="status" aria-label="Loading library audiobooks..." className="space-y-2">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div
+              key={i}
+              className="border-border bg-card flex items-center gap-3 rounded-lg border p-3"
+            >
+              <Skeleton className="size-4 shrink-0 rounded-[4px]" />
+              <Skeleton className="h-12 w-12 shrink-0 rounded" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/2 max-w-80" />
+                <Skeleton className="h-3 w-2/3 max-w-96" />
+              </div>
+              <Skeleton className="size-4 shrink-0" />
+            </div>
+          ))}
         </div>
       ) : books.length === 0 ? (
         <Card className="p-12 text-center">

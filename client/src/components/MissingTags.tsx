@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Tag, BookOpen, ChevronRight, Globe, Loader2, Search, X } from "lucide-react";
+import { ArrowLeft, Tag, BookOpen, ChevronRight, Globe, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
@@ -230,9 +231,22 @@ export function MissingTags() {
         </div>
 
         {loadingFields || (loadingBooks && audiobooks.length === 0) ? (
-          <div className="text-muted-foreground flex flex-col items-center justify-center py-16">
-            <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
-            <p className="text-sm">Scanning tags...</p>
+          <div role="status" aria-label="Scanning tags..." className="space-y-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div
+                key={i}
+                className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-3"
+              >
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/5 max-w-80" />
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                </div>
+                <Skeleton className="size-4 shrink-0" />
+              </div>
+            ))}
           </div>
         ) : totalCount === 0 ? (
           <Card className="p-12 text-center">

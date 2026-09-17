@@ -135,4 +135,15 @@ describe("BookList", () => {
     expect(await screen.findByText(/Relocating/)).toBeInTheDocument();
     expect(screen.getByText("60%")).toBeInTheDocument();
   });
+
+  it("shows skeleton loading rows while the untagged list loads", async () => {
+    vi.mocked(untaggedApi.getUntagged).mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderWithProviders();
+
+    expect(
+      await screen.findByRole("status", { name: "Loading files from import directory..." }),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
 });

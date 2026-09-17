@@ -221,4 +221,13 @@ describe("MissingTags", () => {
         ),
     ).toHaveLength(1);
   });
+
+  it("shows skeleton loading rows while fields and books load", async () => {
+    vi.mocked(missingTagsApi.getFields).mockImplementation(() => new Promise(() => {}));
+
+    const { container } = renderComponent();
+
+    expect(await screen.findByRole("status", { name: "Scanning tags..." })).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
 });
