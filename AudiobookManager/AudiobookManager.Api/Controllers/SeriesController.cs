@@ -781,7 +781,11 @@ public class SeriesController : ControllerBase
             var pending = await _seriesService.GetPendingSeriesRefreshAsync(seriesName);
             if (pending is null)
             {
-                return NotFound();
+                // 204, not 404: "no pending snapshot" is the normal state the series page polls
+                // on every visit, and every non-2xx response is logged by the browser as a
+                // failed request that no client-side handling can silence. The status alone
+                // says the snapshot is absent.
+                return NoContent();
             }
 
             return Ok(new SeriesRefreshPendingDto(

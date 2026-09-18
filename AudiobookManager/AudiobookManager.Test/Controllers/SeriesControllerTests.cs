@@ -832,13 +832,16 @@ public class SeriesControllerTests
     }
 
     [TestMethod]
-    public async Task GetPendingDetail_NoPendingSnapshot_ReturnsNotFound()
+    public async Task GetPendingDetail_NoPendingSnapshot_Returns204()
     {
+        // 204 rather than 404: absence is the normal state the series page polls on every
+        // visit, and the browser logs every non-2xx response as a console error no client-side
+        // handling can silence.
         _seriesService.Setup(s => s.GetPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync((PendingSeriesRefresh?)null);
 
         var result = await _controller.GetPendingDetail("Mistborn");
 
-        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+        Assert.IsInstanceOfType(result.Result, typeof(NoContentResult));
     }
 
     [TestMethod]
