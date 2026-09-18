@@ -218,4 +218,19 @@ public interface ISeriesService
         string seriesName,
         SeriesRefreshApplyRequest request,
         Func<int, int, int, int, Task> progressAction);
+
+    /// <summary>
+    /// Deletes a series: every owned book has its Series and SeriesPart cleared through
+    /// <see cref="IAudiobookService.UpdateAudiobook"/> - the "no DB-only field updates" binding
+    /// invariant's path, so the m4b tags, library path, sidecars and database all update together
+    /// - and the catalog row (roster, mapping patterns, and any pending refresh snapshot) is
+    /// removed afterwards. One try/catch per book, like the other bulk rewrites, so a busy or
+    /// missing book fails just its own item and the batch carries on; the catalog cleanup runs
+    /// regardless of per-book failures, since a partially-cleared series should not keep dangling
+    /// catalog metadata a re-added book would inherit. Throws no exception for a series with no
+    /// owned books and no catalog row - callers check existence first.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> DeleteSeriesAsync(
+        string seriesName,
+        Func<int, int, int, int, Task> progressAction);
 }

@@ -61,6 +61,7 @@ public class SeriesService : ISeriesService
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly ISeriesReconciliationProvider _reconciliation;
+    private readonly ISimilarValueDetectionCache _similarValueDetectionCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
 
@@ -74,6 +75,7 @@ public class SeriesService : ISeriesService
         ILibraryConsistencyService libraryConsistencyService,
         ISeriesReconciliationCache reconciliationCache,
         ISeriesReconciliationProvider reconciliation,
+        ISimilarValueDetectionCache similarValueDetectionCache,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
@@ -86,6 +88,7 @@ public class SeriesService : ISeriesService
         _libraryConsistencyService = libraryConsistencyService;
         _reconciliationCache = reconciliationCache;
         _reconciliation = reconciliation;
+        _similarValueDetectionCache = similarValueDetectionCache;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -1102,6 +1105,62 @@ public class SeriesService : ISeriesService
         }
 
         return (processed, succeeded, failed);
+    }
+
+    /// <summary>
+    /// Deletes a series: clears Series/SeriesPart on every owned book (through
+    /// <see cref="IAudiobookService.UpdateAudiobook"/>, under the per-audiobook save gate, with
+    /// a best-effort consistency recheck per book - the same pipeline and tail every other
+    /// series/book rewrite in this service uses), then removes the catalog row and any pending
+    /// refresh snapshot. The catalog cleanup runs even when some books failed to clear: a
+    /// half-deleted series should not leave a matched catalog row (with its roster and mapping
+    /// patterns) behind for a book re-added under the same name to inherit stale "missing book"
+    /// state against.
+    /// </summary>
+    public async Task<(int Processed, int Succeeded, int Failed)> DeleteSeriesAsync(
+        string seriesName,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var ownedBooks = (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, authorId: null))
+            .Select(AudiobookService.FromDb)
+            .ToList();
+
+        var result = await BulkOperationRunner.RunAsync(
+            ownedBooks,
+            async book =>
+            {
+                var audiobookId = book.Id!.Value;
+                using var lease = _saveGate.Acquire(audiobookId);
+                book.Series = string.Empty;
+                book.SeriesPart = null;
+                await _audiobookService.UpdateAudiobook(audiobookId, book);
+
+                try
+                {
+                    await _libraryConsistencyService.RecheckAudiobookAsync(audiobookId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to recheck consistency issues for audiobook {AudiobookId} after clearing its series on series deletion",
+                        audiobookId);
+                }
+            },
+            _logger,
+            book => $"Failed to clear series for audiobook {book.Id} while deleting series {seriesName}",
+            progressAction);
+
+        await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+        await _seriesRepository.DeleteSeriesAsync(seriesName);
+        _reconciliationCache.Invalidate(seriesName);
+
+        // Every owned book just had its Series value rewritten to empty - exactly the kind of
+        // bulk series-value change AlignSeriesAsync invalidates this cache for. Without it, a
+        // similar-values group naming the now-deleted series (matching only the books that
+        // failed to clear, if any) can be served stale until the TTL expires.
+        _similarValueDetectionCache.Invalidate();
+
+        return result;
     }
 
     private async Task ApplySingleSeriesRefreshChangeAsync(

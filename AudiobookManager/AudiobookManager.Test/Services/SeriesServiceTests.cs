@@ -23,6 +23,7 @@ public class SeriesServiceTests
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
+    private Mock<ISimilarValueDetectionCache> _similarValueDetectionCache = null!;
     private Mock<ILogger<SeriesService>> _logger = null!;
     private SeriesReconciliationCache _reconciliationCache = null!;
 
@@ -35,6 +36,7 @@ public class SeriesServiceTests
         _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        _similarValueDetectionCache = new Mock<ISimilarValueDetectionCache>();
         _logger = new Mock<ILogger<SeriesService>>();
         _reconciliationCache = new SeriesReconciliationCache();
     }
@@ -54,6 +56,7 @@ public class SeriesServiceTests
             // behind its own interface to keep the consistency graph off SeriesService.
             new SeriesReconciliationProvider(
                 _audiobookRepository.Object, _seriesRepository.Object, _reconciliationCache),
+            _similarValueDetectionCache.Object,
             scrapers,
             _logger.Object);
 
@@ -3024,5 +3027,102 @@ public class SeriesServiceTests
         Assert.IsFalse(result);
         _seriesMappingRepository.Verify(
             r => r.DeleteSeriesMappingAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    private static Database.Models.Audiobook MakeDbBook(long id, string bookName, string series, string? seriesPart) =>
+        new(id, bookName, subtitle: null, series, seriesPart, year: 2006,
+            description: null, copyright: null, publisher: null, language: null, rating: null,
+            asin: null, www: null, coverFilePath: null, durationInSeconds: null,
+            fileInfoFullPath: $"/l/{bookName}.m4b", fileInfoFileName: $"{bookName}.m4b", fileInfoSizeInBytes: 10);
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_ClearsSeriesAndSeriesPartOnEveryOwnedBook_ThenDeletesTheCatalogRow()
+    {
+        var bookA = MakeDbBook(1, "Book A", "Mistborn", "1");
+        var bookB = MakeDbBook(2, "Book B", "Mistborn", "2");
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { bookA, bookB });
+
+        DomainAudiobook? updatedA = null;
+        DomainAudiobook? updatedB = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(1, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) =>
+            {
+                updatedA = b;
+                return b;
+            });
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(2, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) =>
+            {
+                updatedB = b;
+                return b;
+            });
+        _seriesRepository.Setup(r => r.DeleteSeriesAsync("Mistborn")).ReturnsAsync(true);
+        _pendingSeriesRefreshRepository.Setup(r => r.DeleteBySeriesNameAsync("Mistborn")).ReturnsAsync(true);
+
+        var (processed, succeeded, failed) = await MakeService().DeleteSeriesAsync(
+            "Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(2, processed);
+        Assert.AreEqual(2, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.AreEqual(string.Empty, updatedA!.Series);
+        Assert.IsNull(updatedA.SeriesPart);
+        Assert.AreEqual(string.Empty, updatedB!.Series);
+        Assert.IsNull(updatedB.SeriesPart);
+        _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(1), Times.Once);
+        _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(2), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _seriesRepository.Verify(r => r.DeleteSeriesAsync("Mistborn"), Times.Once);
+        // Every owned book's Series value was rewritten - the same bulk series-value change
+        // AlignSeriesAsync invalidates this cache for, so stale similar-values groups naming the
+        // deleted series are not served until the TTL expires.
+        _similarValueDetectionCache.Verify(c => c.Invalidate(), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_OneBookFailsToUpdate_StillDeletesTheCatalogRowAndCountsTheFailure()
+    {
+        var bookA = MakeDbBook(1, "Book A", "Mistborn", "1");
+        var bookB = MakeDbBook(2, "Book B", "Mistborn", "2");
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { bookA, bookB });
+
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(1, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ThrowsAsync(new InvalidOperationException("busy"));
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(2, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+
+        var (processed, succeeded, failed) = await MakeService().DeleteSeriesAsync(
+            "Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(2, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(1, failed);
+        // The catalog cleanup must still run even though one book failed to clear - a
+        // half-deleted series should not leave a matched catalog row behind.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _seriesRepository.Verify(r => r.DeleteSeriesAsync("Mistborn"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_NoOwnedBooks_StillDeletesTheCatalogRow()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null))
+            .ReturnsAsync(new List<Database.Models.Audiobook>());
+        _seriesRepository.Setup(r => r.DeleteSeriesAsync("Mistborn")).ReturnsAsync(true);
+
+        var (processed, succeeded, failed) = await MakeService().DeleteSeriesAsync(
+            "Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(0, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(0, failed);
+        _seriesRepository.Verify(r => r.DeleteSeriesAsync("Mistborn"), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
     }
 }

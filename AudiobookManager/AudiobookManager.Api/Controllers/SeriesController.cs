@@ -27,11 +27,13 @@ public class SeriesController : ControllerBase
     private static readonly SemaphoreSlim _matchLock = new(1, 1);
     private static readonly SemaphoreSlim _refreshLock = new(1, 1);
     private static readonly SemaphoreSlim _missingBookApplyLock = new(1, 1);
+    private static readonly SemaphoreSlim _deleteLock = new(1, 1);
 
     public const string MatchOperationKey = "series-match";
     public const string RefreshOperationKey = "series-refresh";
     public const string MissingBookApplyOperationKey = "series-missing-book-apply";
     public const string PendingApplyOperationKey = "series-refresh-apply";
+    public const string DeleteOperationKey = "series-delete";
 
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -297,6 +299,50 @@ public class SeriesController : ControllerBase
             _logger.LogError(ex, "Error deleting series mapping {MappingId} for {SeriesName}", mappingId, seriesName);
             return this.UnexpectedError();
         }
+    }
+
+    /// <summary>
+    /// Fire-and-forget deletion of a series: clears Series and SeriesPart on every owned book
+    /// (through the same UpdateAudiobook pipeline every other series rewrite uses, so tags, the
+    /// library path, sidecars and the database all update together) and then removes the catalog
+    /// row - its roster and mapping patterns cascade with it - and any pending refresh snapshot.
+    /// A book left unclearable by a per-book failure is folded into the failed count, not
+    /// retried; the catalog cleanup still runs. Progress is reported over SignalR; the operation
+    /// status is recorded under <see cref="DeleteOperationKey"/> so a client can recover it after
+    /// a reconnect.
+    /// </summary>
+    [HttpDelete]
+    public IActionResult StartDeleteSeries([FromQuery] string seriesName)
+    {
+        if (string.IsNullOrWhiteSpace(seriesName))
+        {
+            return this.InvalidRequest("seriesName is required.");
+        }
+
+        return BackgroundOperationRunner.Start(
+            _deleteLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            DeleteOperationKey,
+            async sp =>
+            {
+                var seriesService = sp.GetRequiredService<ISeriesService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(DeleteOperationKey, processed, total);
+                    return _organizeHub.Clients.All.SeriesDeleteProgress(
+                        new SeriesDeleteProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) = await seriesService.DeleteSeriesAsync(seriesName, ProgressAction);
+
+                await _organizeHub.Clients.All.SeriesDeleteComplete(
+                    new SeriesDeleteComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.SeriesDeleteComplete(new SeriesDeleteComplete(0, 0, 0, errored: true)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpPost("match/bulk")]

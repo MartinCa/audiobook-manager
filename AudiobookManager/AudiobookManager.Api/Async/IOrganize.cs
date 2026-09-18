@@ -22,6 +22,8 @@ public interface IOrganize
     Task SeriesRefreshApplyComplete(SeriesRefreshApplyComplete result);
     Task SeriesMissingBookApplyProgress(SeriesMissingBookApplyProgress progress);
     Task SeriesMissingBookApplyComplete(SeriesMissingBookApplyComplete result);
+    Task SeriesDeleteProgress(SeriesDeleteProgress progress);
+    Task SeriesDeleteComplete(SeriesDeleteComplete result);
     Task AudiobookSaveProgress(AudiobookSaveProgress progress);
     Task AudiobookSaveComplete(AudiobookSaveComplete result);
     Task AudiobookSaveError(AudiobookSaveError error);

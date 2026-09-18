@@ -611,6 +611,11 @@ export const seriesApi = {
     api.delete<void>(`/series/mappings/${mappingId}`, {
       query: { seriesName },
     }),
+
+  // Fire-and-forget: clears Series/SeriesPart on every owned book and removes the catalog row
+  // (roster, mapping patterns) and any pending refresh snapshot. Progress/completion arrive over
+  // SignalR (SeriesDeleteProgress/Complete) and via GET /operations/series-delete/status.
+  startDeleteSeries: (seriesName: string) => api.delete<void>("/series", { query: { seriesName } }),
 };
 
 // Metadata Search
