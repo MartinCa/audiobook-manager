@@ -716,7 +716,34 @@ public class SeriesControllerTests
         await AwaitOperationFinished(finished);
 
         _clientProxy.Verify(c => c.SeriesDeleteProgress(It.Is<SeriesDeleteProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
-        _clientProxy.Verify(c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0 && !p.Errored)), Times.Once);
+    }
+
+    /// <summary>
+    /// A service failure (e.g. the catalog row delete itself throwing) escapes the background
+    /// work delegate, so BackgroundOperationRunner's error path sends the completion event
+    /// instead of the normal one. Every count on that path is zero - the same shape as a genuine
+    /// "series with no owned books" success - so Errored is what a client needs to tell the two
+    /// apart instead of toasting a crashed delete as a success.
+    /// </summary>
+    [TestMethod]
+    public async Task StartDeleteSeries_ServiceThrows_SendsCompletionWithErroredTrue()
+    {
+        _seriesService.Setup(s => s.DeleteSeriesAsync("Mistborn", It.IsAny<Func<int, int, int, int, Task>>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var finished = RegisterFinishedWaiter(SeriesController.DeleteOperationKey);
+
+        var result = _controller.StartDeleteSeries("Mistborn");
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(
+            c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(
+                p => p.TotalProcessed == 0 && p.TotalSucceeded == 0 && p.TotalFailed == 0 && p.Errored)),
+            Times.Once);
     }
 
     [TestMethod]

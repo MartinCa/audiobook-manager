@@ -61,6 +61,7 @@ public class SeriesService : ISeriesService
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly ISeriesReconciliationCache _reconciliationCache;
     private readonly ISeriesReconciliationProvider _reconciliation;
+    private readonly ISimilarValueDetectionCache _similarValueDetectionCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<SeriesService> _logger;
 
@@ -74,6 +75,7 @@ public class SeriesService : ISeriesService
         ILibraryConsistencyService libraryConsistencyService,
         ISeriesReconciliationCache reconciliationCache,
         ISeriesReconciliationProvider reconciliation,
+        ISimilarValueDetectionCache similarValueDetectionCache,
         IEnumerable<IScraper> scrapers,
         ILogger<SeriesService> logger)
     {
@@ -86,6 +88,7 @@ public class SeriesService : ISeriesService
         _libraryConsistencyService = libraryConsistencyService;
         _reconciliationCache = reconciliationCache;
         _reconciliation = reconciliation;
+        _similarValueDetectionCache = similarValueDetectionCache;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -1122,17 +1125,11 @@ public class SeriesService : ISeriesService
             .Select(AudiobookService.FromDb)
             .ToList();
 
-        var processed = 0;
-        var succeeded = 0;
-        var failed = 0;
-        var total = ownedBooks.Count;
-
-        foreach (var book in ownedBooks)
-        {
-            processed++;
-            var audiobookId = book.Id!.Value;
-            try
+        var result = await BulkOperationRunner.RunAsync(
+            ownedBooks,
+            async book =>
             {
+                var audiobookId = book.Id!.Value;
                 using var lease = _saveGate.Acquire(audiobookId);
                 book.Series = string.Empty;
                 book.SeriesPart = null;
@@ -1148,25 +1145,22 @@ public class SeriesService : ISeriesService
                         "Failed to recheck consistency issues for audiobook {AudiobookId} after clearing its series on series deletion",
                         audiobookId);
                 }
-
-                succeeded++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Failed to clear series for audiobook {AudiobookId} while deleting series {SeriesName}",
-                    audiobookId, seriesName);
-                failed++;
-            }
-
-            await progressAction(processed, total, succeeded, failed);
-        }
+            },
+            _logger,
+            book => $"Failed to clear series for audiobook {book.Id} while deleting series {seriesName}",
+            progressAction);
 
         await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
         await _seriesRepository.DeleteSeriesAsync(seriesName);
         _reconciliationCache.Invalidate(seriesName);
 
-        return (processed, succeeded, failed);
+        // Every owned book just had its Series value rewritten to empty - exactly the kind of
+        // bulk series-value change AlignSeriesAsync invalidates this cache for. Without it, a
+        // similar-values group naming the now-deleted series (matching only the books that
+        // failed to clear, if any) can be served stale until the TTL expires.
+        _similarValueDetectionCache.Invalidate();
+
+        return result;
     }
 
     private async Task ApplySingleSeriesRefreshChangeAsync(

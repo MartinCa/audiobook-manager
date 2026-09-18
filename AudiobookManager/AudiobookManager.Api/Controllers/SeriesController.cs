@@ -341,7 +341,7 @@ public class SeriesController : ControllerBase
                 await _organizeHub.Clients.All.SeriesDeleteComplete(
                     new SeriesDeleteComplete(processed, succeeded, failed));
             },
-            () => _organizeHub.Clients.All.SeriesDeleteComplete(new SeriesDeleteComplete(0, 0, 0)),
+            () => _organizeHub.Clients.All.SeriesDeleteComplete(new SeriesDeleteComplete(0, 0, 0, errored: true)),
             _appLifetime.ApplicationStopping);
     }
 

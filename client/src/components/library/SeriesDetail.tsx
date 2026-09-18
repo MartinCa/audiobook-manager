@@ -492,24 +492,37 @@ export function SeriesDetail() {
     },
   );
 
-  useSignalREvent<{ totalProcessed: number; totalSucceeded: number; totalFailed: number }>(
-    SignalREvents.SeriesDeleteComplete,
-    (data) => {
-      setDeleting(false);
-      setDeleteProgress(null);
-      setDeleteDialogOpen(false);
-      toast.add({
-        title:
-          data.totalFailed > 0
-            ? `Series deleted with ${data.totalFailed} book${data.totalFailed === 1 ? "" : "s"} that could not be cleared`
-            : "Series deleted",
-        type: data.totalFailed > 0 ? "error" : "success",
-      });
-      void queryClient.invalidateQueries({ queryKey: ["series"] });
-      void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
-      handleBack();
-    },
-  );
+  useSignalREvent<{
+    totalProcessed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+    errored: boolean;
+  }>(SignalREvents.SeriesDeleteComplete, (data) => {
+    setDeleting(false);
+    setDeleteProgress(null);
+    void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
+
+    // errored means the delete threw out of the background operation (e.g. the catalog row
+    // delete itself failed) - every count here is zero, indistinguishable from "a series with no
+    // owned books, deleted successfully" without this flag. Leave the dialog open on the current
+    // (possibly partially-cleared) series rather than reporting success and navigating away.
+    if (data.errored) {
+      toast.add({ title: "Series deletion failed", type: "error" });
+      return;
+    }
+
+    setDeleteDialogOpen(false);
+    toast.add({
+      title:
+        data.totalFailed > 0
+          ? `Series deleted with ${data.totalFailed} book${data.totalFailed === 1 ? "" : "s"} that could not be cleared`
+          : "Series deleted",
+      type: data.totalFailed > 0 ? "error" : "success",
+    });
+    void queryClient.invalidateQueries({ queryKey: ["series"] });
+    void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+    handleBack();
+  });
 
   const handleDeleteSeries = async () => {
     setDeleting(true);
@@ -1149,8 +1162,9 @@ export function SeriesDetail() {
             <span className="text-destructive font-semibold">Danger Zone</span>
             <p className="text-muted-foreground max-w-xl">
               Deleting this series clears the Series and Series Part fields on every owned book, and
-              removes the series' matching, roster and mapping data. The books themselves are not
-              deleted.
+              removes the series' matching, roster and mapping data. The books keep their content
+              and are not deleted, but clearing these fields moves them out of the series folder and
+              renames their files.
             </p>
             <Button
               variant="destructive"
@@ -1315,8 +1329,9 @@ export function SeriesDetail() {
               </div>
             )}
             <p className="text-muted-foreground">
-              The series' matching, roster and mapping data is removed. The books themselves are not
-              deleted or moved. This cannot be undone.
+              The series' matching, roster and mapping data is removed. The books keep their content
+              and are not deleted, but clearing these fields moves them out of the series folder and
+              renames their files. This cannot be undone.
             </p>
           </div>
 

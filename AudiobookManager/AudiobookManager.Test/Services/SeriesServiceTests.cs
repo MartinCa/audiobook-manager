@@ -23,6 +23,7 @@ public class SeriesServiceTests
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
+    private Mock<ISimilarValueDetectionCache> _similarValueDetectionCache = null!;
     private Mock<ILogger<SeriesService>> _logger = null!;
     private SeriesReconciliationCache _reconciliationCache = null!;
 
@@ -35,6 +36,7 @@ public class SeriesServiceTests
         _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        _similarValueDetectionCache = new Mock<ISimilarValueDetectionCache>();
         _logger = new Mock<ILogger<SeriesService>>();
         _reconciliationCache = new SeriesReconciliationCache();
     }
@@ -54,6 +56,7 @@ public class SeriesServiceTests
             // behind its own interface to keep the consistency graph off SeriesService.
             new SeriesReconciliationProvider(
                 _audiobookRepository.Object, _seriesRepository.Object, _reconciliationCache),
+            _similarValueDetectionCache.Object,
             scrapers,
             _logger.Object);
 
@@ -3073,6 +3076,10 @@ public class SeriesServiceTests
         _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(2), Times.Once);
         _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
         _seriesRepository.Verify(r => r.DeleteSeriesAsync("Mistborn"), Times.Once);
+        // Every owned book's Series value was rewritten - the same bulk series-value change
+        // AlignSeriesAsync invalidates this cache for, so stale similar-values groups naming the
+        // deleted series are not served until the TTL expires.
+        _similarValueDetectionCache.Verify(c => c.Invalidate(), Times.Once);
     }
 
     [TestMethod]
