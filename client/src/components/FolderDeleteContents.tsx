@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Folder, FileAudio, FileText, Image, File, Loader2 } from "lucide-react";
 import { filesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { getContainingFolderPath, getTotalSizeInBytes } from "@/helpers/folderHelpers";
 import type { BookFileInfo } from "@/types/BookFileInfo";
@@ -41,7 +42,7 @@ export function FolderDeleteContents({
   const queryEnabled = Boolean(targetPath) && passedFiles === undefined;
 
   const { data: fetchedFiles = [], isLoading: queryLoading } = useQuery({
-    queryKey: ["directoryContents", targetPath],
+    queryKey: queryKeys.directoryContents(targetPath!),
     queryFn: () => filesApi.getDirectoryContents(targetPath!),
     enabled: queryEnabled,
   });

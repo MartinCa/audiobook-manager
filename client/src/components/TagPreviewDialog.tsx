@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { settingsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
@@ -38,7 +39,7 @@ export function TagPreviewDialog({
   onApply,
 }: TagPreviewDialogProps) {
   const { data: langData } = useQuery({
-    queryKey: ["languages"],
+    queryKey: queryKeys.languages(),
     queryFn: () => settingsApi.getLanguages(),
     staleTime: Infinity,
   });

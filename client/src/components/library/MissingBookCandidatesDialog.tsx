@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 import type { SeriesBookCandidate } from "@/types/Series";
@@ -57,7 +58,7 @@ export function MissingBookCandidatesDialog({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ["missingBookCandidates", seriesName, missingBook.position, missingBook.title],
+    queryKey: queryKeys.missingBookCandidates(seriesName, missingBook.position, missingBook.title),
     queryFn: () =>
       seriesApi.getMissingBookCandidates(
         seriesName,
@@ -98,7 +99,7 @@ export function MissingBookCandidatesDialog({
       setConfirming(false);
       setSelectedCandidate(null);
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail"],
+        queryKey: queryKeys.seriesDetail.all(),
       });
       onOpenChange(false);
     } catch (err: unknown) {

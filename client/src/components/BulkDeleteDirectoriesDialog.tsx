@@ -10,6 +10,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { filesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { getTotalSizeInBytes } from "@/helpers/folderHelpers";
 import { FolderDeleteContents } from "./FolderDeleteContents";
@@ -32,7 +33,7 @@ export interface BulkDeleteDirectoriesDialogProps {
 
 function BulkDirectoryItem({ directoryPath }: { directoryPath: string }) {
   const { data: files = [], isLoading } = useQuery({
-    queryKey: ["directoryContents", directoryPath],
+    queryKey: queryKeys.directoryContents(directoryPath),
     queryFn: () => filesApi.getDirectoryContents(directoryPath),
   });
 

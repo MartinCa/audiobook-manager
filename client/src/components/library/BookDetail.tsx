@@ -11,6 +11,7 @@ import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
@@ -77,7 +78,7 @@ export function BookDetail({ mode }: BookDetailProps) {
   const [pendingApplied, setPendingApplied] = useState(false);
 
   const { data, isLoading: loading } = useQuery({
-    queryKey: ["bookDetail", id],
+    queryKey: queryKeys.bookDetail(id),
     queryFn: async () => {
       const [detail, bookIssues] = await Promise.all([
         browseApi.getAudiobookDetail(id),
@@ -92,7 +93,7 @@ export function BookDetail({ mode }: BookDetailProps) {
   // nothing pending; a 404 from the endpoint means the same thing, and must not surface as an
   // error — the refresh bookkeeping timestamp is what matters for display.
   const { data: pending } = useQuery({
-    queryKey: ["metadataRefresh", "pending", id],
+    queryKey: queryKeys.metadataRefresh.pendingForBook(id),
     queryFn: () => metadataRefreshApi.getPendingForAudiobook(id),
     enabled: Boolean(id),
   });
@@ -114,9 +115,11 @@ export function BookDetail({ mode }: BookDetailProps) {
       setSaveProgress(null);
       setSaveMessage(null);
       toast.add({ title: "Audiobook saved successfully", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
-      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
-      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.metadataRefresh.pendingForBook(id),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
       if (pendingApplied) {
         setPendingApplied(false);
         void metadataRefreshApi.dismissPending(id).catch(() => {});
@@ -144,7 +147,7 @@ export function BookDetail({ mode }: BookDetailProps) {
         setSaving(false);
         setSaveProgress(null);
         setSaveMessage(null);
-        void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
       } catch {
         // Keep existing state if status check fails
       }
@@ -184,9 +187,9 @@ export function BookDetail({ mode }: BookDetailProps) {
   // single-book recheck or resolve shows up on the Library Consistency page and in the
   // library list's issue badges. The book-detail query keeps its own id-scoped key.
   const invalidateConsistencyViews = () => {
-    void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
-    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
-    void queryClient.invalidateQueries({ queryKey: ["books"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
 
   const handleCheckConsistency = async () => {
@@ -226,8 +229,8 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await audiobookApi.deleteAudiobook(id);
       toast.add({ title: "Audiobook deleted from library", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["books"] });
-      void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
       void navigate({ to: "/library" });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
@@ -239,12 +242,12 @@ export function BookDetail({ mode }: BookDetailProps) {
   // the backing surface for both "Refresh Now" and the consistency issue whose "resolve" means
   // retrying.
   const invalidateRefreshViews = () => {
-    void queryClient.invalidateQueries({ queryKey: ["bookDetail", id] });
-    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
-    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingForBook(id) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
     // The library-list query folds the pending-summary into its badge computation, so a refresh
     // here must also invalidate it — the same reason handleDismissPending invalidates it below.
-    void queryClient.invalidateQueries({ queryKey: ["books"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
 
   const handleRefreshNow = async () => {
@@ -255,7 +258,9 @@ export function BookDetail({ mode }: BookDetailProps) {
         toast.add({ title: result.error || "Metadata refresh failed", type: "error" });
       } else if (result.hasDifferences) {
         setPendingOpen(true);
-        void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.metadataRefresh.pendingForBook(id),
+        });
       } else {
         toast.add({
           title: `Metadata up to date (${result.sourceName ?? "source"})`,
@@ -275,9 +280,11 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await metadataRefreshApi.dismissPending(id);
       toast.add({ title: "Pending metadata changes discarded", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending", id] });
-      void queryClient.invalidateQueries({ queryKey: ["metadataRefresh", "pending-summary"] });
-      void queryClient.invalidateQueries({ queryKey: ["books"] });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.metadataRefresh.pendingForBook(id),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       setPendingOpen(false);
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });

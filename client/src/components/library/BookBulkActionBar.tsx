@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BulkBookEditDialog } from "./BulkBookEditDialog";
 import { consistencyApi, metadataRefreshApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -80,10 +81,10 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     bulkEditProgress !== null || refreshProgress !== null || checkProgress !== null;
 
   const invalidateCommonViews = () => {
-    void queryClient.invalidateQueries({ queryKey: ["books"] });
-    void queryClient.invalidateQueries({ queryKey: ["author"] });
-    void queryClient.invalidateQueries({ queryKey: ["seriesDetail"] });
-    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
   };
 
   useSignalREvent<BulkEditProgressPayload>(SignalREvents.BulkEditProgress, setBulkEditProgress);

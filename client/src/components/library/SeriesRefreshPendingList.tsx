@@ -8,6 +8,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { SeriesRefreshPendingDialog } from "@/components/library/SeriesRefreshPendingDialog";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { SeriesRefreshPendingListItem } from "@/types/SeriesRefresh";
 
 /**
@@ -22,20 +23,20 @@ export function SeriesRefreshPendingList() {
   const [reviewing, setReviewing] = useState<SeriesRefreshPendingListItem | null>(null);
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: ["seriesPending", "page", page],
+    queryKey: queryKeys.seriesPending.page(page),
     placeholderData: keepPreviousData,
     queryFn: () => seriesApi.getSeriesPendingPage(page, PAGE_SIZE),
   });
 
   const { data: totalCount } = useQuery({
-    queryKey: ["seriesPending", "count"],
+    queryKey: queryKeys.seriesPending.count(),
     queryFn: () => seriesApi.getSeriesPendingCount(),
   });
 
   // An apply or dismiss changes which rows exist; the shared dialog invalidates its own
   // queries, and the section re-fetches with them.
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["seriesPending"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
   };
 
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the

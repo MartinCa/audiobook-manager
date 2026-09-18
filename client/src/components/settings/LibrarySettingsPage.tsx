@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { settingsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 import type { InitialsSpacing } from "@/types/LibrarySettings";
@@ -29,7 +30,7 @@ export function LibrarySettingsPage() {
   const [value, setValue] = useState<InitialsSpacing | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["librarySettings"],
+    queryKey: queryKeys.librarySettings(),
     queryFn: () => settingsApi.getLibrarySettings(),
   });
 
@@ -38,7 +39,7 @@ export function LibrarySettingsPage() {
       settingsApi.updateLibrarySettings({ initialsSpacing: spacing }),
     onSuccess: () => {
       toast.add({ title: "Library settings saved", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["librarySettings"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.librarySettings() });
     },
     onError: (err: unknown) => {
       toast.add({ title: handleApiError(err).message, type: "error" });

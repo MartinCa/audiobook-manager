@@ -7,6 +7,7 @@ import { SignalREvents } from "@/constants/signalrEvents";
 import { PAGE_SIZE } from "@/constants/paging";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import type * as ToastModule from "@/components/ui/toast";
 import { toast } from "@/components/ui/toast";
@@ -316,7 +317,7 @@ describe("LibraryConsistency", () => {
     await screen.findByText(/Some Author — Book 50$/);
 
     mockPagedIssues(manyIssues.slice(0, 2));
-    await queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
 
     // The surviving issues are shown rather than an empty group: the fetch is clamped to the
     // group's last real page, not left pointing past the end.

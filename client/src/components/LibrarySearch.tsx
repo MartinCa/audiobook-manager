@@ -5,6 +5,7 @@ import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { TYPEAHEAD_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function LibrarySearch() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export function LibrarySearch() {
   }, [query]);
 
   const { data: results = null, isLoading: loading } = useQuery({
-    queryKey: ["quickSearch", debouncedQuery],
+    queryKey: queryKeys.quickSearch(debouncedQuery),
     queryFn: () => browseApi.searchLibrary(debouncedQuery, TYPEAHEAD_LIMIT),
     enabled: Boolean(debouncedQuery),
   });

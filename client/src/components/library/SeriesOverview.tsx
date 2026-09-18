@@ -12,6 +12,7 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
 import { SeriesListEntry } from "./SeriesListEntry";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
@@ -91,7 +92,7 @@ export function SeriesOverviewPage() {
   // are cheap and long-lived, so they are cached separately and only invalidated by the match/
   // refresh flows that change them.
   const { data: counts } = useQuery({
-    queryKey: ["seriesCounts"],
+    queryKey: queryKeys.seriesCounts(),
     queryFn: () => seriesApi.getSeriesCounts(),
     staleTime: 30_000,
   });
@@ -106,7 +107,7 @@ export function SeriesOverviewPage() {
     // that shrank. The pager stays rendered even when such a page comes back empty (its items
     // count on totalCount, not on the items), so the user can page back instead of staring at a
     // dead-end heading - the CleanBookUrls shape.
-    queryKey: ["series", q, page],
+    queryKey: queryKeys.series.page(q, page),
     // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
     // doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
@@ -143,8 +144,8 @@ export function SeriesOverviewPage() {
     // A refresh can match previously-unmatched series - i.e. shrink the list. Drop back to page
     // 0 so the refetch below never asks for a page the smaller list no longer has.
     setPage(0);
-    void queryClient.invalidateQueries({ queryKey: ["series"] });
-    void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
   });
 
   const handleRefreshAll = async () => {
@@ -316,8 +317,8 @@ export function SeriesOverviewPage() {
         onMatched={() => {
           // Matching is the other shrink path (unmatched series disappear from the list).
           setPage(0);
-          void queryClient.invalidateQueries({ queryKey: ["series"] });
-          void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
         }}
       />
     </div>

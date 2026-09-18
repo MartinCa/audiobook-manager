@@ -14,6 +14,7 @@ import { OperationProgressBar } from "./OperationProgressBar";
 import { BookOrganize } from "./BookOrganize";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { untaggedApi, queueApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { pathsEqual } from "@/helpers/pathHelpers";
@@ -47,7 +48,7 @@ export function BookList() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["untaggedBooks", page, pageSize],
+    queryKey: queryKeys.untaggedBooks.page(page, pageSize),
     queryFn: async () => {
       const [untaggedRes, queuedPaths] = await Promise.all([
         untaggedApi.getUntagged(pageSize, (page - 1) * pageSize),
@@ -87,7 +88,7 @@ export function BookList() {
     });
 
     if (payload.progress >= 100) {
-      void queryClient.invalidateQueries({ queryKey: ["untaggedBooks"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.untaggedBooks.all() });
     }
   });
 
@@ -251,7 +252,7 @@ export function BookList() {
                     onSuccess={() => {
                       setActiveItem(undefined);
                       void queryClient.invalidateQueries({
-                        queryKey: ["untaggedBooks"],
+                        queryKey: queryKeys.untaggedBooks.all(),
                       });
                     }}
                   />
