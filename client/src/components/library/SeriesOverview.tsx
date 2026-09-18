@@ -15,7 +15,7 @@ import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
 
@@ -139,7 +139,7 @@ export function SeriesOverviewPage() {
       : `Refresh complete: ${arg.totalSucceeded} of ${arg.totalProcessed} series updated${
           arg.totalFailed > 0 ? ` (${arg.totalFailed} failed)` : ""
         }`;
-    toast.add({ title: msg, type: "success" });
+    notifications.success(msg);
     // A refresh can match previously-unmatched series - i.e. shrink the list. Drop back to page
     // 0 so the refetch below never asks for a page the smaller list no longer has.
     setPage(0);
@@ -151,10 +151,10 @@ export function SeriesOverviewPage() {
     setRefreshing(true);
     try {
       await seriesApi.startRefreshAll();
-      toast.add({ title: "Refreshing all series in background", type: "success" });
+      notifications.success("Refreshing all series in background");
     } catch (err: unknown) {
       setRefreshing(false);
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

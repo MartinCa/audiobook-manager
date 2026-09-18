@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import {
   getIssueTypeLabel,
   getIssueTypeInfo,
@@ -8,8 +8,8 @@ import {
   notifyOrphanResolveResult,
 } from "./consistencyHelpers";
 
-vi.mock("@/components/ui/toast", () => ({
-  toast: { add: vi.fn() },
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
 describe("consistencyHelpers", () => {
@@ -77,8 +77,8 @@ describe("consistencyHelpers", () => {
         message: "File found on disk",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({ title: "File found on disk", type: "info" });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
+      expect(notifications.info).toHaveBeenCalledWith("File found on disk");
+      expect(notifications.success).not.toHaveBeenCalled();
     });
 
     it("shows success toast when actionTaken is audiobook_deleted", () => {
@@ -89,11 +89,8 @@ describe("consistencyHelpers", () => {
         message: "Audiobook deleted from library",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Audiobook deleted from library",
-        type: "success",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
+      expect(notifications.success).toHaveBeenCalledWith("Audiobook deleted from library");
+      expect(notifications.info).not.toHaveBeenCalled();
     });
 
     it("shows success toast when actionTaken is resolved", () => {
@@ -104,8 +101,8 @@ describe("consistencyHelpers", () => {
         message: "Tags updated",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({ title: "Tags updated", type: "success" });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
+      expect(notifications.success).toHaveBeenCalledWith("Tags updated");
+      expect(notifications.info).not.toHaveBeenCalled();
     });
   });
 
@@ -129,11 +126,8 @@ describe("consistencyHelpers", () => {
         message: "The media file still cannot be read.",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "The media file still cannot be read.",
-        type: "warning",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
+      expect(notifications.warning).toHaveBeenCalledWith("The media file still cannot be read.");
+      expect(notifications.success).not.toHaveBeenCalled();
     });
 
     it("reports success when the file can be read again", () => {
@@ -144,11 +138,8 @@ describe("consistencyHelpers", () => {
         message: "The media file can be read again.",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "The media file can be read again.",
-        type: "success",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
+      expect(notifications.success).toHaveBeenCalledWith("The media file can be read again.");
+      expect(notifications.warning).not.toHaveBeenCalled();
     });
   });
 
@@ -172,11 +163,8 @@ describe("consistencyHelpers", () => {
         message: "The directory still cannot be found.",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "The directory still cannot be found.",
-        type: "warning",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
+      expect(notifications.warning).toHaveBeenCalledWith("The directory still cannot be found.");
+      expect(notifications.success).not.toHaveBeenCalled();
     });
 
     it("reports success when the directory is readable again", () => {
@@ -187,11 +175,8 @@ describe("consistencyHelpers", () => {
         message: "The directory is available again.",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "The directory is available again.",
-        type: "success",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
+      expect(notifications.success).toHaveBeenCalledWith("The directory is available again.");
+      expect(notifications.warning).not.toHaveBeenCalled();
     });
 
     it("reports info (not success) when a MissingMediaFile resolve re-checks to a missing directory", () => {
@@ -202,9 +187,9 @@ describe("consistencyHelpers", () => {
         message: "The record was kept.",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({ title: "The record was kept.", type: "info" });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
+      expect(notifications.info).toHaveBeenCalledWith("The record was kept.");
+      expect(notifications.success).not.toHaveBeenCalled();
+      expect(notifications.warning).not.toHaveBeenCalled();
     });
   });
 
@@ -217,11 +202,8 @@ describe("consistencyHelpers", () => {
         message: "Directory still contains files",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Directory still contains files",
-        type: "info",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "success" }));
+      expect(notifications.info).toHaveBeenCalledWith("Directory still contains files");
+      expect(notifications.success).not.toHaveBeenCalled();
     });
 
     it("shows success toast when actionTaken is deleted", () => {
@@ -232,11 +214,8 @@ describe("consistencyHelpers", () => {
         message: "Orphan directory deleted from disk",
       });
 
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Orphan directory deleted from disk",
-        type: "success",
-      });
-      expect(toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ type: "info" }));
+      expect(notifications.success).toHaveBeenCalledWith("Orphan directory deleted from disk");
+      expect(notifications.info).not.toHaveBeenCalled();
     });
   });
 });

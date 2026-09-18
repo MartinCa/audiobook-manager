@@ -3,18 +3,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CleanBookUrls } from "./CleanBookUrls";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
-import type * as ToastModule from "@/components/ui/toast";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: {
-      add: vi.fn(),
-    },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", () => ({
   urlCleanupApi: {
@@ -88,7 +81,7 @@ describe("CleanBookUrls", () => {
     });
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({ title: "Cleaned 1 book URL", type: "success" });
+      expect(notifications.success).toHaveBeenCalledWith("Cleaned 1 book URL");
     });
   });
 

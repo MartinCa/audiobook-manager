@@ -3,18 +3,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibrarySettingsPage } from "./LibrarySettingsPage";
-import type * as ToastModule from "@/components/ui/toast";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: {
-      add: vi.fn(),
-    },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", () => ({
   settingsApi: {
@@ -78,7 +71,7 @@ describe("LibrarySettingsPage", () => {
         initialsSpacing: "Spaced",
       });
     });
-    expect(toast.add).toHaveBeenCalledWith({ title: "Library settings saved", type: "success" });
+    expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
   });
 
   it("surfaces save errors via toast", async () => {
@@ -100,7 +93,7 @@ describe("LibrarySettingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalled();
+      expect(notifications.error).toHaveBeenCalled();
     });
   });
 });

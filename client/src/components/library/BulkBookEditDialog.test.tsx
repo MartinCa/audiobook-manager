@@ -3,22 +3,15 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BulkBookEditDialog } from "./BulkBookEditDialog";
-import type * as ToastModule from "@/components/ui/toast";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
 import { bulkEditApi } from "@/services/api";
 import type { SelectedBookInfo } from "@/hooks/useBookSelection";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: {
-      add: vi.fn(),
-    },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
@@ -231,10 +224,7 @@ describe("BulkBookEditDialog", () => {
     });
     expect(screen.getByText("1 field will be set across 2 books")).toBeInTheDocument();
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Bulk edit started for 2 books",
-        type: "success",
-      });
+      expect(notifications.success).toHaveBeenCalledWith("Bulk edit started for 2 books");
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -413,7 +403,7 @@ describe("BulkBookEditDialog", () => {
     await submit();
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({ title: "Nothing to apply.", type: "error" });
+      expect(notifications.error).toHaveBeenCalledWith("Nothing to apply.");
     });
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Apply" })).toBeInTheDocument();

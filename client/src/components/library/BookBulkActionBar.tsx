@@ -9,7 +9,7 @@ import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { BookSelection } from "@/hooks/useBookSelection";
 
 const TITLE_PREVIEW_LIMIT = 3;
@@ -91,12 +91,9 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   useSignalREvent<BulkEditCompletePayload>(SignalREvents.BulkEditComplete, (data) => {
     setBulkEditProgress(null);
     if (data.failed > 0) {
-      toast.add({
-        title: `Bulk edit complete: ${data.succeeded} updated, ${data.failed} failed`,
-        type: "warning",
-      });
+      notifications.warning(`Bulk edit complete: ${data.succeeded} updated, ${data.failed} failed`);
     } else {
-      toast.add({ title: `Bulk edit complete: ${data.succeeded} updated`, type: "success" });
+      notifications.success(`Bulk edit complete: ${data.succeeded} updated`);
     }
     invalidateCommonViews();
     // The applied edits changed the books; the selection that described them is stale now.
@@ -111,20 +108,17 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
     setRefreshProgress(null);
     if (data.stopReason) {
-      toast.add({
-        title: `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
-        type: "warning",
-      });
+      notifications.warning(
+        `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
+      );
     } else if (data.totalFailed > 0) {
-      toast.add({
-        title: `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-        type: "warning",
-      });
+      notifications.warning(
+        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
     } else {
-      toast.add({
-        title: `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-        type: "success",
-      });
+      notifications.success(
+        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
     }
     invalidateCommonViews();
   });
@@ -137,10 +131,9 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   useSignalREvent<CheckCompletePayload>(SignalREvents.ConsistencyCheckComplete, (data) => {
     if (data.scope !== "selected") return;
     setCheckProgress(null);
-    toast.add({
-      title: `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
-      type: "success",
-    });
+    notifications.success(
+      `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
+    );
     invalidateCommonViews();
   });
 
@@ -192,9 +185,9 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     const ids = selection.selectedBooks.map((b) => b.id);
     try {
       await metadataRefreshApi.refreshSelected(ids);
-      toast.add({ title: `Refreshing metadata for ${selection.count} books…`, type: "success" });
+      notifications.success(`Refreshing metadata for ${selection.count} books…`);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -202,12 +195,9 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     const ids = selection.selectedBooks.map((b) => b.id);
     try {
       await consistencyApi.checkSelected(ids);
-      toast.add({
-        title: `Consistency check started for ${selection.count} books`,
-        type: "success",
-      });
+      notifications.success(`Consistency check started for ${selection.count} books`);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

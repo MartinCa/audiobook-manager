@@ -18,7 +18,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type {
   ApplyMissingBookSelection,
   SeriesBookCandidate,
@@ -200,10 +200,9 @@ export function BulkMissingBookMatchDialog({
     setResumed(false);
     setApplying(false);
     setApplyProgress(null);
-    toast.add({
-      title: `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
-      type: "success",
-    });
+    notifications.success(
+      `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
+    );
     // The review is now stale (the applied books are no longer missing); the series detail is
     // invalidated and the dialog closes to show the fresh state.
     setSelections({});
@@ -260,10 +259,9 @@ export function BulkMissingBookMatchDialog({
         const chosenName =
           item.candidates.find((c) => c.audiobookId === audiobookId)?.bookName ??
           `audiobook ${audiobookId}`;
-        toast.add({
-          title: `"${chosenName}" is already assigned to "${otherName}". Set that book to "Do not assign" first, then pick it here.`,
-          type: "error",
-        });
+        notifications.error(
+          `"${chosenName}" is already assigned to "${otherName}". Set that book to "Do not assign" first, then pick it here.`,
+        );
         return;
       }
     }
@@ -288,12 +286,11 @@ export function BulkMissingBookMatchDialog({
     setApplyProgress(null);
     try {
       await seriesApi.startBulkMissingBookApply(seriesName, payload);
-      toast.add({
-        title: `Bulk match queued for ${payload.length} book${payload.length !== 1 ? "s" : ""}`,
-        type: "success",
-      });
+      notifications.success(
+        `Bulk match queued for ${payload.length} book${payload.length !== 1 ? "s" : ""}`,
+      );
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setApplying(false);
     }
   };

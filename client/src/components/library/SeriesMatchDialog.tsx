@@ -11,7 +11,7 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { seriesApi } from "@/services/api";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
 
 // Cap on how many rows "Preview Suggestions" looks each source up for. The unmatched list is
@@ -95,7 +95,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
       : `Matching complete: ${payload.totalSucceeded} of ${payload.totalProcessed} series matched${
           payload.totalFailed > 0 ? ` (${payload.totalFailed} failed)` : ""
         }`;
-    toast.add({ title: msg, type: "success" });
+    notifications.success(msg);
     onMatched?.();
   });
 
@@ -159,9 +159,9 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
     setMatching(true);
     try {
       await seriesApi.startBulkMatch(threshold, Array.from(selectedIds));
-      toast.add({ title: "Bulk series matching started in background", type: "success" });
+      notifications.success("Bulk series matching started in background");
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setMatching(false);
     }
   };
@@ -173,9 +173,9 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
     setMatching(true);
     try {
       await seriesApi.startBulkMatch(threshold);
-      toast.add({ title: "Bulk series matching started in background", type: "success" });
+      notifications.success("Bulk series matching started in background");
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setMatching(false);
     }
   };

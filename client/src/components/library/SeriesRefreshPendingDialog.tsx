@@ -21,7 +21,7 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type {
   SeriesRefreshApplyRequest,
   SeriesRefreshChange,
@@ -188,15 +188,12 @@ export function SeriesRefreshPendingDialog({
         // Nothing was applied: the pending row vanished between review and apply (dismissed
         // elsewhere, or superseded by a no-change refresh). Don't claim a success that didn't
         // happen - say so, and let the views reload to the real state.
-        toast.add({
-          title: "The pending changes were already gone - nothing was applied",
-          type: "info",
-        });
+        notifications.info("The pending changes were already gone - nothing was applied");
       } else if (data.totalFailed > 0) {
         const msg = `Applied ${data.totalSucceeded} of ${data.totalProcessed} changes (${data.totalFailed} failed)`;
-        toast.add({ title: msg, type: "success" });
+        notifications.success(msg);
       } else {
-        toast.add({ title: `Applied ${data.totalSucceeded} pending changes`, type: "success" });
+        notifications.success(`Applied ${data.totalSucceeded} pending changes`);
       }
       invalidateViews();
       onApplied?.();
@@ -236,12 +233,12 @@ export function SeriesRefreshPendingDialog({
     if (applying) return;
     try {
       await seriesApi.dismissSeriesPending(seriesName);
-      toast.add({ title: "Pending changes discarded", type: "success" });
+      notifications.success("Pending changes discarded");
       invalidateViews();
       onApplied?.();
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -286,7 +283,7 @@ export function SeriesRefreshPendingDialog({
     } catch (err: unknown) {
       setApplying(false);
       setProgress(null);
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

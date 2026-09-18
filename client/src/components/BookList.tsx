@@ -17,7 +17,7 @@ import { untaggedApi, queueApi } from "@/services/api";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { pathsEqual } from "@/helpers/pathHelpers";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 
 interface ProgressUpdatePayload {
@@ -102,7 +102,7 @@ export function BookList() {
       };
       return next;
     });
-    toast.add({ title: `Queue error: ${payload.error}`, type: "error" });
+    notifications.error(`Queue error: ${payload.error}`);
   });
 
   // A dropped/re-established connection may have missed progress events for items already

@@ -44,7 +44,7 @@ import { handleApiError } from "@/lib/api";
 import { formatDateTime, formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { pathsEqual } from "@/helpers/pathHelpers";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 import type { Audiobook } from "@/types/Audiobook";
 
@@ -179,10 +179,9 @@ export function DiscoveredAudiobooks() {
     setScanning(false);
     setScanProgress(null);
     setScanResult(data);
-    toast.add({
-      title: `Scan complete: ${data.newFilesDiscovered} new files, ${data.alreadyTracked} already tracked`,
-      type: "success",
-    });
+    notifications.success(
+      `Scan complete: ${data.newFilesDiscovered} new files, ${data.alreadyTracked} already tracked`,
+    );
     void queryClient.invalidateQueries({
       queryKey: ["discoveredAudiobooks"],
     });
@@ -198,10 +197,9 @@ export function DiscoveredAudiobooks() {
     setImporting(false);
     setImportProgress(null);
     setSelectedPaths(new Set());
-    toast.add({
-      title: `Import complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
-      type: "success",
-    });
+    notifications.success(
+      `Import complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
+    );
     void queryClient.invalidateQueries({
       queryKey: ["discoveredAudiobooks"],
     });
@@ -244,7 +242,7 @@ export function DiscoveredAudiobooks() {
       };
       return next;
     });
-    toast.add({ title: `Organize failed: ${payload.error}`, type: "error" });
+    notifications.error(`Organize failed: ${payload.error}`);
 
     // A row retried from the Failed Organize Tasks section below gets exactly one more attempt
     // (see QueuedOrganizeTaskRepository.RetryQueuedOrganizeTaskAsync); if the JSON is still
@@ -269,9 +267,9 @@ export function DiscoveredAudiobooks() {
     setScanResult(null);
     try {
       await libraryApi.startScan();
-      toast.add({ title: "Library scan started in background", type: "success" });
+      notifications.success("Library scan started in background");
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setScanning(false);
     }
   };
@@ -300,9 +298,9 @@ export function DiscoveredAudiobooks() {
     setImporting(true);
     try {
       await libraryApi.bulkImport(Array.from(selectedPaths));
-      toast.add({ title: `Import queued for ${selectedPaths.size} books`, type: "success" });
+      notifications.success(`Import queued for ${selectedPaths.size} books`);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setImporting(false);
     }
   };
@@ -312,12 +310,9 @@ export function DiscoveredAudiobooks() {
     setImporting(true);
     try {
       await libraryApi.bulkImportWellTagged();
-      toast.add({
-        title: `Import queued for ${wellTaggedTotal} well-tagged books`,
-        type: "success",
-      });
+      notifications.success(`Import queued for ${wellTaggedTotal} well-tagged books`);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setImporting(false);
     }
   };
@@ -328,12 +323,12 @@ export function DiscoveredAudiobooks() {
     try {
       await filesApi.deleteBook(path);
       await libraryApi.deleteDiscovered(path);
-      toast.add({ title: "File deleted and record removed", type: "success" });
+      notifications.success("File deleted and record removed");
       void queryClient.invalidateQueries({
         queryKey: ["discoveredAudiobooks"],
       });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -341,7 +336,7 @@ export function DiscoveredAudiobooks() {
     const path = book.fileInfo?.fullPath ?? "";
     try {
       await audiobookApi.organizeBook(book);
-      toast.add({ title: "Book added to organization queue", type: "success" });
+      notifications.success("Book added to organization queue");
       if (path) {
         setOrganizeOverrides((prev) => ({
           ...prev,
@@ -349,7 +344,7 @@ export function DiscoveredAudiobooks() {
         }));
       }
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -359,11 +354,11 @@ export function DiscoveredAudiobooks() {
   const retryFailedTaskMutation = useMutation({
     mutationFn: (path: string) => queueApi.retryFailedTask(path),
     onSuccess: () => {
-      toast.add({ title: "Queued for another attempt", type: "success" });
+      notifications.success("Queued for another attempt");
       void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
     },
     onError: (err: unknown) => {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     },
   });
 
@@ -371,11 +366,11 @@ export function DiscoveredAudiobooks() {
     setRemovingFailedTask(true);
     try {
       await queueApi.deleteFailedTask(path);
-      toast.add({ title: "Removed from the organize queue", type: "success" });
+      notifications.success("Removed from the organize queue");
       void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
       setRemoveFailedTargetPath(null);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setRemovingFailedTask(false);
     }
@@ -395,7 +390,7 @@ export function DiscoveredAudiobooks() {
     try {
       await checkCollisionAndProceed(book, proceedOrganizeDiscovered);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

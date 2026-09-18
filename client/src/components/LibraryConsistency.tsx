@@ -41,7 +41,7 @@ import {
   notifyConsistencyResolveResult,
   notifyOrphanResolveResult,
 } from "@/helpers/consistencyHelpers";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
 import type { OrphanDirectory } from "@/types/OrphanDirectory";
 
@@ -176,10 +176,9 @@ export function LibraryConsistency() {
     setChecking(false);
     setCheckProgress(null);
     setCheckCompleteResult(data);
-    toast.add({
-      title: `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
-      type: "success",
-    });
+    notifications.success(
+      `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
+    );
     void queryClient.invalidateQueries({ queryKey: ["consistency"] });
   });
 
@@ -191,10 +190,7 @@ export function LibraryConsistency() {
   useSignalREvent<ResolveCompletePayload>(SignalREvents.ConsistencyResolveComplete, (data) => {
     setBulkResolving(false);
     setResolveProgress(null);
-    toast.add({
-      title: `Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`,
-      type: "success",
-    });
+    notifications.success(`Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`);
     // Re-read the authoritative list rather than reproducing the server's cascade rules
     // client-side: resolving one issue routinely clears its siblings for the same book.
     void queryClient.invalidateQueries({ queryKey: ["consistency"] });
@@ -242,9 +238,9 @@ export function LibraryConsistency() {
     setCheckCompleteResult(null);
     try {
       await consistencyApi.startCheck();
-      toast.add({ title: "Consistency check started in background", type: "success" });
+      notifications.success("Consistency check started in background");
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setChecking(false);
     }
   };
@@ -262,7 +258,7 @@ export function LibraryConsistency() {
       });
       return true;
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       return false;
     } finally {
       setResolvingIds((prev) => {
@@ -278,14 +274,11 @@ export function LibraryConsistency() {
     try {
       await consistencyApi.resolveSelected(issueIds);
       // Started in the background - outcome and progress arrive over SignalR.
-      toast.add({
-        title: `Resolution started for ${issueIds.length} selected issues`,
-        type: "success",
-      });
+      notifications.success(`Resolution started for ${issueIds.length} selected issues`);
       setSelectedIssues(new Map());
       return true;
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       return false;
     }
   };
@@ -293,10 +286,7 @@ export function LibraryConsistency() {
   const handleResolveByType = async (issueType: string) => {
     try {
       await consistencyApi.resolveByType(issueType);
-      toast.add({
-        title: `Resolution started for all "${getIssueTypeLabel(issueType)}" issues`,
-        type: "success",
-      });
+      notifications.success(`Resolution started for all "${getIssueTypeLabel(issueType)}" issues`);
       // The whole type is on its way to resolved; drop its ids from the selection, including
       // any that were selected on a page no longer loaded, so hidden selections don't linger.
       setSelectedIssues((prev) => {
@@ -308,7 +298,7 @@ export function LibraryConsistency() {
       });
       return true;
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       return false;
     }
   };
@@ -338,7 +328,7 @@ export function LibraryConsistency() {
         return next;
       });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       // Re-throw so the dialog stays open and keeps the user's selections on failure (409/500).
       throw err;
     } finally {
@@ -389,7 +379,7 @@ export function LibraryConsistency() {
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       setOrphanToDelete(null);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -397,20 +387,18 @@ export function LibraryConsistency() {
     try {
       const res = await consistencyApi.resolveAllOrphanDirectories();
       if (res.retained > 0) {
-        toast.add({
-          title: `Deleted ${res.resolved} orphaned directories (${res.retained} retained as not empty, ${res.failed} failed)`,
-          type: "success",
-        });
+        notifications.success(
+          `Deleted ${res.resolved} orphaned directories (${res.retained} retained as not empty, ${res.failed} failed)`,
+        );
       } else {
-        toast.add({
-          title: `Deleted ${res.resolved} orphaned directories (${res.failed} failed)`,
-          type: "success",
-        });
+        notifications.success(
+          `Deleted ${res.resolved} orphaned directories (${res.failed} failed)`,
+        );
       }
       void queryClient.invalidateQueries({ queryKey: ["consistency"] });
       setDeleteAllOrphansOpen(false);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

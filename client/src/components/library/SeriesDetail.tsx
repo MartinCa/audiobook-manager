@@ -37,7 +37,7 @@ import { seriesApi } from "@/services/api";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type {
   SeriesExpectedBook,
@@ -242,13 +242,12 @@ export function SeriesDetail() {
     try {
       const result = await seriesApi.refreshSeries(seriesName);
       if (result.hasChanges) {
-        toast.add({
-          title: `Refresh found ${result.changeCount} change${result.changeCount === 1 ? "" : "s"} to review`,
-          type: "success",
-        });
+        notifications.success(
+          `Refresh found ${result.changeCount} change${result.changeCount === 1 ? "" : "s"} to review`,
+        );
         setPendingReviewOpen(true);
       } else {
-        toast.add({ title: "No changes from source", type: "success" });
+        notifications.success("No changes from source");
       }
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
@@ -257,7 +256,7 @@ export function SeriesDetail() {
       void queryClient.invalidateQueries({ queryKey: ["series"] });
       void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setRefreshing(false);
     }
@@ -270,13 +269,10 @@ export function SeriesDetail() {
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
-        toast.add({
-          title: "No candidates found automatically. Try searching manually.",
-          type: "info",
-        });
+        notifications.info("No candidates found automatically. Try searching manually.");
       }
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setLoadingCandidates(false);
     }
@@ -291,10 +287,10 @@ export function SeriesDetail() {
       setCandidates(results);
       setCandidatesLoaded(true);
       if (results.length === 0) {
-        toast.add({ title: "No candidates found for that query.", type: "info" });
+        notifications.info("No candidates found for that query.");
       }
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setSearchingCandidates(false);
     }
@@ -312,16 +308,13 @@ export function SeriesDetail() {
       );
       setCandidates([]);
       setCandidatesLoaded(false);
-      toast.add({
-        title: `Matched to ${candidate.seriesName} (${candidate.sourceName})`,
-        type: "success",
-      });
+      notifications.success(`Matched to ${candidate.seriesName} (${candidate.sourceName})`);
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
       });
       void queryClient.invalidateQueries({ queryKey: ["series"] });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setMatchingCandidate(false);
     }
@@ -331,15 +324,12 @@ export function SeriesDetail() {
     setUpdatingOmnibus(true);
     try {
       await seriesApi.setIncludeOmnibusEditions(seriesName, checked);
-      toast.add({
-        title: checked ? "Omnibus editions included" : "Omnibus editions excluded",
-        type: "success",
-      });
+      notifications.success(checked ? "Omnibus editions included" : "Omnibus editions excluded");
       void queryClient.invalidateQueries({
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setUpdatingOmnibus(false);
     }
@@ -353,13 +343,13 @@ export function SeriesDetail() {
     try {
       if (ignored) {
         await seriesApi.ignoreExpectedBook(seriesName, book.position, book.title);
-        toast.add({ title: `Ignored "${book.title || "book"}"`, type: "success" });
+        notifications.success(`Ignored "${book.title || "book"}"`);
         // Ignoring moves a book out of the missing list; drop that section back to page 0 so
         // the refetch below never asks for a page the shrunk section no longer has.
         setMissingPage(0);
       } else {
         await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
-        toast.add({ title: `Unignored "${book.title || "book"}"`, type: "success" });
+        notifications.success(`Unignored "${book.title || "book"}"`);
         // Unignoring moves a book out of the ignored list; same drop for the ignored section.
         setIgnoredPage(0);
       }
@@ -367,7 +357,7 @@ export function SeriesDetail() {
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setIgnoringBookId(null);
     }
@@ -387,10 +377,7 @@ export function SeriesDetail() {
         mismatch.expectedPart,
         mismatch.rosterTitle,
       );
-      toast.add({
-        title: `Set part ${mismatch.expectedPart} on "${mismatch.bookName}"`,
-        type: "success",
-      });
+      notifications.success(`Set part ${mismatch.expectedPart} on "${mismatch.bookName}"`);
       // The fix shrinks this list; drop the section back to page 0 so the refetch below never
       // asks for a page the shrunk section no longer has.
       setPartMismatchPage(0);
@@ -398,7 +385,7 @@ export function SeriesDetail() {
         queryKey: ["seriesDetail", seriesName, authorId],
       });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setFixingMismatchId(null);
     }
@@ -440,19 +427,19 @@ export function SeriesDetail() {
           regex,
           warnAboutPart: mappingWarnAboutPart,
         });
-        toast.add({ title: "Pattern updated", type: "success" });
+        notifications.success("Pattern updated");
       } else {
         const payload: SeriesMappingBase = {
           regex,
           warnAboutPart: mappingWarnAboutPart,
         };
         await seriesApi.createSeriesMapping(seriesName, payload);
-        toast.add({ title: "Pattern added", type: "success" });
+        notifications.success("Pattern added");
       }
       setMappingDialogOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setSavingMapping(false);
     }
@@ -461,10 +448,10 @@ export function SeriesDetail() {
   const handleDeleteMapping = async (id: number) => {
     try {
       await seriesApi.deleteSeriesMapping(seriesName, id);
-      toast.add({ title: "Pattern removed", type: "success" });
+      notifications.success("Pattern removed");
       void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
