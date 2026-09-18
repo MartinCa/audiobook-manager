@@ -99,6 +99,7 @@ describe("CleanBookUrls", () => {
     totalProcessed: number;
     totalSucceeded: number;
     totalFailed: number;
+    errored: boolean;
   }) => {
     const call = [...mockSignalRValue.on.mock.calls]
       .reverse()
@@ -109,6 +110,7 @@ describe("CleanBookUrls", () => {
         totalProcessed: number;
         totalSucceeded: number;
         totalFailed: number;
+        errored: boolean;
       }) => void
     )(data);
   };
@@ -182,15 +184,61 @@ describe("CleanBookUrls", () => {
     await screen.findByText(/Cleaning all detected URLs \(1 cleaned, 0 failed\)/);
     expect(screen.getByRole("button", { name: /clean all detected urls/i })).toBeDisabled();
 
-    applyAllCompleteHandler({ totalProcessed: 2, totalSucceeded: 2, totalFailed: 0 });
+    applyAllCompleteHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      errored: false,
+    });
     await waitFor(() => {
-      expect(notifications.success).toHaveBeenCalledWith("Cleaned 2 book URLs (0 failed)");
+      expect(notifications.success).toHaveBeenCalledWith("Cleaned 2 book URLs");
     });
     // The bar is gone and the list is re-read so the freshly-cleaned set renders.
     await waitFor(() => {
       expect(screen.queryByText(/Cleaning all detected URLs/)).toBeNull();
     });
     expect(urlCleanupApi.getDirtyUrlPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns instead of celebrating when the apply-all sweep had failures", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    applyAllProgressHandler({ processed: 2, total: 2, succeeded: 1, failed: 1 });
+    applyAllCompleteHandler({
+      totalProcessed: 2,
+      totalSucceeded: 1,
+      totalFailed: 1,
+      errored: false,
+    });
+
+    await waitFor(() => {
+      expect(notifications.warning).toHaveBeenCalledWith("Cleaned 1 book URL (1 failed)");
+    });
+    // A partial failure must not be dressed up as a success.
+    expect(notifications.success).not.toHaveBeenCalledWith("Cleaned 1 book URL (1 failed)");
+    // The list is still re-read: the books that DID get cleaned are gone from it.
+    expect(urlCleanupApi.getDirtyUrlPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an errored apply-all sweep as a failure, not a zero-count success", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    // BackgroundOperationRunner's error path: every count is zero, which would otherwise read as
+    // "the sweep had nothing left to do" - errored is what tells the two apart.
+    applyAllCompleteHandler({
+      totalProcessed: 0,
+      totalSucceeded: 0,
+      totalFailed: 0,
+      errored: true,
+    });
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("URL cleanup failed");
+    });
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(notifications.warning).not.toHaveBeenCalled();
   });
 
   it("recovers an in-flight apply-all from the operation status on mount", async () => {

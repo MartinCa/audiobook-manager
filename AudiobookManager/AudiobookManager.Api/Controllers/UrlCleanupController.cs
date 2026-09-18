@@ -110,7 +110,7 @@ public class UrlCleanupController : ControllerBase
                 await _organizeHub.Clients.All.UrlCleanupComplete(
                     new UrlCleanupComplete(processed, succeeded, failed));
             },
-            () => _organizeHub.Clients.All.UrlCleanupComplete(new UrlCleanupComplete(0, 0, 0)),
+            () => _organizeHub.Clients.All.UrlCleanupComplete(new UrlCleanupComplete(0, 0, 0, errored: true)),
             _appLifetime.ApplicationStopping);
     }
 

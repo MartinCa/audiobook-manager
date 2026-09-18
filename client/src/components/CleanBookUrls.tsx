@@ -29,6 +29,9 @@ interface ApplyAllCompletePayload {
   totalProcessed: number;
   totalSucceeded: number;
   totalFailed: number;
+  /** True only when the sweep threw out of the background operation: every count is zero then,
+   *  indistinguishable from a sweep that had nothing left to do without this flag. */
+  errored: boolean;
 }
 
 export function CleanBookUrls() {
@@ -100,9 +103,17 @@ export function CleanBookUrls() {
   useSignalREvent<ApplyAllCompletePayload>(SignalREvents.UrlCleanupComplete, (data) => {
     setCleaningAll(false);
     setApplyAllProgress(null);
-    notifications.success(
-      `Cleaned ${data.totalSucceeded} book URL${data.totalSucceeded === 1 ? "" : "s"} (${data.totalFailed} failed)`,
-    );
+    if (data.errored) {
+      notifications.error("URL cleanup failed");
+    } else if (data.totalFailed > 0) {
+      notifications.warning(
+        `Cleaned ${data.totalSucceeded} book URL${data.totalSucceeded === 1 ? "" : "s"} (${data.totalFailed} failed)`,
+      );
+    } else {
+      notifications.success(
+        `Cleaned ${data.totalSucceeded} book URL${data.totalSucceeded === 1 ? "" : "s"}`,
+      );
+    }
     // Re-read the authoritative list, whether this tab started the sweep or another did.
     goToPage(0);
     void queryClient.invalidateQueries({ queryKey: queryKeys.urlCleanup.all() });

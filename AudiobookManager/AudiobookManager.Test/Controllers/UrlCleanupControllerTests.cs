@@ -172,7 +172,40 @@ public class UrlCleanupControllerTests
         clientProxy.Verify(c => c.UrlCleanupProgress(It.Is<UrlCleanupProgress>(p =>
             p.Processed == 1 && p.Total == 2 && p.Succeeded == 1 && p.Failed == 0)), Times.Once);
         clientProxy.Verify(c => c.UrlCleanupComplete(It.Is<UrlCleanupComplete>(r =>
-            r.TotalProcessed == 2 && r.TotalSucceeded == 2 && r.TotalFailed == 0)), Times.Once);
+            r.TotalProcessed == 2 && r.TotalSucceeded == 2 && r.TotalFailed == 0 && !r.Errored)), Times.Once);
+        _statusRegistry.Verify(s => s.SetFinished("url-cleanup-apply"), Times.Once);
+    }
+
+    /// <summary>
+    /// A service failure escapes the background work delegate, so BackgroundOperationRunner's
+    /// error path sends the completion event instead of the normal one. Every count on that path
+    /// is zero - the same shape as a sweep that had nothing left to do - so Errored is what a
+    /// client needs to tell the two apart instead of toasting a crashed sweep as a success.
+    /// </summary>
+    [TestMethod]
+    public async Task ApplyAll_ServiceThrows_SendsCompletionWithErroredTrue()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var mockCleanupService = new Mock<IUrlCleanupService>();
+        mockCleanupService.Setup(s => s.ApplyAllAsync(It.IsAny<Func<int, int, int, int, Task>>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        SetupScope(mockCleanupService.Object);
+
+        var result = _controller.ApplyAll();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _statusRegistry.Verify(s => s.SetRunning("url-cleanup-apply"), Times.Once);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(UrlCleanupController));
+
+        clientProxy.Verify(
+            c => c.UrlCleanupComplete(It.Is<UrlCleanupComplete>(
+                r => r.TotalProcessed == 0 && r.TotalSucceeded == 0 && r.TotalFailed == 0 && r.Errored)),
+            Times.Once);
         _statusRegistry.Verify(s => s.SetFinished("url-cleanup-apply"), Times.Once);
     }
 
