@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { audiobookApi, seriesApi, filesApi, toAudiobookDto, toPathPreviewDto } from "./api";
+import {
+  audiobookApi,
+  metadataRefreshApi,
+  seriesApi,
+  filesApi,
+  toAudiobookDto,
+  toPathPreviewDto,
+} from "./api";
 import type { Audiobook } from "@/types/Audiobook";
 
 describe("api service mappings and contracts", () => {
@@ -479,6 +486,81 @@ describe("api service mappings and contracts", () => {
           body: JSON.stringify({ path: "/audiobooks/Corrupted" }),
         }),
       );
+    });
+  });
+
+  describe("Optional pending resources normalize a 404 to undefined", () => {
+    it("getPendingForAudiobook resolves undefined on a 404", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, { status: 404, statusText: "Not Found" }),
+      );
+
+      await expect(metadataRefreshApi.getPendingForAudiobook(42)).resolves.toBeUndefined();
+    });
+
+    it("getPendingForAudiobook preserves a snapshot payload when one exists", async () => {
+      const snapshot = {
+        audiobookId: 42,
+        fetchedAt: "2026-09-01T12:00:00Z",
+        sourceName: "Goodreads",
+        sourceUrl: "https://example.com/book",
+        payload: { url: "https://example.com/book" },
+      };
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(snapshot), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(metadataRefreshApi.getPendingForAudiobook(42)).resolves.toEqual(snapshot);
+    });
+
+    it("getPendingForAudiobook still throws on a 500", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, { status: 500, statusText: "Internal Server Error" }),
+      );
+
+      await expect(metadataRefreshApi.getPendingForAudiobook(42)).rejects.toMatchObject({
+        status: 500,
+      });
+    });
+
+    it("getSeriesPending resolves undefined on a 404", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, { status: 404, statusText: "Not Found" }),
+      );
+
+      await expect(seriesApi.getSeriesPending("Mistborn")).resolves.toBeUndefined();
+    });
+
+    it("getSeriesPending preserves a snapshot payload when one exists", async () => {
+      const snapshot = {
+        seriesName: "Mistborn",
+        sourceName: "Hardcover",
+        sourceUrl: "https://hardcover.app/series/42",
+        sourceSeriesName: "Mistborn",
+        fetchedAt: "2026-09-01T12:00:00Z",
+        changes: [],
+      };
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(snapshot), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(seriesApi.getSeriesPending("Mistborn")).resolves.toEqual(snapshot);
+    });
+
+    it("getSeriesPending still throws on a 500", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, { status: 500, statusText: "Internal Server Error" }),
+      );
+
+      await expect(seriesApi.getSeriesPending("Mistborn")).rejects.toMatchObject({
+        status: 500,
+      });
     });
   });
 });
