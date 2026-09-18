@@ -283,6 +283,10 @@ describe("BookBulkActionBar", () => {
     // bottom-right, z-50). Full-width on mobile, where toasts stack above it.
     expect(bar.className).toContain("sm:left-4");
     expect(bar.className).toContain("sm:right-auto");
+    // Opaque card surface: the bar floats over page content, and a transparent background
+    // rendered its text illegibly against whatever scrolled underneath (the reported bug).
+    expect(bar.className).toContain("bg-popover");
+    expect(bar.className).toContain("shadow-lg");
 
     handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 2, failed: 0 } as never);
 
