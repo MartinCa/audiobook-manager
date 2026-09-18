@@ -972,7 +972,7 @@ public class SeriesControllerTests
             .ReturnsAsync((string _, SeriesRefreshApplyRequest __, Func<int, int, int, int, Task> progressAction) =>
             {
                 progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
-                return (1, 1, 0);
+                return (1, 1, 0, (string?)null);
             });
 
         var finished = RegisterFinishedWaiter(SeriesController.PendingApplyOperationKey);
@@ -988,7 +988,39 @@ public class SeriesControllerTests
         await AwaitOperationFinished(finished);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyProgress(It.Is<SeriesRefreshApplyProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
-        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0 && p.EffectiveSeriesName == null)), Times.Once);
+    }
+
+    // The completion event must tell the client when the apply adopted the source's series name:
+    // a renamed series is no longer addressable under the route the user came in on, and the
+    // client navigates to the adopted name only if the completion actually reports it.
+    [TestMethod]
+    public async Task StartPendingApply_ReportsTheAdoptedNameInTheCompletionEvent()
+    {
+        _seriesService
+            .Setup(s => s.ApplyPendingSeriesRefreshAsync(
+                "Mistborn",
+                It.IsAny<SeriesRefreshApplyRequest>(),
+                It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((string _, SeriesRefreshApplyRequest __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0, "Mistborn Saga");
+            });
+
+        var finished = RegisterFinishedWaiter(SeriesController.PendingApplyOperationKey);
+
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections = { new ApplySeriesRefreshChangeDto { ChangeType = "PartUpdate", AudiobookId = 5 } },
+        };
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.EffectiveSeriesName == "Mistborn Saga")), Times.Once);
     }
 
     [TestMethod]

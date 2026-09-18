@@ -2106,7 +2106,7 @@ public class SeriesServiceTests
                 new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
             });
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, _) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
@@ -2176,7 +2176,7 @@ public class SeriesServiceTests
                 new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
             });
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (p, t, _, _) => { totals.Add((p, t)); return Task.CompletedTask; });
 
         Assert.AreEqual(1, processed);
@@ -2186,6 +2186,8 @@ public class SeriesServiceTests
         CollectionAssert.AreEqual(new[] { (1, 1) }, totals);
         // Nothing was renamed: the "adopted" name is the series' own, modulo whitespace.
         Assert.AreEqual("Mistborn", book.Series);
+        // An adoption that cannot run reports no effective name change.
+        Assert.IsNull(effectiveSeriesName);
     }
 
     // Regression for the refresh review finding applied to the apply's recompute tail: an entry
@@ -2254,7 +2256,7 @@ public class SeriesServiceTests
                 new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
             });
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, _) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
@@ -2308,7 +2310,7 @@ public class SeriesServiceTests
 
         var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
@@ -2316,6 +2318,8 @@ public class SeriesServiceTests
         Assert.AreEqual(0, failed);
         Assert.AreEqual(2, updated.Count);
         Assert.AreEqual(2, updated.Distinct().Count());
+        // The fully successful adoption reports the new name so the client can navigate there.
+        Assert.AreEqual("Mistborn Saga", effectiveSeriesName);
         _audiobookService.Verify(s => s.GetAudiobookById(1), Times.Once);
         _audiobookService.Verify(s => s.GetAudiobookById(2), Times.Once);
         // Every renamed member book gets the best-effort recheck tail too.
@@ -2377,7 +2381,7 @@ public class SeriesServiceTests
             .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
             .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, _) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
@@ -2451,12 +2455,14 @@ public class SeriesServiceTests
             .Setup(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()))
             .ReturnsAsync((Database.Models.PendingSeriesRefresh row) => { stored = row; return row; });
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
         Assert.AreEqual(0, succeeded);
         Assert.AreEqual(1, failed);
+        // A partial adoption failure leaves the series on the old name, so no rename is reported.
+        Assert.IsNull(effectiveSeriesName);
         // The old-name row survives recomputed under the OLD name; nothing is written under the
         // new name and nothing is falsely deleted.
         _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Never);
@@ -2502,7 +2508,7 @@ public class SeriesServiceTests
 
         var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, _) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
@@ -2542,7 +2548,7 @@ public class SeriesServiceTests
 
         var request = new SeriesRefreshApplyRequest(AdoptSourceSeriesName: true, new List<SeriesRefreshApplyChange>());
 
-        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+        var (processed, succeeded, failed, _) = await MakeService().ApplyPendingSeriesRefreshAsync(
             "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, processed);
