@@ -33,6 +33,12 @@ export interface Audiobook {
 
   cover?: AudiobookImage;
 
+  // Parse response only: the on-disk cover sidecar (cover.jpg/png) beside the file, when one
+  // exists, as resolved by /api/files/cover. The organize flow uses it to show a sidecar-only
+  // cover without probing with a 404-prone request. Never sent on save — toAudiobookDto and
+  // toPathPreviewDto both ignore it.
+  coverFilePath?: string;
+
   durationInSeconds?: number;
 
   replaceExisting?: boolean;

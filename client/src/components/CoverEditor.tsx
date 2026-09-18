@@ -24,8 +24,9 @@ export function CoverEditor({
   const [urlError, setUrlError] = useState<string | null>(null);
   const [failedCoverUrl, setFailedCoverUrl] = useState<string | undefined>(undefined);
 
-  // coverUrl is passed unconditionally by callers (there's no cheap way to know ahead of time
-  // whether the book actually has a cover on disk), so it 404s for a book that has none. Without
+  // Not every caller can know ahead of time whether the book actually has a cover on disk: the
+  // organize flow wires coverUrl only when the parsed response reports one, but BookDetail and
+  // DiscoveredAudiobooks pass it unconditionally, so it still 404s for a book with none. Without
   // this, that renders as a broken-image icon instead of falling back to the "Click to set
   // cover" placeholder every other no-cover case shows.
   const currentSrc = base64Data
