@@ -149,6 +149,20 @@ not nest dual scrollbars:
 </DialogContent>
 ```
 
+**`AppDialog` / `ConfirmDialog` (`src/components/`): the canonical way to build this shell.**
+Do not hand-roll the pattern above in a new dialog — use these wrappers instead:
+
+- `AppDialog` composes the shell in this section (header / scrollable body / fixed footer)
+  behind `title`, `description`, `children`, and an optional `footer` slot. It stays generic
+  on purpose — wizard steps, tables, and radio lists all fit through `children`/`footer`.
+- `ConfirmDialog` wraps `AppDialog` for the Cancel/Confirm case: it owns the pending state
+  around `onConfirm` (spinner, disabled buttons, close-on-success) so callers don't
+  reimplement that per dialog. Use it for delete/apply-style confirmations; drop to
+  `AppDialog` directly for anything with a different footer shape (forms, multi-step flows).
+
+Both still respect the vendored `ui/dialog.tsx` primitives underneath — they compose it,
+they do not replace it. `src/components/ui/dialog.tsx` itself stays vendored and unedited.
+
 **Other overlay components (`sheet.tsx`, `popover.tsx`, `dropdown-menu.tsx`):**
 
 - **`sheet.tsx` (`SheetContent`)**: Ensure tall content has `overflow-y-auto` and viewport-safe

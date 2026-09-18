@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Folder, Loader2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Accordion,
   AccordionContent,
@@ -85,68 +83,33 @@ export function BulkDeleteDirectoriesDialog({
   confirmButtonText = "Delete All",
   deletingText = "Deleting...",
 }: BulkDeleteDirectoriesDialogProps) {
-  const [deleting, setDeleting] = useState(false);
-
-  const handleConfirm = async () => {
-    setDeleting(true);
-    try {
-      await onConfirmDelete();
-      onOpenChange(false);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      onConfirm={onConfirmDelete}
+      confirmVariant="destructive"
+      confirmText={confirmButtonText}
+      pendingText={deletingText}
+      contentClassName="max-h-[85vh] sm:max-w-2xl"
+    >
+      <div className="space-y-4 overflow-x-hidden pr-1">
+        <p className="text-muted-foreground text-sm">
+          {description ??
+            `This will permanently delete all ${directories.length} directories and their contained files from disk.`}
+        </p>
 
-        <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto py-2 pr-1">
-          <p className="text-muted-foreground text-sm">
-            {description ??
-              `This will permanently delete all ${directories.length} directories and their contained files from disk.`}
-          </p>
-
-          <Accordion multiple className="space-y-2">
-            {directories.map((dir) => (
-              <BulkDirectoryItem
-                key={dir.id ? String(dir.id) : dir.directoryPath}
-                directoryPath={dir.directoryPath}
-              />
-            ))}
-          </Accordion>
-        </div>
-
-        <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
-          <Button
-            variant="outline"
-            className="w-full sm:w-auto"
-            onClick={() => onOpenChange(false)}
-            disabled={deleting}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            className="w-full sm:w-auto"
-            onClick={() => void handleConfirm()}
-            disabled={deleting}
-          >
-            {deleting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {deletingText}
-              </>
-            ) : (
-              confirmButtonText
-            )}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        <Accordion multiple className="space-y-2">
+          {directories.map((dir) => (
+            <BulkDirectoryItem
+              key={dir.id ? String(dir.id) : dir.directoryPath}
+              directoryPath={dir.directoryPath}
+            />
+          ))}
+        </Accordion>
+      </div>
+    </ConfirmDialog>
   );
 }
 
