@@ -128,37 +128,42 @@ export function BookSearchDialog({
   if (pendingSeriesChoice) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-lg sm:p-6">
+        {/* Scrollable-dialog shell (AGENTS.md): header, one flex-1 scroll body, footer after it.
+            A single overflow-y-auto region keeps the table reachable on short screens and never
+            nests dual scrollbars. The table itself handles only horizontal overflow. */}
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle>Select Series</DialogTitle>
           </DialogHeader>
-          <p className="text-muted-foreground text-xs">
-            This result matched more than one series. Choose which one applies to{" "}
-            <strong>{pendingSeriesChoice.bookName}</strong>.
-          </p>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Series</TableHead>
-                  <TableHead>Part</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingSeriesChoice.series.map((s, idx) => (
-                  <TableRow key={`${s.seriesName}-${idx}`}>
-                    <TableCell className="break-words">{s.seriesName}</TableCell>
-                    <TableCell>{s.seriesPart}</TableCell>
-                    <TableCell>
-                      <Button size="sm" onClick={() => handleChooseSeries(idx)}>
-                        <Check className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableCell>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+            <p className="text-muted-foreground text-xs">
+              This result matched more than one series. Choose which one applies to{" "}
+              <strong>{pendingSeriesChoice.bookName}</strong>.
+            </p>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Series</TableHead>
+                    <TableHead>Part</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pendingSeriesChoice.series.map((s, idx) => (
+                    <TableRow key={`${s.seriesName}-${idx}`}>
+                      <TableCell className="break-words">{s.seriesName}</TableCell>
+                      <TableCell>{s.seriesPart}</TableCell>
+                      <TableCell>
+                        <Button size="sm" onClick={() => handleChooseSeries(idx)}>
+                          <Check className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
           <div className="border-border flex justify-end border-t pt-4">
             <Button
@@ -181,7 +186,7 @@ export function BookSearchDialog({
           <DialogTitle>Search Online Metadata</DialogTitle>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 py-2 text-xs">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 py-2 text-xs">
           <form
             onSubmit={(e) => {
               // This dialog is opened from BookEditForm's own <form>. Its DialogContent
@@ -241,7 +246,7 @@ export function BookSearchDialog({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+          <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto">
             {error && <p className="text-destructive text-xs">{error}</p>}
 
             {results.length > 0 && (

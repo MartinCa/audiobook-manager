@@ -129,7 +129,13 @@ export function BookOrganize({
           <BookEditForm
             initialBook={bookDetails}
             currentPath={targetPath}
-            coverUrl={filesApi.getCoverUrl(targetPath)}
+            // The parsed response already tells us whether this file has embedded cover art
+            // (bookDetails.cover). Passing a cover URL unconditionally made every cover-less
+            // file fire a guaranteed-404 request to the on-disk cover endpoint after the parse
+            // response showed there is nothing to show - so wire the URL only when a cover
+            // actually exists. (When one does, the base64 cover from the parse renders directly
+            // and the URL is never consulted by CoverEditor.)
+            coverUrl={bookDetails.cover ? filesApi.getCoverUrl(targetPath) : undefined}
             onSave={handleOrganizeClick}
             defaultEmptyLanguage
             onDelete={() => setDeleteConfirmOpen(true)}

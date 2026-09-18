@@ -130,4 +130,30 @@ describe("BookOrganize", () => {
       expect(filesApi.deleteBook).toHaveBeenCalledWith("/import/Foundation.m4b");
     });
   });
+
+  // Regression: the organize form used to pass the on-disk cover URL unconditionally, so every
+  // file without embedded cover art issued a guaranteed-404 request to /api/files/cover after the
+  // parse response already showed there was no cover to fetch. The parsed response IS the source
+  // of truth - no separate request is needed.
+  it("does not request the on-disk cover URL when the parsed file has no cover", async () => {
+    renderComponent();
+
+    await screen.findByPlaceholderText("Book title");
+
+    expect(filesApi.getCoverUrl).not.toHaveBeenCalled();
+    // The cover editor shows the no-cover placeholder instead of a pending image request.
+    expect(await screen.findByText("Click to set cover")).toBeInTheDocument();
+  });
+
+  it("wires the on-disk cover URL only when the parsed file carries cover data", async () => {
+    vi.mocked(audiobookApi.parseBookDetails).mockResolvedValue({
+      ...sampleBookDetails,
+      cover: { base64Data: "aGVsbG8=", mimeType: "image/jpeg" },
+    });
+
+    renderComponent();
+
+    await screen.findByRole("button", { name: /change cover/i });
+    expect(filesApi.getCoverUrl).toHaveBeenCalledWith("/import/Foundation.m4b");
+  });
 });
