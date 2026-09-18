@@ -170,6 +170,7 @@ describe("BookDetail", () => {
 
   it("renders the language display name, not the raw ISO code, on the read-only page", async () => {
     vi.mocked(settingsApi.getLanguages).mockResolvedValue({
+      defaultCode: "en",
       languages: [
         { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
         { code: "da", displayName: "Danish", aliases: ["da", "dan", "danish", "dansk"] },
