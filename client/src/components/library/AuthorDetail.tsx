@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, BookMarked, BookOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,6 @@ import { Route } from "@/routes/library/authors/$authorId";
 
 export function AuthorDetail() {
   const { authorId } = Route.useParams();
-  const navigate = useNavigate();
-  const router = useRouter();
   const id = Number(authorId);
 
   // Each section pages server-side; one has its own page state so paging series books doesn't
@@ -72,14 +70,6 @@ export function AuthorDetail() {
   useClampedPage(seriesPage, seriesPageCount, setSeriesPage);
   useClampedPage(standalonePage, standalonePageCount, setStandalonePage);
 
-  const handleBack = () => {
-    if (router.history.canGoBack()) {
-      router.history.back();
-    } else {
-      void navigate({ to: "/library/authors" });
-    }
-  };
-
   if (!author && detailQuery.isLoading) {
     return (
       <div className="text-muted-foreground flex flex-col items-center justify-center py-20">
@@ -104,10 +94,10 @@ export function AuthorDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={handleBack}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library/authors" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Authors
-        </Button>
+        </LinkButton>
       </div>
 
       <div className="border-border border-b pb-4">

@@ -116,6 +116,18 @@ describe("AuthorDetail", () => {
     });
   });
 
+  // Regression: the visible back control used to be a history-back Button, so it had no href -
+  // it could not be opened in a new tab or copied, unlike the not-found fallback's LinkButton.
+  it("renders Back to Authors as a real link with a stable href", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(1, 1));
+
+    renderWithProviders();
+
+    const backBtn = await screen.findByRole("button", { name: /back to authors/i });
+    expect(backBtn.tagName).toBe("A");
+    expect(backBtn).toHaveAttribute("href", "/library/authors");
+  });
+
   it("pages one section through the same combined call, keeping the other section's page", async () => {
     const getAuthorDetail = vi.spyOn(browseApi, "getAuthorDetail");
     getAuthorDetail.mockResolvedValueOnce(makeDetail(90, 65)).mockResolvedValueOnce(
