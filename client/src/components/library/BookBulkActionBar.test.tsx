@@ -254,6 +254,39 @@ describe("BookBulkActionBar", () => {
     });
   });
 
+  it("pins a fixed progress bar to the viewport bottom on mobile while a bulk edit runs", async () => {
+    // An earlier test stubs getStatus to report running operations; the resync hook would
+    // otherwise drive this bar off that stale stub.
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
+    renderBar(books);
+    await screen.findByText("2 selected");
+
+    handlerFor(SignalREvents.BulkEditProgress)({
+      processed: 1,
+      total: 2,
+      succeeded: 1,
+      failed: 0,
+    } as never);
+    await screen.findByText("Bulk editing books...");
+
+    // The dialog has closed and the view (mobile) shows the top of the book list, where the
+    // toolbar is scrolled off-screen - so the progress must not live only inside it.
+    const bar = screen.getByRole("status", { name: "Background operation progress" });
+    expect(bar).toBeInTheDocument();
+    expect(bar.className).toContain("fixed");
+    expect(bar.className).toContain("bottom-3");
+
+    handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 2, failed: 0 } as never);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("status", { name: "Background operation progress" })).toBeNull();
+    });
+  });
+
   it("warns when a bulk edit had failures and still clears the selection", async () => {
     renderBar(books);
     await screen.findByText("2 selected");

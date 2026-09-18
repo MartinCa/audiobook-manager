@@ -214,7 +214,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
 
   return (
     <>
-      <div className="border-border bg-muted/30 space-y-3 rounded-lg border p-3">
+      <div className="border-border bg-muted/30 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {selection.count > 0 && (
             <div className="min-w-0 flex-1">
@@ -269,38 +269,42 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
             </Button>
           </div>
         </div>
-
-        {anyOperationRunning && (
-          <div className="space-y-2">
-            {bulkEditProgress && (
-              <OperationProgressBar
-                compact
-                processed={bulkEditProgress.processed}
-                total={bulkEditProgress.total}
-                label="Bulk editing books..."
-                subText={`${bulkEditProgress.succeeded} updated, ${bulkEditProgress.failed} failed`}
-              />
-            )}
-            {refreshProgress && (
-              <OperationProgressBar
-                compact
-                processed={refreshProgress.processed}
-                total={refreshProgress.total}
-                label="Refreshing metadata..."
-                subText={`${refreshProgress.succeeded} refreshed, ${refreshProgress.failed} failed`}
-              />
-            )}
-            {checkProgress && (
-              <OperationProgressBar
-                compact
-                processed={checkProgress.booksChecked}
-                total={checkProgress.totalBooks}
-                label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
-              />
-            )}
-          </div>
-        )}
       </div>
+
+      {anyOperationRunning && (
+        <div
+          role="status"
+          aria-label="Background operation progress"
+          className="fixed inset-x-3 bottom-3 z-50 space-y-2 sm:inset-x-auto sm:right-4 sm:w-96"
+        >
+          {bulkEditProgress && (
+            <OperationProgressBar
+              compact
+              processed={bulkEditProgress.processed}
+              total={bulkEditProgress.total}
+              label="Bulk editing books..."
+              subText={`${bulkEditProgress.succeeded} updated, ${bulkEditProgress.failed} failed`}
+            />
+          )}
+          {refreshProgress && (
+            <OperationProgressBar
+              compact
+              processed={refreshProgress.processed}
+              total={refreshProgress.total}
+              label="Refreshing metadata..."
+              subText={`${refreshProgress.succeeded} refreshed, ${refreshProgress.failed} failed`}
+            />
+          )}
+          {checkProgress && (
+            <OperationProgressBar
+              compact
+              processed={checkProgress.booksChecked}
+              total={checkProgress.totalBooks}
+              label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
+            />
+          )}
+        </div>
+      )}
 
       <BulkBookEditDialog
         open={bulkEditOpen}

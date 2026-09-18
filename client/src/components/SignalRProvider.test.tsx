@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
-import { SignalRProvider } from "./SignalRProvider";
+import { SignalRProvider, START_RETRY_BASE_DELAY_MS } from "./SignalRProvider";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 
@@ -9,6 +9,7 @@ type SignalRCallback = (...args: unknown[]) => void;
 let mockOnHandlers: Record<string, SignalRCallback> = {};
 let mockReconnectedHandler: (() => void) | null = null;
 let startPromiseResolve: () => void;
+let startPromiseReject: (err: unknown) => void;
 
 const mockHubConnection = {
   on: vi.fn((eventName: string, handler: SignalRCallback) => {
@@ -22,8 +23,9 @@ const mockHubConnection = {
   }),
   onclose: vi.fn(),
   start: vi.fn(() => {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       startPromiseResolve = resolve;
+      startPromiseReject = reject;
     });
   }),
   stop: vi.fn(() => Promise.resolve()),
@@ -244,5 +246,55 @@ describe("SignalRProvider", () => {
       progress: 10,
       progressMessage: "Working",
     });
+  });
+
+  it("retries the initial start with backoff when it fails, then connects on success", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <SignalRProvider>
+          <div />
+        </SignalRProvider>,
+      );
+
+      expect(mockHubConnection.start).toHaveBeenCalledTimes(1);
+
+      // First start fails: the provider must schedule a retry, not give up silently. The await
+      // drains the rejected promise's microtask so the catch has actually scheduled the retry
+      // timer before the clock advances.
+      act(() => {
+        startPromiseReject(new Error("connection refused"));
+      });
+      // Flush the promise chain with several yields: the rejection hops through .then and .catch
+      // continuations, each of which needs its own microtask to run.
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      const timersNow = vi.getTimerCount ? vi.getTimerCount() : -1;
+      expect(timersNow, `one retry timer should be scheduled, saw ${timersNow}`).toBe(1);
+      expect(mockHubConnection.start).toHaveBeenCalledTimes(1);
+
+      // The retry fires after the base backoff delay.
+      act(() => {
+        vi.advanceTimersByTime(START_RETRY_BASE_DELAY_MS);
+      });
+      expect(mockHubConnection.start).toHaveBeenCalledTimes(2);
+
+      // Second attempt succeeds: events are bound on the live connection. A real `await` still
+      // drains the promise chain under fake timers (only the clock is faked), and act() wraps
+      // the resolve so React's state updates flush with it.
+      act(() => {
+        startPromiseResolve();
+      });
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      expect(mockHubConnection.on).toHaveBeenCalledWith(
+        SignalREvents.UpdateProgress,
+        expect.any(Function),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
