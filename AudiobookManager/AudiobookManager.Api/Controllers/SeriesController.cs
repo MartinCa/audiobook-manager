@@ -755,12 +755,8 @@ public class SeriesController : ControllerBase
 
     /// <summary>
     /// Deletes the pending snapshot for a series - after the user applied (or decided to
-    /// discard) the changes. Deliberately not idempotent-failing: dismissing an already-dismissed
-    /// snapshot is a no-op success.
-    /// </summary>
-    /// <summary>
-    /// Discards the pending snapshot for one series. Idempotent: a series with nothing pending is
-    /// already in the state the caller asked for.
+    /// discard) the changes. Dismissing an already-dismissed snapshot is a no-op success, not a
+    /// failure: the series is already in the state the caller asked for.
     ///
     /// Takes the same <see cref="_refreshLock"/> the refresh and the pending apply hold, for the
     /// same reason they hold it against each other: all three read and then replace this row. A
