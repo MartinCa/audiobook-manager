@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, getOrUndefined } from "@/lib/api";
 import { PAGE_SIZE, TYPEAHEAD_LIMIT } from "@/constants/paging";
 import type { Audiobook } from "@/types/Audiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
@@ -394,8 +394,11 @@ export const metadataRefreshApi = {
 
   getPendingSummary: () => api.get<number[]>("/metadata-refresh/pending-summary"),
 
+  // Single book's pending snapshot; the backend 404s when the book has none, so this resolves to
+  // undefined there (the snapshot's absence is the normal state, not an error). Other failures
+  // still throw.
   getPendingForAudiobook: (id: number) =>
-    api.get<PendingMetadataRefresh>(`/metadata-refresh/${id}/pending`),
+    getOrUndefined<PendingMetadataRefresh>(`/metadata-refresh/${id}/pending`),
 
   dismissPending: (id: number) => api.post<void>(`/metadata-refresh/${id}/dismiss`, undefined),
 
@@ -516,8 +519,11 @@ export const seriesApi = {
 
   getSeriesPendingCount: () => api.get<number>("/series/pending/count"),
 
+  // The stored pending snapshot for one series; the backend 404s when none exists (a refresh that
+  // found no changes leaves nothing pending), so this resolves to undefined there - the absence
+  // is the normal state, not an error. Other failures still throw.
   getSeriesPending: (seriesName: string) =>
-    api.get<SeriesRefreshPending>("/series/pending/detail", {
+    getOrUndefined<SeriesRefreshPending>("/series/pending/detail", {
       query: { seriesName },
     }),
 

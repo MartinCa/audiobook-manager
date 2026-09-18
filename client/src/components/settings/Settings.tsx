@@ -23,7 +23,7 @@ export function Settings() {
       <div>
         <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
           <SettingsIcon className="text-primary h-6 w-6" />
-          Settings
+          System Information
         </h1>
         <p className="text-muted-foreground text-sm">
           System information and about this installation. Library-wide settings live on the{" "}

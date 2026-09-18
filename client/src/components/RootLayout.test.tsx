@@ -148,4 +148,20 @@ describe("RootLayout", () => {
 
     expect(router.state.location.pathname).toBe("/library/metadata-refresh");
   });
+
+  it("labels the settings entries /settings as System Information and /settings/library as Library Settings", async () => {
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+
+    const items = await screen.findAllByRole("menuitem");
+    // The settings menu must never label /settings with the retired Series Mappings name (that
+    // surface moved to each series' detail page) - System Information + Library Settings is the
+    // complete menu.
+    expect(items.map((item) => item.textContent)).toEqual([
+      "System Information",
+      "Library Settings",
+    ]);
+  });
 });

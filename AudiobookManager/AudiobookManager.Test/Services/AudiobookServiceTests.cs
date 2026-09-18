@@ -222,6 +222,63 @@ public class AudiobookServiceTests
         _tagHandler.Verify(t => t.ParseAudiobook(It.Is<FileInfo>(fi => fi.FullName == "/path/book.m4b"), It.IsAny<bool>()), Times.Once);
     }
 
+    [TestMethod]
+    public void ParseAudiobook_PopulatesCoverFilePathFromSidecarCover()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "audiobook-service-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var coverPath = Path.Combine(dir, "cover.jpg");
+            File.WriteAllText(coverPath, "sidecar cover bytes");
+
+            var parsed = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Parsed Book",
+                2024,
+                new AudiobookFileInfo(Path.Combine(dir, "book.m4b"), "book.m4b", 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(parsed);
+
+            var result = _service.ParseAudiobook(Path.Combine(dir, "book.m4b"));
+
+            Assert.IsTrue(
+                AudiobookFileHandler.PathsEqual(coverPath, result.CoverFilePath ?? ""),
+                $"Expected CoverFilePath to resolve to the sidecar '{coverPath}', got '{result.CoverFilePath}'");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ParseAudiobook_NoSidecarCover_LeavesCoverFilePathNull()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "audiobook-service-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var parsed = new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Parsed Book",
+                2024,
+                new AudiobookFileInfo(Path.Combine(dir, "book.m4b"), "book.m4b", 1000));
+
+            _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+                .Returns(parsed);
+
+            var result = _service.ParseAudiobook(Path.Combine(dir, "book.m4b"));
+
+            Assert.IsNull(result.CoverFilePath);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     #region UpdateAudiobook
 
     private string _testRoot = null!;

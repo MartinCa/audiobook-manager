@@ -25,10 +25,10 @@ describe("CoverEditor", () => {
     expect(screen.getByAltText<HTMLImageElement>("Cover Preview")).toHaveClass("object-contain");
   });
 
-  // Regression: coverUrl is passed unconditionally by callers (there's no cheap way to know
-  // ahead of time whether a book has a cover on disk), so it 404s whenever one doesn't. Without
-  // falling back, that showed a broken-image icon instead of the "Click to set cover" placeholder
-  // every other no-cover case uses.
+  // Regression: callers that pass coverUrl unconditionally (BookDetail, DiscoveredAudiobooks)
+  // have no way to know the book has a cover on disk, so the URL 404s whenever one doesn't.
+  // Without this fallback, that showed a broken-image icon instead of the "Click to set cover"
+  // placeholder every other no-cover case uses.
   it("falls back to the placeholder when coverUrl fails to load", () => {
     render(<CoverEditor coverUrl="/api/files/cover?path=missing" onCoverChange={vi.fn()} />);
 

@@ -130,4 +130,66 @@ describe("BookOrganize", () => {
       expect(filesApi.deleteBook).toHaveBeenCalledWith("/import/Foundation.m4b");
     });
   });
+
+  // Regression: the organize form used to pass the on-disk cover URL unconditionally, so every
+  // file without a cover fired a guaranteed-404 request to /api/files/cover after the
+  // parse response already showed there was no cover to fetch. The parsed response IS the source
+  // of truth - no separate request is needed.
+  it("does not request the on-disk cover URL when the parsed file has no cover", async () => {
+    renderComponent();
+
+    await screen.findByPlaceholderText("Book title");
+
+    expect(filesApi.getCoverUrl).not.toHaveBeenCalled();
+    // The cover editor shows the no-cover placeholder instead of a pending image request.
+    expect(await screen.findByText("Click to set cover")).toBeInTheDocument();
+  });
+
+  // Regression: the organize flow used to pass the on-disk cover URL when embedded cover data
+  // existed, but CoverEditor renders the embedded base64 and never consults the URL - a dead
+  // URL that did nothing but make CoverEditor's fallback machinery unreachable. A file with
+  // embedded art needs no on-disk request.
+  it("does not request the on-disk cover URL when only embedded cover data exists", async () => {
+    vi.mocked(audiobookApi.parseBookDetails).mockResolvedValue({
+      ...sampleBookDetails,
+      cover: { base64Data: "aGVsbG8=", mimeType: "image/jpeg" },
+    });
+
+    renderComponent();
+
+    // The embedded cover renders directly - the button label shows a cover is present.
+    await screen.findByRole("button", { name: /change cover/i });
+    expect(filesApi.getCoverUrl).not.toHaveBeenCalled();
+  });
+
+  // The parse response reports the on-disk cover sidecar (coverFilePath) even for a file with
+  // no embedded art, so the form must wire the URL that renders it instead of falling back to
+  // the no-cover placeholder.
+  it("requests the on-disk cover URL for a sidecar cover when the file has no embedded art", async () => {
+    vi.mocked(audiobookApi.parseBookDetails).mockResolvedValue({
+      ...sampleBookDetails,
+      cover: undefined,
+      coverFilePath: "/import/cover.jpg",
+    });
+
+    renderComponent();
+
+    await screen.findByRole("button", { name: /change cover/i });
+    expect(filesApi.getCoverUrl).toHaveBeenCalledWith("/import/Foundation.m4b");
+  });
+
+  // When both exist, the embedded cover renders directly; wiring the URL as well would be a
+  // dead URL (BookEditForm drops it once base64 is present).
+  it("does not request the on-disk cover URL when embedded art and a sidecar both exist", async () => {
+    vi.mocked(audiobookApi.parseBookDetails).mockResolvedValue({
+      ...sampleBookDetails,
+      cover: { base64Data: "aGVsbG8=", mimeType: "image/jpeg" },
+      coverFilePath: "/import/cover.jpg",
+    });
+
+    renderComponent();
+
+    await screen.findByRole("button", { name: /change cover/i });
+    expect(filesApi.getCoverUrl).not.toHaveBeenCalled();
+  });
 });

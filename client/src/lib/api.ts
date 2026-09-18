@@ -163,6 +163,27 @@ export const api = {
     request<T>(path, { ...options, method: "DELETE" }),
 };
 
+/**
+ * GET that treats a 404 as "the optional resource does not exist" and resolves to `undefined`,
+ * while every other error still throws. Endpoints whose absence is a normal state - a pending
+ * metadata-refresh snapshot for a book that has none, a pending series refresh for a series
+ * whose last refresh found nothing - get normalized here so callers do not need to catch and
+ * re-check a 404 they expect.
+ */
+export async function getOrUndefined<T>(
+  path: string,
+  options?: Omit<RequestOptions, "body" | "method">,
+): Promise<T | undefined> {
+  try {
+    return await request<T>(path, { ...options, method: "GET" });
+  } catch (error: unknown) {
+    if (error instanceof ApiError && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 export function handleApiError(error: unknown): {
   message: string;
   status?: number;

@@ -232,10 +232,15 @@ describe("BookDetail", () => {
     expect(screen.getByRole("button", { name: /recheck/i })).toBeInTheDocument();
   });
 
-  it("navigates to /library fallback when Back to Library is clicked on direct landing", async () => {
+  it("renders Back to Library as a real link with a stable href", async () => {
     const { router } = renderWithProviders();
 
     const backBtn = await screen.findByRole("button", { name: /back to library/i });
+    // A real navigation link, not a history-dependent button: the href is stable regardless of
+    // how the user reached the page (direct load, refresh, or an edit-form back-stack).
+    expect(backBtn.tagName).toBe("A");
+    expect(backBtn).toHaveAttribute("href", "/library");
+
     fireEvent.click(backBtn);
 
     await waitFor(() => {
@@ -438,7 +443,7 @@ describe("BookDetail", () => {
     });
     // After a refresh with differences a pending snapshot appears.
     vi.mocked(metadataRefreshApi.getPendingForAudiobook)
-      .mockResolvedValueOnce(undefined as never) // first (initial) fetch: no snapshot yet
+      .mockResolvedValueOnce(undefined) // first (initial) fetch: no snapshot yet
       .mockResolvedValue({
         audiobookId: 42,
         fetchedAt: "2026-09-01T10:00:00Z",

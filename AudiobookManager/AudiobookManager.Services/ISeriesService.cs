@@ -212,9 +212,12 @@ public interface ISeriesService
     /// apply is the entry point that takes the gate; nothing below it may take it again. After
     /// the batch the pending snapshot is recomputed against the stored roster, so a series whose
     /// changes are all resolved drops out of the pending list and one with leftovers keeps a
-    /// snapshot containing exactly them.
+    /// snapshot containing exactly them. The final element is the series' effective name after
+    /// the apply: the adopted source name when the source-series-name adoption fully succeeded
+    /// (the client navigates its route there), otherwise null - the series stays addressable
+    /// under its original name.
     /// </summary>
-    Task<(int Processed, int Succeeded, int Failed)> ApplyPendingSeriesRefreshAsync(
+    Task<(int Processed, int Succeeded, int Failed, string? EffectiveSeriesName)> ApplyPendingSeriesRefreshAsync(
         string seriesName,
         SeriesRefreshApplyRequest request,
         Func<int, int, int, int, Task> progressAction);

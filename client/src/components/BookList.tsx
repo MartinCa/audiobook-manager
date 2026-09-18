@@ -198,8 +198,11 @@ export function BookList() {
                 value={book.fullPath}
                 className="border-border bg-card overflow-hidden rounded-lg border shadow-sm"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                  <AccordionTrigger className="min-w-0 flex-1 py-0 text-left hover:no-underline">
+                {/* The whole header - title, size, and any live status/progress - is inside the
+                    trigger, so the full gray bar is clickable (and keyboard-activatable) rather
+                    than only the left title block. The chevron stays the trailing icon. */}
+                <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="flex min-w-0 flex-1 items-center gap-3 pr-2">
                       <div className="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
                         <FolderInput className="h-4 w-4" />
@@ -216,35 +219,35 @@ export function BookList() {
                         </div>
                       </div>
                     </div>
-                  </AccordionTrigger>
 
-                  {(isQueued || error) && (
-                    <div className="flex shrink-0 items-center gap-2">
-                      {isQueued && (
-                        <div className="w-full text-right sm:w-56">
-                          {progress != null && (
-                            <OperationProgressBar
-                              compact
-                              processed={progress}
-                              total={100}
-                              label={message || "Organizing..."}
-                            />
-                          )}
-                          {message && !progress && (
-                            <span className="text-muted-foreground text-xs">{message}</span>
-                          )}
-                        </div>
-                      )}
+                    {(isQueued || error) && (
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isQueued && (
+                          <div className="w-full text-right sm:w-56">
+                            {progress != null && (
+                              <OperationProgressBar
+                                compact
+                                processed={progress}
+                                total={100}
+                                label={message || "Organizing..."}
+                              />
+                            )}
+                            {message && !progress && (
+                              <span className="text-muted-foreground text-xs">{message}</span>
+                            )}
+                          </div>
+                        )}
 
-                      {error && (
-                        <span className="text-destructive flex items-center gap-1 text-xs">
-                          <AlertCircle className="h-3 w-3" />
-                          Failed
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                        {error && (
+                          <span className="text-destructive flex items-center gap-1 text-xs">
+                            <AlertCircle className="h-3 w-3" />
+                            Failed
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </AccordionTrigger>
 
                 <AccordionContent className="border-border bg-muted/20 border-t p-4">
                   <BookOrganize

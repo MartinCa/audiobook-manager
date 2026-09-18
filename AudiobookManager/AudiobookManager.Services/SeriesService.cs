@@ -934,9 +934,11 @@ public class SeriesService : ISeriesService
     /// succeeded, failed) progress report after every item. The optional source-series-name
     /// adoption is one item of that total: it renames every member book, migrates the matched
     /// catalog row (roster, ignore flags and all matched metadata) to the adopted name, and any
-    /// failure inside it fails just that item.
+    /// failure inside it fails just that item. The returned effective series name tells the
+    /// caller that a fully successful adoption moved the series: it is the adopted name on
+    /// success and null otherwise, so the client can navigate its route to the new name.
     /// </summary>
-    public async Task<(int Processed, int Succeeded, int Failed)> ApplyPendingSeriesRefreshAsync(
+    public async Task<(int Processed, int Succeeded, int Failed, string? EffectiveSeriesName)> ApplyPendingSeriesRefreshAsync(
         string seriesName,
         SeriesRefreshApplyRequest request,
         Func<int, int, int, int, Task> progressAction)
@@ -1039,7 +1041,7 @@ public class SeriesService : ISeriesService
             _logger.LogWarning(
                 "Series '{SeriesName}' has at least {OwnedCount} owned books; keeping the pending refresh snapshot instead of recomputing it after the apply",
                 effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationOwnedKeys + 1);
-            return (processed, succeeded, failed);
+            return (processed, succeeded, failed, adoptedName);
         }
 
         var remaining = SeriesRefreshDiffer.Diff(
@@ -1104,7 +1106,7 @@ public class SeriesService : ISeriesService
             _reconciliationCache.Invalidate(adoptedSourceName!);
         }
 
-        return (processed, succeeded, failed);
+        return (processed, succeeded, failed, adoptedName);
     }
 
     /// <summary>

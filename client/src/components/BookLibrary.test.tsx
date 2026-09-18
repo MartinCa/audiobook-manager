@@ -234,10 +234,10 @@ describe("BookLibrary", () => {
     expect(input).toHaveValue("Brandon ");
   });
 
-  it("preserves search results when navigating to book entry and back", async () => {
+  it("returns to the library list through the stable Back to Library link", async () => {
     vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(sampleDetail);
 
-    renderWithRouter("/library?q=Kings");
+    const { router } = renderWithRouter("/library?q=Kings");
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
 
@@ -251,16 +251,19 @@ describe("BookLibrary", () => {
     expect(await screen.findByText(/Brandon Sanderson — The Way of Kings/)).toBeInTheDocument();
     expect(screen.queryByDisplayValue("The Way of Kings")).not.toBeInTheDocument();
 
-    // Click Back to Library button
+    // Back to Library is a real link with a stable href (not history-dependent), so it lands on
+    // the library list root rather than replaying the previous URL.
     const backBtn = await screen.findByRole("button", { name: /back to library/i });
+    expect(backBtn.tagName).toBe("A");
+    expect(backBtn).toHaveAttribute("href", "/library");
     fireEvent.click(backBtn);
 
-    // Expect to return to /library?q=Kings with search input and results intact
-    const input = await screen.findByPlaceholderText(/Search title, author/i);
     await waitFor(() => {
-      expect(input).toHaveValue("Kings");
+      expect(router.state.location.search).toEqual({});
     });
+    // The full list renders and the search input is cleared along with the dropped query.
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Search title, author/i)).toHaveValue("");
   });
 
   it("clears search input and removes query parameter when clear button is clicked", async () => {

@@ -50,7 +50,21 @@ public class AudiobookService : IAudiobookService
     {
         var fileInfo = new FileInfo(filePath);
 
-        return _tagHandler.ParseAudiobook(fileInfo, includeCoverData);
+        var parsed = _tagHandler.ParseAudiobook(fileInfo, includeCoverData);
+
+        // The parse already carries the file's embedded cover art; a file without any may still
+        // have a cover.jpg/cover.png sidecar beside it (rippers commonly write one, and this app
+        // migrates such sidecars with the file on organize). Resolve that here so the client can
+        // show the on-disk cover via /api/files/cover without firing a request it has reason to
+        // believe will 404. Read-only lookup - never cleans up a duplicate .jpg/.png pair, the
+        // same cleanupDuplicate: false stance as FileService.GetCoverPath.
+        var directoryPath = Path.GetDirectoryName(filePath);
+        if (directoryPath is not null)
+        {
+            parsed.CoverFilePath = _fileHandler.GetExistingCoverPath(directoryPath, cleanupDuplicate: false);
+        }
+
+        return parsed;
     }
 
     public string GenerateLibraryPath(Audiobook audiobook)

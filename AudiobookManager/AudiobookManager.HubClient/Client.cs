@@ -124,7 +124,7 @@ public class Client : IOrganize
 
     public Task SeriesRefreshApplyComplete(SeriesRefreshApplyComplete result)
     {
-        Console.WriteLine($"Series refresh apply complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        Console.WriteLine($"Series refresh apply complete: {result.SeriesName}: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
         return Task.CompletedTask;
     }
 

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2, Pencil } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -49,7 +49,6 @@ export interface BookDetailProps {
 export function BookDetail({ mode }: BookDetailProps) {
   const { bookId } = Route.useParams();
   const navigate = useNavigate();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const id = Number(bookId);
@@ -57,14 +56,6 @@ export function BookDetail({ mode }: BookDetailProps) {
   // mode is derived from the matched path instead. The prop stays as an explicit override for
   // direct renders/tests.
   const isEditMode = (mode ?? (pathname.endsWith("/edit") ? "edit" : "view")) === "edit";
-
-  const handleBack = () => {
-    if (router.history.canGoBack()) {
-      router.history.back();
-    } else {
-      void navigate({ to: "/library" });
-    }
-  };
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -94,7 +85,9 @@ export function BookDetail({ mode }: BookDetailProps) {
   // error — the refresh bookkeeping timestamp is what matters for display.
   const { data: pending } = useQuery({
     queryKey: queryKeys.metadataRefresh.pendingForBook(id),
-    queryFn: () => metadataRefreshApi.getPendingForAudiobook(id),
+    // The endpoint 404s when nothing is pending; the API layer normalizes that to undefined, and
+    // the query layer maps it to null (queryFn must not resolve undefined) - both read as absent.
+    queryFn: () => metadataRefreshApi.getPendingForAudiobook(id).then((pending) => pending ?? null),
     enabled: Boolean(id),
   });
 
@@ -314,10 +307,10 @@ export function BookDetail({ mode }: BookDetailProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={handleBack}>
+        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />} className="text-xs">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
-        </Button>
+        </LinkButton>
       </div>
 
       <div className="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
