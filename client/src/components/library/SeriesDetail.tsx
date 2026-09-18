@@ -1148,9 +1148,9 @@ export function SeriesDetail() {
           <div className="border-destructive/30 space-y-2 border-t pt-4">
             <span className="text-destructive font-semibold">Danger Zone</span>
             <p className="text-muted-foreground max-w-xl">
-              Deleting this series clears the Series and Series Part fields on every owned book,
-              and removes the series' matching, roster and mapping data. The books themselves are
-              not deleted.
+              Deleting this series clears the Series and Series Part fields on every owned book, and
+              removes the series' matching, roster and mapping data. The books themselves are not
+              deleted.
             </p>
             <Button
               variant="destructive"
@@ -1315,8 +1315,8 @@ export function SeriesDetail() {
               </div>
             )}
             <p className="text-muted-foreground">
-              The series' matching, roster and mapping data is removed. The books themselves are
-              not deleted or moved. This cannot be undone.
+              The series' matching, roster and mapping data is removed. The books themselves are not
+              deleted or moved. This cannot be undone.
             </p>
           </div>
 
