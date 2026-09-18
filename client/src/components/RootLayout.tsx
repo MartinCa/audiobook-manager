@@ -15,6 +15,7 @@ import {
   BookMarked,
   Users,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -216,8 +217,8 @@ export function RootLayout() {
                     }}
                     className="cursor-pointer text-xs"
                   >
-                    <BookMarked className="text-primary mr-2 h-4 w-4" />
-                    <span>Series Mappings</span>
+                    <Info className="text-primary mr-2 h-4 w-4" />
+                    <span>System Information</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
@@ -373,8 +374,8 @@ export function RootLayout() {
                     }}
                     className="cursor-pointer text-xs"
                   >
-                    <BookMarked className="text-primary mr-2 h-4 w-4" />
-                    <span>Series Mappings</span>
+                    <Info className="text-primary mr-2 h-4 w-4" />
+                    <span>System Information</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {

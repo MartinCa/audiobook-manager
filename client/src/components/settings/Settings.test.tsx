@@ -25,10 +25,10 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("Settings", () => {
-  it("renders Settings with About & System Information and no series mapping UI", async () => {
+  it("renders System Information and no series mapping UI", async () => {
     renderWithProviders(<Settings />);
 
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "System Information" })).toBeInTheDocument();
     expect(screen.getByText("About & System Information")).toBeInTheDocument();
 
     // The regex mappings moved to each series' Management section; the Settings page keeps only
