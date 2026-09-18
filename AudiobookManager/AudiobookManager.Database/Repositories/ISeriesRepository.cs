@@ -103,4 +103,15 @@ public interface ISeriesRepository
     /// caller considers visible, so no re-fetch is needed here.
     /// </summary>
     Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
+
+    /// <summary>
+    /// Deletes the catalog row for a series, if one exists. Its roster (ExpectedBooks) and
+    /// mapping patterns (Mappings) cascade with it via the FK constraints configured in
+    /// <see cref="AudiobookManager.Database.EntityMappings.SeriesEntityMapping"/> and
+    /// <see cref="AudiobookManager.Database.EntityMappings.SeriesMappingMapping"/>. An unmatched
+    /// series with no catalog row is a no-op success, not a failure - the caller (series
+    /// deletion) still has owned books to clear regardless of whether a row existed here.
+    /// Returns whether a row was actually deleted.
+    /// </summary>
+    Task<bool> DeleteSeriesAsync(string name);
 }

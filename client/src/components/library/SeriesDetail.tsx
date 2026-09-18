@@ -26,6 +26,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationProgressBar } from "@/components/OperationProgressBar";
+import { SignalREvents } from "@/constants/signalrEvents";
+import { useSignalREvent } from "@/hooks/useSignalR";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { LinkButton } from "../LinkButton";
@@ -465,6 +468,57 @@ export function SeriesDetail() {
       void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
+    }
+  };
+
+  // --- Series deletion: clears Series/SeriesPart on every owned book and removes the catalog
+  // row (roster, mapping patterns, any pending refresh snapshot). Fire-and-forget, like the other
+  // bulk rewrites - progress/completion arrive over SignalR.
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<{
+    processed: number;
+    total: number;
+    succeeded: number;
+    failed: number;
+  } | null>(null);
+
+  useSignalREvent<{ processed: number; total: number; succeeded: number; failed: number }>(
+    SignalREvents.SeriesDeleteProgress,
+    (data) => {
+      setDeleting(true);
+      setDeleteProgress(data);
+    },
+  );
+
+  useSignalREvent<{ totalProcessed: number; totalSucceeded: number; totalFailed: number }>(
+    SignalREvents.SeriesDeleteComplete,
+    (data) => {
+      setDeleting(false);
+      setDeleteProgress(null);
+      setDeleteDialogOpen(false);
+      toast.add({
+        title:
+          data.totalFailed > 0
+            ? `Series deleted with ${data.totalFailed} book${data.totalFailed === 1 ? "" : "s"} that could not be cleared`
+            : "Series deleted",
+        type: data.totalFailed > 0 ? "error" : "success",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["series"] });
+      void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+      handleBack();
+    },
+  );
+
+  const handleDeleteSeries = async () => {
+    setDeleting(true);
+    setDeleteProgress(null);
+    try {
+      await seriesApi.startDeleteSeries(seriesName);
+    } catch (err: unknown) {
+      toast.add({ title: handleApiError(err).message, type: "error" });
+      setDeleting(false);
     }
   };
 
@@ -1088,6 +1142,26 @@ export function SeriesDetail() {
               </div>
             )}
           </div>
+
+          {/* Danger zone: deleting the series clears Series/SeriesPart on every owned book and
+              removes the catalog row (roster, mapping patterns, any pending refresh snapshot). */}
+          <div className="border-destructive/30 space-y-2 border-t pt-4">
+            <span className="text-destructive font-semibold">Danger Zone</span>
+            <p className="text-muted-foreground max-w-xl">
+              Deleting this series clears the Series and Series Part fields on every owned book,
+              and removes the series' matching, roster and mapping data. The books themselves are
+              not deleted.
+            </p>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="mr-1 h-3 w-3" />
+              Delete Series
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1193,6 +1267,94 @@ export function SeriesDetail() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setDeleteDialogOpen(open);
+        }}
+      >
+        <DialogContent className="w-[calc(100vw-2rem)] p-4 sm:max-w-lg sm:p-6">
+          <DialogHeader>
+            <DialogTitle>Delete "{seriesName}"?</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-sm">
+            <p>
+              This clears the following fields on{" "}
+              <span className="text-foreground font-semibold">
+                {ownedSection.totalCount} owned book{ownedSection.totalCount === 1 ? "" : "s"}
+              </span>
+              :
+            </p>
+            <ul className="text-muted-foreground list-disc space-y-0.5 pl-5">
+              <li>
+                <span className="text-foreground font-medium">Series</span> — cleared
+              </li>
+              <li>
+                <span className="text-foreground font-medium">Series Part</span> — cleared
+              </li>
+            </ul>
+            {ownedBooks.length > 0 && (
+              <div className="border-border bg-muted/30 max-h-40 overflow-y-auto rounded-md border p-2">
+                <ul className="text-muted-foreground space-y-0.5 text-xs">
+                  {ownedBooks.map((b) => (
+                    <li key={b.id} className="truncate">
+                      {b.seriesPart ? `Part ${b.seriesPart} — ` : ""}
+                      {b.bookName}
+                    </li>
+                  ))}
+                </ul>
+                {ownedSection.totalCount > ownedBooks.length && (
+                  <p className="text-muted-foreground mt-1 text-xs italic">
+                    and {ownedSection.totalCount - ownedBooks.length} more...
+                  </p>
+                )}
+              </div>
+            )}
+            <p className="text-muted-foreground">
+              The series' matching, roster and mapping data is removed. The books themselves are
+              not deleted or moved. This cannot be undone.
+            </p>
+          </div>
+
+          {deleting && (
+            <OperationProgressBar
+              processed={deleteProgress?.processed ?? 0}
+              total={deleteProgress?.total ?? 0}
+              label={
+                deleteProgress
+                  ? `Clearing books (${deleteProgress.succeeded} succeeded, ${deleteProgress.failed} failed)`
+                  : "Starting..."
+              }
+            />
+          )}
+
+          <div className="border-border flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              disabled={deleting}
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full sm:w-auto"
+              disabled={deleting}
+              onClick={() => {
+                void handleDeleteSeries();
+              }}
+            >
+              {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Delete Series
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -1104,6 +1104,71 @@ public class SeriesService : ISeriesService
         return (processed, succeeded, failed);
     }
 
+    /// <summary>
+    /// Deletes a series: clears Series/SeriesPart on every owned book (through
+    /// <see cref="IAudiobookService.UpdateAudiobook"/>, under the per-audiobook save gate, with
+    /// a best-effort consistency recheck per book - the same pipeline and tail every other
+    /// series/book rewrite in this service uses), then removes the catalog row and any pending
+    /// refresh snapshot. The catalog cleanup runs even when some books failed to clear: a
+    /// half-deleted series should not leave a matched catalog row (with its roster and mapping
+    /// patterns) behind for a book re-added under the same name to inherit stale "missing book"
+    /// state against.
+    /// </summary>
+    public async Task<(int Processed, int Succeeded, int Failed)> DeleteSeriesAsync(
+        string seriesName,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        var ownedBooks = (await _audiobookRepository.GetBooksBySeriesAsync(seriesName, authorId: null))
+            .Select(AudiobookService.FromDb)
+            .ToList();
+
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var total = ownedBooks.Count;
+
+        foreach (var book in ownedBooks)
+        {
+            processed++;
+            var audiobookId = book.Id!.Value;
+            try
+            {
+                using var lease = _saveGate.Acquire(audiobookId);
+                book.Series = string.Empty;
+                book.SeriesPart = null;
+                await _audiobookService.UpdateAudiobook(audiobookId, book);
+
+                try
+                {
+                    await _libraryConsistencyService.RecheckAudiobookAsync(audiobookId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to recheck consistency issues for audiobook {AudiobookId} after clearing its series on series deletion",
+                        audiobookId);
+                }
+
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to clear series for audiobook {AudiobookId} while deleting series {SeriesName}",
+                    audiobookId, seriesName);
+                failed++;
+            }
+
+            await progressAction(processed, total, succeeded, failed);
+        }
+
+        await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
+        await _seriesRepository.DeleteSeriesAsync(seriesName);
+        _reconciliationCache.Invalidate(seriesName);
+
+        return (processed, succeeded, failed);
+    }
+
     private async Task ApplySingleSeriesRefreshChangeAsync(
         string seriesName,
         PendingSeriesRefresh pending,

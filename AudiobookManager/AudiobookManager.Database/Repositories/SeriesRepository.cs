@@ -413,4 +413,17 @@ public class SeriesRepository : ISeriesRepository
             throw new InvalidOperationException($"A series named '{newName}' already exists.");
         }
     }
+
+    /// <summary>
+    /// Set-based delete (bypasses the change tracker, like <see cref="DeleteIfEmptyAsync"/>) -
+    /// the row's ExpectedBooks and Mappings cascade via the ON DELETE CASCADE FK constraints the
+    /// entity mappings configure, so no separate child deletes are needed here.
+    /// </summary>
+    public async Task<bool> DeleteSeriesAsync(string name)
+    {
+        var deletedRows = await _db.Series
+            .Where(s => s.Name == name)
+            .ExecuteDeleteAsync();
+        return deletedRows > 0;
+    }
 }

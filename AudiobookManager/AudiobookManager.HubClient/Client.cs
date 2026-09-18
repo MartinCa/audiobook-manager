@@ -140,6 +140,18 @@ public class Client : IOrganize
         return Task.CompletedTask;
     }
 
+    public Task SeriesDeleteProgress(SeriesDeleteProgress progress)
+    {
+        Console.WriteLine($"Series delete: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task SeriesDeleteComplete(SeriesDeleteComplete result)
+    {
+        Console.WriteLine($"Series delete complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
+
     public Task AudiobookSaveProgress(AudiobookSaveProgress progress)
     {
         Console.WriteLine($"Audiobook {progress.AudiobookId} save: {progress.ProgressMessage} ({progress.Progress}%)");

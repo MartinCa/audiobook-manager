@@ -455,4 +455,29 @@ public class SeriesRepositoryTests
         Assert.AreEqual(1, await _db.SeriesMappings.AsNoTracking().CountAsync(m => m.SeriesId == series.Id),
             "the concurrent mapping must not have been cascaded away");
     }
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_CascadesExpectedBooksAndMappings_AndReturnsTrue()
+    {
+        var series = await SeedSeriesAsync();
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^mistborn.*$", false, series.Id));
+        await _db.SaveChangesAsync();
+
+        var deleted = await _repository.DeleteSeriesAsync("Mistborn");
+
+        Assert.IsTrue(deleted);
+        Assert.IsNull(await _repository.GetByNameAsync("Mistborn"));
+        Assert.AreEqual(0, await _db.SeriesExpectedBooks.AsNoTracking().CountAsync(b => b.SeriesId == series.Id),
+            "the roster must cascade away with the series row");
+        Assert.AreEqual(0, await _db.SeriesMappings.AsNoTracking().CountAsync(m => m.SeriesId == series.Id),
+            "the mapping patterns must cascade away with the series row");
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_NoRowForTheName_ReturnsFalse()
+    {
+        var deleted = await _repository.DeleteSeriesAsync("Does Not Exist");
+
+        Assert.IsFalse(deleted);
+    }
 }

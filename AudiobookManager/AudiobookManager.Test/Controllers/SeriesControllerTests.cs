@@ -687,6 +687,60 @@ public class SeriesControllerTests
         await AwaitOperationFinished(finished);
     }
 
+    [TestMethod]
+    public void StartDeleteSeries_BlankSeriesName_ReturnsBadRequest()
+    {
+        var result = _controller.StartDeleteSeries(" ");
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+        _seriesService.Verify(
+            s => s.DeleteSeriesAsync(It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartDeleteSeries_ReturnsOkImmediately_AndWiresProgressAndCompletion()
+    {
+        _seriesService.Setup(s => s.DeleteSeriesAsync("Mistborn", It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((string _, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0);
+            });
+
+        var finished = RegisterFinishedWaiter(SeriesController.DeleteOperationKey);
+
+        var result = _controller.StartDeleteSeries("Mistborn");
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesDeleteProgress(It.Is<SeriesDeleteProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartDeleteSeries_AlreadyRunning_ReturnsConflict()
+    {
+        var release = new TaskCompletionSource();
+        _seriesService.Setup(s => s.DeleteSeriesAsync("Mistborn", It.IsAny<Func<int, int, int, int, Task>>()))
+            .Returns(async (string _, Func<int, int, int, int, Task> _) =>
+            {
+                await release.Task;
+                return (1, 1, 0);
+            });
+
+        var first = _controller.StartDeleteSeries("Mistborn");
+        Assert.IsInstanceOfType(first, typeof(OkResult));
+
+        var second = _controller.StartDeleteSeries("Mistborn");
+        ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
+
+        var finished = RegisterFinishedWaiter(SeriesController.DeleteOperationKey);
+        release.SetResult();
+        await AwaitOperationFinished(finished);
+    }
+
     private static AudiobookManager.Domain.PendingSeriesRefresh MakePendingRefresh() =>
         new(
             "Mistborn",
