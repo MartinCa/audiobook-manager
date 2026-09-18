@@ -33,6 +33,9 @@ describe("AlignTargetDialog", () => {
 
     expect(onConfirm).toHaveBeenCalledWith("Brandon Sanderson");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    // onOpenChange is mocked, so `open` stays true and the dialog stays mounted - confirming the
+    // internal step actually reset back to "select" rather than staying on "confirm".
+    expect(screen.getByText("Select Target Alignment Value")).toBeInTheDocument();
   });
 
   it("disables Continue until a custom value is entered", () => {
