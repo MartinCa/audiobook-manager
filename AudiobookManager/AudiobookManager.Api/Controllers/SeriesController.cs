@@ -1,4 +1,4 @@
-using AudiobookManager.Api.Async;
+﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.RateLimiting;
@@ -755,12 +755,22 @@ public class SeriesController : ControllerBase
 
     /// <summary>
     /// Deletes the pending snapshot for a series - after the user applied (or decided to
-    /// discard) the changes. Deliberately not idempotent-failing: dismissing an already-dismissed
-    /// snapshot is a no-op success.
+    /// discard) the changes. Dismissing an already-dismissed snapshot is a no-op success, not a
+    /// failure: the series is already in the state the caller asked for.
+    ///
+    /// Takes the same <see cref="_refreshLock"/> the refresh and the pending apply hold, for the
+    /// same reason they hold it against each other: all three read and then replace this row. A
+    /// dismiss landing between an apply's recompute and its upsert deleted a row the apply then
+    /// put straight back, so the snapshot the user dismissed reappeared.
     /// </summary>
     [HttpPost("pending/dismiss")]
     public async Task<IActionResult> DismissPending([FromQuery] string seriesName)
     {
+        if (!_refreshLock.Wait(0))
+        {
+            return this.ConflictingState("A series refresh or pending apply is already in progress.", "Operation in progress");
+        }
+
         try
         {
             await _seriesService.DismissPendingSeriesRefreshAsync(seriesName);
@@ -770,6 +780,10 @@ public class SeriesController : ControllerBase
         {
             _logger.LogError(ex, "Error dismissing the pending series refresh for {SeriesName}", seriesName);
             return this.UnexpectedError();
+        }
+        finally
+        {
+            _refreshLock.Release();
         }
     }
 

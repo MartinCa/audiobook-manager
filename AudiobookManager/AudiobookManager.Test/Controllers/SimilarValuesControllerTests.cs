@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -163,39 +163,6 @@ public class SimilarValuesControllerTests
         Assert.AreEqual(2, page.TotalCount);
         Assert.AreEqual(1, page.Items.Count);
         Assert.AreEqual(2, page.Items[0].Candidates.Count);
-    }
-
-    [TestMethod]
-    public async Task GetAuthorNames_ReturnsDistinctSortedNames()
-    {
-        _personRepository.Setup(r => r.GetAuthorNamesAsync())
-            .ReturnsAsync(new List<string> { "Amy Author", "Zed Author" });
-
-        var result = await _controller.GetAuthorNames();
-
-        CollectionAssert.AreEqual(new List<string> { "Amy Author", "Zed Author" }, result);
-    }
-
-    [TestMethod]
-    public async Task GetNarratorNames_ReturnsDistinctSortedNames()
-    {
-        _personRepository.Setup(r => r.GetNarratorNamesAsync())
-            .ReturnsAsync(new List<string> { "Amy Narrator", "Zed Narrator" });
-
-        var result = await _controller.GetNarratorNames();
-
-        CollectionAssert.AreEqual(new List<string> { "Amy Narrator", "Zed Narrator" }, result);
-    }
-
-    [TestMethod]
-    public async Task GetSeriesNames_ReturnsSortedKeys()
-    {
-        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync())
-            .ReturnsAsync(new List<string> { "Alpha Series", "Zeta Series" });
-
-        var result = await _controller.GetSeriesNames();
-
-        CollectionAssert.AreEqual(new List<string> { "Alpha Series", "Zeta Series" }, result);
     }
 
     [TestMethod]

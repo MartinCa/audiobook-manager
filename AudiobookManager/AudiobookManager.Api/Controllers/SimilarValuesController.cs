@@ -1,4 +1,4 @@
-using AudiobookManager.Api.Async;
+﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
@@ -74,24 +74,6 @@ public class SimilarValuesController : ControllerBase
         var groups = await _similarValueService.DetectSimilarSeriesAsync(
             skip: (int)((long)page * pageSize), take: pageSize);
         return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items), groups.Total));
-    }
-
-    [HttpGet("author-names")]
-    public async Task<List<string>> GetAuthorNames()
-    {
-        return await _personRepository.GetAuthorNamesAsync();
-    }
-
-    [HttpGet("narrator-names")]
-    public async Task<List<string>> GetNarratorNames()
-    {
-        return await _personRepository.GetNarratorNamesAsync();
-    }
-
-    [HttpGet("series-names")]
-    public async Task<List<string>> GetSeriesNames()
-    {
-        return await _audiobookRepository.GetSeriesNamesAsync();
     }
 
     /// <summary>

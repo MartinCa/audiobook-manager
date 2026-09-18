@@ -1,4 +1,5 @@
-using System.Text.Json;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
@@ -22,7 +23,21 @@ public static class PendingSeriesRefreshPayload
 {
     public const int CurrentVersion = 1;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>
+    /// The enum converter is the point of these options. Web defaults serialize an enum by its
+    /// ordinal, which is a poor fit for a hand-versioned contract read back after an upgrade:
+    /// inserting a member into <see cref="SeriesRefreshChangeType"/> would silently reinterpret
+    /// every stored row - a PartRemoval becoming a MissingBook - without changing the version the
+    /// reader checks. Names are stable under reordering, so the contract survives a change the
+    /// version field would never catch.
+    ///
+    /// Reading stays backward compatible: the converter accepts a number as well as a name, so
+    /// snapshots written before this change still parse. Only new writes use names.
+    /// </summary>
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
 
     /// <summary>One fetched roster entry, in the shape the apply recreates it with.</summary>
     public sealed record RosterEntry(string? Position, string Title, int? Year, string? SourceUrl, bool IsCompilation);

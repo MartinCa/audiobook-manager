@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
@@ -581,6 +581,48 @@ public class SeriesControllerTests
         {
             refreshLock.Release();
         }
+    }
+
+    /// <summary>
+    /// The dismiss takes the same gate the refresh and the pending apply hold, for the same reason
+    /// they hold it against each other: all three read and then replace the pending row. Without
+    /// it a dismiss landing between an apply's recompute and its upsert deleted a row the apply
+    /// then wrote straight back, so the snapshot the user dismissed reappeared.
+    /// </summary>
+    [TestMethod]
+    public async Task DismissPending_RefreshOrApplyAlreadyRunning_ReturnsConflict()
+    {
+        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
+            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        Assert.IsTrue(refreshLock.Wait(0));
+
+        try
+        {
+            var result = await _controller.DismissPending("Mistborn");
+
+            ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict, "A series refresh or pending apply is already in progress.");
+            _seriesService.Verify(s => s.DismissPendingSeriesRefreshAsync(It.IsAny<string>()), Times.Never);
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
+    }
+
+    /// <summary>The gate is released again, so a dismiss does not wedge every later refresh.</summary>
+    [TestMethod]
+    public async Task DismissPending_ReleasesTheRefreshGate()
+    {
+        _seriesService.Setup(s => s.DismissPendingSeriesRefreshAsync("Mistborn")).ReturnsAsync(true);
+
+        await _controller.DismissPending("Mistborn");
+
+        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
+            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        Assert.IsTrue(refreshLock.Wait(0), "the dismiss must not leave the refresh gate held");
+        refreshLock.Release();
     }
 
     [TestMethod]

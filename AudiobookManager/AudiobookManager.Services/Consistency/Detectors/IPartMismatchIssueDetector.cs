@@ -10,7 +10,7 @@ namespace AudiobookManager.Services;
 /// checks one book's on-disk state): the finding comes from the *match* between a roster and the
 /// series' owned books, so the whole series' reconciliation is the unit of work. Both here and in
 /// the series detail, that reconciliation is the same cached computation
-/// (<see cref="ISeriesService.GetReconciliationAsync"/>), so the consistency screen and the
+/// (<see cref="ISeriesReconciliationProvider.GetReconciliationAsync"/>), so the consistency screen and the
 /// series detail report the same books and never drift apart.
 ///
 /// The reconciliation is explicitly bounded (roster and owned-key caps) and throws

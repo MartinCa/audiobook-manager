@@ -32,6 +32,7 @@ public static class DependencyInjection
         .AddScoped<IMissingTagService, MissingTagService>()
         .AddScoped<IUrlCleanupService, UrlCleanupService>()
         .AddScoped<ILanguageBackfillService, LanguageBackfillService>()
+        .AddScoped<ISeriesReconciliationProvider, SeriesReconciliationProvider>()
         .AddScoped<ISeriesService, SeriesService>()
         .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
         .AddScoped<IBulkEditService, BulkEditService>()

@@ -1,5 +1,6 @@
-using AudiobookManager.Database.Repositories;
+﻿using AudiobookManager.Database.Repositories;
 using AudiobookManager.Database.Search;
+using AudiobookManager.Database.Sort;
 using AudiobookManager.Domain;
 using AudiobookManager.Services.Similarity;
 
@@ -11,7 +12,7 @@ namespace AudiobookManager.Services;
 /// drift apart:
 ///
 /// <list type="bullet">
-/// <item><see cref="SeriesService.ComputeReconciliationAsync"/> (the detail page's missing /
+/// <item><c>SeriesReconciliationProvider.ComputeReconciliationAsync</c> (the detail page's missing /
 /// ignored / part-mismatch sections and the library-wide consistency detector), and</item>
 /// <item>the series refresh diff (part updates, missing source books and part removals a pending
 /// refresh surfaces).</item>
@@ -100,24 +101,15 @@ internal static class SeriesRosterMatcher
         /// </summary>
         public List<SeriesOwnedKey> FindMatches(BookKey expected)
         {
+            // No position fast path here, unlike Contains. That index can only short-circuit a
+            // search that stops at the first hit; this one needs every match, so the full scan
+            // below runs regardless and the index pass could only re-find books the scan already
+            // reaches - paying for a linear dedupe scan per hit to add nothing.
             var matches = new List<SeriesOwnedKey>();
-
-            // Fast path only - never a substitute for the scan below.
-            if (!string.IsNullOrWhiteSpace(expected.Position))
-            {
-                foreach (var item in _byPosition[NormalizePosition(expected.Position!)])
-                {
-                    if (IsSameBook(expected, item.BookKey))
-                    {
-                        matches.Add(item.Key);
-                    }
-                }
-            }
 
             foreach (var item in _items)
             {
-                if (IsSameBook(expected, item.BookKey)
-                    && !matches.Contains(item.Key))
+                if (IsSameBook(expected, item.BookKey))
                 {
                     matches.Add(item.Key);
                 }
@@ -233,21 +225,23 @@ internal static class SeriesRosterMatcher
 
     /// <summary>
     /// The total-order key a roster's positions sort by for display: numeric parts by value,
-    /// non-numeric parts after them alphabetically, blank parts last. Mirrors the SQL
-    /// <c>SeriesPartSortKey</c> the owned-books page orders by.
+    /// non-numeric parts after them alphabetically, blank parts last.
+    ///
+    /// The tier decision is <see cref="SeriesPartSortKey.KeyPlain"/>'s, not a restatement of it -
+    /// the same function the owned-books page orders by in SQL. It used to be restated here, and
+    /// the copy got the blank tier wrong: blanks keyed on <c>Double.MaxValue</c> and non-numeric
+    /// parts on <c>Double.MaxValue - 1</c>, which is the same double, so the two tiers tied and
+    /// the empty text this key pairs with a blank sorted them ahead of every named position
+    /// instead of last. Only the text tiebreaker is this method's own.
     /// </summary>
     internal static (double Numeric, string Text) PositionSortKey(string? position)
     {
-        if (string.IsNullOrWhiteSpace(position))
-        {
-            return (double.MaxValue, string.Empty);
-        }
+        var tier = SeriesPartSortKey.KeyPlain(position);
 
-        if (double.TryParse(position, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numeric))
-        {
-            return (numeric, string.Empty);
-        }
-
-        return (double.MaxValue - 1, position);
+        // Only the non-numeric tier wants a text tiebreaker: numeric parts are already ordered by
+        // their value, and blanks are indistinguishable from each other. A position that parses to
+        // exactly Double.MaxValue lands here too and simply carries its text along, which orders
+        // it no differently against the ties it shares that key with.
+        return (tier, tier == SeriesPartSortKey.NonNumericTier ? position!.Trim() : string.Empty);
     }
 }

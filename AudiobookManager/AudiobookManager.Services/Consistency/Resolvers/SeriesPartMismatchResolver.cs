@@ -1,4 +1,4 @@
-using AudiobookManager.Database.Models;
+﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -37,20 +37,20 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IConsistencyIssueRepository _issueRepository;
-    private readonly ISeriesService _seriesService;
+    private readonly ISeriesReconciliationProvider _reconciliation;
     private readonly ILogger<SeriesPartMismatchResolver> _logger;
 
     public SeriesPartMismatchResolver(
         IAudiobookRepository audiobookRepository,
         IAudiobookService audiobookService,
         IConsistencyIssueRepository issueRepository,
-        ISeriesService seriesService,
+        ISeriesReconciliationProvider reconciliation,
         ILogger<SeriesPartMismatchResolver> logger)
     {
         _audiobookRepository = audiobookRepository;
         _audiobookService = audiobookService;
         _issueRepository = issueRepository;
-        _seriesService = seriesService;
+        _reconciliation = reconciliation;
         _logger = logger;
     }
 
@@ -80,7 +80,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
             return await ClearIssueBookNoLongerInSeries(issue);
         }
 
-        var reconciliation = await _seriesService.GetReconciliationAsync(dbAudiobook.Series);
+        var reconciliation = await _reconciliation.GetReconciliationAsync(dbAudiobook.Series);
         var currentMismatch = reconciliation.PartMismatches
             .FirstOrDefault(m => m.AudiobookId == dbAudiobook.Id);
 

@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Scraping;
@@ -242,6 +242,182 @@ public class BookSeriesMapperTests
         var mapped = await mapper.MapBookSeries(Results("Stormlight Archive"));
 
         Assert.AreEqual("The Stormlight Archive", mapped.Single().SeriesName);
+    }
+
+    /// <summary>
+    /// A pattern that compiles but backtracks catastrophically must cost its own mapping and
+    /// nothing else. Before the match timeout this did not "fail" - it never returned: every
+    /// scraped result runs through the mapping scan, so one such row wedged the request thread
+    /// and with it every metadata search from then on. The test can only exist because the match
+    /// is now bounded; against the untimed code it hangs rather than going red.
+    ///
+    /// No fixed wait is involved: the assertion is on the real outcome (the other mapping still
+    /// applied), and the elapsed check only states that the scan returned in a bounded time
+    /// rather than running to completion, which for this input would take longer than the suite.
+    /// </summary>
+    [TestMethod]
+    public async Task MapBookSeries_CatastrophicallyBacktrackingPattern_IsSkippedNotHung()
+    {
+        var evilOwner = new Series { Name = "Evil" };
+        _db.Series.Add(evilOwner);
+        _db.SaveChanges();
+        // The classic nested-quantifier blowup. Ordered before the Stormlight row by id, so the
+        // scan reaches it first and has to survive it to get to the mapping that does apply.
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^(a+)+$", false, evilOwner.Id));
+        await _db.SaveChangesAsync();
+
+        var mapper = CreateMapper();
+        // Every prefix matches (a+)+ and the trailing "!" defeats the anchor, so the engine walks
+        // every partition of the a-run before giving up - exponential in the run's length.
+        var pathological = new string('a', 40) + "!";
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var mapped = await mapper.MapBookSeries(Results(pathological, "Stormlight Archive"));
+        started.Stop();
+
+        // The runaway row does not match, so its input is passed through untouched...
+        Assert.AreEqual(pathological, mapped[0].SeriesName);
+        // ...and the scan carried on to the mapping that does apply.
+        Assert.AreEqual("The Stormlight Archive", mapped[1].SeriesName);
+        Assert.IsTrue(
+            started.Elapsed < TimeSpan.FromSeconds(10),
+            $"the mapping scan must be bounded by the match timeout, took {started.Elapsed}");
+    }
+
+    /// <summary>
+    /// The timeout is applied by construction in SeriesMappingPattern, so it cannot be forgotten
+    /// at a call site. Asserted on the compiled Regex itself rather than only through behaviour:
+    /// a future call site that builds one with `new Regex(...)` would still pass the test above
+    /// on a fast enough machine, but not this one.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_Compile_CarriesTheMatchTimeout()
+    {
+        var regex = SeriesMappingPattern.Compile("^Stormlight.*");
+
+        Assert.AreEqual(SeriesMappingPattern.MatchTimeout, regex.MatchTimeout);
+        Assert.AreNotEqual(System.Text.RegularExpressions.Regex.InfiniteMatchTimeout, regex.MatchTimeout);
+    }
+
+    /// <summary>
+    /// An ordinary pattern compiles onto the linear-time engine, where backtracking - and so the
+    /// timeout - cannot happen at all. This is what keeps the per-match timeout from multiplying
+    /// across a mapping set: a pattern here is never part of that cost.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_Compile_UsesTheLinearTimeEngineWhenThePatternAllowsIt()
+    {
+        foreach (var pattern in new[] { "^Stormlight.*", "^(a+)+$", "Mistborn|Wax and Wayne" })
+        {
+            var regex = SeriesMappingPattern.Compile(pattern);
+
+            Assert.IsFalse(
+                SeriesMappingPattern.CanBacktrack(regex),
+                $"'{pattern}' should compile onto the NonBacktracking engine");
+        }
+    }
+
+    /// <summary>
+    /// A pattern using a construct that engine does not implement still compiles - the engine
+    /// choice must never change which patterns are valid, only how the pathological ones behave.
+    /// These are the ones the timeout remains load-bearing for.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_Compile_FallsBackForConstructsTheLinearEngineLacks()
+    {
+        // A lookahead and a backreference: both legal regex, neither supported by NonBacktracking.
+        foreach (var pattern in new[] { "^(?!Skip)Storm.*", @"^(\w+) \1$" })
+        {
+            var regex = SeriesMappingPattern.Compile(pattern);
+
+            Assert.IsTrue(
+                SeriesMappingPattern.CanBacktrack(regex),
+                $"'{pattern}' should fall back to the classic engine");
+            Assert.AreEqual(SeriesMappingPattern.MatchTimeout, regex.MatchTimeout);
+        }
+
+        Assert.IsTrue(SeriesMappingPattern.Compile("^(?!Skip)Storm.*").IsMatch("Stormlight"));
+        Assert.IsFalse(SeriesMappingPattern.Compile("^(?!Skip)Storm.*").IsMatch("SkipStorm"));
+    }
+
+    /// <summary>
+    /// A pattern that does time out is disabled for the rest of the scope rather than merely
+    /// skipped for the one result. The timeout is per match and the scan runs once per scraped
+    /// result, so a pattern that stayed enabled would charge its full timeout on every result of
+    /// every search in the request. Asserted as a cost ratio rather than an absolute duration:
+    /// twenty results must not cost twenty timeouts.
+    /// </summary>
+    [TestMethod]
+    public async Task MapBookSeries_APatternThatTimesOut_IsDisabledForTheRestOfTheScope()
+    {
+        var evilOwner = new Series { Name = "Evil" };
+        _db.Series.Add(evilOwner);
+        _db.SaveChanges();
+        // A lookahead forces the classic engine, and the nested quantifier then blows up on it -
+        // the only shape that can reach the timeout at all now.
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^(?!x)(a+)+$", false, evilOwner.Id));
+        await _db.SaveChangesAsync();
+
+        var mapper = CreateMapper();
+        var pathological = new string('a', 40) + "!";
+        var results = Results(Enumerable.Repeat(pathological, 20).ToArray());
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var mapped = await mapper.MapBookSeries(results);
+        started.Stop();
+
+        Assert.AreEqual(20, mapped.Count);
+        // Twenty results, one timeout: well under the twenty the un-disabled pattern would cost.
+        Assert.IsTrue(
+            started.Elapsed < TimeSpan.FromMilliseconds(SeriesMappingPattern.MatchTimeout.TotalMilliseconds * 10),
+            $"a timed-out pattern must not be re-run for every result, took {started.Elapsed}");
+    }
+
+    /// <summary>
+    /// The mapping set is bounded at the query boundary. It is scanned once per scraped result, so
+    /// its size is a multiplier on every metadata search and cannot be left to grow freely. The
+    /// cap keeps the lowest ids, so which patterns survive it is stable rather than whatever order
+    /// the database happened to return.
+    /// </summary>
+    [TestMethod]
+    public async Task MapBookSeries_MoreMappingsThanTheCap_AppliesTheLowestIdsAndIgnoresTheRest()
+    {
+        var owner = _db.Series.Single(s => s.Name == "The Stormlight Archive");
+
+        // Fillers that match nothing, then one that would match - deliberately last, so its id is
+        // past the cap. Setup already seeded two rows, so this crosses MaxMappings.
+        _db.SeriesMappings.AddRange(
+            Enumerable.Range(0, BookSeriesMapper.MaxMappings)
+                .Select(i => new SeriesMapping(default, $"^never-matches-{i}$", false, owner.Id)));
+        await _db.SaveChangesAsync();
+        _db.SeriesMappings.Add(new SeriesMapping(default, "^Way of Kings.*", false, owner.Id));
+        await _db.SaveChangesAsync();
+
+        var mapper = CreateMapper();
+
+        var mapped = await mapper.MapBookSeries(Results("Way of Kings", "Stormlight Archive"));
+
+        // Past the cap, so it never gets to apply: the value passes through unmapped.
+        Assert.AreEqual("Way of Kings", mapped[0].SeriesName);
+        // Seeded first (id 1), so it is still within the cap and still applies.
+        Assert.AreEqual("The Stormlight Archive", mapped[1].SeriesName);
+    }
+
+    /// <summary>
+    /// TryCompile reports a syntax error instead of throwing, which is what lets the write
+    /// endpoints refuse the pattern with a message rather than accepting a row that is silently
+    /// skipped forever after.
+    /// </summary>
+    [TestMethod]
+    public void SeriesMappingPattern_TryCompile_ReportsASyntaxErrorInsteadOfThrowing()
+    {
+        Assert.IsFalse(SeriesMappingPattern.TryCompile("([unclosed", out var broken, out var error));
+        Assert.IsNull(broken);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error));
+
+        Assert.IsTrue(SeriesMappingPattern.TryCompile("^ok$", out var good, out var noError));
+        Assert.IsNotNull(good);
+        Assert.IsNull(noError);
     }
 
     [TestMethod]

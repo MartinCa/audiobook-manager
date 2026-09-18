@@ -36,7 +36,7 @@ public interface ISeriesService
     /// ignored and part-mismatched books, each with its full total. Per request the reads are
     /// bounded: one catalog metadata row, one SQL page of owned books, and the cached
     /// reconciliation. The reconciliation itself (classifying the roster - the metadata source's
-    /// stored series page, hard-capped by <c>SeriesService.MaxReconciliationRosterEntries</c> -
+    /// stored series page, hard-capped by <c>SeriesReconciliationProvider.MaxReconciliationRosterEntries</c> -
     /// against the series' owned position/title keys, capped too) is computed once per series per
     /// change by <c>ISeriesReconciliationCache</c>, never per page request, so a section request
     /// never materializes the roster plus every owned book of the series.

@@ -1,4 +1,4 @@
-using AudiobookManager.Database;
+﻿using AudiobookManager.Database;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Settings;
@@ -147,31 +147,6 @@ public class PersonRepositorySearchTests
         };
 
         await _audiobookRepository.InsertAudiobook(audiobook);
-    }
-
-    [TestMethod]
-    public async Task GetNarratorNamesAsync_OrdersForAReaderNotByCodePoint()
-    {
-        await SeedBookWithNarratorAsync("Book A", "alice munro");
-        await SeedBookWithNarratorAsync("Book B", "Zadie Smith");
-        await SeedBookWithNarratorAsync("Book C", "Avila Narrator");
-
-        var names = await _repository.GetNarratorNamesAsync();
-
-        CollectionAssert.AreEqual(
-            new List<string> { "alice munro", "Avila Narrator", "Zadie Smith" },
-            names);
-    }
-
-    [TestMethod]
-    public async Task GetNarratorNamesAsync_ExcludesPeopleWithNoNarratedBooks()
-    {
-        await SeedBookWithNarratorAsync("Book A", "Narrating Narrator");
-        await _repository.GetOrCreatePerson("Author Only");
-
-        var names = await _repository.GetNarratorNamesAsync();
-
-        CollectionAssert.AreEqual(new List<string> { "Narrating Narrator" }, names);
     }
 
     [TestMethod]

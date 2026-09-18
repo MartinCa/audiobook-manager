@@ -1,4 +1,4 @@
-using AudiobookManager.Database.Models;
+﻿using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using Microsoft.Extensions.Logging;
@@ -10,23 +10,27 @@ namespace AudiobookManager.Services;
 /// Maps the cached per-series reconciliation's part mismatches to consistency issues. See
 /// <see cref="IPartMismatchIssueDetector"/> for why this is a library-wide sweep and not an
 /// <see cref="IConsistencyIssueDetector"/>. The per-series work is delegated to
-/// <see cref="ISeriesService.GetReconciliationAsync(string)"/> - never reimplemented here - so
-/// the detected findings always agree with what the series detail renders, and a full check that
-/// follows a series-detail browse reuses the cache instead of recomputing.
+/// <see cref="ISeriesReconciliationProvider.GetReconciliationAsync(string)"/> - never
+/// reimplemented here - so the detected findings always agree with what the series detail renders,
+/// and a full check that follows a series-detail browse reuses the cache instead of recomputing.
+///
+/// It depends on that narrow interface rather than <c>ISeriesService</c> on purpose: the wide one
+/// pulls in <c>ILibraryConsistencyService</c>, which owns this detector, and the resulting cycle
+/// left the container unable to construct it at all.
 /// </summary>
 public class PartMismatchIssueDetector : IPartMismatchIssueDetector
 {
     private readonly ISeriesRepository _seriesRepository;
-    private readonly ISeriesService _seriesService;
+    private readonly ISeriesReconciliationProvider _reconciliation;
     private readonly ILogger<PartMismatchIssueDetector> _logger;
 
     public PartMismatchIssueDetector(
         ISeriesRepository seriesRepository,
-        ISeriesService seriesService,
+        ISeriesReconciliationProvider reconciliation,
         ILogger<PartMismatchIssueDetector> logger)
     {
         _seriesRepository = seriesRepository;
-        _seriesService = seriesService;
+        _reconciliation = reconciliation;
         _logger = logger;
     }
 
@@ -48,7 +52,7 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
         {
             try
             {
-                var reconciliation = await _seriesService.GetReconciliationAsync(seriesName);
+                var reconciliation = await _reconciliation.GetReconciliationAsync(seriesName);
                 foreach (var mismatch in reconciliation.PartMismatches)
                 {
                     issues.Add(ToIssue(mismatch));
@@ -77,7 +81,7 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
 
         try
         {
-            var reconciliation = await _seriesService.GetReconciliationAsync(audiobook.Series);
+            var reconciliation = await _reconciliation.GetReconciliationAsync(audiobook.Series);
             return reconciliation.PartMismatches
                 .Where(m => m.AudiobookId == audiobook.Id)
                 .Select(ToIssue)

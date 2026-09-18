@@ -41,13 +41,13 @@ public interface IPersonRepository
     /// </summary>
     Task<List<AuthorSummaryRow>> SearchNarratorNamesAsync(string query, int limit);
 
-    /// <summary>Distinct names of authors that have at least one book. Backs the entry-time
-    /// autocomplete, which needs nothing but the strings.</summary>
+    /// <summary>
+    /// Distinct names of authors that have at least one book. This is the similar-author
+    /// detection's input, not a response: the whole set is what the grouping compares, and it
+    /// stays behind SimilarValueService's bounded+cached computation. The entry-time autocomplete
+    /// it once also backed is <see cref="SearchAuthorNamesAsync"/>, which is bounded.
+    /// </summary>
     Task<List<string>> GetAuthorNamesAsync();
-
-    /// <summary>Distinct names of narrators that have at least one book. Backs the entry-time
-    /// autocomplete, which needs nothing but the strings.</summary>
-    Task<List<string>> GetNarratorNamesAsync();
 
     /// <summary>Every author that has at least one book, with its book count projected in SQL.</summary>
     Task<List<AuthorSummaryRow>> GetAllAuthorSummariesAsync();

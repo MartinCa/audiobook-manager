@@ -24,6 +24,34 @@ public interface IBookSeriesMapper
 
 public partial class BookSeriesMapper : IBookSeriesMapper
 {
+    /// <summary>
+    /// One mapping compiled for this scope. Mutable in one respect only: <see cref="Disabled"/>
+    /// is set when the pattern blows its match timeout, which takes it out of the rest of this
+    /// scope's scans.
+    ///
+    /// That write races, and is deliberately left unsynchronized. MapBookSeries fans its results
+    /// out with Task.WhenAll over one shared mapping list, so two results can both reach the same
+    /// runaway pattern before either sets the flag. A bool write cannot tear, and the value only
+    /// ever goes false -> true, so the worst a lost race costs is one extra timeout - never a
+    /// wrong mapping. A lock here would serialize every match to save that.
+    /// </summary>
+    private sealed class CompiledMapping(Regex compiledRegex, SeriesMapping mapping, string targetSeriesName)
+    {
+        public Regex CompiledRegex { get; } = compiledRegex;
+        public SeriesMapping Mapping { get; } = mapping;
+        public string TargetSeriesName { get; } = targetSeriesName;
+        public bool Disabled { get; set; }
+    }
+
+    /// <summary>
+    /// The most mapping patterns one scope will match against. Patterns are hand-entered on the
+    /// series detail page, so a real library stays far under this; it bounds the per-result scan
+    /// so the set cannot grow into a cost multiplier, in the same spirit as the repository's
+    /// per-series cap. Ordered by id, so which patterns survive the cap is stable rather than
+    /// whatever the database happened to return.
+    /// </summary>
+    public const int MaxMappings = 1_000;
+
     [GeneratedRegex(@"Series$", RegexOptions.IgnoreCase)]
     private static partial Regex ReSeriesEnd();
 
@@ -47,13 +75,13 @@ public partial class BookSeriesMapper : IBookSeriesMapper
     /// everyone else awaits the same Task. Per-scope rather than cached longer, so a mapping the
     /// user just edited is picked up by the next request.
     /// </summary>
-    private readonly Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>>> _mappings;
+    private readonly Lazy<Task<IList<CompiledMapping>>> _mappings;
 
     public BookSeriesMapper(DatabaseContext db, ILogger<BookSeriesMapper> logger)
     {
         _db = db;
         _logger = logger;
-        _mappings = new Lazy<Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>>>(
+        _mappings = new Lazy<Task<IList<CompiledMapping>>>(
             LoadRegexMappings, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
@@ -83,14 +111,21 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         return mappedGroups.ToList();
     }
 
-    public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>? mappings = null)
+    /// <summary>
+    /// Maps one result's series value. The public single-argument form is what external callers
+    /// use; MapBookSeries passes the already-loaded set so a fan-out does not re-resolve it.
+    /// </summary>
+    public async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result) =>
+        await MapSingleBookSeries(result, null);
+
+    private async Task<MetadataSeriesSearchResult> MapSingleBookSeries(MetadataSeriesSearchResult result, IList<CompiledMapping>? mappings)
     {
         var allMappings = mappings ?? await GetRegexMappings();
 
         var cleanedResult = CleanSeriesName(result);
 
-        var matchingMapping = allMappings.FirstOrDefault(x => x.CompiledRegex.IsMatch(cleanedResult.SeriesName));
-        if (matchingMapping != default)
+        var matchingMapping = FirstMatch(allMappings, cleanedResult.SeriesName);
+        if (matchingMapping is not null)
         {
             return new MetadataSeriesSearchResult(matchingMapping.TargetSeriesName)
             {
@@ -103,6 +138,55 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         return cleanedResult;
     }
 
+    /// <summary>
+    /// The first mapping whose pattern matches, in id order (first-match wins - the unique index
+    /// on the pattern, plus the ordered load, is what makes that deterministic).
+    ///
+    /// A pattern that blows SeriesMappingPattern.MatchTimeout is treated as not matching, and the
+    /// scan carries on with the rest. These are user-authored patterns run against every scraped
+    /// result, so one catastrophically backtracking row must cost its own mapping and nothing
+    /// else; without the timeout it wedged the request thread outright, and failing the whole
+    /// search instead would hand one bad row the same power for a different reason.
+    ///
+    /// Such a pattern is also disabled for the remainder of the scope - see the catch below for
+    /// why skipping it per result is not enough.
+    /// </summary>
+    private CompiledMapping? FirstMatch(
+        IList<CompiledMapping> mappings,
+        string seriesName)
+    {
+        foreach (var mapping in mappings)
+        {
+            if (mapping.Disabled)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (mapping.CompiledRegex.IsMatch(seriesName))
+                {
+                    return mapping;
+                }
+            }
+            catch (RegexMatchTimeoutException ex)
+            {
+                // Disabled for the rest of this scope, not just skipped for this result. The
+                // timeout is per match and this scan runs once per scraped result, so a runaway
+                // pattern that stayed enabled would charge its full timeout on every result of
+                // every search in the request - N bad patterns x N results. A pattern that cannot
+                // answer within the timeout has no answer to give, so dropping it after the first
+                // proof of that costs nothing but the one timeout.
+                mapping.Disabled = true;
+                _logger.LogWarning(ex,
+                    "Series mapping {MappingId} ('{Pattern}') timed out matching '{SeriesName}' and is disabled for this request; the pattern backtracks catastrophically and should be simplified",
+                    mapping.Mapping.Id, mapping.Mapping.Regex, seriesName);
+            }
+        }
+
+        return null;
+    }
+
     private MetadataSeriesSearchResult CleanSeriesName(MetadataSeriesSearchResult result)
     {
         return new MetadataSeriesSearchResult(ReSeriesEnd().Replace(result.SeriesName, "").Trim())
@@ -113,24 +197,50 @@ public partial class BookSeriesMapper : IBookSeriesMapper
         };
     }
 
-    private Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>> GetRegexMappings() => _mappings.Value;
+    private Task<IList<CompiledMapping>> GetRegexMappings() => _mappings.Value;
 
-    private async Task<IList<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>> LoadRegexMappings()
+    private async Task<IList<CompiledMapping>> LoadRegexMappings()
     {
         // Mappings are owned by a Series row now: the target is always the owner's name, never a
         // value on the mapping itself. The Include resolves it in one LEFT JOIN, so this stays a
         // single read of the table (the BookSeriesMapperTests counters assert exactly that).
-        var mappings = await _db.SeriesMappings.AsNoTracking().Include(m => m.Series).ToListAsync();
+        //
+        // Bounded at the query boundary (MaxMappings + 1 rows, so the overflow is detectable
+        // without transferring the excess): this set is scanned once per scraped result, so an
+        // unbounded read makes its size a multiplier on every metadata search. Ordered by id so
+        // the surviving patterns are stable rather than whatever order the database returned.
+        var mappings = await _db.SeriesMappings
+            .AsNoTracking()
+            .Include(m => m.Series)
+            .OrderBy(m => m.Id)
+            .Take(MaxMappings + 1)
+            .ToListAsync();
+
+        if (mappings.Count > MaxMappings)
+        {
+            // Truncated rather than refused: a metadata search that returns unmapped series values
+            // is far better than one that fails outright, and the cap is far above any
+            // hand-maintained set. The log names the cap so the cause is not a mystery.
+            _logger.LogWarning(
+                "More than {MaxMappings} series mapping patterns exist; only the first {MaxMappings} (by id) are applied to this request's metadata results",
+                MaxMappings, MaxMappings);
+            mappings = mappings.Take(MaxMappings).ToList();
+        }
 
         // No RegexOptions.Compiled: these are now built once per scope rather than once per call,
         // but a scope is a single request, so the handful of matches a pattern is then used for
         // still does not repay compiling it to IL. That trade would only change if these were
         // cached across requests, which they deliberately are not - see the note on _mappings.
         //
+        // SeriesMappingPattern.Compile applies the per-match timeout that bounds a catastrophically
+        // backtracking pattern; see that class for why these two failure modes are handled here
+        // rather than trusted to the pattern's author.
+        //
         // A user-supplied pattern that does not compile must not take the whole search result set
         // down with it: every scraped result runs through this, so one bad mapping row otherwise
-        // turned every metadata search into a 500 with a regex parse error.
-        var compiled = new List<(Regex CompiledRegex, SeriesMapping Mapping, string TargetSeriesName)>(mappings.Count);
+        // turned every metadata search into a 500 with a regex parse error. The write endpoints
+        // reject such a pattern up front now, so reaching this is a row that predates that check.
+        var compiled = new List<CompiledMapping>(mappings.Count);
         foreach (var mapping in mappings)
         {
             var targetSeriesName = mapping.Series?.Name;
@@ -143,7 +253,7 @@ public partial class BookSeriesMapper : IBookSeriesMapper
 
             try
             {
-                compiled.Add((new Regex(mapping.Regex), mapping, targetSeriesName));
+                compiled.Add(new CompiledMapping(SeriesMappingPattern.Compile(mapping.Regex), mapping, targetSeriesName));
             }
             catch (ArgumentException ex)
             {

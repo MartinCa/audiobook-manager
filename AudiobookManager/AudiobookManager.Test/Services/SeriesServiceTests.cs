@@ -1,4 +1,4 @@
-using AudiobookManager.Domain;
+﻿using AudiobookManager.Domain;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
@@ -49,6 +49,11 @@ public class SeriesServiceTests
             new AudiobookSaveGate(),
             _libraryConsistencyService.Object,
             _reconciliationCache,
+            // A real provider over the same mocked repositories, not a mock of it: the
+            // reconciliation is what most of these tests actually assert on, and it is only
+            // behind its own interface to keep the consistency graph off SeriesService.
+            new SeriesReconciliationProvider(
+                _audiobookRepository.Object, _seriesRepository.Object, _reconciliationCache),
             scrapers,
             _logger.Object);
 
@@ -513,13 +518,13 @@ public class SeriesServiceTests
             .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
             .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
         _seriesRepository
-            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .ReturnsAsync((new Series { Id = 1, Name = "Mistborn" }, Overflow: true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
 
         _seriesRepository.Verify(
-            r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries),
+            r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries),
             Times.Once,
             "the roster fetch is bounded to the reconciliation cap");
         _audiobookRepository.Verify(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()), Times.Never,
@@ -544,16 +549,16 @@ public class SeriesServiceTests
             .Setup(r => r.GetSeriesOwnedBooksPageAsync("Mistborn", 0, 100))
             .ReturnsAsync((new List<SeriesOwnedBookRow>(), 1));
         _seriesRepository
-            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesService.MaxReconciliationRosterEntries))
+            .Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .ReturnsAsync((catalogRow, Overflow: false));
         _audiobookRepository
-            .Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys))
+            .Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationOwnedKeys))
             .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => GetDetailPageAsync("Mistborn"));
 
         _audiobookRepository.Verify(
-            r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesService.MaxReconciliationOwnedKeys),
+            r => r.GetSeriesOwnedKeysAsync("Mistborn", SeriesReconciliationProvider.MaxReconciliationOwnedKeys),
             Times.Once,
             "the owned-key fetch is bounded to the reconciliation cap");
     }
@@ -2113,6 +2118,73 @@ public class SeriesServiceTests
         _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(5), Times.Once);
     }
 
+    /// <summary>
+    /// The batch total counts the source-name adoption only when it will actually run. It used to
+    /// be counted straight off the request flag, while the adoption itself additionally required a
+    /// source name that is non-blank and different from the current one - so a request asking to
+    /// adopt a name that is already the series' own reported a total one higher than anything that
+    /// could ever be processed, and the review dialog's progress bar stopped one short of its end.
+    ///
+    /// The trimmed comparison is the same gate the dialog puts on the checkbox, so the two sides
+    /// now agree on what counts as an adoptable name.
+    /// </summary>
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_AnAdoptionThatCannotRun_IsNotCountedInTheTotal()
+    {
+        var payload = new PendingSeriesRefreshPayload.Payload(
+            PendingSeriesRefreshPayload.CurrentVersion,
+            "Mistborn",
+            "Hardcover",
+            "https://hardcover.app/series/42",
+            // Only whitespace apart from the series' own name: nothing to adopt.
+            "  Mistborn  ",
+            new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+            new List<PendingSeriesRefreshPayload.RosterEntry> { new("1", "Book A", 2006, null, false) },
+            new List<PendingSeriesRefreshPayload.Change>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, "Book A", "01", "1", "Book A", null, null, null),
+            });
+
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(payload),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
+            .ReturnsAsync(new Series { Name = "Mistborn" });
+
+        var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) => b);
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
+
+        var totals = new List<(int Processed, int Total)>();
+        var request = new SeriesRefreshApplyRequest(
+            AdoptSourceSeriesName: true,
+            new List<SeriesRefreshApplyChange>
+            {
+                new(SeriesRefreshChangeType.PartUpdate, 5, null, null),
+            });
+
+        var (processed, succeeded, failed) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (p, t, _, _) => { totals.Add((p, t)); return Task.CompletedTask; });
+
+        Assert.AreEqual(1, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(0, failed);
+        // One progress report, and it is a completed batch rather than 1 of 2.
+        CollectionAssert.AreEqual(new[] { (1, 1) }, totals);
+        // Nothing was renamed: the "adopted" name is the series' own, modulo whitespace.
+        Assert.AreEqual("Mistborn", book.Series);
+    }
+
     // Regression for the refresh review finding applied to the apply's recompute tail: an entry
     // the user has already ignored must not re-enter the pending snapshot there either. The apply
     // recomputes the remaining changes against the stored roster, so without the same exemption
@@ -2150,8 +2222,9 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn"))
             .ReturnsAsync(new Series { Name = "Mistborn" });
         // The stored roster carries the user's ignore decision (the refresh carried it across).
-        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn"))
-            .ReturnsAsync(new Series
+        // Read through the bounded variant, like the rest of the reconciliation paths.
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new Series
             {
                 Name = "Mistborn",
                 ExpectedBooks = new List<SeriesExpectedBook>
@@ -2159,7 +2232,7 @@ public class SeriesServiceTests
                     MakeExpected(10, "Book A", "1"),
                     MakeExpected(13, "Secret History", "3.5", ignored: true),
                 },
-            });
+            }, false));
 
         var book = new DomainAudiobook(new List<DomainPerson>(), "Book A", 2006, new AudiobookFileInfo("/l/book.m4b", "book.m4b", 10));
         _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
@@ -2686,6 +2759,41 @@ public class SeriesServiceTests
         Assert.AreEqual("^mistborn.*$", result[0].Regex);
         Assert.IsFalse(result[0].WarnAboutPart);
         Assert.IsTrue(result[1].WarnAboutPart);
+    }
+
+    [TestMethod]
+    public async Task CreateSeriesMappingAsync_APatternThatDoesNotCompile_IsRefusedBeforeAnythingIsWritten()
+    {
+        // The pattern used to be accepted and then silently skipped on every mappings load, so
+        // the mapping simply never fired and the only evidence was a server log line - which a
+        // user cannot tell apart from a valid pattern that matches nothing. ArgumentException is
+        // what the controller turns into a 400 carrying the message.
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().CreateSeriesMappingAsync(
+                "Some Series", new DomainSeriesMapping(null, "([unclosed", false)));
+
+        StringAssert.Contains(ex.Message, "([unclosed");
+
+        // Refused up front: no owner row is created for a mapping that cannot be stored, which
+        // would otherwise surface as a phantom series on the overview.
+        _seriesRepository.Verify(r => r.GetOrCreateByNameAsync(It.IsAny<string>()), Times.Never);
+        _seriesMappingRepository.Verify(
+            r => r.CreateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateSeriesMappingAsync_APatternThatDoesNotCompile_IsRefusedBeforeAnythingIsWritten()
+    {
+        // Same guard on the edit path: an existing working pattern must not be replaceable by one
+        // that can never fire.
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            MakeService().UpdateSeriesMappingAsync(
+                "Some Series", 7, new DomainSeriesMapping(7, "a{2,1}", false)));
+
+        StringAssert.Contains(ex.Message, "a{2,1}");
+
+        _seriesMappingRepository.Verify(
+            r => r.UpdateSeriesMappingAsync(It.IsAny<DbSeriesMapping>()), Times.Never);
     }
 
     [TestMethod]

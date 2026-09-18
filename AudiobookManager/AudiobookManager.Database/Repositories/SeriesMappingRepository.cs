@@ -77,6 +77,7 @@ public class SeriesMappingRepository : ISeriesMappingRepository
             return null;
         }
 
+        var entry = _db.Entry(existing);
         existing.Regex = seriesMapping.Regex;
         existing.WarnAboutPart = seriesMapping.WarnAboutPart;
         try
@@ -85,7 +86,13 @@ public class SeriesMappingRepository : ISeriesMappingRepository
         }
         catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
         {
-            // Same duplicate-pattern path as CreateSeriesMappingAsync: a 4xx, not a 500.
+            // Same duplicate-pattern path as CreateSeriesMappingAsync: a 4xx, not a 500. The
+            // failed edit is rolled back off the tracked entity first, for the same reason the
+            // create detaches its added one - the context is request-scoped and the rejected
+            // values would otherwise still be pending on it, so any later SaveChanges in the same
+            // request would retry the write that just failed.
+            entry.CurrentValues.SetValues(entry.OriginalValues);
+            entry.State = EntityState.Unchanged;
             throw new ArgumentException($"A series mapping with the pattern '{seriesMapping.Regex}' already exists.");
         }
 

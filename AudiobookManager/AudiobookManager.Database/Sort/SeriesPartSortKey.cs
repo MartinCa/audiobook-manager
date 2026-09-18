@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,11 +8,15 @@ namespace AudiobookManager.Database.Sort;
 /// Orders a series-part column the way a reader does, in SQL: a numeric part sorts by its value -
 /// "2" before "17.5" - while SQLite's BINARY collation would put them in code-point order
 /// ("17.5" before "2"). A non-numeric part ("Book 2") sorts after every numeric one, and a blank
-/// part (null, empty, whitespace-only) sorts last. The tier order (numeric by value, non-numeric
-/// after, blank last) mirrors <c>SeriesService.PositionSortKey</c>, which orders the expected-books
-/// roster the same way - but it is not full parity: here every non-numeric part collapses to one
-/// key and the caller's then-by columns (BookName, Id) order them, whereas <c>PositionSortKey</c>
-/// also sorts non-numeric parts by their text.
+/// part (null, empty, whitespace-only) sorts last.
+///
+/// <see cref="KeyPlain"/> is the single definition of that tier order, shared rather than mirrored:
+/// <c>SeriesRosterMatcher.PositionSortKey</c>, which orders the expected-books roster in memory,
+/// calls it for the numeric component of its own key. It used to restate the tiers instead and got
+/// the blank tier wrong (see <see cref="BlankTier"/>), so the two are deliberately one
+/// implementation now. The remaining difference is only what each caller adds on top: the roster
+/// sort appends the part's text so its non-numeric parts order alphabetically, while here every
+/// non-numeric part ties and the caller's then-by columns (BookName, Id) break it.
 ///
 /// This has to live in a SQLite scalar function rather than borrowing the service's in-memory
 /// sort, because the series detail's owned list is paged in SQL and a paged query needs its total
@@ -41,31 +45,38 @@ public static class SeriesPartSortKey
     private const NumberStyles NumericStyles = NumberStyles.Float | NumberStyles.AllowThousands;
 
     /// <summary>
-    /// The actual CLR implementation, used as the registered SQL function body. It shares
-    /// <c>SeriesService.PositionSortKey</c>'s tier order but is deliberately not a full mirror:
-    /// here every non-numeric part collapses to a single key and the caller's then-by columns
-    /// (BookName, Id) order them, whereas <c>PositionSortKey</c> sorts the roster's non-numeric
-    /// positions by their text. Numeric parts parse with <c>CultureInfo.InvariantCulture</c> (as
-    /// the service does) and only finite results are treated as numeric:
+    /// The key every non-numeric non-blank part collapses to, after every finite numeric one.
+    /// Written as <c>Double.MaxValue</c> rather than the <c>Double.MaxValue - 1</c> it reads like
+    /// in prose: the subtraction rounds back to <c>Double.MaxValue</c> at that magnitude (the ULP
+    /// there is ~2^971), so the two spellings are the same double and the honest one is this.
+    /// </summary>
+    public const double NonNumericTier = double.MaxValue;
+
+    /// <summary>
+    /// The key a blank part sorts on, after <see cref="NonNumericTier"/>. It has to be
+    /// <c>Double.PositiveInfinity</c> and not <c>Double.MaxValue</c>: the two tiers would
+    /// otherwise be the same double and "blank parts last" would silently fall to whatever
+    /// tiebreaker the caller applies next.
+    /// </summary>
+    public const double BlankTier = double.PositiveInfinity;
+
+    /// <summary>
+    /// The actual CLR implementation, used as the registered SQL function body and as the numeric
+    /// component of <c>SeriesRosterMatcher.PositionSortKey</c>'s in-memory key. Numeric parts parse
+    /// with <c>CultureInfo.InvariantCulture</c> and only finite results are treated as numeric:
     ///
     /// - a finite numeric part returns its value, so "2" sorts before "17.5". Negative parts
     ///   ("-2.5") keep their value and simply sort before the positive ones;
-    /// - a non-numeric non-blank part returns <c>Double.MaxValue - 1</c>, after every finite
-    ///   numeric part. At that magnitude the subtraction rounds back to <c>Double.MaxValue</c>
-    ///   in the CLR's own double arithmetic, so non-numeric parts all tie - that is fine, they
-    ///   only need to come after the numerics, not to be ordered among themselves; the then-by
-    ///   columns break their tie;
-    /// - a blank part returns <c>Double.PositiveInfinity</c>, which SQLite sorts after every
-    ///   finite real. Plain <c>Double.MaxValue</c> would not keep the blank tier last: because
-    ///   <c>Double.MaxValue - 1</c> equals <c>Double.MaxValue</c> as a double, the blank tier
-    ///   would tie with the non-numeric tier and "blank parts last" would silently fall to the
-    ///   then-by columns.
+    /// - a non-numeric non-blank part returns <see cref="NonNumericTier"/>, after every finite
+    ///   numeric part. They all tie - that is fine, they only need to come after the numerics,
+    ///   not to be ordered among themselves; whatever the caller sorts by next breaks the tie;
+    /// - a blank part returns <see cref="BlankTier"/>, which SQLite sorts after every finite real.
     /// </summary>
     public static double KeyPlain(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return double.PositiveInfinity;
+            return BlankTier;
         }
 
         if (double.TryParse(value, NumericStyles, CultureInfo.InvariantCulture, out var numeric)
@@ -74,7 +85,7 @@ public static class SeriesPartSortKey
             return numeric;
         }
 
-        return double.MaxValue - 1;
+        return NonNumericTier;
     }
 
     public static void Register(SqliteConnection connection)
