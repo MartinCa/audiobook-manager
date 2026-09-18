@@ -135,4 +135,23 @@ describe("BookSearchDialog", () => {
     expect(scrollBodies.length).toBe(1);
     expect(dialog.querySelector(".overflow-x-auto")).not.toBeNull();
   });
+
+  // Regression: on a narrow phone the result card's action row was `shrink-0` and its Apply
+  // button `w-full` — the button could not shrink below its 100%-width basis alongside the
+  // "View Source" link, so it extended past the overflow-hidden dialog edge and was clipped
+  // (measured right edge 428px against a 396px dialog edge at a 412px viewport).
+  it("lets the result card's action row shrink inside the dialog on mobile", async () => {
+    await searchWithResults([baseResult]);
+
+    const apply = await screen.findByRole("button", { name: /apply/i });
+    // The Apply button must be allowed to shrink to the space left of "View Source" rather
+    // than demand its full-width basis; flex-1 with a min-w-0 floor does exactly that.
+    expect(apply.className).toContain("flex-1");
+    expect(apply.className).toContain("min-w-0");
+    expect(apply.className).not.toContain("w-full");
+
+    // And the row wrapping it must not be shrink-0, so the row itself can give up width.
+    const row = apply.closest("div")!;
+    expect(row.className).not.toContain("shrink-0");
+  });
 });

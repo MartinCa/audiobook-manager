@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -172,5 +173,19 @@ public class MetadataRefreshControllerTests
         _clientProxy.Verify(c => c.MetadataRefreshComplete(It.Is<MetadataRefreshComplete>(r =>
             r.TotalProcessed == 2 && r.Total == 5 && r.TotalSucceeded == 2 && r.TotalFailed == 0 &&
             r.StopReason == "Hardcover daily API request limit reached")), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetPendingForAudiobook_NoPendingSnapshot_Returns204()
+    {
+        // 204 rather than 404: absence is the normal state the book page polls on every visit,
+        // and the browser logs every non-2xx response as a console error that no client-side
+        // handling can silence.
+        _metadataRefreshService.Setup(s => s.GetPendingRefreshAsync(1779))
+            .ReturnsAsync(((PendingMetadataRefresh, PendingRefreshPayload.Snapshot)?)(null));
+
+        var result = await _controller.GetPendingForAudiobook(1779);
+
+        Assert.IsInstanceOfType(result.Result, typeof(NoContentResult));
     }
 }

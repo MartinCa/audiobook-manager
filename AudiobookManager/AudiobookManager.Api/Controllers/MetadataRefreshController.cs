@@ -199,7 +199,11 @@ public class MetadataRefreshController : ControllerBase
         var pending = await _metadataRefreshService.GetPendingRefreshAsync(id);
         if (pending is null)
         {
-            return NotFound();
+            // 204, not 404: "this book has no pending snapshot" is a normal state that the book
+            // page polls on every visit, and every non-2xx response is logged by the browser as
+            // a failed request that no client-side handling can silence. No body needed - the
+            // status alone says the snapshot is absent.
+            return NoContent();
         }
 
         var (row, payload) = pending.Value;

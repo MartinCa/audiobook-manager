@@ -1914,6 +1914,59 @@ public class SeriesServiceTests
         _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
     }
 
+    // Regression: a series renamed locally before matching (stored "Agent Cormac2", source
+    // "Agent Cormac") produced a zero-change diff, and the pending snapshot - the only route to
+    // the review dialog's "adopt the source name" action - was cleared. The alignment option
+    // was unreachable no matter how many times the user refreshed. A source title that differs
+    // from the stored name is itself a pending state.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_SourceNameDiffersWithNoBookChanges_StoresPendingAndReturnsHasChanges()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Agent Cormac2",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Agent Cormac2")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        var owned = new List<SeriesOwnedKey> { new(1, "1", "Book A") };
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Agent Cormac2", It.IsAny<int>()))
+            .ReturnsAsync((owned, false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        // The source's own title differs from the stored name, but the roster matches the owned
+        // books exactly - no book-level changes at all.
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Agent Cormac")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Book A") { Position = "1" },
+                },
+            });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Agent Cormac2");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.HasChanges);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Agent Cormac2"), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(
+            r => r.UpsertAsync(It.Is<Database.Models.PendingSeriesRefresh>(row =>
+                row.SeriesName == "Agent Cormac2")),
+            Times.Once);
+    }
+
     [TestMethod]
     public async Task RefreshSeriesAsync_UnmatchedSeries_ThrowsKeyNotFound()
     {
@@ -2115,7 +2168,13 @@ public class SeriesServiceTests
         Assert.AreEqual("Mistborn", book.Series);
         // Roster entry position "1" with stored part "01" gave NewPart "1".
         Assert.AreEqual("1", book.SeriesPart);
-        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        // The payload's source title ("Mistborn Saga") differs from the stored name, so the
+        // snapshot survives the apply with zero changes: the rename alignment is still pending
+        // until the user adopts it or dismisses it.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(
+            r => r.UpsertAsync(It.Is<Database.Models.PendingSeriesRefresh>(row => row.SeriesName == "Mistborn")),
+            Times.Once);
         // The rewrite's tail mirrors the interactive apply: a best-effort consistency recheck of
         // the touched book (the rewrite moved tags and possibly the file, so issues are stale).
         _libraryConsistencyService.Verify(v => v.RecheckAudiobookAsync(5), Times.Once);
@@ -2262,10 +2321,56 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
         Assert.AreEqual(1, processed);
         Assert.AreEqual(1, succeeded);
         Assert.AreEqual(0, failed);
-        // No changes remain once the ignored entry is exempt: the snapshot is dropped, never
-        // re-stored with the ignored entry back in it.
-        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
-        _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
+        // No changes remain once the ignored entry is exempt. The snapshot is never re-stored
+        // with the ignored entry back in it - but it IS re-stored with an empty change list,
+        // because the payload's source title ("Mistborn Saga") still differs from the stored
+        // name and the alignment stays reviewable until adopted or dismissed.
+        _pendingSeriesRefreshRepository.Verify(
+            r => r.UpsertAsync(It.Is<Database.Models.PendingSeriesRefresh>(row =>
+                row.SeriesName == "Mistborn" &&
+                !PendingSeriesRefreshPayload.TryParse(row.PayloadJson)!.Changes.Any())),
+            Times.Once);
+    }
+
+    // The recompute tail must mirror PersistPendingChangesAsync's keep-rule: a snapshot that
+    // exists only for the source-name alignment (no book-level changes) survives an apply where
+    // the user did not adopt - deleting it would make the alignment option unreachable until the
+    // next refresh, even though the mismatch persists.
+    [TestMethod]
+    public async Task ApplyPendingSeriesRefreshAsync_NameOnlySnapshotWithoutAdoption_IsKeptWithZeroChanges()
+    {
+        var pending = MakePendingPayload(changeCount: 0);
+        _pendingSeriesRefreshRepository.Setup(r => r.GetBySeriesNameAsync("Mistborn"))
+            .ReturnsAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = "Mistborn",
+                FetchedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/series/42",
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(pending),
+            });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new Series { Name = "Mistborn", ExpectedBooks = new List<SeriesExpectedBook>() }, false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
+
+        var request = new SeriesRefreshApplyRequest(
+            AdoptSourceSeriesName: false,
+            new List<SeriesRefreshApplyChange>());
+
+        var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().ApplyPendingSeriesRefreshAsync(
+            "Mistborn", request, (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(0, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNull(effectiveSeriesName);
+        // The zero-change snapshot survives: the source title still differs from the stored name.
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(
+            r => r.UpsertAsync(It.Is<Database.Models.PendingSeriesRefresh>(row => row.SeriesName == "Mistborn")),
+            Times.Once);
     }
 
     [TestMethod]
