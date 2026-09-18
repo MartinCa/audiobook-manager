@@ -24,8 +24,6 @@ export function SignalRProvider({
   const reconnectedListeners = useRef<Set<() => void>>(new Set());
   const eventListeners = useRef<Map<string, Set<HubEventHandler<unknown>>>>(new Map());
   const boundEvents = useRef<Set<string>>(new Set());
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disposed = useRef(false);
 
   const bindEventToConnection = useCallback((conn: HubConnection, eventName: string) => {
     if (!boundEvents.current.has(eventName)) {
@@ -52,12 +50,25 @@ export function SignalRProvider({
       .configureLogging(LogLevel.Warning)
       .build();
 
+    // Per-effect liveness token, deliberately not a shared ref: in StrictMode a mount runs
+    // effect setup -> cleanup -> setup, and the second setup used to reset a shared `disposed`
+    // flag, so a stale first start() settling after the remount could overwrite the live
+    // connection (its .then() re-binds and sets the connection state for the dead connection)
+    // and, on failure, schedule retries against one that no longer exists. This closure flips
+    // to true when THIS effect is torn down, and every async resolution (start/reconnect/close/
+    // retry) checks its own effect's token before touching shared state. The retry timer is
+    // per-effect too, so a stale effect can neither clear nor overwrite the live effect's timer.
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
     const currentBoundEvents = boundEvents.current;
     connectionRef.current = hubConnection;
     currentBoundEvents.clear();
-    disposed.current = false;
 
     hubConnection.onreconnected(() => {
+      if (disposed) {
+        return;
+      }
       setIsConnected(true);
       reconnectedListeners.current.forEach((cb) => {
         try {
@@ -69,6 +80,9 @@ export function SignalRProvider({
     });
 
     hubConnection.onclose(() => {
+      if (disposed) {
+        return;
+      }
       setIsConnected(false);
     });
 
@@ -96,21 +110,21 @@ export function SignalRProvider({
         START_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
         START_RETRY_MAX_DELAY_MS,
       );
-      retryTimer.current = setTimeout(() => {
-        retryTimer.current = null;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
         attemptStart(attempt + 1);
       }, delay);
     };
 
     function attemptStart(attempt: number): void {
-      if (disposed.current) {
+      if (disposed) {
         return;
       }
 
       void hubConnection
         .start()
         .then(() => {
-          if (disposed.current) {
+          if (disposed) {
             return;
           }
           setIsConnected(true);
@@ -119,7 +133,7 @@ export function SignalRProvider({
         })
         .catch((err: unknown) => {
           console.warn(`SignalR connection error (attempt ${attempt}):`, err);
-          if (!disposed.current) {
+          if (!disposed) {
             scheduleRetry(attempt);
           }
         });
@@ -128,10 +142,10 @@ export function SignalRProvider({
     attemptStart(1);
 
     return () => {
-      disposed.current = true;
-      if (retryTimer.current !== null) {
-        clearTimeout(retryTimer.current);
-        retryTimer.current = null;
+      disposed = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
       }
       connectionRef.current = null;
       currentBoundEvents.clear();
