@@ -279,6 +279,10 @@ describe("BookBulkActionBar", () => {
     expect(bar).toBeInTheDocument();
     expect(bar.className).toContain("fixed");
     expect(bar.className).toContain("bottom-3");
+    // Bottom-left on desktop, so the bar never sits under the toast viewport (also fixed
+    // bottom-right, z-50). Full-width on mobile, where toasts stack above it.
+    expect(bar.className).toContain("sm:left-4");
+    expect(bar.className).toContain("sm:right-auto");
 
     handlerFor(SignalREvents.BulkEditComplete)({ processed: 2, succeeded: 2, failed: 0 } as never);
 

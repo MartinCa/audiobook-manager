@@ -275,7 +275,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
         <div
           role="status"
           aria-label="Background operation progress"
-          className="fixed inset-x-3 bottom-3 z-50 space-y-2 sm:inset-x-auto sm:right-4 sm:w-96"
+          className="fixed inset-x-3 bottom-3 z-50 space-y-2 sm:inset-x-auto sm:right-auto sm:left-4 sm:w-96"
         >
           {bulkEditProgress && (
             <OperationProgressBar
