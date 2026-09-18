@@ -14,15 +14,21 @@ public class BrowseController : ControllerBase
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
     private readonly ISeriesService _seriesService;
+    private readonly IUpcomingReleaseService _upcomingReleaseService;
+    private readonly ILogger<BrowseController> _logger;
 
     public BrowseController(
         IAudiobookRepository audiobookRepo,
         IPersonRepository personRepo,
-        ISeriesService seriesService)
+        ISeriesService seriesService,
+        IUpcomingReleaseService upcomingReleaseService,
+        ILogger<BrowseController> logger)
     {
         _audiobookRepo = audiobookRepo;
         _personRepo = personRepo;
         _seriesService = seriesService;
+        _upcomingReleaseService = upcomingReleaseService;
+        _logger = logger;
     }
 
     [HttpGet("audiobooks")]
@@ -218,6 +224,129 @@ public class BrowseController : ControllerBase
             summary,
             new PaginatedResult<SeriesOverviewDto>(seriesDtos.Count, seriesPage.TotalCount, seriesDtos),
             new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos));
+    }
+
+    [HttpGet("authors/{authorId}/follow")]
+    public async Task<ActionResult<AuthorFollowStatusDto>> GetAuthorFollowStatus(long authorId)
+    {
+        return new AuthorFollowStatusDto(await _upcomingReleaseService.IsAuthorFollowedAsync(authorId));
+    }
+
+    [HttpPost("authors/{authorId}/follow")]
+    public async Task<IActionResult> FollowAuthor(long authorId)
+    {
+        try
+        {
+            await _upcomingReleaseService.FollowAuthorAsync(authorId);
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error following author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpDelete("authors/{authorId}/follow")]
+    public async Task<IActionResult> UnfollowAuthor(long authorId)
+    {
+        try
+        {
+            await _upcomingReleaseService.UnfollowAuthorAsync(authorId);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error unfollowing author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpGet("authors/{authorId}/hardcover-match")]
+    public async Task<ActionResult<AuthorMatchStatusDto>> GetAuthorMatch(long authorId)
+    {
+        var author = await _personRepo.GetAuthorSummaryAsync(authorId);
+        if (author is null)
+        {
+            return NotFound();
+        }
+
+        // The author's Hardcover match lives on the tracked Person row, not the read-only
+        // AuthorSummaryRow projection - fetched separately since every other author endpoint on
+        // this controller intentionally stays on the cheap summary projection.
+        var person = await _personRepo.GetByIdAsync(authorId);
+        return new AuthorMatchStatusDto(person?.HardcoverAuthorId, person?.HardcoverAuthorName, person?.HardcoverAuthorUrl);
+    }
+
+    [HttpGet("authors/{authorId}/hardcover-match-candidates")]
+    public async Task<ActionResult<List<AuthorMatchCandidateDto>>> GetAuthorMatchCandidates(long authorId, [FromQuery] string? query = null)
+    {
+        var author = await _personRepo.GetAuthorSummaryAsync(authorId);
+        if (author is null)
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            var searchTerm = string.IsNullOrWhiteSpace(query) ? author.Name : query!.Trim();
+            var candidates = await _upcomingReleaseService.SearchAuthorMatchCandidatesAsync(searchTerm);
+            return candidates
+                .Select(c => new AuthorMatchCandidateDto(c.SourceId, c.Name, c.SourceUrl, c.BookCount))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching Hardcover match candidates for author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpPost("authors/{authorId}/hardcover-match")]
+    public async Task<IActionResult> MatchAuthor(long authorId, [FromBody] MatchAuthorDto? dto)
+    {
+        if (dto is null || string.IsNullOrWhiteSpace(dto.SourceId) || string.IsNullOrWhiteSpace(dto.SourceName))
+        {
+            return this.InvalidRequest("SourceId and SourceName are required.");
+        }
+
+        try
+        {
+            await _upcomingReleaseService.MatchAuthorAsync(authorId, dto.SourceId, dto.SourceName, dto.SourceUrl);
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error matching author {AuthorId} to Hardcover author {SourceId}", authorId, dto.SourceId);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpDelete("authors/{authorId}/hardcover-match")]
+    public async Task<IActionResult> UnmatchAuthor(long authorId)
+    {
+        try
+        {
+            await _upcomingReleaseService.UnmatchAuthorAsync(authorId);
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing the Hardcover match for author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
     }
 
     [HttpGet("audiobooks/{id}")]

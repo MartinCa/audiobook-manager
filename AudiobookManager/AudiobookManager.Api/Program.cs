@@ -91,6 +91,7 @@ internal class Program
         builder.Services.AddSingleton<IOperationStatusRegistry, OperationStatusRegistry>();
 
         builder.Services.AddHostedService<OrganizeWorker>();
+        builder.Services.AddHostedService<UpcomingReleasesWorker>();
 
         var app = builder.Build();
 

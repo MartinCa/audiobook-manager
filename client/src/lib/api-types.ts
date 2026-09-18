@@ -684,6 +684,207 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/{authorId}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorFollowStatusDto"];
+                        "application/json": components["schemas"]["AuthorFollowStatusDto"];
+                        "text/json": components["schemas"]["AuthorFollowStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/hardcover-match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorMatchStatusDto"];
+                        "application/json": components["schemas"]["AuthorMatchStatusDto"];
+                        "text/json": components["schemas"]["AuthorMatchStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MatchAuthorDto"];
+                    "text/json": components["schemas"]["MatchAuthorDto"];
+                    "application/*+json": components["schemas"]["MatchAuthorDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/hardcover-match-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    query?: string;
+                };
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorMatchCandidateDto"][];
+                        "application/json": components["schemas"]["AuthorMatchCandidateDto"][];
+                        "text/json": components["schemas"]["AuthorMatchCandidateDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/audiobooks/{id}": {
         parameters: {
             query?: never;
@@ -2405,6 +2606,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesFollowStatusDto"];
+                        "application/json": components["schemas"]["SeriesFollowStatusDto"];
+                        "text/json": components["schemas"]["SeriesFollowStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete: {
+            parameters: {
+                query?: {
+                    seriesName?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series": {
         parameters: {
             query?: never;
@@ -3759,6 +4037,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/upcoming-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    authorId?: number;
+                    seriesId?: number;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["UpcomingReleaseDtoPaginatedResult"];
+                        "application/json": components["schemas"]["UpcomingReleaseDtoPaginatedResult"];
+                        "text/json": components["schemas"]["UpcomingReleaseDtoPaginatedResult"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/upcoming-releases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/upcoming-releases/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/url-cleanup/audiobooks": {
         parameters: {
             query?: never;
@@ -4050,6 +4438,21 @@ export interface components {
             series?: components["schemas"]["SeriesOverviewDtoPaginatedResult"];
             standaloneBooks?: components["schemas"]["AudiobookSummaryDtoPaginatedResult"];
         };
+        AuthorFollowStatusDto: {
+            isFollowed?: boolean;
+        };
+        AuthorMatchCandidateDto: {
+            sourceId?: string | null;
+            name?: string | null;
+            sourceUrl?: string | null;
+            /** Format: int32 */
+            bookCount?: number | null;
+        };
+        AuthorMatchStatusDto: {
+            sourceId?: string | null;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
+        };
         AuthorSummaryDto: {
             /** Format: int64 */
             id?: number;
@@ -4278,6 +4681,11 @@ export interface components {
             initialsSpacing?: string | null;
             /** Format: int32 */
             metadataRefreshDelayMs?: number;
+        };
+        MatchAuthorDto: {
+            sourceId?: string | null;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
         };
         MatchSeriesDto: {
             sourceName?: string | null;
@@ -4512,6 +4920,9 @@ export interface components {
             /** Format: int32 */
             totalCount?: number;
         };
+        SeriesFollowStatusDto: {
+            isFollowed?: boolean;
+        };
         SeriesMapping: {
             /** Format: int64 */
             id?: number | null;
@@ -4675,6 +5086,30 @@ export interface components {
             targetPath?: string | null;
             exists?: boolean;
             existing?: components["schemas"]["ExistingTargetFileDto"];
+        };
+        UpcomingReleaseDto: {
+            /** Format: int64 */
+            id?: number;
+            title?: string | null;
+            /** Format: date */
+            releaseDate?: string;
+            /** Format: int64 */
+            authorId?: number | null;
+            authorName?: string | null;
+            /** Format: int64 */
+            seriesId?: number | null;
+            seriesName?: string | null;
+            seriesPosition?: string | null;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
+            imageUrl?: string | null;
+        };
+        UpcomingReleaseDtoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["UpcomingReleaseDto"][] | null;
         };
         UpdateLibrarySettingsDto: {
             initialsSpacing?: string | null;

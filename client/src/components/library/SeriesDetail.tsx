@@ -32,6 +32,8 @@ import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { SeriesFollowButton } from "./SeriesFollowButton";
+import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { LinkButton } from "../LinkButton";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
@@ -626,6 +628,30 @@ export function SeriesDetail() {
             </span>
           )}
         </div>
+        <div className="mt-3">
+          <SeriesFollowButton
+            seriesName={seriesName}
+            onChanged={() => {
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
+              });
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-foreground text-lg font-bold">Upcoming Releases</h2>
+        {overview.id != null ? (
+          <UpcomingReleasesList
+            seriesId={overview.id}
+            emptyMessage="No upcoming releases tracked for this series yet. Follow it to start tracking."
+          />
+        ) : (
+          <p className="text-muted-foreground py-4 text-center text-sm">
+            Follow this series to start tracking its upcoming releases.
+          </p>
+        )}
       </div>
 
       <div className="space-y-4">

@@ -4,6 +4,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Moq;
 using SeriesOverview = AudiobookManager.Domain.SeriesOverview;
 using SeriesOverviewPage = AudiobookManager.Domain.SeriesOverviewPage;
@@ -16,6 +17,7 @@ public class BrowseControllerTests
     private Mock<IAudiobookRepository> _audiobookRepo = null!;
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<ISeriesService> _seriesService = null!;
+    private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private BrowseController _controller = null!;
 
     [TestInitialize]
@@ -24,7 +26,10 @@ public class BrowseControllerTests
         _audiobookRepo = new Mock<IAudiobookRepository>();
         _personRepo = new Mock<IPersonRepository>();
         _seriesService = new Mock<ISeriesService>();
-        _controller = new BrowseController(_audiobookRepo.Object, _personRepo.Object, _seriesService.Object);
+        _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
+        _controller = new BrowseController(
+            _audiobookRepo.Object, _personRepo.Object, _seriesService.Object,
+            _upcomingReleaseService.Object, Mock.Of<ILogger<BrowseController>>());
     }
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>

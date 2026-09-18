@@ -19,6 +19,9 @@ public static class DependencyInjection
             .AddScoped<IPendingSeriesRefreshRepository, PendingSeriesRefreshRepository>()
             .AddScoped<IOrphanDirectoryRepository, OrphanDirectoryRepository>()
             .AddScoped<ISeriesRepository, SeriesRepository>()
-            .AddScoped<IHardcoverQuotaRepository, HardcoverQuotaRepository>();
+            .AddScoped<IHardcoverQuotaRepository, HardcoverQuotaRepository>()
+            .AddScoped<IAuthorFollowRepository, AuthorFollowRepository>()
+            .AddScoped<ISeriesFollowRepository, SeriesFollowRepository>()
+            .AddScoped<IUpcomingReleaseRepository, UpcomingReleaseRepository>();
 
 }

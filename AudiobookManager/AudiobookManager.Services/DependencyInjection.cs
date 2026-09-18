@@ -36,6 +36,7 @@ public static class DependencyInjection
         .AddScoped<ISeriesService, SeriesService>()
         .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
         .AddScoped<IBulkEditService, BulkEditService>()
+        .AddScoped<IUpcomingReleaseService, UpcomingReleaseService>()
         .SetupFileManager()
         .SetupScraping()
         .SetupDatabase();

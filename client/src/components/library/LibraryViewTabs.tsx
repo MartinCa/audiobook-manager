@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { BookOpen, BookMarked, Users } from "lucide-react";
+import { BookOpen, BookMarked, Users, CalendarClock } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export type LibraryViewTab = "books" | "series" | "authors";
+export type LibraryViewTab = "books" | "series" | "authors" | "releases";
 
 export interface LibraryViewTabsProps {
   activeTab: LibraryViewTab;
@@ -19,6 +19,8 @@ export function LibraryViewTabs({ activeTab, className }: LibraryViewTabsProps) 
       void navigate({ to: "/library/series" });
     } else if (value === "authors") {
       void navigate({ to: "/library/authors" });
+    } else if (value === "releases") {
+      void navigate({ to: "/library/upcoming-releases" });
     }
   };
 
@@ -36,6 +38,10 @@ export function LibraryViewTabs({ activeTab, className }: LibraryViewTabsProps) 
         <TabsTrigger value="authors" className="text-xs">
           <Users className="mr-1.5 h-3.5 w-3.5" />
           Authors
+        </TabsTrigger>
+        <TabsTrigger value="releases" className="text-xs">
+          <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+          Releases
         </TabsTrigger>
       </TabsList>
     </Tabs>

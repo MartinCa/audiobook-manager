@@ -277,7 +277,7 @@ describe("BookLibrary", () => {
     expect(router.state.location.search).toEqual({});
   });
 
-  it("places the Books/Series/Authors tabs before the page heading", async () => {
+  it("places the Books/Series/Authors/Releases tabs before the page heading", async () => {
     renderWithRouter();
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
@@ -285,9 +285,9 @@ describe("BookLibrary", () => {
     const tabsList = screen.getByRole("tablist");
     const heading = screen.getByRole("heading", { name: "Library Audiobooks" });
 
-    // The three tab triggers prove the tablist is the Books/Series/Authors switcher, not some
-    // other tab widget.
-    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    // The four tab triggers prove the tablist is the Books/Series/Authors/Releases switcher, not
+    // some other tab widget.
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
     expect(tabsList.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
       0,
     );

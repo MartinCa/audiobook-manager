@@ -16,6 +16,7 @@ import {
   Users,
   RefreshCw,
   Info,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +43,8 @@ export function RootLayout() {
     pathname.startsWith("/library/series") ||
     pathname.startsWith("/library/authors") ||
     pathname.startsWith("/library/book") ||
-    pathname.startsWith("/library/search");
+    pathname.startsWith("/library/search") ||
+    pathname.startsWith("/library/upcoming-releases");
 
   const isOrganizeActive = pathname === "/";
   const isDiscoveredActive = pathname === "/library/discovered";
@@ -280,6 +282,15 @@ export function RootLayout() {
                   >
                     <Users className="text-primary mr-2 h-4 w-4" />
                     <span>Authors</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/upcoming-releases" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <CalendarClock className="text-primary mr-2 h-4 w-4" />
+                    <span>Upcoming Releases</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 
