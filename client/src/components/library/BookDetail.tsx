@@ -491,6 +491,16 @@ export function BookDetail({ mode }: BookDetailProps) {
                     )}
                   </DetailRow>
 
+                  <DetailRow label="Narrators">
+                    <span className="break-words">
+                      {bookDetail.narrators.length > 0 ? bookDetail.narrators.join(", ") : "None"}
+                    </span>
+                  </DetailRow>
+
+                  <DetailRow label="Book name">{bookDetail.bookName}</DetailRow>
+
+                  <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
+
                   <DetailRow label="Series">
                     {bookDetail.series ? (
                       <span className="flex flex-wrap items-center gap-x-2">
@@ -512,14 +522,6 @@ export function BookDetail({ mode }: BookDetailProps) {
                     )}
                   </DetailRow>
 
-                  <DetailRow label="Narrators">
-                    <span className="break-words">
-                      {bookDetail.narrators.length > 0 ? bookDetail.narrators.join(", ") : "None"}
-                    </span>
-                  </DetailRow>
-
-                  <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
-
                   <DetailRow label="Year">
                     {bookDetail.year ? String(bookDetail.year) : "Unknown"}
                   </DetailRow>
@@ -534,13 +536,7 @@ export function BookDetail({ mode }: BookDetailProps) {
                     {languageLabel(bookDetail.language, languages) || "—"}
                   </DetailRow>
 
-                  <DetailRow label="Publisher">{bookDetail.publisher || "—"}</DetailRow>
-
-                  <DetailRow label="Copyright">{bookDetail.copyright || "—"}</DetailRow>
-
                   <DetailRow label="Rating">{bookDetail.rating || "—"}</DetailRow>
-
-                  <DetailRow label="ASIN">{bookDetail.asin || "—"}</DetailRow>
 
                   {bookDetail.www && (
                     <DetailRow label="Web link">
@@ -554,6 +550,12 @@ export function BookDetail({ mode }: BookDetailProps) {
                       </a>
                     </DetailRow>
                   )}
+
+                  <DetailRow label="Publisher">{bookDetail.publisher || "—"}</DetailRow>
+
+                  <DetailRow label="Copyright">{bookDetail.copyright || "—"}</DetailRow>
+
+                  <DetailRow label="ASIN">{bookDetail.asin || "—"}</DetailRow>
                 </div>
 
                 <div>

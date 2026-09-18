@@ -184,6 +184,40 @@ describe("BookDetail", () => {
     expect(screen.queryByText(/^eng$/)).toBeNull();
   });
 
+  it("renders the book detail fields in the agreed order, with Book name present", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      subtitle: "Part One of the Stormlight Archive",
+      copyright: "2010 Tor",
+      www: "https://example.com",
+    });
+
+    const { container } = renderWithProviders();
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+
+    const labels = Array.from(container.querySelectorAll(".text-xs.font-semibold.uppercase"))
+      .map((el) => el.textContent.trim())
+      .filter((t) => t.length > 0);
+    const start = labels.indexOf("Authors");
+    expect(labels.slice(start, start + 13)).toEqual([
+      "Authors",
+      "Narrators",
+      "Book name",
+      "Subtitle",
+      "Series",
+      "Year",
+      "Genres",
+      "Language",
+      "Rating",
+      "Web link",
+      "Publisher",
+      "Copyright",
+      "ASIN",
+    ]);
+    // Description stays its own section below the field grid.
+    expect(labels[start + 13]).toBe("Description");
+  });
+
   it("Edit button navigates to the edit route", async () => {
     const { router } = renderWithProviders();
 
