@@ -415,6 +415,11 @@ export const urlCleanupApi = {
 
   apply: (audiobookIds: number[]) =>
     api.post<ApplyUrlCleanupResult>("/url-cleanup/apply", { audiobookIds }),
+
+  // Fire-and-forget clean of every currently-dirty book, not just the visible page. Progress and
+  // completion arrive over SignalR (UrlCleanupProgress/UrlCleanupComplete); the operation status
+  // is recoverable via operationsApi.getStatus(OperationKeys.urlCleanupApply).
+  applyAll: () => api.post<void>("/url-cleanup/apply-all", undefined),
 };
 
 // Operations

@@ -191,27 +191,6 @@ export function BulkMissingBookMatchDialog({
   // pre-skip "best candidate" fallback.
   const renderedSelections = nextSelections ?? selections;
 
-  useSignalREvent<ApplyProgressPayload>(SignalREvents.SeriesMissingBookApplyProgress, (data) => {
-    setResumed(false);
-    setApplying(true);
-    setApplyProgress(data);
-  });
-
-  useSignalREvent<ApplyCompletePayload>(SignalREvents.SeriesMissingBookApplyComplete, (data) => {
-    setResumed(false);
-    setApplying(false);
-    setApplyProgress(null);
-    notifications.success(
-      `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
-    );
-    // The review is now stale (the applied books are no longer missing); the series detail is
-    // invalidated and the dialog closes to show the fresh state.
-    setSelections({});
-    onOpenChange(false);
-    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.bySeries(seriesName) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
-  });
-
   // Recover on mount, after a SignalR reconnect, and every time the dialog opens: an apply that
   // started elsewhere - or whose events were missed while disconnected - must not leave this
   // dialog looking idle. The component never remounts when the dialog opens (only the portal
@@ -221,8 +200,10 @@ export function BulkMissingBookMatchDialog({
   // it a freshly-opened dialog would show idle even for a batch that is genuinely running. The
   // status endpoint only carries processed/total, so the progress bar switches to a "resuming"
   // label rather than fabricating the "(0 succeeded, 0 failed)" of a fresh batch; the next live
-  // progress event replaces it with the real counts.
-  useOperationResync(
+  // progress event replaces it with the real counts. The returned invalidate is called from the
+  // apply's event handlers so a status response fetched before a real event is discarded instead
+  // of clobbering the state the event set.
+  const invalidateMissingBookApply = useOperationResync(
     OperationKeys.seriesMissingBookApply,
     (status) => {
       if (status.isRunning) {
@@ -242,6 +223,29 @@ export function BulkMissingBookMatchDialog({
     },
     resyncGeneration,
   );
+
+  useSignalREvent<ApplyProgressPayload>(SignalREvents.SeriesMissingBookApplyProgress, (data) => {
+    invalidateMissingBookApply();
+    setResumed(false);
+    setApplying(true);
+    setApplyProgress(data);
+  });
+
+  useSignalREvent<ApplyCompletePayload>(SignalREvents.SeriesMissingBookApplyComplete, (data) => {
+    invalidateMissingBookApply();
+    setResumed(false);
+    setApplying(false);
+    setApplyProgress(null);
+    notifications.success(
+      `Bulk match complete: ${data.totalSucceeded} applied${data.totalFailed > 0 ? `, ${data.totalFailed} failed` : ""}`,
+    );
+    // The review is now stale (the applied books are no longer missing); the series detail is
+    // invalidated and the dialog closes to show the fresh state.
+    setSelections({});
+    onOpenChange(false);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.bySeries(seriesName) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+  });
 
   const selectedSelections = Object.values(renderedSelections).filter((s) => s.audiobookId > 0);
 

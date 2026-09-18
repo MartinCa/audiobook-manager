@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
-import { seriesApi } from "@/services/api";
+import { operationsApi, seriesApi } from "@/services/api";
 import type {
   SeriesDetail,
   SeriesExpectedBook,
@@ -144,6 +144,16 @@ async function confirmDeleteSeries() {
 describe("SeriesDetail", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Every mount now polls the operation status registry (useOperationResync); keep the registry
+  // idle by default so only tests that stub a running delete exercise the restore path.
+  beforeEach(() => {
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
   });
 
   it("renders series detail with matched provider and books", async () => {
@@ -769,6 +779,94 @@ describe("SeriesDetail", () => {
     expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
   });
 
+  // Regression: a page opened while a series delete is already running server-side (started in
+  // another tab, or whose events were missed while disconnected) used to look idle - the only
+  // things that ever set `deleting` were the confirm click and the SignalR progress events. The
+  // status registry rehydrates it on mount, without opening the delete dialog or navigating.
+  it("restores an in-flight series delete from the status registry without opening the dialog", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: true,
+      processed: 3,
+      total: 5,
+    });
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // The restore is state-only: it leaves the (closed) delete confirmation dialog alone and
+    // never navigates or toasts - the completion navigation belongs to SeriesDeleteComplete.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(notifications.error).not.toHaveBeenCalled();
+
+    // The restored busy state is what the confirmation dialog reflects: opening it while a
+    // delete is in flight shows the progress bar (with the registry's processed/total and zeroed
+    // succeeded/failed) and disables every action, so a page opened mid-delete cannot re-arm or
+    // cancel the running delete.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Clearing books (0 succeeded, 0 failed)")).toBeInTheDocument();
+    expect(within(dialog).getByText("3 / 5 (60%)")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  });
+
+  it("clears a restored delete state once the status registry reports the delete finished", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    let deleteStatusCalls = 0;
+    // Establish the restored running state FIRST (mount fetch), then report completion (the
+    // reconnect re-fetch): the else-branch only meaningfully unwinds state the resync itself
+    // restored - without it the busy state would survive a completed status, which is what this
+    // test proves by asserting the dialog ends up idle.
+    const getStatus = vi.spyOn(operationsApi, "getStatus").mockImplementation((key) => {
+      if (key === OperationKeys.seriesDelete) {
+        deleteStatusCalls += 1;
+        return Promise.resolve(
+          deleteStatusCalls === 1
+            ? { isRunning: true, processed: 3, total: 5 }
+            : { isRunning: false, processed: 5, total: 5 },
+        );
+      }
+      return Promise.resolve({ isRunning: false, processed: 0, total: 0 });
+    });
+
+    // The shared mock accumulates call history across tests; consider only this test's listeners.
+    vi.mocked(mockSignalRValue.onReconnected).mockClear();
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // Phase 1: the mount fetch restores the in-flight delete. No event was seen, no dialog was
+    // opened - the busy state alone is what the confirmation dialog reflects.
+    await waitFor(() => {
+      expect(deleteStatusCalls).toBe(1);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      await within(dialog).findByText("Clearing books (0 succeeded, 0 failed)"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("3 / 5 (60%)")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeDisabled();
+
+    // Phase 2: a reconnect re-fetches every mounted operation's status; the delete reports
+    // completed now, which must unwind the restored running state without closing the dialog.
+    for (const call of vi.mocked(mockSignalRValue.onReconnected).mock.calls) {
+      (call[0] as () => void)();
+    }
+
+    await waitFor(() => {
+      expect(deleteStatusCalls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(within(dialog).queryByText(/Clearing books/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
+    });
+    expect(getStatus).toHaveBeenCalledWith(OperationKeys.seriesDelete);
+  });
+
   // --- Back navigation is a real link with a stable href, not a history-dependent button ---
 
   it("renders the visible back control as a real link to the series list", async () => {
@@ -909,5 +1007,20 @@ describe("SeriesDetail", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/library/series/Mistborn");
     });
+  });
+
+  it("renders the name-alignment banner, not a misleading 0-change count, for a snapshot with no book changes", async () => {
+    mockRenamePendingSetup();
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // The snapshot exists only because the source series name differs ("Mistborn Saga"), so the
+    // banner must say so instead of "0 pending changes from the last refresh".
+    await screen.findByText(/Series name alignment pending/);
+    screen.getByText(/Review it before it is written to your books/);
+    expect(screen.queryByText(/0 pending changes/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Review Changes" })).toBeDefined();
   });
 });

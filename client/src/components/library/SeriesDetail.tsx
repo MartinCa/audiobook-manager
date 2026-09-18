@@ -27,8 +27,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { LinkButton } from "../LinkButton";
@@ -477,9 +478,34 @@ export function SeriesDetail() {
     failed: number;
   } | null>(null);
 
+  // Recover an in-flight series delete (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect: the danger zone must stay disabled and its progress
+  // bar must show rather than looking idle, even when the delete confirmation dialog is closed.
+  // The returned invalidate is called from the delete's event handlers so a status response
+  // fetched before a real event is discarded instead of clobbering the state the event set.
+  const invalidateSeriesDelete = useOperationResync(OperationKeys.seriesDelete, (status) => {
+    if (status.isRunning) {
+      setDeleting(true);
+      setDeleteProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      // A resync discovering a finished delete only unwinds running state that is actually set -
+      // it deliberately does NOT reproduce the SeriesDeleteComplete handler's dialog close and
+      // navigation. The series may already be gone: the detail refetch then renders its Not
+      // Found state and the user navigates from there, exactly like a page that never saw the
+      // in-flight delete at all. The delete confirmation dialog state is untouched either way.
+      setDeleting((prev) => (prev ? false : prev));
+      setDeleteProgress((prev) => (prev ? null : prev));
+    }
+  });
+
   useSignalREvent<{ processed: number; total: number; succeeded: number; failed: number }>(
     SignalREvents.SeriesDeleteProgress,
     (data) => {
+      invalidateSeriesDelete();
       setDeleting(true);
       setDeleteProgress(data);
     },
@@ -491,6 +517,7 @@ export function SeriesDetail() {
     totalFailed: number;
     errored: boolean;
   }>(SignalREvents.SeriesDeleteComplete, (data) => {
+    invalidateSeriesDelete();
     setDeleting(false);
     setDeleteProgress(null);
     void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
@@ -935,14 +962,28 @@ export function SeriesDetail() {
             {pendingReviews && (
               <div className="border-border flex flex-col justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center">
                 <div className="text-xs">
-                  <span className="text-foreground font-semibold">
-                    {pendingReviews.changes.length} pending change
-                    {pendingReviews.changes.length === 1 ? "" : "s"}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    from the last refresh. Review them before they are written to your books.
-                  </span>
+                  {pendingReviews.changes.length === 0 ? (
+                    <>
+                      <span className="text-foreground font-semibold">
+                        Series name alignment pending
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        from the last refresh. Review it before it is written to your books.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground font-semibold">
+                        {pendingReviews.changes.length} pending change
+                        {pendingReviews.changes.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        from the last refresh. Review them before they are written to your books.
+                      </span>
+                    </>
+                  )}
                 </div>
                 <Button
                   size="sm"

@@ -166,14 +166,61 @@ export function LibraryConsistency() {
   const issuesForType = (type: string): ConsistencyIssue[] =>
     (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as ConsistencyIssue[];
 
+  // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, the same way the check state is recovered below. The
+  // returned invalidate is called from the resolve's event handlers so a status response
+  // fetched before a real event is discarded instead of clobbering the state the event set.
+  const invalidateConsistencyResolve = useOperationResync(
+    OperationKeys.consistencyResolve,
+    (status) => {
+      if (status.isRunning) {
+        setBulkResolving(true);
+        setResolveProgress((prev) =>
+          prev && prev.total > 0
+            ? prev
+            : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+        );
+      } else {
+        setBulkResolving(false);
+        setResolveProgress(null);
+      }
+    },
+  );
+
+  // Recover from a missed check (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, rather than looking idle while one is still running.
+  const invalidateConsistencyCheck = useOperationResync(
+    OperationKeys.consistencyCheck,
+    (status) => {
+      if (status.isRunning) {
+        setChecking(true);
+        setCheckProgress(
+          (prev) =>
+            prev ?? {
+              message: "Resuming check...",
+              booksChecked: status.processed,
+              totalBooks: status.total,
+              issuesFound: 0,
+              scope: "library",
+            },
+        );
+      } else {
+        setChecking(false);
+        setCheckProgress(null);
+      }
+    },
+  );
+
   useSignalREvent<ProgressPayload>(SignalREvents.ConsistencyCheckProgress, (data) => {
     if (data.scope !== "library") return;
+    invalidateConsistencyCheck();
     setChecking(true);
     setCheckProgress(data);
   });
 
   useSignalREvent<CompletePayload>(SignalREvents.ConsistencyCheckComplete, (data) => {
     if (data.scope !== "library") return;
+    invalidateConsistencyCheck();
     setChecking(false);
     setCheckProgress(null);
     setCheckCompleteResult(data);
@@ -184,54 +231,19 @@ export function LibraryConsistency() {
   });
 
   useSignalREvent<ResolveProgressPayload>(SignalREvents.ConsistencyResolveProgress, (data) => {
+    invalidateConsistencyResolve();
     setBulkResolving(true);
     setResolveProgress(data);
   });
 
   useSignalREvent<ResolveCompletePayload>(SignalREvents.ConsistencyResolveComplete, (data) => {
+    invalidateConsistencyResolve();
     setBulkResolving(false);
     setResolveProgress(null);
     notifications.success(`Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`);
     // Re-read the authoritative list rather than reproducing the server's cascade rules
     // client-side: resolving one issue routinely clears its siblings for the same book.
     void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
-  });
-
-  // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
-  // mount and after a SignalR reconnect, the same way the check state is recovered below.
-  useOperationResync(OperationKeys.consistencyResolve, (status) => {
-    if (status.isRunning) {
-      setBulkResolving(true);
-      setResolveProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setBulkResolving(false);
-      setResolveProgress(null);
-    }
-  });
-
-  // Recover from a missed check (started elsewhere, or events missed while disconnected) on
-  // mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(OperationKeys.consistencyCheck, (status) => {
-    if (status.isRunning) {
-      setChecking(true);
-      setCheckProgress(
-        (prev) =>
-          prev ?? {
-            message: "Resuming check...",
-            booksChecked: status.processed,
-            totalBooks: status.total,
-            issuesFound: 0,
-            scope: "library",
-          },
-      );
-    } else {
-      setChecking(false);
-      setCheckProgress(null);
-    }
   });
 
   const handleStartCheck = async () => {

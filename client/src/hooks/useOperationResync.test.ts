@@ -149,4 +149,133 @@ describe("useOperationResync", () => {
     expect(onStatus).toHaveBeenCalledTimes(1);
     expect(onStatus).toHaveBeenCalledWith({ isRunning: true, processed: 2, total: 5 });
   });
+
+  it("discards a stale isRunning:false response when an event invalidated the resync in flight", async () => {
+    // Regression for the resync-vs-event race (stale-false direction): a mount fetch captures
+    // the operation idling, a real progress event then sets the live progress state (the
+    // consumer calls the returned invalidate from that handler), and the pre-event response
+    // resolving afterwards must NOT clobber the event's state back to idle.
+    const onStatus = vi.fn();
+    let resolvePromise: (val: unknown) => void;
+    const delayedPromise = new Promise((resolve) => {
+      resolvePromise = resolve;
+    });
+    vi.mocked(operationsApi.getStatus).mockReturnValue(delayedPromise as never);
+
+    let invalidate: () => void = () => {};
+    renderHook(() => {
+      invalidate = useOperationResync("test-op", onStatus);
+    });
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    // The consumer's SignalR progress handler invalidates the resync; the event it received is
+    // newer truth than any in-flight status snapshot.
+    invalidate();
+    resolvePromise!({ isRunning: false, processed: 0, total: 0 });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(onStatus).not.toHaveBeenCalled();
+  });
+
+  it("discards a late isRunning:true response when the completion event invalidated the resync", async () => {
+    // Regression for the resync-vs-event race (late-true direction): a mount fetch captures the
+    // operation running, the completion event then clears the running state (the consumer calls
+    // the returned invalidate from that handler), and the pre-completion response resolving
+    // afterwards must NOT resurrect the progress bar.
+    const onStatus = vi.fn();
+    let resolvePromise: (val: unknown) => void;
+    const delayedPromise = new Promise((resolve) => {
+      resolvePromise = resolve;
+    });
+    vi.mocked(operationsApi.getStatus).mockReturnValue(delayedPromise as never);
+
+    let invalidate: () => void = () => {};
+    renderHook(() => {
+      invalidate = useOperationResync("test-op", onStatus);
+    });
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    invalidate();
+    resolvePromise!({ isRunning: true, processed: 5, total: 5 });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(onStatus).not.toHaveBeenCalled();
+  });
+
+  it("discards an older in-flight response when a newer status fetch was started", async () => {
+    // Resync-vs-resync: a reconnect refresh supersedes the still-in-flight mount fetch. The
+    // older response lands last and must not overwrite the newer request's fresher truth.
+    const onStatus = vi.fn();
+    let resolveFirst: (val: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(operationsApi.getStatus)
+      .mockReturnValueOnce(first as never)
+      .mockResolvedValueOnce({ isRunning: true, processed: 2, total: 5 });
+
+    renderHook(() => useOperationResync("test-op", onStatus));
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    capturedReconnectedHandler?.();
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(2);
+    });
+
+    // The older mount response arrives only now - after the newer fetch already applied.
+    resolveFirst!({ isRunning: false, processed: 0, total: 0 });
+
+    await waitFor(() => {
+      expect(onStatus).toHaveBeenCalledTimes(1);
+      expect(onStatus).toHaveBeenCalledWith({ isRunning: true, processed: 2, total: 5 });
+    });
+  });
+
+  it("still applies a response fetched after an event invalidated the resync", async () => {
+    // Invalidation discards only responses that were in flight when the event arrived - a fetch
+    // started afterwards captures the new generation and must apply normally, so a stale event
+    // cannot permanently suppress recovery.
+    const onStatus = vi.fn();
+    let resolveFirst: (val: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(operationsApi.getStatus)
+      .mockReturnValueOnce(first as never)
+      .mockResolvedValueOnce({ isRunning: true, processed: 2, total: 5 });
+
+    let invalidate: () => void = () => {};
+    renderHook(() => {
+      invalidate = useOperationResync("test-op", onStatus);
+    });
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    invalidate();
+    capturedReconnectedHandler?.();
+
+    // The post-invalidation reconnect fetch resolves and applies...
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(2);
+      expect(onStatus).toHaveBeenCalledWith({ isRunning: true, processed: 2, total: 5 });
+    });
+
+    // ...while the pre-invalidation mount response is still dropped.
+    resolveFirst!({ isRunning: false, processed: 0, total: 0 });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(onStatus).toHaveBeenCalledTimes(1);
+  });
 });

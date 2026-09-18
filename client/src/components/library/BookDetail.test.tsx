@@ -61,6 +61,7 @@ import {
   audiobookApi,
   consistencyApi,
   metadataRefreshApi,
+  settingsApi,
   similarValuesApi,
 } from "@/services/api";
 
@@ -165,6 +166,56 @@ describe("BookDetail", () => {
     renderWithProviders();
 
     expect(await screen.findByText(/Part One of the Stormlight Archive/)).toBeInTheDocument();
+  });
+
+  it("renders the language display name, not the raw ISO code, on the read-only page", async () => {
+    vi.mocked(settingsApi.getLanguages).mockResolvedValue({
+      defaultCode: "en",
+      languages: [
+        { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
+        { code: "da", displayName: "Danish", aliases: ["da", "dan", "danish", "dansk"] },
+      ],
+    });
+
+    renderWithProviders();
+
+    // sampleBookDetail.language is "eng" (an alias, as older m4b tags carry); the page must
+    // show "English", never the stored code.
+    expect(await screen.findByText("English")).toBeInTheDocument();
+    expect(screen.queryByText(/^eng$/)).toBeNull();
+  });
+
+  it("renders the book detail fields in the agreed order, with Book name present", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      subtitle: "Part One of the Stormlight Archive",
+      copyright: "2010 Tor",
+      www: "https://example.com",
+    });
+
+    const { container } = renderWithProviders();
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+
+    const labels = Array.from(container.querySelectorAll(".text-xs.font-semibold.uppercase"))
+      .map((el) => el.textContent.trim())
+      .filter((t) => t.length > 0);
+    const start = labels.indexOf("Authors");
+    expect(labels.slice(start, start + 14)).toEqual([
+      "Authors",
+      "Narrators",
+      "Book name",
+      "Subtitle",
+      "Series",
+      "Year",
+      "Genres",
+      "Language",
+      "Description",
+      "Rating",
+      "Web link",
+      "Publisher",
+      "Copyright",
+      "ASIN",
+    ]);
   });
 
   it("Edit button navigates to the edit route", async () => {

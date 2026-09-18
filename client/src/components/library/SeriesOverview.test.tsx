@@ -3,13 +3,16 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { seriesApi } from "@/services/api";
+import { operationsApi, seriesApi } from "@/services/api";
 import type { HubEventHandler, SignalRContextValue } from "@/context/SignalRContext";
 
 vi.mock("@/services/api", () => ({
+  operationsApi: {
+    getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
+  },
   seriesApi: {
     getSeriesPage: vi.fn(),
     getSeriesCounts: vi.fn(),
@@ -178,5 +181,75 @@ describe("SeriesOverview", () => {
     // ...and its items render instead of a dead-end empty page.
     expect(await screen.findByText("Series 01")).toBeInTheDocument();
     expect(screen.queryByText(/Showing 51–100 of 120/)).not.toBeInTheDocument();
+  });
+
+  // Regression: a page opened while a refresh-all is already running server-side (started in
+  // another tab, or whose events were missed while disconnected) used to look idle - the only
+  // things that ever set `refreshing` were the start click and the SignalR progress events. The
+  // status registry rehydrates it on mount so the progress bar is not lost until the next event.
+  it("restores an in-flight refresh-all from the status registry with the status's processed/total", async () => {
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 7,
+      total: 12,
+    });
+
+    renderWithProviders();
+
+    // The bar restores with the registry's processed/total; succeeded/failed are zeroed (the
+    // status endpoint carries only processed/total), giving the "(0 succeeded, 0 failed)" label
+    // until the first live progress event replaces it.
+    expect(
+      await screen.findByText("Refreshing series metadata (0 succeeded, 0 failed)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("7 / 12 (58%)")).toBeInTheDocument();
+    // A restored refresh-all disables the start buttons the same way a live one does.
+    expect(screen.getByRole("button", { name: "Refreshing All..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bulk Match (2)" })).toBeDisabled();
+  });
+
+  it("clears a restored refresh-all state once the status registry reports completion", async () => {
+    let refreshCalls = 0;
+    // Establish the restored running state FIRST (mount fetch), then report completion (the
+    // reconnect re-fetch): the else-branch only meaningfully unwinds state the resync itself
+    // restored - without it a completed status would leave the restored bar on screen, which is
+    // what this test proves by asserting the page ends up idle.
+    const getStatus = vi.mocked(operationsApi.getStatus);
+    getStatus.mockReset().mockImplementation((key: string) => {
+      if (key === OperationKeys.seriesRefresh) {
+        refreshCalls += 1;
+        return Promise.resolve(
+          refreshCalls === 1
+            ? { isRunning: true, processed: 7, total: 12 }
+            : { isRunning: false, processed: 12, total: 12 },
+        );
+      }
+      return Promise.resolve({ isRunning: false, processed: 0, total: 0 });
+    });
+
+    renderWithProviders();
+
+    // Phase 1: the mount fetch restores the in-flight refresh-all - bar visible, buttons locked.
+    expect(
+      await screen.findByText("Refreshing series metadata (0 succeeded, 0 failed)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("7 / 12 (58%)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refreshing All..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bulk Match (2)" })).toBeDisabled();
+
+    // Phase 2: a reconnect re-fetches every mounted operation's status; the refresh-all reports
+    // completed now, which must unwind the restored running state.
+    for (const call of signalR.onReconnected.mock.calls) {
+      (call[0] as () => void)();
+    }
+
+    await waitFor(() => {
+      expect(refreshCalls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Refreshing series metadata/)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Refresh All Series" })).toBeEnabled();
+    expect(getStatus).toHaveBeenCalledWith(OperationKeys.seriesRefresh);
   });
 });

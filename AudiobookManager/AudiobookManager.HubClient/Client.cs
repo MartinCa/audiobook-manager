@@ -194,4 +194,16 @@ public class Client : IOrganize
         Console.WriteLine($"Bulk edit complete: {result.Processed} processed, {result.Succeeded} succeeded, {result.Failed} failed");
         return Task.CompletedTask;
     }
+
+    public Task UrlCleanupProgress(UrlCleanupProgress progress)
+    {
+        Console.WriteLine($"Url cleanup: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task UrlCleanupComplete(UrlCleanupComplete result)
+    {
+        Console.WriteLine($"Url cleanup complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
+        return Task.CompletedTask;
+    }
 }

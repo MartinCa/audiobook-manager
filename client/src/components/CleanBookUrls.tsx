@@ -8,11 +8,31 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { OperationProgressBar } from "./OperationProgressBar";
 import { urlCleanupApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+
+interface ApplyAllProgressPayload {
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
+interface ApplyAllCompletePayload {
+  totalProcessed: number;
+  totalSucceeded: number;
+  totalFailed: number;
+  /** True only when the sweep threw out of the background operation: every count is zero then,
+   *  indistinguishable from a sweep that had nothing left to do without this flag. */
+  errored: boolean;
+}
 
 export function CleanBookUrls() {
   const queryClient = useQueryClient();
@@ -70,6 +90,65 @@ export function CleanBookUrls() {
     },
   });
 
+  // Apply-all is fire-and-forget: the endpoint only starts the background operation, and
+  // progress/completion arrive over SignalR - the same flow consistency's bulk resolve uses.
+  const [cleaningAll, setCleaningAll] = useState(false);
+  const [applyAllProgress, setApplyAllProgress] = useState<ApplyAllProgressPayload | null>(null);
+
+  // Recover an in-flight sweep started elsewhere (or whose events were missed while
+  // disconnected) on mount and after a SignalR reconnect, the same way the consistency
+  // resolve state is recovered on its page. The returned invalidate is called from the
+  // sweep's event handlers so a status response fetched before a real event is discarded
+  // instead of clobbering the state the event set.
+  const invalidateUrlCleanup = useOperationResync(OperationKeys.urlCleanupApply, (status) => {
+    if (status.isRunning) {
+      setCleaningAll(true);
+      setApplyAllProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setCleaningAll(false);
+      setApplyAllProgress(null);
+    }
+  });
+
+  useSignalREvent<ApplyAllProgressPayload>(SignalREvents.UrlCleanupProgress, (data) => {
+    invalidateUrlCleanup();
+    setCleaningAll(true);
+    setApplyAllProgress(data);
+  });
+
+  useSignalREvent<ApplyAllCompletePayload>(SignalREvents.UrlCleanupComplete, (data) => {
+    invalidateUrlCleanup();
+    setCleaningAll(false);
+    setApplyAllProgress(null);
+    if (data.errored) {
+      notifications.error("URL cleanup failed");
+    } else if (data.totalFailed > 0) {
+      notifications.warning(
+        `Cleaned ${data.totalSucceeded} book URL${data.totalSucceeded === 1 ? "" : "s"} (${data.totalFailed} failed)`,
+      );
+    } else {
+      notifications.success(
+        `Cleaned ${data.totalSucceeded} book URL${data.totalSucceeded === 1 ? "" : "s"}`,
+      );
+    }
+    // Re-read the authoritative list, whether this tab started the sweep or another did.
+    goToPage(0);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.urlCleanup.all() });
+  });
+
+  const handleApplyAll = async () => {
+    try {
+      await urlCleanupApi.applyAll();
+      notifications.success(`Cleaning all ${totalCount} detected URLs in the background`);
+    } catch (err: unknown) {
+      notifications.error(handleApiError(err).message);
+    }
+  };
+
   const toggleSelected = (id: number) => {
     const next = new Set(selectedIds);
     if (next.has(id)) {
@@ -105,12 +184,20 @@ export function CleanBookUrls() {
         </p>
       </div>
 
+      {cleaningAll && applyAllProgress && (
+        <OperationProgressBar
+          processed={applyAllProgress.processed}
+          total={applyAllProgress.total}
+          label={`Cleaning all detected URLs (${applyAllProgress.succeeded} cleaned, ${applyAllProgress.failed} failed)`}
+        />
+      )}
+
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-foreground text-lg font-bold">
             Books with Trackable URLs ({totalCount})
           </h2>
-          {dirtyUrls.length > 0 && (
+          {totalCount > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={selectAll}>
                 Select all
@@ -134,6 +221,19 @@ export function CleanBookUrls() {
                   <Sparkles className="mr-2 h-4 w-4" />
                 )}
                 Clean {selectedIds.size} URL{selectedIds.size === 1 ? "" : "s"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={cleaningAll}
+                onClick={() => void handleApplyAll()}
+              >
+                {cleaningAll ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                Clean all detected URLs
               </Button>
             </div>
           )}

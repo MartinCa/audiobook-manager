@@ -185,10 +185,35 @@ export function SeriesRefreshPendingDialog({
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
   };
 
+  // Recover an in-flight apply (e.g. after a SignalR reconnect) into this dialog's progress bar.
+  // The dialog stays mounted while its portal is closed, so the mount-time status fetch happens
+  // once at page load - passing `open` as the resync trigger re-fetches whenever the review is
+  // actually shown, so an apply started while it was hidden is picked up instead of missed. The
+  // returned invalidate is called from the apply's event handlers so a status response fetched
+  // before a real event is discarded instead of clobbering the state the event set.
+  const invalidateRefreshApply = useOperationResync(
+    OperationKeys.seriesRefreshApply,
+    (status) => {
+      if (!applying) return;
+      if (status.isRunning) {
+        setProgress((prev) =>
+          prev && prev.total > 0
+            ? prev
+            : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+        );
+      } else {
+        setApplying(false);
+        setProgress(null);
+      }
+    },
+    open,
+  );
+
   useSignalREvent<SeriesRefreshApplyProgressPayload>(
     SignalREvents.SeriesRefreshApplyProgress,
     (data) => {
       if (!applying) return;
+      invalidateRefreshApply();
       setProgress(data);
     },
   );
@@ -202,6 +227,7 @@ export function SeriesRefreshPendingDialog({
       // toast its results or navigate on its rename - that series' own dialog (or a parallel
       // tab's) is the one listening for it.
       if (data.seriesName !== seriesName) return;
+      invalidateRefreshApply();
       setApplying(false);
       setProgress(null);
       if (data.totalProcessed === 0) {
@@ -219,28 +245,6 @@ export function SeriesRefreshPendingDialog({
       onApplied?.(data.effectiveSeriesName ?? null);
       onOpenChange(false);
     },
-  );
-
-  // Recover an in-flight apply (e.g. after a SignalR reconnect) into this dialog's progress bar.
-  // The dialog stays mounted while its portal is closed, so the mount-time status fetch happens
-  // once at page load - passing `open` as the resync trigger re-fetches whenever the review is
-  // actually shown, so an apply started while it was hidden is picked up instead of missed.
-  useOperationResync(
-    OperationKeys.seriesRefreshApply,
-    (status) => {
-      if (!applying) return;
-      if (status.isRunning) {
-        setProgress((prev) =>
-          prev && prev.total > 0
-            ? prev
-            : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-        );
-      } else {
-        setApplying(false);
-        setProgress(null);
-      }
-    },
-    open,
   );
 
   const handleClose = () => {

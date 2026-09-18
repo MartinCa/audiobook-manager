@@ -2,10 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SignalRContext } from "@/context/SignalRContext";
+import { OperationKeys } from "@/constants/signalrEvents";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
-import { seriesApi } from "@/services/api";
+import { operationsApi, seriesApi } from "@/services/api";
 
 vi.mock("@/services/api", () => ({
+  operationsApi: {
+    getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
+  },
   seriesApi: {
     getSeriesPage: vi.fn(),
     getMatchCandidates: vi.fn(),
@@ -50,14 +54,14 @@ const firstPage = {
   totalCount: 30,
 };
 
-function renderDialog() {
+function renderDialog(open = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <SignalRContext.Provider value={mockSignalRValue}>
       <QueryClientProvider client={queryClient}>
-        <SeriesMatchDialog open onOpenChange={() => {}} />
+        <SeriesMatchDialog open={open} onOpenChange={() => {}} />
       </QueryClientProvider>
     </SignalRContext.Provider>,
   );
@@ -224,5 +228,60 @@ describe("SeriesMatchDialog", () => {
       expect(seriesNames).toContain("Unmatched 51");
       expect(seriesNames).toContain("Unmatched 60");
     });
+  });
+
+  // Regression: the dialog's component never remounts when it opens (only the portal does), so a
+  // match started elsewhere while the dialog was closed used to be invisible on open - the mount-
+  // time status fetch had already run at page load. Re-checking on the open transition closes
+  // that gap.
+  it("reports a running match from the status registry and disables every action", async () => {
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 4,
+      total: 9,
+    });
+
+    renderDialog();
+
+    expect(await screen.findByText("Matching series (0 succeeded, 0 failed)")).toBeInTheDocument();
+    expect(screen.getByText("4 / 9 (44%)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Match All Unmatched (30)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Match Selected \(30\)/ })).toBeDisabled();
+    expect(operationsApi.getStatus).toHaveBeenCalledWith(OperationKeys.seriesMatch);
+  });
+
+  it("re-checks the status registry when the dialog re-opens", async () => {
+    vi.mocked(operationsApi.getStatus)
+      .mockResolvedValueOnce({ isRunning: false, processed: 0, total: 0 })
+      .mockResolvedValueOnce({ isRunning: true, processed: 2, total: 5 });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <SignalRContext.Provider value={mockSignalRValue}>
+        <QueryClientProvider client={queryClient}>
+          <SeriesMatchDialog open={false} onOpenChange={() => {}} />
+        </QueryClientProvider>
+      </SignalRContext.Provider>,
+    );
+
+    // Mount-time fetch (dialog closed) resolves idle.
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <SignalRContext.Provider value={mockSignalRValue}>
+        <QueryClientProvider client={queryClient}>
+          <SeriesMatchDialog open onOpenChange={() => {}} />
+        </QueryClientProvider>
+      </SignalRContext.Provider>,
+    );
+
+    // The open transition triggers a second fetch, and this one finds the running operation.
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText("Matching series (0 succeeded, 0 failed)")).toBeInTheDocument();
+    expect(screen.getByText("2 / 5 (40%)")).toBeInTheDocument();
   });
 });

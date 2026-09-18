@@ -669,15 +669,6 @@ export function BookEditForm({
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium">Description</label>
-            <Textarea
-              {...form.register("description")}
-              rows={4}
-              placeholder="Book summary or description"
-            />
-          </div>
-
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Controller
               control={form.control}
@@ -687,31 +678,19 @@ export function BookEditForm({
               )}
             />
 
-            {isFieldVisible("publisher") && (
-              <div>
-                <label className="mb-1 block text-xs font-medium">Publisher</label>
-                <Input {...form.register("publisher")} placeholder="Publisher" />
-              </div>
-            )}
-
-            {isFieldVisible("copyright") && (
-              <div>
-                <label className="mb-1 block text-xs font-medium">Copyright</label>
-                <Input {...form.register("copyright")} placeholder="Copyright year / owner" />
-              </div>
-            )}
+            <div>
+              <label className="mb-1 block text-xs font-medium">Description</label>
+              <Textarea
+                {...form.register("description")}
+                rows={4}
+                placeholder="Book summary or description"
+              />
+            </div>
 
             {isFieldVisible("rating") && (
               <div>
                 <label className="mb-1 block text-xs font-medium">Rating</label>
                 <Input {...form.register("rating")} placeholder="e.g. 4.5" />
-              </div>
-            )}
-
-            {isFieldVisible("asin") && (
-              <div>
-                <label className="mb-1 block text-xs font-medium">ASIN</label>
-                <Input {...form.register("asin")} placeholder="B0..." />
               </div>
             )}
 
@@ -731,6 +710,27 @@ export function BookEditForm({
                   )}
                 </label>
                 <Input {...form.register("www")} placeholder="https://..." />
+              </div>
+            )}
+
+            {isFieldVisible("publisher") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Publisher</label>
+                <Input {...form.register("publisher")} placeholder="Publisher" />
+              </div>
+            )}
+
+            {isFieldVisible("copyright") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Copyright</label>
+                <Input {...form.register("copyright")} placeholder="Copyright year / owner" />
+              </div>
+            )}
+
+            {isFieldVisible("asin") && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">ASIN</label>
+                <Input {...form.register("asin")} placeholder="B0..." />
               </div>
             )}
           </div>

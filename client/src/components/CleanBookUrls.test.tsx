@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CleanBookUrls } from "./CleanBookUrls";
+import { SignalRContext } from "@/context/SignalRContext";
+import { SignalREvents } from "@/constants/signalrEvents";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { notifications } from "@/lib/notifications";
 
@@ -13,10 +15,23 @@ vi.mock("@/services/api", () => ({
   urlCleanupApi: {
     getDirtyUrlPage: vi.fn(),
     apply: vi.fn(),
+    applyAll: vi.fn(),
+  },
+  operationsApi: {
+    getStatus: vi.fn(),
   },
 }));
 
-import { urlCleanupApi } from "@/services/api";
+import { urlCleanupApi, operationsApi } from "@/services/api";
+
+const mockSignalRValue = {
+  connection: null,
+  isConnected: false,
+  on: vi.fn(),
+  off: vi.fn(),
+  onReconnected: vi.fn(),
+  offReconnected: vi.fn(),
+};
 
 describe("CleanBookUrls", () => {
   let queryClient: QueryClient;
@@ -41,14 +56,64 @@ describe("CleanBookUrls", () => {
     });
 
     vi.mocked(urlCleanupApi.apply).mockResolvedValue({ updated: 1 });
+    vi.mocked(urlCleanupApi.applyAll).mockResolvedValue(undefined);
+    // The operation-status poll on mount resolves as not-running so the resync leaves the
+    // page idle rather than reporting a phantom in-flight sweep.
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
   });
 
   const renderComponent = () =>
     render(
-      <QueryClientProvider client={queryClient}>
-        <RouterTestWrapper ui={<CleanBookUrls />} />
-      </QueryClientProvider>,
+      <SignalRContext.Provider value={mockSignalRValue}>
+        <QueryClientProvider client={queryClient}>
+          <RouterTestWrapper ui={<CleanBookUrls />} />
+        </QueryClientProvider>
+      </SignalRContext.Provider>,
     );
+
+  const applyAllProgressHandler = (data: {
+    processed: number;
+    total: number;
+    succeeded: number;
+    failed: number;
+  }) => {
+    const call = [...mockSignalRValue.on.mock.calls]
+      .reverse()
+      .find(([name]) => name === SignalREvents.UrlCleanupProgress);
+    expect(call, "a UrlCleanupProgress handler was registered").toBeDefined();
+    (
+      call![1] as (data: {
+        processed: number;
+        total: number;
+        succeeded: number;
+        failed: number;
+      }) => void
+    )(data);
+  };
+
+  const applyAllCompleteHandler = (data: {
+    totalProcessed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+    errored: boolean;
+  }) => {
+    const call = [...mockSignalRValue.on.mock.calls]
+      .reverse()
+      .find(([name]) => name === SignalREvents.UrlCleanupComplete);
+    expect(call, "a UrlCleanupComplete handler was registered").toBeDefined();
+    (
+      call![1] as (data: {
+        totalProcessed: number;
+        totalSucceeded: number;
+        totalFailed: number;
+        errored: boolean;
+      }) => void
+    )(data);
+  };
 
   it("shows books with trackable URLs and the cleaned preview", async () => {
     renderComponent();
@@ -68,6 +133,8 @@ describe("CleanBookUrls", () => {
     renderComponent();
 
     expect(await screen.findByText("No trackable URLs found")).toBeInTheDocument();
+    // No dirty URLs means nothing for "clean all" to do either.
+    expect(screen.queryByRole("button", { name: /clean all detected/i })).toBeNull();
   });
 
   it("applies cleanup for the selected books", async () => {
@@ -93,6 +160,101 @@ describe("CleanBookUrls", () => {
 
     const applyButton = await screen.findByRole("button", { name: /clean 0 urls/i });
     expect(applyButton).toBeDisabled();
+  });
+
+  it("cleans every detected URL via the fire-and-forget apply-all endpoint", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    fireEvent.click(screen.getByRole("button", { name: /clean all detected urls/i }));
+
+    await waitFor(() => {
+      expect(urlCleanupApi.applyAll).toHaveBeenCalledTimes(1);
+    });
+    expect(notifications.success).toHaveBeenCalledWith(
+      "Cleaning all 1 detected URLs in the background",
+    );
+  });
+
+  it("shows live progress while the apply-all sweep runs and re-reads the list on completion", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    applyAllProgressHandler({ processed: 1, total: 2, succeeded: 1, failed: 0 });
+    await screen.findByText(/Cleaning all detected URLs \(1 cleaned, 0 failed\)/);
+    expect(screen.getByRole("button", { name: /clean all detected urls/i })).toBeDisabled();
+
+    applyAllCompleteHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      errored: false,
+    });
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Cleaned 2 book URLs");
+    });
+    // The bar is gone and the list is re-read so the freshly-cleaned set renders.
+    await waitFor(() => {
+      expect(screen.queryByText(/Cleaning all detected URLs/)).toBeNull();
+    });
+    expect(urlCleanupApi.getDirtyUrlPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns instead of celebrating when the apply-all sweep had failures", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    applyAllProgressHandler({ processed: 2, total: 2, succeeded: 1, failed: 1 });
+    applyAllCompleteHandler({
+      totalProcessed: 2,
+      totalSucceeded: 1,
+      totalFailed: 1,
+      errored: false,
+    });
+
+    await waitFor(() => {
+      expect(notifications.warning).toHaveBeenCalledWith("Cleaned 1 book URL (1 failed)");
+    });
+    // A partial failure must not be dressed up as a success.
+    expect(notifications.success).not.toHaveBeenCalledWith("Cleaned 1 book URL (1 failed)");
+    // The list is still re-read: the books that DID get cleaned are gone from it.
+    expect(urlCleanupApi.getDirtyUrlPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an errored apply-all sweep as a failure, not a zero-count success", async () => {
+    renderComponent();
+    await screen.findByText(/Winter Dark/);
+
+    // BackgroundOperationRunner's error path: every count is zero, which would otherwise read as
+    // "the sweep had nothing left to do" - errored is what tells the two apart.
+    applyAllCompleteHandler({
+      totalProcessed: 0,
+      totalSucceeded: 0,
+      totalFailed: 0,
+      errored: true,
+    });
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("URL cleanup failed");
+    });
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(notifications.warning).not.toHaveBeenCalled();
+  });
+
+  it("recovers an in-flight apply-all from the operation status on mount", async () => {
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 3,
+      total: 10,
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Cleaning all detected URLs/)).toBeInTheDocument();
+    });
+    // The recovered progress carries the registry's processed/total until a live event arrives.
+    expect(screen.getByText(/3 \/ 10/)).toBeInTheDocument();
   });
 
   it("shows a pager and fetches the next page of dirty URLs", async () => {

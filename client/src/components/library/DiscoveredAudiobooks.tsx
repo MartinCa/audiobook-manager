@@ -152,22 +152,48 @@ export function DiscoveredAudiobooks() {
     queryFn: () => queueApi.getFailedTasks(),
   });
 
-  useOperationResync(OperationKeys.discoveredImport, (status) => {
-    setImporting(status.isRunning);
+  // Recover an in-flight bulk import (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, the same way the scan state is recovered below. The
+  // returned invalidate is called from the import's event handlers so a status response fetched
+  // before a real event is discarded instead of clobbering the state the event set.
+  const invalidateDiscoveredImport = useOperationResync(
+    OperationKeys.discoveredImport,
+    (status) => {
+      setImporting(status.isRunning);
+      if (status.isRunning) {
+        setImportProgress((previous) => ({
+          processed: status.processed,
+          total: status.total,
+          succeeded: previous?.succeeded ?? 0,
+          failed: previous?.failed ?? 0,
+        }));
+      } else {
+        setImportProgress(null);
+      }
+    },
+  );
+
+  // Recover an in-flight library scan (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect: the page must show the scan progress bar rather than
+  // looking idle until the next event, and must not spawn the success notification - that belongs
+  // to the LibraryScanComplete event only.
+  const invalidateLibraryScan = useOperationResync(OperationKeys.libraryScan, (status) => {
     if (status.isRunning) {
-      setImportProgress((previous) => ({
-        processed: status.processed,
-        total: status.total,
-        succeeded: previous?.succeeded ?? 0,
-        failed: previous?.failed ?? 0,
-      }));
+      setScanning(true);
+      setScanProgress((prev) =>
+        prev
+          ? prev
+          : { message: "Resuming scan...", scanned: status.processed, total: status.total },
+      );
     } else {
-      setImportProgress(null);
+      setScanning(false);
+      setScanProgress(null);
     }
   });
 
   // SignalR scan events
   useSignalREvent<ScanProgressPayload>(SignalREvents.LibraryScanProgress, (data) => {
+    invalidateLibraryScan();
     setScanning(true);
     setScanProgress({
       message: data.message,
@@ -177,6 +203,7 @@ export function DiscoveredAudiobooks() {
   });
 
   useSignalREvent<ScanCompletePayload>(SignalREvents.LibraryScanComplete, (data) => {
+    invalidateLibraryScan();
     setScanning(false);
     setScanProgress(null);
     setScanResult(data);
@@ -190,11 +217,13 @@ export function DiscoveredAudiobooks() {
 
   // SignalR import events
   useSignalREvent<ImportProgressPayload>(SignalREvents.DiscoveredImportProgress, (data) => {
+    invalidateDiscoveredImport();
     setImporting(true);
     setImportProgress(data);
   });
 
   useSignalREvent<ImportCompletePayload>(SignalREvents.DiscoveredImportComplete, (data) => {
+    invalidateDiscoveredImport();
     setImporting(false);
     setImportProgress(null);
     setSelectedPaths(new Set());

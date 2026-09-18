@@ -3,6 +3,14 @@ import { HubConnectionBuilder, LogLevel, type HubConnection } from "@microsoft/s
 import { SignalRContext, type HubEventHandler } from "@/context/SignalRContext";
 import { SignalREvents } from "@/constants/signalrEvents";
 
+// @microsoft/signalr's automatic reconnect only kicks in after a connection has been
+// established once. A failed *initial* start (the API not up yet, a proxy hiccup) is a
+// terminal error that otherwise leaves the client permanently disconnected with no event ever
+// arriving - a bulk edit started through the HTTP API would run server-side while the UI sat
+// idle. The provider retries the initial start with an exponential backoff instead.
+export const START_RETRY_BASE_DELAY_MS = 2_000;
+export const START_RETRY_MAX_DELAY_MS = 30_000;
+
 export function SignalRProvider({
   children,
   url = "/hubs/organize",
@@ -42,11 +50,25 @@ export function SignalRProvider({
       .configureLogging(LogLevel.Warning)
       .build();
 
+    // Per-effect liveness token, deliberately not a shared ref: in StrictMode a mount runs
+    // effect setup -> cleanup -> setup, and the second setup used to reset a shared `disposed`
+    // flag, so a stale first start() settling after the remount could overwrite the live
+    // connection (its .then() re-binds and sets the connection state for the dead connection)
+    // and, on failure, schedule retries against one that no longer exists. This closure flips
+    // to true when THIS effect is torn down, and every async resolution (start/reconnect/close/
+    // retry) checks its own effect's token before touching shared state. The retry timer is
+    // per-effect too, so a stale effect can neither clear nor overwrite the live effect's timer.
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
     const currentBoundEvents = boundEvents.current;
     connectionRef.current = hubConnection;
     currentBoundEvents.clear();
 
     hubConnection.onreconnected(() => {
+      if (disposed) {
+        return;
+      }
       setIsConnected(true);
       reconnectedListeners.current.forEach((cb) => {
         try {
@@ -58,37 +80,73 @@ export function SignalRProvider({
     });
 
     hubConnection.onclose(() => {
+      if (disposed) {
+        return;
+      }
       setIsConnected(false);
     });
 
-    void hubConnection
-      .start()
-      .then(() => {
-        setIsConnected(true);
-        setConnection(hubConnection);
+    const bindAllEventNames = (): void => {
+      // Bind every event name the backend can publish - not just the ones a component has
+      // registered a listener for - plus any listeners registered before start resolved. The
+      // binding dispatches through the listener map, so an event with no current listeners is
+      // a harmless no-op, while @microsoft/signalr's client never logs its "no client method
+      // with the name ... found" warning: the backend broadcasts progress/completion
+      // (e.g. ConsistencyCheckProgress) regardless of which page a user is on, and pages that
+      // do not render the matching feature must not turn a background operation elsewhere into
+      // a console warning. This only covers the parity-test-known surface (signalrEvents.ts);
+      // a version-skewed backend publishing an event this client build does not know would
+      // still warn, which the SignalREventParityTests guard against at build time.
+      for (const eventName of Object.values(SignalREvents)) {
+        bindEventToConnection(hubConnection, eventName);
+      }
+      for (const eventName of eventListeners.current.keys()) {
+        bindEventToConnection(hubConnection, eventName);
+      }
+    };
 
-        // Bind every event name the backend can publish - not just the ones a component has
-        // registered a listener for - plus any listeners registered before start resolved. The
-        // binding dispatches through the listener map, so an event with no current listeners is
-        // a harmless no-op, while @microsoft/signalr's client never logs its "no client method
-        // with the name ... found" warning: the backend broadcasts progress/completion
-        // (e.g. ConsistencyCheckProgress) regardless of which page a user is on, and pages that
-        // do not render the matching feature must not turn a background operation elsewhere into
-        // a console warning. This only covers the parity-test-known surface (signalrEvents.ts);
-        // a version-skewed backend publishing an event this client build does not know would
-        // still warn, which the SignalREventParityTests guard against at build time.
-        for (const eventName of Object.values(SignalREvents)) {
-          bindEventToConnection(hubConnection, eventName);
-        }
-        for (const eventName of eventListeners.current.keys()) {
-          bindEventToConnection(hubConnection, eventName);
-        }
-      })
-      .catch((err: unknown) => {
-        console.warn("SignalR connection error:", err);
-      });
+    const scheduleRetry = (attempt: number): void => {
+      const delay = Math.min(
+        START_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+        START_RETRY_MAX_DELAY_MS,
+      );
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        attemptStart(attempt + 1);
+      }, delay);
+    };
+
+    function attemptStart(attempt: number): void {
+      if (disposed) {
+        return;
+      }
+
+      void hubConnection
+        .start()
+        .then(() => {
+          if (disposed) {
+            return;
+          }
+          setIsConnected(true);
+          setConnection(hubConnection);
+          bindAllEventNames();
+        })
+        .catch((err: unknown) => {
+          console.warn(`SignalR connection error (attempt ${attempt}):`, err);
+          if (!disposed) {
+            scheduleRetry(attempt);
+          }
+        });
+    }
+
+    attemptStart(1);
 
     return () => {
+      disposed = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
       connectionRef.current = null;
       currentBoundEvents.clear();
       void hubConnection.stop();

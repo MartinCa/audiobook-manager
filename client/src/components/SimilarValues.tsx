@@ -70,26 +70,11 @@ export function SimilarValues() {
   // page; pull the raw page back into range so the next fetch lands on a valid page.
   useClampedPage(page, pageCount, setPage);
 
-  useSignalREvent<ProgressPayload>(SignalREvents.SimilarValueAlignProgress, (data) => {
-    setAligning(true);
-    setAlignProgress(data);
-  });
-
-  useSignalREvent<AlignCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
-    setAligning(false);
-    setAlignProgress(null);
-    notifications.success(
-      `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
-    );
-    // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
-    // below never asks for a page the smaller detection result no longer has.
-    setPage(0);
-    void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
-  });
-
   // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
   // on mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  useOperationResync(OperationKeys.similarValueAlign, (status) => {
+  // The returned invalidate is called from the alignment's event handlers so a status response
+  // fetched before a real event is discarded instead of clobbering the state the event set.
+  const invalidateAlign = useOperationResync(OperationKeys.similarValueAlign, (status) => {
     if (status.isRunning) {
       setAligning(true);
       setAlignProgress(
@@ -105,6 +90,25 @@ export function SimilarValues() {
       setAligning(false);
       setAlignProgress(null);
     }
+  });
+
+  useSignalREvent<ProgressPayload>(SignalREvents.SimilarValueAlignProgress, (data) => {
+    invalidateAlign();
+    setAligning(true);
+    setAlignProgress(data);
+  });
+
+  useSignalREvent<AlignCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
+    invalidateAlign();
+    setAligning(false);
+    setAlignProgress(null);
+    notifications.success(
+      `Alignment complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
+    );
+    // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
+    // below never asks for a page the smaller detection result no longer has.
+    setPage(0);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
   });
 
   const handleOpenDialog = (group: SimilarValueGroup) => {

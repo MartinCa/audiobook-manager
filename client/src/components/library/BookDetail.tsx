@@ -10,11 +10,18 @@ import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import {
+  browseApi,
+  audiobookApi,
+  consistencyApi,
+  metadataRefreshApi,
+  settingsApi,
+} from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
+import { languageLabel } from "@/helpers/languages";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
@@ -90,6 +97,13 @@ export function BookDetail({ mode }: BookDetailProps) {
     queryFn: () => metadataRefreshApi.getPendingForAudiobook(id).then((pending) => pending ?? null),
     enabled: Boolean(id),
   });
+
+  const { data: languagesRes } = useQuery({
+    queryKey: queryKeys.languages(),
+    queryFn: () => settingsApi.getLanguages(),
+    enabled: Boolean(id) && !isEditMode,
+  });
+  const languages = languagesRes?.languages ?? [];
 
   const bookDetail = data?.detail ?? null;
   const issues = data?.bookIssues ?? [];
@@ -477,6 +491,16 @@ export function BookDetail({ mode }: BookDetailProps) {
                     )}
                   </DetailRow>
 
+                  <DetailRow label="Narrators">
+                    <span className="break-words">
+                      {bookDetail.narrators.length > 0 ? bookDetail.narrators.join(", ") : "None"}
+                    </span>
+                  </DetailRow>
+
+                  <DetailRow label="Book name">{bookDetail.bookName}</DetailRow>
+
+                  <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
+
                   <DetailRow label="Series">
                     {bookDetail.series ? (
                       <span className="flex flex-wrap items-center gap-x-2">
@@ -498,14 +522,6 @@ export function BookDetail({ mode }: BookDetailProps) {
                     )}
                   </DetailRow>
 
-                  <DetailRow label="Narrators">
-                    <span className="break-words">
-                      {bookDetail.narrators.length > 0 ? bookDetail.narrators.join(", ") : "None"}
-                    </span>
-                  </DetailRow>
-
-                  <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
-
                   <DetailRow label="Year">
                     {bookDetail.year ? String(bookDetail.year) : "Unknown"}
                   </DetailRow>
@@ -516,15 +532,17 @@ export function BookDetail({ mode }: BookDetailProps) {
                     </span>
                   </DetailRow>
 
-                  <DetailRow label="Language">{bookDetail.language || "—"}</DetailRow>
+                  <DetailRow label="Language">
+                    {languageLabel(bookDetail.language, languages) || "—"}
+                  </DetailRow>
 
-                  <DetailRow label="Publisher">{bookDetail.publisher || "—"}</DetailRow>
-
-                  <DetailRow label="Copyright">{bookDetail.copyright || "—"}</DetailRow>
+                  <DetailRow label="Description">
+                    <span className="text-muted-foreground break-words whitespace-pre-wrap">
+                      {bookDetail.description || "No description."}
+                    </span>
+                  </DetailRow>
 
                   <DetailRow label="Rating">{bookDetail.rating || "—"}</DetailRow>
-
-                  <DetailRow label="ASIN">{bookDetail.asin || "—"}</DetailRow>
 
                   {bookDetail.www && (
                     <DetailRow label="Web link">
@@ -538,15 +556,12 @@ export function BookDetail({ mode }: BookDetailProps) {
                       </a>
                     </DetailRow>
                   )}
-                </div>
 
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-semibold uppercase">
-                    Description
-                  </div>
-                  <p className="text-muted-foreground break-words whitespace-pre-wrap">
-                    {bookDetail.description || "No description."}
-                  </p>
+                  <DetailRow label="Publisher">{bookDetail.publisher || "—"}</DetailRow>
+
+                  <DetailRow label="Copyright">{bookDetail.copyright || "—"}</DetailRow>
+
+                  <DetailRow label="ASIN">{bookDetail.asin || "—"}</DetailRow>
                 </div>
               </CardContent>
             </Card>

@@ -87,9 +87,62 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
   };
 
-  useSignalREvent<BulkEditProgressPayload>(SignalREvents.BulkEditProgress, setBulkEditProgress);
+  // Recover each in-flight operation (started here or elsewhere, or events missed while
+  // disconnected) on mount and after a SignalR reconnect — the same pattern MetadataRefresh and
+  // LibraryConsistency use for their own operations. Each returned invalidate is called from the
+  // matching operation's event handlers so a status response fetched before a real event is
+  // discarded instead of clobbering the state the event set.
+  const invalidateBulkEdit = useOperationResync(OperationKeys.bulkEdit, (status) => {
+    if (status.isRunning) {
+      setBulkEditProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setBulkEditProgress(null);
+    }
+  });
+
+  const invalidateMetadataRefresh = useOperationResync(OperationKeys.metadataRefresh, (status) => {
+    if (status.isRunning) {
+      setRefreshProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setRefreshProgress(null);
+    }
+  });
+
+  const invalidateCheckSelected = useOperationResync(
+    OperationKeys.consistencyCheckSelected,
+    (status) => {
+      if (status.isRunning) {
+        setCheckProgress(
+          (prev) =>
+            prev ?? {
+              message: "Resuming check...",
+              booksChecked: status.processed,
+              totalBooks: status.total,
+              issuesFound: 0,
+              scope: "selected",
+            },
+        );
+      } else {
+        setCheckProgress(null);
+      }
+    },
+  );
+
+  useSignalREvent<BulkEditProgressPayload>(SignalREvents.BulkEditProgress, (data) => {
+    invalidateBulkEdit();
+    setBulkEditProgress(data);
+  });
 
   useSignalREvent<BulkEditCompletePayload>(SignalREvents.BulkEditComplete, (data) => {
+    invalidateBulkEdit();
     setBulkEditProgress(null);
     if (data.failed > 0) {
       notifications.warning(`Bulk edit complete: ${data.succeeded} updated, ${data.failed} failed`);
@@ -101,12 +154,13 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     selection.clear();
   });
 
-  useSignalREvent<RefreshProgressPayload>(
-    SignalREvents.MetadataRefreshProgress,
-    setRefreshProgress,
-  );
+  useSignalREvent<RefreshProgressPayload>(SignalREvents.MetadataRefreshProgress, (data) => {
+    invalidateMetadataRefresh();
+    setRefreshProgress(data);
+  });
 
   useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
+    invalidateMetadataRefresh();
     setRefreshProgress(null);
     if (data.stopReason) {
       notifications.warning(
@@ -126,60 +180,18 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
 
   useSignalREvent<CheckProgressPayload>(SignalREvents.ConsistencyCheckProgress, (data) => {
     if (data.scope !== "selected") return;
+    invalidateCheckSelected();
     setCheckProgress(data);
   });
 
   useSignalREvent<CheckCompletePayload>(SignalREvents.ConsistencyCheckComplete, (data) => {
     if (data.scope !== "selected") return;
+    invalidateCheckSelected();
     setCheckProgress(null);
     notifications.success(
       `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
     );
     invalidateCommonViews();
-  });
-
-  // Recover each in-flight operation (started here or elsewhere, or events missed while
-  // disconnected) on mount and after a SignalR reconnect — the same pattern MetadataRefresh and
-  // LibraryConsistency use for their own operations.
-  useOperationResync(OperationKeys.bulkEdit, (status) => {
-    if (status.isRunning) {
-      setBulkEditProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setBulkEditProgress(null);
-    }
-  });
-
-  useOperationResync(OperationKeys.metadataRefresh, (status) => {
-    if (status.isRunning) {
-      setRefreshProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setRefreshProgress(null);
-    }
-  });
-
-  useOperationResync(OperationKeys.consistencyCheckSelected, (status) => {
-    if (status.isRunning) {
-      setCheckProgress(
-        (prev) =>
-          prev ?? {
-            message: "Resuming check...",
-            booksChecked: status.processed,
-            totalBooks: status.total,
-            issuesFound: 0,
-            scope: "selected",
-          },
-      );
-    } else {
-      setCheckProgress(null);
-    }
   });
 
   const handleRefresh = async () => {
@@ -214,7 +226,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
 
   return (
     <>
-      <div className="border-border bg-muted/30 space-y-3 rounded-lg border p-3">
+      <div className="border-border bg-muted/30 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {selection.count > 0 && (
             <div className="min-w-0 flex-1">
@@ -269,38 +281,42 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
             </Button>
           </div>
         </div>
-
-        {anyOperationRunning && (
-          <div className="space-y-2">
-            {bulkEditProgress && (
-              <OperationProgressBar
-                compact
-                processed={bulkEditProgress.processed}
-                total={bulkEditProgress.total}
-                label="Bulk editing books..."
-                subText={`${bulkEditProgress.succeeded} updated, ${bulkEditProgress.failed} failed`}
-              />
-            )}
-            {refreshProgress && (
-              <OperationProgressBar
-                compact
-                processed={refreshProgress.processed}
-                total={refreshProgress.total}
-                label="Refreshing metadata..."
-                subText={`${refreshProgress.succeeded} refreshed, ${refreshProgress.failed} failed`}
-              />
-            )}
-            {checkProgress && (
-              <OperationProgressBar
-                compact
-                processed={checkProgress.booksChecked}
-                total={checkProgress.totalBooks}
-                label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
-              />
-            )}
-          </div>
-        )}
       </div>
+
+      {anyOperationRunning && (
+        <div
+          role="status"
+          aria-label="Background operation progress"
+          className="fixed inset-x-3 bottom-3 z-50 space-y-2 sm:inset-x-auto sm:right-auto sm:left-4 sm:w-96"
+        >
+          {bulkEditProgress && (
+            <OperationProgressBar
+              compact
+              processed={bulkEditProgress.processed}
+              total={bulkEditProgress.total}
+              label="Bulk editing books..."
+              subText={`${bulkEditProgress.succeeded} updated, ${bulkEditProgress.failed} failed`}
+            />
+          )}
+          {refreshProgress && (
+            <OperationProgressBar
+              compact
+              processed={refreshProgress.processed}
+              total={refreshProgress.total}
+              label="Refreshing metadata..."
+              subText={`${refreshProgress.succeeded} refreshed, ${refreshProgress.failed} failed`}
+            />
+          )}
+          {checkProgress && (
+            <OperationProgressBar
+              compact
+              processed={checkProgress.booksChecked}
+              total={checkProgress.totalBooks}
+              label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
+            />
+          )}
+        </div>
+      )}
 
       <BulkBookEditDialog
         open={bulkEditOpen}
