@@ -14,6 +14,7 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -145,7 +146,7 @@ export function BulkMissingBookMatchDialog({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ["seriesBulkMissingCandidates", seriesName, page],
+    queryKey: queryKeys.seriesBulkMissingCandidates(seriesName, page),
     queryFn: () => seriesApi.getBulkMissingBookCandidates(seriesName, page, PAGE_SIZE),
     enabled: open,
     // Keep the previous page rendered while the next one loads; the query key holds the page.
@@ -207,8 +208,8 @@ export function BulkMissingBookMatchDialog({
     // invalidated and the dialog closes to show the fresh state.
     setSelections({});
     onOpenChange(false);
-    void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName] });
-    void queryClient.invalidateQueries({ queryKey: ["series"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.bySeries(seriesName) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
   });
 
   // Recover on mount, after a SignalR reconnect, and every time the dialog opens: an apply that

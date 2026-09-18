@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MissingTags } from "./MissingTags";
+import { queryKeys } from "@/lib/queryKeys";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { notifications } from "@/lib/notifications";
 
@@ -133,7 +134,7 @@ describe("MissingTags", () => {
       processed: 5,
       total: 10,
     });
-    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
     // The running state must actually render (and flip prevRunningRef) before completing.
     expect(await screen.findByText(/50%/)).toBeInTheDocument();
 
@@ -142,7 +143,7 @@ describe("MissingTags", () => {
       processed: 10,
       total: 10,
     });
-    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
 
     await waitFor(() => {
       expect(notifications.success).toHaveBeenCalledWith("Language backfill operation completed");
@@ -189,7 +190,7 @@ describe("MissingTags", () => {
       total: 10,
     });
 
-    await queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
 
     await waitFor(() => {
       expect(notifications.success).toHaveBeenCalledWith("Language backfill operation completed");

@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
 
@@ -61,7 +62,7 @@ export function AuthorsList() {
   // The list is paged server-side: the filter also runs in SQL (accent-insensitive), so only the
   // requested page crosses the wire - the old version sent every author in the library.
   const { data: pageData, isLoading: loading } = useQuery({
-    queryKey: ["authors", q, page],
+    queryKey: queryKeys.authors.page(q, page),
     placeholderData: keepPreviousData,
     queryFn: () => browseApi.getAuthorPage(PAGE_SIZE, page * PAGE_SIZE, q),
   });

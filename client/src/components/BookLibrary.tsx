@@ -11,6 +11,7 @@ import { BookListRow } from "./library/BookListRow";
 import { BookBulkActionBar } from "./library/BookBulkActionBar";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
 import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { Route } from "@/routes/library/index";
 
@@ -58,7 +59,7 @@ export function BookLibrary() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["books", q, page, pageSize],
+    queryKey: queryKeys.books.page(q, page, pageSize),
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
       const [browseRes, issuesRes, pendingIds] = await Promise.all([

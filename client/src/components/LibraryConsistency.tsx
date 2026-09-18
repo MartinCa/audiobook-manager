@@ -31,6 +31,7 @@ import { DeleteFileDialog } from "./DeleteFileDialog";
 import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
 import { TagMismatchResolveDialog } from "./TagMismatchResolveDialog";
 import { consistencyApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { handleApiError } from "@/lib/api";
@@ -125,7 +126,7 @@ export function LibraryConsistency() {
   // how many issues of each type exist - enough to render the group headers and size each
   // group's pager - and each group then fetches only the page being looked at.
   const { data, isLoading: loading } = useQuery({
-    queryKey: ["consistency", "overview"],
+    queryKey: queryKeys.consistency.overview(),
     queryFn: async () => {
       const [countsByType, orphansData] = await Promise.all([
         consistencyApi.getIssueCountsByType(),
@@ -152,7 +153,7 @@ export function LibraryConsistency() {
 
   const pageQueries = useQueries({
     queries: issueTypes.map((type) => ({
-      queryKey: ["consistency", "page", type, pageFor(type)],
+      queryKey: queryKeys.consistency.page(type, pageFor(type)),
       queryFn: () =>
         consistencyApi.getIssues({
           issueType: type,
@@ -179,7 +180,7 @@ export function LibraryConsistency() {
     notifications.success(
       `Check complete: ${data.totalBooksChecked} books checked, ${data.totalIssuesFound} issues found`,
     );
-    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
   });
 
   useSignalREvent<ResolveProgressPayload>(SignalREvents.ConsistencyResolveProgress, (data) => {
@@ -193,7 +194,7 @@ export function LibraryConsistency() {
     notifications.success(`Resolved ${data.totalSucceeded} issues (${data.totalFailed} failed)`);
     // Re-read the authoritative list rather than reproducing the server's cascade rules
     // client-side: resolving one issue routinely clears its siblings for the same book.
-    void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
   });
 
   // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
@@ -250,7 +251,7 @@ export function LibraryConsistency() {
     try {
       const result = await consistencyApi.resolveIssue(issue.id);
       notifyConsistencyResolveResult(result);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       setSelectedIssues((prev) => {
         const next = new Map(prev);
         next.delete(issue.id);
@@ -321,7 +322,7 @@ export function LibraryConsistency() {
     try {
       const result = await consistencyApi.resolveTagMismatch(issueId, fieldValues);
       notifyConsistencyResolveResult(result);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       setSelectedIssues((prev) => {
         const next = new Map(prev);
         next.delete(issueId);
@@ -376,7 +377,7 @@ export function LibraryConsistency() {
     try {
       const res = await consistencyApi.resolveOrphanDirectory(orphanToDelete.id);
       notifyOrphanResolveResult(res);
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       setOrphanToDelete(null);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -395,7 +396,7 @@ export function LibraryConsistency() {
           `Deleted ${res.resolved} orphaned directories (${res.failed} failed)`,
         );
       }
-      void queryClient.invalidateQueries({ queryKey: ["consistency"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       setDeleteAllOrphansOpen(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);

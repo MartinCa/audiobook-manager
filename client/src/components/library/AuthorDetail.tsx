@@ -10,6 +10,7 @@ import { BookBulkActionBar } from "./BookBulkActionBar";
 import { SeriesListEntry } from "./SeriesListEntry";
 import { LinkButton } from "../LinkButton";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { Route } from "@/routes/library/authors/$authorId";
@@ -43,7 +44,7 @@ export function AuthorDetail() {
   // change issue an extra backend call whose other section (computed with default paging) was
   // thrown away. keepPreviousData keeps both sections rendered while one of them pages.
   const detailQuery = useQuery({
-    queryKey: ["author", id, seriesPage, standalonePage],
+    queryKey: queryKeys.author.detail(id, seriesPage, standalonePage),
     queryFn: () =>
       browseApi.getAuthorDetail(id, {
         seriesLimit: PAGE_SIZE,

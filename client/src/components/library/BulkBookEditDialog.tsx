@@ -24,6 +24,7 @@ import { NarratorsField } from "@/components/fields/NarratorsField";
 import { SeriesField } from "@/components/fields/SeriesField";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { bulkEditApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { computeMultiFieldState, computeSingleFieldState } from "@/helpers/bulkEdit";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -218,7 +219,7 @@ export function BulkBookEditDialog({ open, onOpenChange, selectedBooks }: BulkBo
   const previewQuery = useQuery({
     // ids (not just their joined string) joins the key so the exhaustive-deps rule can see every
     // value the queryFn closes over.
-    queryKey: ["bulkEditPreview", idsKey, ids],
+    queryKey: queryKeys.bulkEditPreview(idsKey, ids),
     queryFn: () => bulkEditApi.preview(ids),
     enabled: open && ids.length > 0,
   });

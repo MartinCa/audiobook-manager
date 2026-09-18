@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZE } from "@/constants/paging";
 import { urlCleanupApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -25,7 +26,7 @@ export function CleanBookUrls() {
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ["urlCleanup", "page", page],
+    queryKey: queryKeys.urlCleanup.page(page),
     // keepPreviousData: while the next page loads the previous one stays rendered (with the
     // checkboxes dimmed via isFetching), so the pager doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
@@ -62,7 +63,7 @@ export function CleanBookUrls() {
       );
       // Drop back to page 0 too: whatever page was being looked at may now be a stale slice.
       goToPage(0);
-      void queryClient.invalidateQueries({ queryKey: ["urlCleanup"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.urlCleanup.all() });
     },
     onError: (err: unknown) => {
       notifications.error(handleApiError(err).message);

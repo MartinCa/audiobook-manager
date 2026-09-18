@@ -9,6 +9,7 @@ import { useBookSelection, type SelectedBookInfo } from "@/hooks/useBookSelectio
 import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi, metadataRefreshApi, operationsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 vi.mock("@/lib/notifications", () => ({
   notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -238,7 +239,12 @@ describe("BookBulkActionBar", () => {
     });
     expect(screen.queryByText("Bulk editing books...")).not.toBeInTheDocument();
 
-    for (const queryKey of [["books"], ["author"], ["seriesDetail"], ["metadataRefresh"]]) {
+    for (const queryKey of [
+      queryKeys.books.all(),
+      queryKeys.author.all(),
+      queryKeys.seriesDetail.all(),
+      queryKeys.metadataRefresh.all(),
+    ]) {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey });
     }
 
@@ -287,7 +293,7 @@ describe("BookBulkActionBar", () => {
       );
     });
     expect(screen.queryByText("Refreshing metadata...")).not.toBeInTheDocument();
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.books.all() });
     // A refresh does not change the books' identities: the selection survives.
     expect(screen.getByText("2 selected")).toBeInTheDocument();
   });
@@ -337,7 +343,7 @@ describe("BookBulkActionBar", () => {
       );
     });
     expect(screen.queryByText("Checking books (3 issues found)")).not.toBeInTheDocument();
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["seriesDetail"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.seriesDetail.all() });
     expect(screen.getByText("2 selected")).toBeInTheDocument();
   });
 

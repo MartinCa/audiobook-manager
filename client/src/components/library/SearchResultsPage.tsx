@@ -11,6 +11,7 @@ import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { BROWSE_PAGE_SIZE, SEARCH_PREVIEW_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { LibrarySeriesHit } from "@/types/LibrarySearchResult";
@@ -183,35 +184,31 @@ export function SearchResultsPage() {
   const seriesOffset = tab === "series" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
 
   const booksQuery = useQuery({
-    queryKey: ["searchResults", "books", q, tab === "books" ? page : 1, booksLimit, booksOffset],
+    queryKey: queryKeys.searchResults.books(q, tab === "books" ? page : 1, booksLimit, booksOffset),
     queryFn: () => browseApi.searchAudiobooks(q, booksLimit, booksOffset),
     enabled: Boolean(q),
     placeholderData: keepPreviousData,
   });
 
   const authorsQuery = useQuery({
-    queryKey: [
-      "searchResults",
-      "authors",
+    queryKey: queryKeys.searchResults.authors(
       q,
       tab === "authors" ? page : 1,
       authorsLimit,
       authorsOffset,
-    ],
+    ),
     queryFn: () => browseApi.searchAuthors(q, authorsLimit, authorsOffset),
     enabled: Boolean(q),
     placeholderData: keepPreviousData,
   });
 
   const seriesQuery = useQuery({
-    queryKey: [
-      "searchResults",
-      "series",
+    queryKey: queryKeys.searchResults.series(
       q,
       tab === "series" ? page : 1,
       seriesLimit,
       seriesOffset,
-    ],
+    ),
     queryFn: () => browseApi.searchSeries(q, seriesLimit, seriesOffset),
     enabled: Boolean(q),
     placeholderData: keepPreviousData,

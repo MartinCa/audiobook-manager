@@ -7,6 +7,7 @@ import { DuplicateTargetDialog } from "./DuplicateTargetDialog";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { AudiobookFileDetails } from "./AudiobookFileDetails";
 import { audiobookApi, filesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { notifications } from "@/lib/notifications";
@@ -37,7 +38,7 @@ export function BookOrganize({
     isLoading: loading,
     error: parseError,
   } = useQuery({
-    queryKey: ["bookDetails", targetPath],
+    queryKey: queryKeys.bookDetails(targetPath),
     queryFn: () => audiobookApi.parseBookDetails(targetPath),
     enabled: Boolean(targetPath),
   });

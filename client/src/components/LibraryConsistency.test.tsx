@@ -7,6 +7,7 @@ import { SignalREvents } from "@/constants/signalrEvents";
 import { PAGE_SIZE } from "@/constants/paging";
 import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { notifications } from "@/lib/notifications";
 
@@ -24,6 +25,13 @@ vi.mock("@/services/api", async (importOriginal) => {
     },
   };
 });
+
+function expectNoNotifications() {
+  expect(notifications.success).not.toHaveBeenCalled();
+  expect(notifications.error).not.toHaveBeenCalled();
+  expect(notifications.info).not.toHaveBeenCalled();
+  expect(notifications.warning).not.toHaveBeenCalled();
+}
 
 let queryClient: QueryClient;
 
@@ -307,7 +315,7 @@ describe("LibraryConsistency", () => {
     await screen.findByText(/Some Author — Book 50$/);
 
     mockPagedIssues(manyIssues.slice(0, 2));
-    await queryClient.invalidateQueries({ queryKey: ["consistency"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
 
     // The surviving issues are shown rather than an empty group: the fetch is clamped to the
     // group's last real page, not left pointing past the end.
@@ -573,7 +581,7 @@ describe("LibraryConsistency", () => {
     } as never);
 
     await waitFor(() => {
-      expect(notifications.success).not.toHaveBeenCalled();
+      expectNoNotifications();
     });
     expect(screen.queryByText(/Check complete:/)).not.toBeInTheDocument();
   });

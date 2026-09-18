@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Settings as SettingsIcon, Info, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { settingsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 
 /**
@@ -12,7 +13,7 @@ import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
  */
 export function Settings() {
   const { data: systemInfo } = useQuery({
-    queryKey: ["systemInfo"],
+    queryKey: queryKeys.systemInfo(),
     queryFn: () => settingsApi.getSystemInfo(),
     staleTime: 60 * 60 * 1000,
   });

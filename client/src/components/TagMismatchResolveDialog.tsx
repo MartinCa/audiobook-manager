@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { consistencyApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
 
 export type TagFieldChoice = "library" | "file" | "empty";
@@ -41,7 +42,7 @@ export function TagMismatchResolveDialog({
   onResolve,
 }: TagMismatchResolveDialogProps) {
   const { data: fields, isFetching } = useQuery({
-    queryKey: ["tag-mismatch", issue?.id],
+    queryKey: queryKeys.tagMismatch(issue?.id),
     queryFn: () => consistencyApi.getTagMismatch(issue!.id),
     enabled: open && issue != null,
     staleTime: 30_000,

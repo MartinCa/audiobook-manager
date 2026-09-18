@@ -7,6 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { settingsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { languageSelectItems } from "@/helpers/languages";
 import type { LanguageOption } from "@/types/Language";
 
@@ -31,7 +32,7 @@ export function LanguageField({
   showLabel = true,
 }: LanguageFieldProps) {
   const { data: languagesRes } = useQuery({
-    queryKey: ["languages"],
+    queryKey: queryKeys.languages(),
     queryFn: () => settingsApi.getLanguages(),
   });
   const languages: LanguageOption[] = languagesRes?.languages ?? [];

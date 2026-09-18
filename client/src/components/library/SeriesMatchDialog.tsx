@@ -9,6 +9,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -57,7 +58,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
   const [matchProgress, setMatchProgress] = useState<SeriesMatchProgressPayload | null>(null);
 
   const { data: pageData, isLoading: loadingPage } = useQuery({
-    queryKey: ["series", "unmatched", page],
+    queryKey: queryKeys.series.unmatched(page),
     queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, undefined, false),
     enabled: open,
     placeholderData: keepPreviousData,

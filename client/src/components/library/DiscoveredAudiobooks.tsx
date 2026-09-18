@@ -36,6 +36,7 @@ import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { LinkButton } from "../LinkButton";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -126,7 +127,7 @@ export function DiscoveredAudiobooks() {
   }, [search]);
 
   const { data, isLoading: loading } = useQuery({
-    queryKey: ["discoveredAudiobooks", debouncedSearch, page, pageSize],
+    queryKey: queryKeys.discoveredAudiobooks.page(debouncedSearch, page, pageSize),
     queryFn: () =>
       libraryApi.getDiscovered(
         pageSize,
@@ -135,7 +136,7 @@ export function DiscoveredAudiobooks() {
       ),
   });
   const { data: unfilteredData } = useQuery({
-    queryKey: ["discoveredAudiobooks", "", 1, pageSize],
+    queryKey: queryKeys.discoveredAudiobooks.page("", 1, pageSize),
     queryFn: () => libraryApi.getDiscovered(pageSize, 0),
   });
 
@@ -147,7 +148,7 @@ export function DiscoveredAudiobooks() {
   // past the retry threshold - so a permanently-stuck file isn't invisible until someone digs
   // through the logs. See #1322.
   const { data: failedTasks = [] } = useQuery({
-    queryKey: ["failedOrganizeTasks"],
+    queryKey: queryKeys.failedOrganizeTasks(),
     queryFn: () => queueApi.getFailedTasks(),
   });
 
@@ -183,7 +184,7 @@ export function DiscoveredAudiobooks() {
       `Scan complete: ${data.newFilesDiscovered} new files, ${data.alreadyTracked} already tracked`,
     );
     void queryClient.invalidateQueries({
-      queryKey: ["discoveredAudiobooks"],
+      queryKey: queryKeys.discoveredAudiobooks.all(),
     });
   });
 
@@ -201,7 +202,7 @@ export function DiscoveredAudiobooks() {
       `Import complete: ${data.totalSucceeded} succeeded, ${data.totalFailed} failed`,
     );
     void queryClient.invalidateQueries({
-      queryKey: ["discoveredAudiobooks"],
+      queryKey: queryKeys.discoveredAudiobooks.all(),
     });
   });
 
@@ -226,7 +227,7 @@ export function DiscoveredAudiobooks() {
 
     if (payload.progress >= 100) {
       void queryClient.invalidateQueries({
-        queryKey: ["discoveredAudiobooks"],
+        queryKey: queryKeys.discoveredAudiobooks.all(),
       });
     }
   });
@@ -251,14 +252,14 @@ export function DiscoveredAudiobooks() {
     // means "queued for another try"), but that leaves no signal for the *outcome* - this is the
     // one that brings the row back into view once it actually fails again, instead of the user
     // being told "queued" and then hearing nothing further.
-    void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.failedOrganizeTasks() });
   });
 
   // A dropped/re-established connection may have missed progress or completion events for
   // an in-flight import; re-fetching re-derives the list's state the same way it does on mount.
   useSignalRReconnected(() => {
     void queryClient.invalidateQueries({
-      queryKey: ["discoveredAudiobooks"],
+      queryKey: queryKeys.discoveredAudiobooks.all(),
     });
   });
 
@@ -325,7 +326,7 @@ export function DiscoveredAudiobooks() {
       await libraryApi.deleteDiscovered(path);
       notifications.success("File deleted and record removed");
       void queryClient.invalidateQueries({
-        queryKey: ["discoveredAudiobooks"],
+        queryKey: queryKeys.discoveredAudiobooks.all(),
       });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -355,7 +356,7 @@ export function DiscoveredAudiobooks() {
     mutationFn: (path: string) => queueApi.retryFailedTask(path),
     onSuccess: () => {
       notifications.success("Queued for another attempt");
-      void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.failedOrganizeTasks() });
     },
     onError: (err: unknown) => {
       notifications.error(handleApiError(err).message);
@@ -367,7 +368,7 @@ export function DiscoveredAudiobooks() {
     try {
       await queueApi.deleteFailedTask(path);
       notifications.success("Removed from the organize queue");
-      void queryClient.invalidateQueries({ queryKey: ["failedOrganizeTasks"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.failedOrganizeTasks() });
       setRemoveFailedTargetPath(null);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { similarValuesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { EntryStatus } from "@/types/EntryStatus";
 
 export type EntryValueType = "author" | "narrator" | "series";
@@ -32,7 +33,7 @@ export function useEntryStatus(valueType: EntryValueType, value: string): EntryS
   }, [value]);
 
   const { data, isError } = useQuery({
-    queryKey: ["entryStatus", valueType, debounced],
+    queryKey: queryKeys.entryStatus(valueType, debounced),
     queryFn: () => similarValuesApi.getEntryStatus(valueType, debounced, 3),
     enabled: debounced.length > 0,
     staleTime: 30_000,

@@ -12,6 +12,7 @@ import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { metadataRefreshApi, seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
@@ -48,7 +49,7 @@ export function MetadataRefresh() {
   const [page, setPage] = useState(0);
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: ["metadataRefresh", "pending", page],
+    queryKey: queryKeys.metadataRefresh.pendingPage(page),
     placeholderData: keepPreviousData,
     queryFn: () => metadataRefreshApi.getPendingPage(page, PAGE_SIZE),
   });
@@ -77,8 +78,8 @@ export function MetadataRefresh() {
   // pending-summary into its badge computation, so "metadataRefresh"-prefixed invalidation alone
   // would leave stale badges.
   const invalidateRefreshViews = () => {
-    void queryClient.invalidateQueries({ queryKey: ["metadataRefresh"] });
-    void queryClient.invalidateQueries({ queryKey: ["books"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
 
   useSignalREvent<RefreshProgressPayload>(SignalREvents.MetadataRefreshProgress, (data) => {
@@ -148,7 +149,7 @@ export function MetadataRefresh() {
         `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
       );
     }
-    void queryClient.invalidateQueries({ queryKey: ["seriesPending"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
   });
 
   useOperationResync(OperationKeys.seriesRefresh, (status) => {

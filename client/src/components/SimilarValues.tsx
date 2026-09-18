@@ -12,6 +12,7 @@ import { LinkButton } from "./LinkButton";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -52,7 +53,7 @@ export function SimilarValues() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: ["similarValues", activeTab, page],
+    queryKey: queryKeys.similarValues.page(activeTab, page),
     placeholderData: keepPreviousData,
     queryFn: () =>
       activeTab === "author"
@@ -83,7 +84,7 @@ export function SimilarValues() {
     // Alignment can only merge groups, so the total shrank - drop back to page 0 so the refetch
     // below never asks for a page the smaller detection result no longer has.
     setPage(0);
-    void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
   });
 
   // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
@@ -118,7 +119,7 @@ export function SimilarValues() {
     try {
       await similarValuesApi.align(activeTab, candidateStrings, targetValue);
       notifications.success(`Alignment started for "${targetValue}"`);
-      void queryClient.invalidateQueries({ queryKey: ["similarValues"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
       setAligning(false);

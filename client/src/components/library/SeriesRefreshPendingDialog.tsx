@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
@@ -97,7 +98,7 @@ export function SeriesRefreshPendingDialog({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ["seriesPending", seriesName],
+    queryKey: queryKeys.seriesPending.bySeries(seriesName),
     queryFn: () => seriesApi.getSeriesPending(seriesName),
     enabled: open && Boolean(seriesName),
   });
@@ -164,10 +165,10 @@ export function SeriesRefreshPendingDialog({
   }
 
   const invalidateViews = () => {
-    void queryClient.invalidateQueries({ queryKey: ["seriesPending"] });
-    void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName] });
-    void queryClient.invalidateQueries({ queryKey: ["series"] });
-    void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.bySeries(seriesName) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
   };
 
   useSignalREvent<SeriesRefreshApplyProgressPayload>(
@@ -587,7 +588,7 @@ function MissingCandidatePicker({
     isFetching,
     isError,
   } = useQuery({
-    queryKey: ["missingBookCandidates", seriesName, position, title],
+    queryKey: queryKeys.missingBookCandidates(seriesName, position, title),
     queryFn: () => seriesApi.getMissingBookCandidates(seriesName, position, title),
     staleTime: 30_000,
   });

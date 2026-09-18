@@ -28,6 +28,7 @@ import { BookSearchDialog } from "./BookSearchDialog";
 import { TagPreviewDialog } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
 import { audiobookApi, settingsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import {
   joinList,
   cleanDescription,
@@ -191,7 +192,7 @@ export function BookEditForm({
   });
 
   const { data: languagesRes } = useQuery({
-    queryKey: ["languages"],
+    queryKey: queryKeys.languages(),
     queryFn: () => settingsApi.getLanguages(),
   });
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
@@ -218,7 +219,7 @@ export function BookEditForm({
   }, [seriesPartValue]);
   const seriesSetWithNoPart = seriesValue.length > 0 && seriesPartValue.length === 0;
   const { data: seriesPartConflictCheck, isError: seriesPartConflictError } = useQuery({
-    queryKey: ["seriesPartConflicts", currentBookId, debouncedSeries, debouncedPart],
+    queryKey: queryKeys.seriesPartConflicts(currentBookId, debouncedSeries, debouncedPart),
     queryFn: () =>
       audiobookApi.getSeriesPartConflicts(currentBookId!, debouncedSeries, debouncedPart),
     enabled: currentBookId !== undefined && debouncedSeries.length > 0 && debouncedPart.length > 0,
