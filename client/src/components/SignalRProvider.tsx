@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { HubConnectionBuilder, LogLevel, type HubConnection } from "@microsoft/signalr";
 import { SignalRContext, type HubEventHandler } from "@/context/SignalRContext";
+import { SignalREvents } from "@/constants/signalrEvents";
 
 export function SignalRProvider({
   children,
@@ -66,7 +67,19 @@ export function SignalRProvider({
         setIsConnected(true);
         setConnection(hubConnection);
 
-        // Bind all event listeners that were registered prior to connection start
+        // Bind every event name the backend can publish - not just the ones a component has
+        // registered a listener for - plus any listeners registered before start resolved. The
+        // binding dispatches through the listener map, so an event with no current listeners is
+        // a harmless no-op, while @microsoft/signalr's client never logs its "no client method
+        // with the name ... found" warning: the backend broadcasts progress/completion
+        // (e.g. ConsistencyCheckProgress) regardless of which page a user is on, and pages that
+        // do not render the matching feature must not turn a background operation elsewhere into
+        // a console warning. This only covers the parity-test-known surface (signalrEvents.ts);
+        // a version-skewed backend publishing an event this client build does not know would
+        // still warn, which the SignalREventParityTests guard against at build time.
+        for (const eventName of Object.values(SignalREvents)) {
+          bindEventToConnection(hubConnection, eventName);
+        }
         for (const eventName of eventListeners.current.keys()) {
           bindEventToConnection(hubConnection, eventName);
         }

@@ -170,4 +170,79 @@ describe("SignalRProvider", () => {
 
     expect(reconnectedCallback).toHaveBeenCalledTimes(1);
   });
+
+  // Guard for the reported consistency-check progress warning: the backend broadcasts progress/
+  // completion events regardless of which page is mounted (a full-library check started from the
+  // library page still emits ConsistencyCheckProgress while no consistency page is open), and
+  // @microsoft/signalr logs a console warning when an event arrives with no client handler bound.
+  // The provider must pre-bind every parity-test-known event name at the connection so the whole
+  // backend surface is always handled (no-op when no listener is registered), instead of only the
+  // events of the currently mounted page.
+  it("pre-binds every backend event name so unhandled broadcasts do not warn", async () => {
+    render(
+      <SignalRProvider>
+        <div />
+      </SignalRProvider>,
+    );
+
+    act(() => {
+      startPromiseResolve();
+    });
+
+    // The reported event itself must be bound even though no subscriber exists for it.
+    await waitFor(() => {
+      expect(mockHubConnection.on).toHaveBeenCalledWith(
+        SignalREvents.ConsistencyCheckProgress,
+        expect.any(Function),
+      );
+    });
+
+    for (const eventName of Object.values(SignalREvents)) {
+      expect(mockHubConnection.on).toHaveBeenCalledWith(eventName, expect.any(Function));
+    }
+  });
+
+  it("dispatches a pre-bound event to a handler registered after the connection started", async () => {
+    const messageHandler = vi.fn();
+
+    const { rerender } = render(
+      <SignalRProvider>
+        <div />
+      </SignalRProvider>,
+    );
+
+    act(() => {
+      startPromiseResolve();
+    });
+
+    // The provider pre-bound the event eagerly, before any subscriber existed.
+    await waitFor(() => {
+      expect(mockHubConnection.on).toHaveBeenCalledWith(
+        SignalREvents.UpdateProgress,
+        expect.any(Function),
+      );
+    });
+
+    // A subscriber mounts after start: the binding is already in place, and the dispatcher must
+    // route the broadcast through to the newly registered listener.
+    rerender(
+      <SignalRProvider>
+        <TestSubscriber eventName={SignalREvents.UpdateProgress} onMessage={messageHandler} />
+      </SignalRProvider>,
+    );
+
+    act(() => {
+      mockOnHandlers[SignalREvents.UpdateProgress]?.({
+        originalFileLocation: "/path/book.m4b",
+        progress: 10,
+        progressMessage: "Working",
+      });
+    });
+
+    expect(messageHandler).toHaveBeenCalledWith({
+      originalFileLocation: "/path/book.m4b",
+      progress: 10,
+      progressMessage: "Working",
+    });
+  });
 });
