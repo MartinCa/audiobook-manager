@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace AudiobookManager.Scraping;
 
@@ -18,9 +18,22 @@ namespace AudiobookManager.Scraping;
 /// <item>A pattern that compiles but backtracks catastrophically - the classic <c>(a+)+$</c>
 /// shape. With .NET's default <see cref="Regex.InfiniteMatchTimeout"/> a single such pattern
 /// wedges the request thread forever, and because these run on every scraped result it wedges
-/// every metadata search from then on. <see cref="MatchTimeout"/> is what bounds that, and it is
-/// applied by construction here so a call site cannot forget it.</item>
+/// every metadata search from then on.</item>
 /// </list>
+///
+/// The second is prevented rather than merely bounded wherever that is possible.
+/// <see cref="Compile"/> builds the pattern on the <see cref="RegexOptions.NonBacktracking"/>
+/// engine first, which matches in guaranteed linear time and so cannot backtrack at all - a
+/// pattern on that engine is immune by construction and its timeout is unreachable. Only the
+/// constructs that engine does not implement fall back to the classic one, and those keep
+/// <see cref="MatchTimeout"/> as their bound.
+///
+/// That distinction earns its keep because the timeout is per match while these patterns are
+/// matched once per scraped result: N runaway patterns would otherwise cost N x the timeout for
+/// every result in a search. NonBacktracking takes almost all of them out of that multiplication,
+/// and the caller closes the rest by disabling a pattern that does time out for the remainder of
+/// the scope (see <c>BookSeriesMapper</c>), so a bad row costs its timeout once per request
+/// rather than once per result.
 ///
 /// A timeout only fires on a match that is already pathological, so callers treat it as "this
 /// mapping does not apply" and carry on with the rest - never as a failed search.
@@ -35,11 +48,36 @@ public static class SeriesMappingPattern
     public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
-    /// Compiles a user-authored pattern with <see cref="MatchTimeout"/> applied. Throws
-    /// <see cref="ArgumentException"/> for a pattern that does not compile, exactly as
-    /// <see cref="Regex"/> does.
+    /// Compiles a user-authored pattern on the strongest engine that supports it: the linear-time
+    /// <see cref="RegexOptions.NonBacktracking"/> one where possible, the classic engine bounded by
+    /// <see cref="MatchTimeout"/> otherwise. Throws <see cref="ArgumentException"/> for a pattern
+    /// that does not compile at all, exactly as <see cref="Regex"/> does - so a pattern this
+    /// accepts is one the classic engine accepts, and the engine choice never changes which
+    /// patterns are valid, only how fast the pathological ones give up.
+    ///
+    /// The timeout is passed on both paths. It is unreachable on the NonBacktracking one, and
+    /// saying so in code costs nothing next to relying on the reader knowing it.
     /// </summary>
-    public static Regex Compile(string pattern) => new(pattern, RegexOptions.None, MatchTimeout);
+    public static Regex Compile(string pattern)
+    {
+        try
+        {
+            return new Regex(pattern, RegexOptions.NonBacktracking, MatchTimeout);
+        }
+        catch (NotSupportedException)
+        {
+            // A construct the linear-time engine does not implement - a backreference, a
+            // lookaround, an atomic group. Perfectly valid regex, so it falls back to the classic
+            // engine, where the timeout stops being a formality.
+            return new Regex(pattern, RegexOptions.None, MatchTimeout);
+        }
+    }
+
+    /// <summary>
+    /// Whether this compiled pattern can backtrack at all, i.e. whether its
+    /// <see cref="MatchTimeout"/> is load-bearing rather than unreachable.
+    /// </summary>
+    public static bool CanBacktrack(Regex regex) => (regex.Options & RegexOptions.NonBacktracking) == 0;
 
     /// <summary>
     /// Compiles a user-authored pattern, reporting a syntax error rather than throwing.
