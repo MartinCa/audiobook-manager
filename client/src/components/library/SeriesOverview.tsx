@@ -89,6 +89,26 @@ export function SeriesOverviewPage() {
   const [refreshProgress, setRefreshProgress] = useState<SeriesRefreshProgressPayload | null>(null);
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
 
+  // Recover an in-flight refresh-all (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, the same way MetadataRefresh recovers its bulk series
+  // refresh: a page opened mid-refresh must show the running bar instead of looking idle until
+  // the next event. The completion toast belongs to the SeriesRefreshComplete event only. The
+  // returned invalidate is called from the refresh's event handlers so a status response fetched
+  // before a real event is discarded instead of clobbering the state the event set.
+  const invalidateSeriesRefresh = useOperationResync(OperationKeys.seriesRefresh, (status) => {
+    if (status.isRunning) {
+      setRefreshing(true);
+      setRefreshProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setRefreshing(false);
+      setRefreshProgress(null);
+    }
+  });
+
   // The header badges need the whole-library counts; the page itself is one slice. The counts
   // are cheap and long-lived, so they are cached separately and only invalidated by the match/
   // refresh flows that change them.
@@ -129,11 +149,13 @@ export function SeriesOverviewPage() {
   useClampedPage(page, pageCount, setPage);
 
   useSignalREvent<SeriesRefreshProgressPayload>(SignalREvents.SeriesRefreshProgress, (data) => {
+    invalidateSeriesRefresh();
     setRefreshing(true);
     setRefreshProgress(data);
   });
 
   useSignalREvent<SeriesRefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (arg) => {
+    invalidateSeriesRefresh();
     setRefreshing(false);
     setRefreshProgress(null);
     const msg = arg.stopReason
@@ -147,24 +169,6 @@ export function SeriesOverviewPage() {
     setPage(0);
     void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
-  });
-
-  // Recover an in-flight refresh-all (started elsewhere, or events missed while disconnected) on
-  // mount and after a SignalR reconnect, the same way MetadataRefresh recovers its bulk series
-  // refresh: a page opened mid-refresh must show the running bar instead of looking idle until
-  // the next event. The completion toast belongs to the SeriesRefreshComplete event only.
-  useOperationResync(OperationKeys.seriesRefresh, (status) => {
-    if (status.isRunning) {
-      setRefreshing(true);
-      setRefreshProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setRefreshing(false);
-      setRefreshProgress(null);
-    }
   });
 
   const handleRefreshAll = async () => {

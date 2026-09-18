@@ -478,9 +478,34 @@ export function SeriesDetail() {
     failed: number;
   } | null>(null);
 
+  // Recover an in-flight series delete (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect: the danger zone must stay disabled and its progress
+  // bar must show rather than looking idle, even when the delete confirmation dialog is closed.
+  // The returned invalidate is called from the delete's event handlers so a status response
+  // fetched before a real event is discarded instead of clobbering the state the event set.
+  const invalidateSeriesDelete = useOperationResync(OperationKeys.seriesDelete, (status) => {
+    if (status.isRunning) {
+      setDeleting(true);
+      setDeleteProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      // A resync discovering a finished delete only unwinds running state that is actually set -
+      // it deliberately does NOT reproduce the SeriesDeleteComplete handler's dialog close and
+      // navigation. The series may already be gone: the detail refetch then renders its Not
+      // Found state and the user navigates from there, exactly like a page that never saw the
+      // in-flight delete at all. The delete confirmation dialog state is untouched either way.
+      setDeleting((prev) => (prev ? false : prev));
+      setDeleteProgress((prev) => (prev ? null : prev));
+    }
+  });
+
   useSignalREvent<{ processed: number; total: number; succeeded: number; failed: number }>(
     SignalREvents.SeriesDeleteProgress,
     (data) => {
+      invalidateSeriesDelete();
       setDeleting(true);
       setDeleteProgress(data);
     },
@@ -492,6 +517,7 @@ export function SeriesDetail() {
     totalFailed: number;
     errored: boolean;
   }>(SignalREvents.SeriesDeleteComplete, (data) => {
+    invalidateSeriesDelete();
     setDeleting(false);
     setDeleteProgress(null);
     void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
@@ -516,28 +542,6 @@ export function SeriesDetail() {
     void queryClient.invalidateQueries({ queryKey: ["series"] });
     void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     navigateBack();
-  });
-
-  // Recover an in-flight series delete (started elsewhere, or events missed while disconnected)
-  // on mount and after a SignalR reconnect: the danger zone must stay disabled and its progress
-  // bar must show rather than looking idle, even when the delete confirmation dialog is closed.
-  useOperationResync(OperationKeys.seriesDelete, (status) => {
-    if (status.isRunning) {
-      setDeleting(true);
-      setDeleteProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      // A resync discovering a finished delete only unwinds running state that is actually set -
-      // it deliberately does NOT reproduce the SeriesDeleteComplete handler's dialog close and
-      // navigation. The series may already be gone: the detail refetch then renders its Not
-      // Found state and the user navigates from there, exactly like a page that never saw the
-      // in-flight delete at all. The delete confirmation dialog state is untouched either way.
-      setDeleting((prev) => (prev ? false : prev));
-      setDeleteProgress((prev) => (prev ? null : prev));
-    }
   });
 
   const handleDeleteSeries = async () => {

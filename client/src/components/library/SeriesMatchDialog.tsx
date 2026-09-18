@@ -84,30 +84,15 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
   const selectedIds = customSelection ?? new Set(series.map((s) => s.name));
   const selectedCount = customSelection ? customSelection.size : series.length;
 
-  useSignalREvent<SeriesMatchProgressPayload>(SignalREvents.SeriesMatchProgress, (payload) => {
-    setMatching(true);
-    setMatchProgress(payload);
-  });
-
-  useSignalREvent<SeriesMatchCompletePayload>(SignalREvents.SeriesMatchComplete, (payload) => {
-    setMatching(false);
-    setMatchProgress(null);
-    const msg = payload.stopReason
-      ? `Matching stopped after ${payload.totalProcessed} series: ${payload.stopReason}`
-      : `Matching complete: ${payload.totalSucceeded} of ${payload.totalProcessed} series matched${
-          payload.totalFailed > 0 ? ` (${payload.totalFailed} failed)` : ""
-        }`;
-    notifications.success(msg);
-    onMatched?.();
-  });
-
   // Recover an in-flight bulk match (started elsewhere, or events missed while disconnected) on
   // mount, after a SignalR reconnect, and every time the dialog opens: the component never
   // remounts when the dialog becomes visible (only the portal unmounts), so `open` is what makes
   // the hook re-fetch instead of trusting the one mount-time fetch from page load. The hook runs
   // regardless of `open`, which is fine - the series-match operation is global, and a closed
-  // dialog's idle state is just re-confirmed.
-  useOperationResync(
+  // dialog's idle state is just re-confirmed. The returned invalidate is called from the match's
+  // event handlers so a status response fetched before a real event is discarded instead of
+  // clobbering the state the event set.
+  const invalidateSeriesMatch = useOperationResync(
     OperationKeys.seriesMatch,
     (status) => {
       if (status.isRunning) {
@@ -128,6 +113,25 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
     },
     open,
   );
+
+  useSignalREvent<SeriesMatchProgressPayload>(SignalREvents.SeriesMatchProgress, (payload) => {
+    invalidateSeriesMatch();
+    setMatching(true);
+    setMatchProgress(payload);
+  });
+
+  useSignalREvent<SeriesMatchCompletePayload>(SignalREvents.SeriesMatchComplete, (payload) => {
+    invalidateSeriesMatch();
+    setMatching(false);
+    setMatchProgress(null);
+    const msg = payload.stopReason
+      ? `Matching stopped after ${payload.totalProcessed} series: ${payload.stopReason}`
+      : `Matching complete: ${payload.totalSucceeded} of ${payload.totalProcessed} series matched${
+          payload.totalFailed > 0 ? ` (${payload.totalFailed} failed)` : ""
+        }`;
+    notifications.success(msg);
+    onMatched?.();
+  });
 
   const toggleOne = (name: string) => {
     const next = new Set(selectedIds);

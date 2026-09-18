@@ -82,30 +82,12 @@ export function MetadataRefresh() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
 
-  useSignalREvent<RefreshProgressPayload>(SignalREvents.MetadataRefreshProgress, (data) => {
-    setRefreshing(true);
-    setProgress(data);
-  });
-
-  useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
-    setRefreshing(false);
-    setProgress(null);
-    if (data.stopReason) {
-      notifications.warning(
-        `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
-      );
-    } else {
-      notifications.success(
-        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-      );
-    }
-    invalidateRefreshViews();
-  });
-
   // Recover an in-flight bulk refresh (started elsewhere, or events missed while disconnected)
   // on mount and after a SignalR reconnect, the same way LibraryConsistency recovers its check
-  // and resolve state.
-  useOperationResync(OperationKeys.metadataRefresh, (status) => {
+  // and resolve state. The returned invalidate is called from the refresh's event handlers so a
+  // status response fetched before a real event is discarded instead of clobbering the state
+  // the event set.
+  const invalidateMetadataRefresh = useOperationResync(OperationKeys.metadataRefresh, (status) => {
     if (status.isRunning) {
       setRefreshing(true);
       setProgress((prev) =>
@@ -132,12 +114,56 @@ export function MetadataRefresh() {
     }
   };
 
+  useSignalREvent<RefreshProgressPayload>(SignalREvents.MetadataRefreshProgress, (data) => {
+    invalidateMetadataRefresh();
+    setRefreshing(true);
+    setProgress(data);
+  });
+
+  useSignalREvent<RefreshCompletePayload>(SignalREvents.MetadataRefreshComplete, (data) => {
+    invalidateMetadataRefresh();
+    setRefreshing(false);
+    setProgress(null);
+    if (data.stopReason) {
+      notifications.warning(
+        `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
+      );
+    } else {
+      notifications.success(
+        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
+    }
+    invalidateRefreshViews();
+  });
+
+  // Recover an in-flight bulk series refresh (started elsewhere, or events missed while
+  // disconnected) on mount and after a SignalR reconnect, the same way the book sweep above
+  // recovers. Completion invalidates the pending list (only series whose refresh found changes
+  // appear in it). The returned invalidate is called from the refresh's event handlers so a
+  // status response fetched before a real event is discarded instead of clobbering the state
+  // the event set.
+  const invalidateSeriesRefresh = useOperationResync(OperationKeys.seriesRefresh, (status) => {
+    if (status.isRunning) {
+      setRefreshingSeries(true);
+      setSeriesProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setRefreshingSeries(false);
+      setSeriesProgress(null);
+    }
+  });
+
   useSignalREvent<RefreshProgressPayload>(SignalREvents.SeriesRefreshProgress, (data) => {
+    invalidateSeriesRefresh();
     setRefreshingSeries(true);
     setSeriesProgress(data);
   });
 
   useSignalREvent<RefreshCompletePayload>(SignalREvents.SeriesRefreshComplete, (data) => {
+    invalidateSeriesRefresh();
     setRefreshingSeries(false);
     setSeriesProgress(null);
     if (data.stopReason) {
@@ -150,20 +176,6 @@ export function MetadataRefresh() {
       );
     }
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
-  });
-
-  useOperationResync(OperationKeys.seriesRefresh, (status) => {
-    if (status.isRunning) {
-      setRefreshingSeries(true);
-      setSeriesProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setRefreshingSeries(false);
-      setSeriesProgress(null);
-    }
   });
 
   return (

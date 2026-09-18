@@ -95,12 +95,33 @@ export function CleanBookUrls() {
   const [cleaningAll, setCleaningAll] = useState(false);
   const [applyAllProgress, setApplyAllProgress] = useState<ApplyAllProgressPayload | null>(null);
 
+  // Recover an in-flight sweep started elsewhere (or whose events were missed while
+  // disconnected) on mount and after a SignalR reconnect, the same way the consistency
+  // resolve state is recovered on its page. The returned invalidate is called from the
+  // sweep's event handlers so a status response fetched before a real event is discarded
+  // instead of clobbering the state the event set.
+  const invalidateUrlCleanup = useOperationResync(OperationKeys.urlCleanupApply, (status) => {
+    if (status.isRunning) {
+      setCleaningAll(true);
+      setApplyAllProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setCleaningAll(false);
+      setApplyAllProgress(null);
+    }
+  });
+
   useSignalREvent<ApplyAllProgressPayload>(SignalREvents.UrlCleanupProgress, (data) => {
+    invalidateUrlCleanup();
     setCleaningAll(true);
     setApplyAllProgress(data);
   });
 
   useSignalREvent<ApplyAllCompletePayload>(SignalREvents.UrlCleanupComplete, (data) => {
+    invalidateUrlCleanup();
     setCleaningAll(false);
     setApplyAllProgress(null);
     if (data.errored) {
@@ -117,23 +138,6 @@ export function CleanBookUrls() {
     // Re-read the authoritative list, whether this tab started the sweep or another did.
     goToPage(0);
     void queryClient.invalidateQueries({ queryKey: queryKeys.urlCleanup.all() });
-  });
-
-  // Recover an in-flight sweep started elsewhere (or whose events were missed while
-  // disconnected) on mount and after a SignalR reconnect, the same way the consistency
-  // resolve state is recovered on its page.
-  useOperationResync(OperationKeys.urlCleanupApply, (status) => {
-    if (status.isRunning) {
-      setCleaningAll(true);
-      setApplyAllProgress((prev) =>
-        prev && prev.total > 0
-          ? prev
-          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
-      );
-    } else {
-      setCleaningAll(false);
-      setApplyAllProgress(null);
-    }
   });
 
   const handleApplyAll = async () => {
