@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { filesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { FolderDeleteContents } from "./FolderDeleteContents";
 
 export interface DeleteFileDialogProps {
@@ -30,7 +31,7 @@ export function DeleteFileDialog({
   const [deleting, setDeleting] = useState(false);
 
   const { data: directoryContents = [], isLoading: loadingContents } = useQuery({
-    queryKey: ["directoryContents", targetPath],
+    queryKey: queryKeys.directoryContents(targetPath),
     queryFn: () => filesApi.getDirectoryContents(targetPath),
     enabled: open && Boolean(targetPath),
   });

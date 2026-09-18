@@ -34,6 +34,7 @@ import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
@@ -156,15 +157,14 @@ export function SeriesDetail() {
   // issue an extra backend call whose other sections (computed with default paging) were thrown
   // away. keepPreviousData keeps the other sections' items rendered while one section pages.
   const seriesDetailQuery = useQuery({
-    queryKey: [
-      "seriesDetail",
+    queryKey: queryKeys.seriesDetail.detail(
       seriesName,
       authorId,
       ownedPage,
       missingPage,
       ignoredPage,
       partMismatchPage,
-    ],
+    ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
         ownedPage,
@@ -186,7 +186,7 @@ export function SeriesDetail() {
   // repository's per-series limit (bounded-list invariant), so whatever arrives here is by
   // construction a bounded set.
   const { data: mappings = [] } = useQuery({
-    queryKey: ["seriesMappings", seriesName],
+    queryKey: queryKeys.seriesMappings(seriesName),
     queryFn: () => seriesApi.getSeriesMappings(seriesName),
     enabled: Boolean(seriesName),
   });
@@ -232,7 +232,7 @@ export function SeriesDetail() {
   // disagree about whether a snapshot exists. 404 (no snapshot) is the normal absent case and
   // must not surface as an error.
   const { data: pendingReviews } = useQuery({
-    queryKey: ["seriesPending", seriesName],
+    queryKey: queryKeys.seriesPending.bySeries(seriesName),
     queryFn: () => seriesApi.getSeriesPending(seriesName),
     enabled: Boolean(seriesName) && seriesDetailQuery.data?.overview.isMatched === true,
   });
@@ -251,11 +251,13 @@ export function SeriesDetail() {
         toast.add({ title: "No changes from source", type: "success" });
       }
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", seriesName, authorId],
+        queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
-      void queryClient.invalidateQueries({ queryKey: ["seriesPending", seriesName] });
-      void queryClient.invalidateQueries({ queryKey: ["series"] });
-      void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.seriesPending.bySeries(seriesName),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
@@ -317,9 +319,9 @@ export function SeriesDetail() {
         type: "success",
       });
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", seriesName, authorId],
+        queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
-      void queryClient.invalidateQueries({ queryKey: ["series"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
@@ -336,7 +338,7 @@ export function SeriesDetail() {
         type: "success",
       });
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", seriesName, authorId],
+        queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
@@ -364,7 +366,7 @@ export function SeriesDetail() {
         setIgnoredPage(0);
       }
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", seriesName, authorId],
+        queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
@@ -395,7 +397,7 @@ export function SeriesDetail() {
       // asks for a page the shrunk section no longer has.
       setPartMismatchPage(0);
       void queryClient.invalidateQueries({
-        queryKey: ["seriesDetail", seriesName, authorId],
+        queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
@@ -450,7 +452,7 @@ export function SeriesDetail() {
         toast.add({ title: "Pattern added", type: "success" });
       }
       setMappingDialogOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesMappings(seriesName) });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
     } finally {
@@ -462,7 +464,7 @@ export function SeriesDetail() {
     try {
       await seriesApi.deleteSeriesMapping(seriesName, id);
       toast.add({ title: "Pattern removed", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["seriesMappings", seriesName] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesMappings(seriesName) });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
     }
@@ -1123,7 +1125,9 @@ export function SeriesDetail() {
         onOpenChange={setPendingReviewOpen}
         seriesName={seriesName}
         onApplied={() => {
-          void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
+          });
         }}
       />
 

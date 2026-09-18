@@ -12,6 +12,7 @@ import { OperationKeys } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { missingTagsApi, operationsApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
@@ -22,7 +23,7 @@ export function MissingTags() {
   const queryClient = useQueryClient();
 
   const { data: fields = [], isLoading: loadingFields } = useQuery({
-    queryKey: ["missingTagFields"],
+    queryKey: queryKeys.missingTagFields(),
     queryFn: () => missingTagsApi.getFields(),
   });
 
@@ -47,7 +48,7 @@ export function MissingTags() {
   }, [searchQuery, search]);
 
   const { data: pageData, isLoading: loadingBooks } = useQuery({
-    queryKey: ["missingTagsAudiobooks", selectedFields, page, search],
+    queryKey: queryKeys.missingTagsAudiobooks.page(selectedFields, page, search),
     queryFn: () =>
       missingTagsApi.getAudiobooksMissingTags(selectedFields, {
         page,
@@ -68,7 +69,7 @@ export function MissingTags() {
   useClampedPage(page, pageCount, setPage);
 
   const { data: backfillStatus } = useQuery({
-    queryKey: ["languageBackfillStatus"],
+    queryKey: queryKeys.languageBackfillStatus(),
     queryFn: () => operationsApi.getStatus(OperationKeys.languageBackfill),
     refetchInterval: (query) => (query.state.data?.isRunning ? 1500 : false),
   });
@@ -83,7 +84,7 @@ export function MissingTags() {
       // the refetch never asks for a page the smaller result set no longer has.
       setPage(0);
       void queryClient.invalidateQueries({
-        queryKey: ["missingTagsAudiobooks"],
+        queryKey: queryKeys.missingTagsAudiobooks.all(),
       });
     }
     prevRunningRef.current = isRunning;
@@ -117,7 +118,7 @@ export function MissingTags() {
     try {
       await missingTagsApi.startLanguageBackfill();
       toast.add({ title: "Language backfill started in background", type: "success" });
-      void queryClient.invalidateQueries({ queryKey: ["languageBackfillStatus"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
     } catch (err: unknown) {
       toast.add({ title: handleApiError(err).message, type: "error" });
     }

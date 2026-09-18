@@ -6,6 +6,7 @@ import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 vi.mock("@/services/api", () => ({
   browseApi: {
@@ -111,7 +112,7 @@ describe("AuthorsList", () => {
   // state must be pulled back into range so the next fetch lands on the last valid page.
   it("pulls the page back into range when the total shrinks under it", async () => {
     // A fresh cache for this scenario: the module-level QueryClient is shared across tests.
-    queryClient.removeQueries({ queryKey: ["authors"] });
+    queryClient.removeQueries({ queryKey: queryKeys.authors.all() });
 
     const getAuthorPage = vi.mocked(browseApi.getAuthorPage);
     getAuthorPage.mockImplementation((_limit, offset) =>
@@ -135,7 +136,7 @@ describe("AuthorsList", () => {
     );
 
     await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: ["authors"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.authors.all() });
     });
 
     // The page must be corrected back to the last valid page and its fetch re-issued there.
