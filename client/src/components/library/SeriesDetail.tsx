@@ -496,18 +496,18 @@ export function SeriesDetail() {
     // owned books, deleted successfully" without this flag. Leave the dialog open on the current
     // (possibly partially-cleared) series rather than reporting success and navigating away.
     if (data.errored) {
-      toast.add({ title: "Series deletion failed", type: "error" });
+      notifications.error("Series deletion failed");
       return;
     }
 
     setDeleteDialogOpen(false);
-    toast.add({
-      title:
-        data.totalFailed > 0
-          ? `Series deleted with ${data.totalFailed} book${data.totalFailed === 1 ? "" : "s"} that could not be cleared`
-          : "Series deleted",
-      type: data.totalFailed > 0 ? "error" : "success",
-    });
+    if (data.totalFailed > 0) {
+      notifications.error(
+        `Series deleted with ${data.totalFailed} book${data.totalFailed === 1 ? "" : "s"} that could not be cleared`,
+      );
+    } else {
+      notifications.success("Series deleted");
+    }
     void queryClient.invalidateQueries({ queryKey: ["series"] });
     void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     handleBack();
@@ -519,7 +519,7 @@ export function SeriesDetail() {
     try {
       await seriesApi.startDeleteSeries(seriesName);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setDeleting(false);
     }
   };
