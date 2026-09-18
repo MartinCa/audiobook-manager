@@ -365,8 +365,8 @@ describe("SignalRProvider", () => {
       );
 
       // StrictMode built two connections; the first effect's start() is still in flight.
-      const staleConnection = mockConnections[0];
-      const liveConnection = mockConnections[1];
+      const staleConnection = mockConnections[0]!;
+      const liveConnection = mockConnections[1]!;
       expect(staleConnection.start).toHaveBeenCalledTimes(1);
       expect(liveConnection.start).toHaveBeenCalledTimes(1);
 
@@ -408,8 +408,8 @@ describe("SignalRProvider", () => {
           </SignalRProvider>
         </StrictMode>,
       );
-      const staleConnection = mockConnections[0];
-      const liveConnection = mockConnections[1];
+      const staleConnection = mockConnections[0]!;
+      const liveConnection = mockConnections[1]!;
 
       // The stale start() fails after its effect was torn down. The shared-flag bug saw the
       // second setup's reset `disposed` and scheduled a retry for the dead connection; the
