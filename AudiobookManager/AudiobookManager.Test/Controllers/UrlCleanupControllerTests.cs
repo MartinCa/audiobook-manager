@@ -1,8 +1,13 @@
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -11,13 +16,38 @@ namespace AudiobookManager.Test.Controllers;
 public class UrlCleanupControllerTests
 {
     private Mock<IUrlCleanupService> _urlCleanupService = null!;
+    private Mock<IHubContext<OrganizeHub, IOrganize>> _hubContext = null!;
+    private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
+    private Mock<IOperationStatusRegistry> _statusRegistry = null!;
+    private Mock<ILogger<UrlCleanupController>> _logger = null!;
     private UrlCleanupController _controller = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _urlCleanupService = new Mock<IUrlCleanupService>();
-        _controller = new UrlCleanupController(_urlCleanupService.Object);
+        _hubContext = new Mock<IHubContext<OrganizeHub, IOrganize>>();
+        _serviceScopeFactory = new Mock<IServiceScopeFactory>();
+        _statusRegistry = new Mock<IOperationStatusRegistry>();
+        _logger = new Mock<ILogger<UrlCleanupController>>();
+
+        _controller = new UrlCleanupController(
+            _urlCleanupService.Object,
+            _hubContext.Object,
+            _serviceScopeFactory.Object,
+            _statusRegistry.Object,
+            Mock.Of<IHostApplicationLifetime>(),
+            _logger.Object);
+    }
+
+    private void SetupScope(IUrlCleanupService service)
+    {
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(IUrlCleanupService)))
+            .Returns(service);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
     }
 
     private static AudiobookUrlCleanup MakeCleanup(long id, string bookName, string currentUrl)
@@ -108,5 +138,67 @@ public class UrlCleanupControllerTests
         var result = await _controller.GetDirtyUrls(page: 20_000, pageSize: 50);
 
         Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+    }
+
+    // Apply-all is fire-and-forget through BackgroundOperationRunner: the response only says the
+    // operation started, and progress/completion travel over SignalR (UrlCleanupProgress/Complete),
+    // mirroring the consistency bulk-resolve flow.
+
+    [TestMethod]
+    public async Task ApplyAll_Valid_StartsTheRun_AndReportsProgressAndCompletion()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var mockCleanupService = new Mock<IUrlCleanupService>();
+        mockCleanupService.Setup(s => s.ApplyAllAsync(It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 2, 1, 0).GetAwaiter().GetResult();
+                return (2, 2, 0);
+            });
+        SetupScope(mockCleanupService.Object);
+
+        var result = _controller.ApplyAll();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _statusRegistry.Verify(s => s.SetRunning("url-cleanup-apply"), Times.Once);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(UrlCleanupController));
+
+        mockCleanupService.Verify(s => s.ApplyAllAsync(It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+        clientProxy.Verify(c => c.UrlCleanupProgress(It.Is<UrlCleanupProgress>(p =>
+            p.Processed == 1 && p.Total == 2 && p.Succeeded == 1 && p.Failed == 0)), Times.Once);
+        clientProxy.Verify(c => c.UrlCleanupComplete(It.Is<UrlCleanupComplete>(r =>
+            r.TotalProcessed == 2 && r.TotalSucceeded == 2 && r.TotalFailed == 0)), Times.Once);
+        _statusRegistry.Verify(s => s.SetFinished("url-cleanup-apply"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyAll_ALoadedSweep_IsA409_OneSweepAtATime()
+    {
+        // The gate is process-static: hold the first operation open with a completeness signal
+        // rather than a fixed sleep, so the second call provably hits a held gate.
+        var workMayFinish = new TaskCompletionSource();
+        var mockCleanupService = new Mock<IUrlCleanupService>();
+        mockCleanupService.Setup(s => s.ApplyAllAsync(It.IsAny<Func<int, int, int, int, Task>?>()))
+            .Returns(async () =>
+            {
+                await workMayFinish.Task;
+                return (0, 0, 0);
+            });
+        SetupScope(mockCleanupService.Object);
+
+        var first = _controller.ApplyAll();
+        Assert.IsInstanceOfType<OkResult>(first);
+
+        var second = _controller.ApplyAll();
+        Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)second).StatusCode);
+
+        // Release the first operation so the gate is free for later tests.
+        workMayFinish.SetResult();
+        await OperationGate.WaitUntilReleasedAsync(typeof(UrlCleanupController));
     }
 }

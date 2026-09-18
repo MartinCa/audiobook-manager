@@ -46,6 +46,8 @@ export const SignalREvents = {
   MetadataRefreshComplete: "MetadataRefreshComplete",
   BulkEditProgress: "BulkEditProgress",
   BulkEditComplete: "BulkEditComplete",
+  UrlCleanupProgress: "UrlCleanupProgress",
+  UrlCleanupComplete: "UrlCleanupComplete",
 } as const;
 
 export const OperationKeys = {
@@ -63,4 +65,5 @@ export const OperationKeys = {
   libraryScan: "library-scan",
   discoveredImport: "discovered-import",
   bulkEdit: "bulk-edit",
+  urlCleanupApply: "url-cleanup-apply",
 } as const;

@@ -31,4 +31,6 @@ public interface IOrganize
     Task MetadataRefreshComplete(MetadataRefreshComplete result);
     Task BulkEditProgress(BulkEditProgress progress);
     Task BulkEditComplete(BulkEditComplete result);
+    Task UrlCleanupProgress(UrlCleanupProgress progress);
+    Task UrlCleanupComplete(UrlCleanupComplete result);
 }
