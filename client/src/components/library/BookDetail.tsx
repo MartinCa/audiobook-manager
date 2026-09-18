@@ -536,6 +536,12 @@ export function BookDetail({ mode }: BookDetailProps) {
                     {languageLabel(bookDetail.language, languages) || "—"}
                   </DetailRow>
 
+                  <DetailRow label="Description">
+                    <span className="text-muted-foreground break-words whitespace-pre-wrap">
+                      {bookDetail.description || "No description."}
+                    </span>
+                  </DetailRow>
+
                   <DetailRow label="Rating">{bookDetail.rating || "—"}</DetailRow>
 
                   {bookDetail.www && (
@@ -556,15 +562,6 @@ export function BookDetail({ mode }: BookDetailProps) {
                   <DetailRow label="Copyright">{bookDetail.copyright || "—"}</DetailRow>
 
                   <DetailRow label="ASIN">{bookDetail.asin || "—"}</DetailRow>
-                </div>
-
-                <div>
-                  <div className="text-muted-foreground mb-1 text-xs font-semibold uppercase">
-                    Description
-                  </div>
-                  <p className="text-muted-foreground break-words whitespace-pre-wrap">
-                    {bookDetail.description || "No description."}
-                  </p>
                 </div>
               </CardContent>
             </Card>

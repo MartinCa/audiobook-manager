@@ -200,7 +200,7 @@ describe("BookDetail", () => {
       .map((el) => el.textContent.trim())
       .filter((t) => t.length > 0);
     const start = labels.indexOf("Authors");
-    expect(labels.slice(start, start + 13)).toEqual([
+    expect(labels.slice(start, start + 14)).toEqual([
       "Authors",
       "Narrators",
       "Book name",
@@ -209,14 +209,13 @@ describe("BookDetail", () => {
       "Year",
       "Genres",
       "Language",
+      "Description",
       "Rating",
       "Web link",
       "Publisher",
       "Copyright",
       "ASIN",
     ]);
-    // Description stays its own section below the field grid.
-    expect(labels[start + 13]).toBe("Description");
   });
 
   it("Edit button navigates to the edit route", async () => {

@@ -669,15 +669,6 @@ export function BookEditForm({
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium">Description</label>
-            <Textarea
-              {...form.register("description")}
-              rows={4}
-              placeholder="Book summary or description"
-            />
-          </div>
-
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Controller
               control={form.control}
@@ -686,6 +677,15 @@ export function BookEditForm({
                 <LanguageField value={field.value || ""} onChange={field.onChange} />
               )}
             />
+
+            <div>
+              <label className="mb-1 block text-xs font-medium">Description</label>
+              <Textarea
+                {...form.register("description")}
+                rows={4}
+                placeholder="Book summary or description"
+              />
+            </div>
 
             {isFieldVisible("rating") && (
               <div>
