@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
@@ -99,6 +100,34 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
     notifications.success(msg);
     onMatched?.();
   });
+
+  // Recover an in-flight bulk match (started elsewhere, or events missed while disconnected) on
+  // mount, after a SignalR reconnect, and every time the dialog opens: the component never
+  // remounts when the dialog becomes visible (only the portal unmounts), so `open` is what makes
+  // the hook re-fetch instead of trusting the one mount-time fetch from page load. The hook runs
+  // regardless of `open`, which is fine - the series-match operation is global, and a closed
+  // dialog's idle state is just re-confirmed.
+  useOperationResync(
+    OperationKeys.seriesMatch,
+    (status) => {
+      if (status.isRunning) {
+        setMatching(true);
+        setMatchProgress({
+          processed: status.processed,
+          total: status.total,
+          succeeded: 0,
+          failed: 0,
+        });
+      } else {
+        // A not-running status only unwinds state that is actually set: a dialog that never ran
+        // a match stays pristine, and a completion that arrived via events already cleared it
+        // (each functional bump is then a no-op).
+        setMatching((prev) => (prev ? false : prev));
+        setMatchProgress((prev) => (prev ? null : prev));
+      }
+    },
+    open,
+  );
 
   const toggleOne = (name: string) => {
     const next = new Set(selectedIds);

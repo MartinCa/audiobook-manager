@@ -7,7 +7,7 @@ import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
-import { seriesApi } from "@/services/api";
+import { operationsApi, seriesApi } from "@/services/api";
 import type {
   SeriesDetail,
   SeriesExpectedBook,
@@ -144,6 +144,16 @@ async function confirmDeleteSeries() {
 describe("SeriesDetail", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Every mount now polls the operation status registry (useOperationResync); keep the registry
+  // idle by default so only tests that stub a running delete exercise the restore path.
+  beforeEach(() => {
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
   });
 
   it("renders series detail with matched provider and books", async () => {
@@ -766,6 +776,58 @@ describe("SeriesDetail", () => {
     });
     // The failed start releases the deleting state, so the dialog is not stuck on a spinner.
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
+  });
+
+  // Regression: a page opened while a series delete is already running server-side (started in
+  // another tab, or whose events were missed while disconnected) used to look idle - the only
+  // things that ever set `deleting` were the confirm click and the SignalR progress events. The
+  // status registry rehydrates it on mount, without opening the delete dialog or navigating.
+  it("restores an in-flight series delete from the status registry without opening the dialog", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: true,
+      processed: 3,
+      total: 5,
+    });
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // The restore is state-only: it leaves the (closed) delete confirmation dialog alone and
+    // never navigates or toasts - the completion navigation belongs to SeriesDeleteComplete.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(notifications.error).not.toHaveBeenCalled();
+
+    // The restored busy state is what the confirmation dialog reflects: opening it while a
+    // delete is in flight shows the progress bar (with the registry's processed/total and zeroed
+    // succeeded/failed) and disables every action, so a page opened mid-delete cannot re-arm or
+    // cancel the running delete.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Clearing books (0 succeeded, 0 failed)")).toBeInTheDocument();
+    expect(within(dialog).getByText("3 / 5 (60%)")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  });
+
+  it("clears a restored delete state once the status registry reports the delete finished", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: false,
+      processed: 5,
+      total: 5,
+    });
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // A finished delete restores to idle: opening the dialog shows no progress bar and the
+    // confirm button is armed again for a fresh delete.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByText(/Clearing books/)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
   });
 

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -14,6 +14,7 @@ import { SeriesListEntry } from "./SeriesListEntry";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -146,6 +147,24 @@ export function SeriesOverviewPage() {
     setPage(0);
     void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
+  });
+
+  // Recover an in-flight refresh-all (started elsewhere, or events missed while disconnected) on
+  // mount and after a SignalR reconnect, the same way MetadataRefresh recovers its bulk series
+  // refresh: a page opened mid-refresh must show the running bar instead of looking idle until
+  // the next event. The completion toast belongs to the SeriesRefreshComplete event only.
+  useOperationResync(OperationKeys.seriesRefresh, (status) => {
+    if (status.isRunning) {
+      setRefreshing(true);
+      setRefreshProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      setRefreshing(false);
+      setRefreshProgress(null);
+    }
   });
 
   const handleRefreshAll = async () => {

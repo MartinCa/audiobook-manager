@@ -27,8 +27,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent } from "@/hooks/useSignalR";
+import { useOperationResync } from "@/hooks/useOperationResync";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { LinkButton } from "../LinkButton";
@@ -515,6 +516,28 @@ export function SeriesDetail() {
     void queryClient.invalidateQueries({ queryKey: ["series"] });
     void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
     navigateBack();
+  });
+
+  // Recover an in-flight series delete (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect: the danger zone must stay disabled and its progress
+  // bar must show rather than looking idle, even when the delete confirmation dialog is closed.
+  useOperationResync(OperationKeys.seriesDelete, (status) => {
+    if (status.isRunning) {
+      setDeleting(true);
+      setDeleteProgress((prev) =>
+        prev && prev.total > 0
+          ? prev
+          : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+      );
+    } else {
+      // A resync discovering a finished delete only unwinds running state that is actually set -
+      // it deliberately does NOT reproduce the SeriesDeleteComplete handler's dialog close and
+      // navigation. The series may already be gone: the detail refetch then renders its Not
+      // Found state and the user navigates from there, exactly like a page that never saw the
+      // in-flight delete at all. The delete confirmation dialog state is untouched either way.
+      setDeleting((prev) => (prev ? false : prev));
+      setDeleteProgress((prev) => (prev ? null : prev));
+    }
   });
 
   const handleDeleteSeries = async () => {
