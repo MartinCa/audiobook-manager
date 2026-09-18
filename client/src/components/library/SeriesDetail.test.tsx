@@ -910,4 +910,19 @@ describe("SeriesDetail", () => {
       expect(router.state.location.pathname).toBe("/library/series/Mistborn");
     });
   });
+
+  it("renders the name-alignment banner, not a misleading 0-change count, for a snapshot with no book changes", async () => {
+    mockRenamePendingSetup();
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // The snapshot exists only because the source series name differs ("Mistborn Saga"), so the
+    // banner must say so instead of "0 pending changes from the last refresh".
+    await screen.findByText(/Series name alignment pending/);
+    screen.getByText(/Review it before it is written to your books/);
+    expect(screen.queryByText(/0 pending changes/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Review Changes" })).toBeDefined();
+  });
 });

@@ -935,14 +935,28 @@ export function SeriesDetail() {
             {pendingReviews && (
               <div className="border-border flex flex-col justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 sm:flex-row sm:items-center">
                 <div className="text-xs">
-                  <span className="text-foreground font-semibold">
-                    {pendingReviews.changes.length} pending change
-                    {pendingReviews.changes.length === 1 ? "" : "s"}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    from the last refresh. Review them before they are written to your books.
-                  </span>
+                  {pendingReviews.changes.length === 0 ? (
+                    <>
+                      <span className="text-foreground font-semibold">
+                        Series name alignment pending
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        from the last refresh. Review it before it is written to your books.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground font-semibold">
+                        {pendingReviews.changes.length} pending change
+                        {pendingReviews.changes.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        from the last refresh. Review them before they are written to your books.
+                      </span>
+                    </>
+                  )}
                 </div>
                 <Button
                   size="sm"
