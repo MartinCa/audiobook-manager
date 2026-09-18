@@ -840,7 +840,7 @@ public class SeriesService : ISeriesService
         // the pending snapshot and catalog row carry as SourceName - never the source's own
         // series title, which is a separate piece of data (SourceSeriesName on the payload, the
         // catalog row's MatchedSeriesName).
-        var hasChanges = changes.Count > 0 || HasAdoptableName(seriesName, roster);
+        var hasChanges = changes.Count > 0 || HasAdoptableName(seriesName, roster.SeriesName);
         return (hasChanges, changes.Count, scraper.SourceName);
     }
 
@@ -852,9 +852,9 @@ public class SeriesService : ISeriesService
     /// comparison mirrors the dialog's own check (trimmed, ordinal) so both sides agree on
     /// when the option appears.
     /// </summary>
-    private static bool HasAdoptableName(string seriesName, SeriesSearchResult roster) =>
-        !string.IsNullOrWhiteSpace(roster.SeriesName) &&
-        !string.Equals(roster.SeriesName.Trim(), seriesName.Trim(), StringComparison.Ordinal);
+    private static bool HasAdoptableName(string seriesName, string? sourceSeriesName) =>
+        !string.IsNullOrWhiteSpace(sourceSeriesName) &&
+        !string.Equals(sourceSeriesName.Trim(), seriesName.Trim(), StringComparison.Ordinal);
 
     /// <summary>
     /// Stores the pending snapshot for a refreshed series, or clears any stale one when the
@@ -866,7 +866,7 @@ public class SeriesService : ISeriesService
     private async Task PersistPendingChangesAsync(
         string seriesName, string sourceName, SeriesSearchResult roster, IReadOnlyList<SeriesRefreshChange> changes)
     {
-        if (changes.Count == 0 && !HasAdoptableName(seriesName, roster))
+        if (changes.Count == 0 && !HasAdoptableName(seriesName, roster.SeriesName))
         {
             await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
             return;
@@ -1087,9 +1087,32 @@ public class SeriesService : ISeriesService
             await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
         }
 
-        if (remaining.Count == 0)
+        // The recompute mirrors PersistPendingChangesAsync's keep-rule: a snapshot that exists
+        // only for the source-name alignment (no book-level changes) must survive an apply that
+        // did not adopt (or adopted partially) - the mismatch persists, and deleting it would
+        // make the alignment option unreachable until the next refresh.
+        if (remaining.Count == 0 && !HasAdoptableName(effectiveSeriesName, payload.SourceSeriesName))
         {
             await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(effectiveSeriesName);
+        }
+        else if (remaining.Count == 0)
+        {
+            await _pendingSeriesRefreshRepository.UpsertAsync(new Database.Models.PendingSeriesRefresh
+            {
+                SeriesName = effectiveSeriesName,
+                FetchedAt = row.FetchedAt,
+                SourceName = row.SourceName,
+                SourceUrl = row.SourceUrl,
+                PayloadJson = PendingSeriesRefreshPayload.Serialize(ToPayload(
+                    new PendingSeriesRefresh(
+                        effectiveSeriesName,
+                        row.FetchedAt,
+                        row.SourceName,
+                        row.SourceUrl,
+                        payload.SourceSeriesName,
+                        remaining,
+                        pending.Roster))),
+            });
         }
         else
         {
