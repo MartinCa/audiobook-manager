@@ -5,18 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import type * as ToastModule from "@/components/ui/toast";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: {
-      add: vi.fn(),
-    },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
@@ -132,10 +125,7 @@ describe("MetadataRefresh", () => {
       expect(metadataRefreshApi.startBulkRefresh).toHaveBeenCalledWith(undefined);
     });
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Metadata refresh started in background",
-        type: "success",
-      });
+      expect(notifications.success).toHaveBeenCalledWith("Metadata refresh started in background");
     });
   });
 

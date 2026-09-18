@@ -7,15 +7,11 @@ import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import type { SeriesRefreshPending } from "@/types/SeriesRefresh";
 
 import type * as ApiModule from "@/services/api";
-import type * as ToastModule from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: { add: vi.fn() },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
@@ -240,7 +236,6 @@ describe("SeriesRefreshPendingDialog", () => {
   });
 
   it("does not report a vanished apply as a success", async () => {
-    const { toast } = await import("@/components/ui/toast");
     renderDialog();
     await screen.findByText(/Book A · part 01 → 02/);
 
@@ -262,10 +257,9 @@ describe("SeriesRefreshPendingDialog", () => {
     completeHandler({ totalProcessed: 0, totalSucceeded: 0, totalFailed: 0 });
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "The pending changes were already gone - nothing was applied",
-        type: "info",
-      });
+      expect(notifications.info).toHaveBeenCalledWith(
+        "The pending changes were already gone - nothing was applied",
+      );
     });
   });
 });

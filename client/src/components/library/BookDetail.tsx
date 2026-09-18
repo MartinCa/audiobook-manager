@@ -20,7 +20,7 @@ import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import type { Audiobook } from "@/types/Audiobook";
 import { Route } from "@/routes/library/book.$bookId";
@@ -114,7 +114,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       setSaving(false);
       setSaveProgress(null);
       setSaveMessage(null);
-      toast.add({ title: "Audiobook saved successfully", type: "success" });
+      notifications.success("Audiobook saved successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.metadataRefresh.pendingForBook(id),
@@ -134,7 +134,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       // The save that carried an applied pending-refresh snapshot failed, so there is nothing
       // to dismiss — clear the arm so a later unrelated save can't dismiss it either.
       setPendingApplied(false);
-      toast.add({ title: `Save error: ${payload.error}`, type: "error" });
+      notifications.error(`Save error: ${payload.error}`);
     }
   });
 
@@ -164,9 +164,9 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await audiobookApi.updateBook(id, updated);
       if (applyingPendingRefresh) setPendingApplied(true);
-      toast.add({ title: "Update queued", type: "success" });
+      notifications.success("Update queued");
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setSaving(false);
     }
   };
@@ -179,7 +179,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await checkCollisionAndProceed(updated, proceedSave);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -196,10 +196,10 @@ export function BookDetail({ mode }: BookDetailProps) {
     setCheckingConsistency(true);
     try {
       await consistencyApi.recheckAudiobook(id);
-      toast.add({ title: "Consistency check complete", type: "success" });
+      notifications.success("Consistency check complete");
       invalidateConsistencyViews();
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setCheckingConsistency(false);
     }
@@ -217,7 +217,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       }
       invalidateConsistencyViews();
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setResolvingIssueId(null);
     }
@@ -228,12 +228,12 @@ export function BookDetail({ mode }: BookDetailProps) {
     setDeleting(true);
     try {
       await audiobookApi.deleteAudiobook(id);
-      toast.add({ title: "Audiobook deleted from library", type: "success" });
+      notifications.success("Audiobook deleted from library");
       void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
       void navigate({ to: "/library" });
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
       setDeleting(false);
     }
   };
@@ -255,21 +255,18 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       const result = await metadataRefreshApi.refreshAudiobook(id);
       if (!result.success) {
-        toast.add({ title: result.error || "Metadata refresh failed", type: "error" });
+        notifications.error(result.error || "Metadata refresh failed");
       } else if (result.hasDifferences) {
         setPendingOpen(true);
         void queryClient.invalidateQueries({
           queryKey: queryKeys.metadataRefresh.pendingForBook(id),
         });
       } else {
-        toast.add({
-          title: `Metadata up to date (${result.sourceName ?? "source"})`,
-          type: "success",
-        });
+        notifications.success(`Metadata up to date (${result.sourceName ?? "source"})`);
       }
       invalidateRefreshViews();
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setRefreshing(false);
     }
@@ -279,7 +276,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     setPendingApplied(false);
     try {
       await metadataRefreshApi.dismissPending(id);
-      toast.add({ title: "Pending metadata changes discarded", type: "success" });
+      notifications.success("Pending metadata changes discarded");
       void queryClient.invalidateQueries({
         queryKey: queryKeys.metadataRefresh.pendingForBook(id),
       });
@@ -287,7 +284,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       setPendingOpen(false);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 

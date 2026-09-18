@@ -12,7 +12,7 @@ import { urlCleanupApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
 export function CleanBookUrls() {
   const queryClient = useQueryClient();
@@ -58,16 +58,15 @@ export function CleanBookUrls() {
   const applyMutation = useMutation({
     mutationFn: (audiobookIds: number[]) => urlCleanupApi.apply(audiobookIds),
     onSuccess: (result) => {
-      toast.add({
-        title: `Cleaned ${result.updated ?? 0} book URL${result.updated === 1 ? "" : "s"}`,
-        type: "success",
-      });
+      notifications.success(
+        `Cleaned ${result.updated ?? 0} book URL${result.updated === 1 ? "" : "s"}`,
+      );
       // Drop back to page 0 too: whatever page was being looked at may now be a stale slice.
       goToPage(0);
       void queryClient.invalidateQueries({ queryKey: queryKeys.urlCleanup.all() });
     },
     onError: (err: unknown) => {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     },
   });
 

@@ -18,7 +18,7 @@ import { useOperationResync } from "@/hooks/useOperationResync";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
 
 interface RefreshProgressPayload {
@@ -66,10 +66,10 @@ export function MetadataRefresh() {
   const startBulkMutation = useMutation({
     mutationFn: () => metadataRefreshApi.startBulkRefresh(cutoffDateToUtcIso(cutoffDate)),
     onSuccess: () => {
-      toast.add({ title: "Metadata refresh started in background", type: "success" });
+      notifications.success("Metadata refresh started in background");
     },
     onError: (err: unknown) => {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     },
   });
 
@@ -91,15 +91,13 @@ export function MetadataRefresh() {
     setRefreshing(false);
     setProgress(null);
     if (data.stopReason) {
-      toast.add({
-        title: `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
-        type: "warning",
-      });
+      notifications.warning(
+        `${data.stopReason}. ${data.totalSucceeded} succeeded, ${data.totalFailed} failed.`,
+      );
     } else {
-      toast.add({
-        title: `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-        type: "success",
-      });
+      notifications.success(
+        `Metadata refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
     }
     invalidateRefreshViews();
   });
@@ -130,7 +128,7 @@ export function MetadataRefresh() {
       await seriesApi.startRefreshAll();
     } catch (err: unknown) {
       setRefreshingSeries(false);
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
@@ -143,15 +141,13 @@ export function MetadataRefresh() {
     setRefreshingSeries(false);
     setSeriesProgress(null);
     if (data.stopReason) {
-      toast.add({
-        title: `Series refresh stopped: ${data.stopReason}. ${data.totalSucceeded} refreshed, ${data.totalFailed} failed.`,
-        type: "warning",
-      });
+      notifications.warning(
+        `Series refresh stopped: ${data.stopReason}. ${data.totalSucceeded} refreshed, ${data.totalFailed} failed.`,
+      );
     } else {
-      toast.add({
-        title: `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
-        type: "success",
-      });
+      notifications.success(
+        `Series refresh complete: ${data.totalSucceeded} refreshed, ${data.totalFailed} failed`,
+      );
     }
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
   });

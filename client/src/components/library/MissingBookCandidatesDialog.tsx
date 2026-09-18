@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { SeriesBookCandidate } from "@/types/Series";
 
 function getMatchLabel(candidate: SeriesBookCandidate): string {
@@ -95,7 +95,7 @@ export function MissingBookCandidatesDialog({
         targetPosition,
         targetTitle,
       );
-      toast.add({ title: `Applied "${candidate.bookName}" to missing book`, type: "success" });
+      notifications.success(`Applied "${candidate.bookName}" to missing book`);
       setConfirming(false);
       setSelectedCandidate(null);
       void queryClient.invalidateQueries({
@@ -103,7 +103,7 @@ export function MissingBookCandidatesDialog({
       });
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error", timeout: 0 });
+      notifications.error(handleApiError(err).message, { timeout: 0 });
     } finally {
       setApplying(false);
     }

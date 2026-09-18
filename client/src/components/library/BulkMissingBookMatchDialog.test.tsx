@@ -17,11 +17,11 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-vi.mock("@/components/ui/toast", () => ({
-  toast: { add: vi.fn() },
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import { seriesApi, operationsApi } from "@/services/api";
 
 const candidateA: SeriesBookCandidate = {
@@ -234,7 +234,7 @@ describe("BulkMissingBookMatchDialog", () => {
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
-    expect(toast.add).toHaveBeenCalled();
+    expect(notifications.success).toHaveBeenCalled();
   });
 
   it("reports a failure summary on completion with failures", async () => {
@@ -253,10 +253,9 @@ describe("BulkMissingBookMatchDialog", () => {
     });
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: expect.stringContaining("1 failed") as string,
-        type: "success",
-      });
+      expect(notifications.success).toHaveBeenCalledWith(
+        expect.stringContaining("1 failed") as string,
+      );
     });
   });
 
@@ -361,10 +360,9 @@ describe("BulkMissingBookMatchDialog", () => {
     fireEvent.click(sharedOption);
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: expect.stringContaining("already assigned to") as string,
-        type: "error",
-      });
+      expect(notifications.error).toHaveBeenCalledWith(
+        expect.stringContaining("already assigned to") as string,
+      );
     });
 
     // Row 1 keeps its prior selection (its trigger still shows candidateA) and the apply still

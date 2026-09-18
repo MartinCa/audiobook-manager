@@ -9,18 +9,11 @@ import type * as ApiModule from "@/services/api";
 import { consistencyApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
-import type * as ToastModule from "@/components/ui/toast";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 
-vi.mock("@/components/ui/toast", async (importOriginal) => {
-  const actual = await importOriginal<typeof ToastModule>();
-  return {
-    ...actual,
-    toast: {
-      add: vi.fn(),
-    },
-  };
-});
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
@@ -32,6 +25,13 @@ vi.mock("@/services/api", async (importOriginal) => {
     },
   };
 });
+
+function expectNoNotifications() {
+  expect(notifications.success).not.toHaveBeenCalled();
+  expect(notifications.error).not.toHaveBeenCalled();
+  expect(notifications.info).not.toHaveBeenCalled();
+  expect(notifications.warning).not.toHaveBeenCalled();
+}
 
 let queryClient: QueryClient;
 
@@ -143,11 +143,9 @@ describe("LibraryConsistency", () => {
     });
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title:
-          "Directory still contains files; preserved directory on disk and removed from orphan list.",
-        type: "info",
-      });
+      expect(notifications.info).toHaveBeenCalledWith(
+        "Directory still contains files; preserved directory on disk and removed from orphan list.",
+      );
     });
   });
 
@@ -412,10 +410,9 @@ describe("LibraryConsistency", () => {
     await waitFor(() => {
       expect(screen.queryByText("Confirm Resolution")).not.toBeInTheDocument();
     });
-    expect(toast.add).toHaveBeenCalledWith({
-      title: 'Resolution started for all "Missing Description Files" issues',
-      type: "success",
-    });
+    expect(notifications.success).toHaveBeenCalledWith(
+      'Resolution started for all "Missing Description Files" issues',
+    );
   });
 
   // Regression: with no disabled guard on the confirm button, a double-click fired
@@ -488,7 +485,7 @@ describe("LibraryConsistency", () => {
     fireEvent.click(screen.getByRole("button", { name: "Resolve All" }));
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalled();
+      expect(notifications.error).toHaveBeenCalled();
     });
     expect(screen.getByText("Confirm Resolution")).toBeInTheDocument();
   });
@@ -539,10 +536,7 @@ describe("LibraryConsistency", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.add).toHaveBeenCalledWith({
-        title: "Resolved 5 issues (0 failed)",
-        type: "success",
-      });
+      expect(notifications.success).toHaveBeenCalledWith("Resolved 5 issues (0 failed)");
     });
     expect(screen.queryByText(/Resolving issues/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeEnabled();
@@ -587,7 +581,7 @@ describe("LibraryConsistency", () => {
     } as never);
 
     await waitFor(() => {
-      expect(toast.add).not.toHaveBeenCalled();
+      expectNoNotifications();
     });
     expect(screen.queryByText(/Check complete:/)).not.toBeInTheDocument();
   });

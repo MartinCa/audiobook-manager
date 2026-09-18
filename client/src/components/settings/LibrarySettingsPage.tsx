@@ -13,7 +13,7 @@ import {
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { InitialsSpacing } from "@/types/LibrarySettings";
 
 const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
@@ -38,11 +38,11 @@ export function LibrarySettingsPage() {
     mutationFn: (spacing: InitialsSpacing) =>
       settingsApi.updateLibrarySettings({ initialsSpacing: spacing }),
     onSuccess: () => {
-      toast.add({ title: "Library settings saved", type: "success" });
+      notifications.success("Library settings saved");
       void queryClient.invalidateQueries({ queryKey: queryKeys.librarySettings() });
     },
     onError: (err: unknown) => {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     },
   });
 

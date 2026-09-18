@@ -10,7 +10,7 @@ import { audiobookApi, filesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
-import { toast } from "@/components/ui/toast";
+import { notifications } from "@/lib/notifications";
 import type { Audiobook } from "@/types/Audiobook";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 
@@ -49,11 +49,11 @@ export function BookOrganize({
     setOrganizing(true);
     try {
       const queueId = await audiobookApi.organizeBook(book);
-      toast.add({ title: "Book added to organization queue", type: "success" });
+      notifications.success("Book added to organization queue");
       onBookQueued?.(queueId || targetPath);
       onSuccess?.();
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setOrganizing(false);
     }
@@ -71,7 +71,7 @@ export function BookOrganize({
     try {
       await checkCollisionAndProceed(book, proceedOrganize);
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     } finally {
       setOrganizing(false);
     }
@@ -80,11 +80,11 @@ export function BookOrganize({
   const handleDeleteBook = async () => {
     try {
       await filesApi.deleteBook(targetPath);
-      toast.add({ title: "File deleted successfully", type: "success" });
+      notifications.success("File deleted successfully");
       onBookDeleted?.();
       onSuccess?.();
     } catch (err: unknown) {
-      toast.add({ title: handleApiError(err).message, type: "error" });
+      notifications.error(handleApiError(err).message);
     }
   };
 
