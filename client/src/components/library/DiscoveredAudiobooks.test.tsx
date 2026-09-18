@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DiscoveredAudiobooks } from "./DiscoveredAudiobooks";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
@@ -45,7 +45,7 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-import { libraryApi, audiobookApi, queueApi } from "@/services/api";
+import { libraryApi, audiobookApi, queueApi, operationsApi } from "@/services/api";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -366,6 +366,81 @@ describe("DiscoveredAudiobooks", () => {
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
     expect(screen.getByText("38%")).toBeInTheDocument();
+  });
+
+  it("restores an in-flight library scan from the status registry", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [],
+      total: 0,
+      count: 0,
+      wellTaggedTotal: 0,
+    });
+    vi.mocked(operationsApi.getStatus).mockImplementation((key: string) =>
+      key === OperationKeys.libraryScan
+        ? Promise.resolve({ isRunning: true, processed: 120, total: 500 })
+        : Promise.resolve({ isRunning: false, processed: 0, total: 0 }),
+    );
+
+    renderWithProviders();
+
+    // The restored busy state disables the scan button and shows the progress bar with the
+    // registry's processed/total under a resuming label - no completion event was seen, so no
+    // success toast and no scan-result banner.
+    expect(await screen.findByText("Scanning Library...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scanning Library..." })).toBeDisabled();
+    expect(await screen.findByText("120 / 500 (24%)")).toBeInTheDocument();
+    expect(screen.queryByText(/Scan complete:/)).not.toBeInTheDocument();
+  });
+
+  it("clears a restored library scan state once the status registry reports the scan finished", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [],
+      total: 0,
+      count: 0,
+      wellTaggedTotal: 0,
+    });
+    let scanCalls = 0;
+    // Establish the restored running state FIRST (mount fetch), then report completion (the
+    // reconnect re-fetch): the else-branch only meaningfully unwinds state the resync itself
+    // restored - without it a completed status would leave the restored scan bar on screen.
+    vi.mocked(operationsApi.getStatus)
+      .mockReset()
+      .mockImplementation((key: string) => {
+        if (key === OperationKeys.libraryScan) {
+          scanCalls += 1;
+          return Promise.resolve(
+            scanCalls === 1
+              ? { isRunning: true, processed: 120, total: 500 }
+              : { isRunning: false, processed: 500, total: 500 },
+          );
+        }
+        return Promise.resolve({ isRunning: false, processed: 0, total: 0 });
+      });
+
+    // The shared mock accumulates call history across tests; consider only this test's listeners.
+    const reconnect = vi.mocked(mockSignalRValue.onReconnected);
+    reconnect.mockClear();
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Scanning Library...")).toBeInTheDocument();
+    expect(await screen.findByText("120 / 500 (24%)")).toBeInTheDocument();
+
+    // A reconnect re-fetches every mounted operation's status; the scan now reports completed,
+    // which must unwind the restored running state without a completion toast or result banner.
+    for (const call of reconnect.mock.calls) {
+      call[0]();
+    }
+
+    await waitFor(() => {
+      expect(scanCalls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Scanning Library...")).not.toBeInTheDocument();
+      expect(screen.queryByText("120 / 500 (24%)")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Scan Library" })).toBeEnabled();
+    expect(screen.queryByText(/Scan complete:/)).not.toBeInTheDocument();
   });
 
   describe("Failed Organize Tasks", () => {

@@ -173,8 +173,27 @@ export function DiscoveredAudiobooks() {
     },
   );
 
+  // Recover an in-flight library scan (started elsewhere, or events missed while disconnected)
+  // on mount and after a SignalR reconnect: the page must show the scan progress bar rather than
+  // looking idle until the next event, and must not spawn the success notification - that belongs
+  // to the LibraryScanComplete event only.
+  const invalidateLibraryScan = useOperationResync(OperationKeys.libraryScan, (status) => {
+    if (status.isRunning) {
+      setScanning(true);
+      setScanProgress((prev) =>
+        prev
+          ? prev
+          : { message: "Resuming scan...", scanned: status.processed, total: status.total },
+      );
+    } else {
+      setScanning(false);
+      setScanProgress(null);
+    }
+  });
+
   // SignalR scan events
   useSignalREvent<ScanProgressPayload>(SignalREvents.LibraryScanProgress, (data) => {
+    invalidateLibraryScan();
     setScanning(true);
     setScanProgress({
       message: data.message,
@@ -184,6 +203,7 @@ export function DiscoveredAudiobooks() {
   });
 
   useSignalREvent<ScanCompletePayload>(SignalREvents.LibraryScanComplete, (data) => {
+    invalidateLibraryScan();
     setScanning(false);
     setScanProgress(null);
     setScanResult(data);
