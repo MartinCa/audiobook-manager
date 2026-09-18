@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
 import { operationsApi, seriesApi } from "@/services/api";
 import type {
@@ -814,21 +814,57 @@ describe("SeriesDetail", () => {
 
   it("clears a restored delete state once the status registry reports the delete finished", async () => {
     vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
-    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
-      isRunning: false,
-      processed: 5,
-      total: 5,
+    let deleteStatusCalls = 0;
+    // Establish the restored running state FIRST (mount fetch), then report completion (the
+    // reconnect re-fetch): the else-branch only meaningfully unwinds state the resync itself
+    // restored - without it the busy state would survive a completed status, which is what this
+    // test proves by asserting the dialog ends up idle.
+    const getStatus = vi.spyOn(operationsApi, "getStatus").mockImplementation((key) => {
+      if (key === OperationKeys.seriesDelete) {
+        deleteStatusCalls += 1;
+        return Promise.resolve(
+          deleteStatusCalls === 1
+            ? { isRunning: true, processed: 3, total: 5 }
+            : { isRunning: false, processed: 5, total: 5 },
+        );
+      }
+      return Promise.resolve({ isRunning: false, processed: 0, total: 0 });
     });
+
+    // The shared mock accumulates call history across tests; consider only this test's listeners.
+    vi.mocked(mockSignalRValue.onReconnected).mockClear();
 
     renderWithProviders();
     await screen.findByRole("heading", { name: "Mistborn" });
 
-    // A finished delete restores to idle: opening the dialog shows no progress bar and the
-    // confirm button is armed again for a fresh delete.
+    // Phase 1: the mount fetch restores the in-flight delete. No event was seen, no dialog was
+    // opened - the busy state alone is what the confirmation dialog reflects.
+    await waitFor(() => {
+      expect(deleteStatusCalls).toBe(1);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByText(/Clearing books/)).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
+    expect(
+      await within(dialog).findByText("Clearing books (0 succeeded, 0 failed)"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("3 / 5 (60%)")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeDisabled();
+
+    // Phase 2: a reconnect re-fetches every mounted operation's status; the delete reports
+    // completed now, which must unwind the restored running state without closing the dialog.
+    for (const call of vi.mocked(mockSignalRValue.onReconnected).mock.calls) {
+      (call[0] as () => void)();
+    }
+
+    await waitFor(() => {
+      expect(deleteStatusCalls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(within(dialog).queryByText(/Clearing books/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
+    });
+    expect(getStatus).toHaveBeenCalledWith(OperationKeys.seriesDelete);
   });
 
   // --- Back navigation is a real link with a stable href, not a history-dependent button ---
