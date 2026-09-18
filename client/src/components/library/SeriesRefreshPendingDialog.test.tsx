@@ -83,7 +83,7 @@ function pendingFixture(): SeriesRefreshPending {
   };
 }
 
-function renderDialog(open = true) {
+function renderDialog(open = true, onApplied?: (renamedTo?: string | null) => void) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -94,7 +94,7 @@ function renderDialog(open = true) {
           open={open}
           onOpenChange={() => {}}
           seriesName="Mistborn"
-          onApplied={() => {}}
+          onApplied={onApplied ?? (() => {})}
         />
       </QueryClientProvider>
     </SignalRContext.Provider>,
@@ -260,6 +260,63 @@ describe("SeriesRefreshPendingDialog", () => {
       expect(notifications.info).toHaveBeenCalledWith(
         "The pending changes were already gone - nothing was applied",
       );
+    });
+  });
+
+  it("reports the adopted name through onApplied when the apply completes with a rename", async () => {
+    const onApplied = vi.fn();
+    renderDialog(true, onApplied);
+    await screen.findByText(/Book A · part 01 → 02/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply 2/ }));
+
+    const completeCall = (mockSignalRValue as { on: ReturnType<typeof vi.fn> }).on.mock.calls.find(
+      (call) => call[0] === "SeriesRefreshApplyComplete",
+    );
+    const completeHandler = completeCall?.[1] as (data: {
+      totalProcessed: number;
+      totalSucceeded: number;
+      totalFailed: number;
+      effectiveSeriesName?: string | null;
+    }) => void;
+    expect(completeHandler).toBeDefined();
+
+    // A fully successful adoption reports the new name so the caller can navigate its route.
+    completeHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      effectiveSeriesName: "Mistborn Saga",
+    });
+
+    await waitFor(() => {
+      expect(onApplied).toHaveBeenCalledWith("Mistborn Saga");
+    });
+  });
+
+  it("reports null through onApplied when the apply completed with no rename", async () => {
+    const onApplied = vi.fn();
+    renderDialog(true, onApplied);
+    await screen.findByText(/Book A · part 01 → 02/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply 2/ }));
+
+    const completeCall = (mockSignalRValue as { on: ReturnType<typeof vi.fn> }).on.mock.calls.find(
+      (call) => call[0] === "SeriesRefreshApplyComplete",
+    );
+    const completeHandler = completeCall?.[1] as (data: {
+      totalProcessed: number;
+      totalSucceeded: number;
+      totalFailed: number;
+      effectiveSeriesName?: string | null;
+    }) => void;
+    expect(completeHandler).toBeDefined();
+
+    // No adoption ran: the series is still addressable under its original name.
+    completeHandler({ totalProcessed: 2, totalSucceeded: 2, totalFailed: 0 });
+
+    await waitFor(() => {
+      expect(onApplied).toHaveBeenCalledWith(null);
     });
   });
 });

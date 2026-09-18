@@ -768,4 +768,138 @@ describe("SeriesDetail", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
   });
+
+  // --- Back navigation is a real link with a stable href, not a history-dependent button ---
+
+  it("renders the visible back control as a real link to the series list", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    const backLink = await screen.findByRole("button", { name: /back to series/i });
+    expect(backLink.tagName).toBe("A");
+    expect(backLink).toHaveAttribute("href", "/library/series");
+  });
+
+  it("renders a stable link back to the author route when the series was opened from an author", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders("/library/series/Mistborn?authorId=5");
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    const backLink = await screen.findByRole("button", { name: /back to author/i });
+    expect(backLink.tagName).toBe("A");
+    expect(backLink).toHaveAttribute("href", "/library/authors/5");
+  });
+
+  // --- Applying a source-series-name adoption must move the detail page to the adopted name ---
+
+  function seriesRefreshApplyCompleteHandler(): (data: {
+    totalProcessed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+    effectiveSeriesName?: string | null;
+  }) => void {
+    const call = [...mockSignalRValue.on.mock.calls]
+      .reverse()
+      .find(([name]) => name === SignalREvents.SeriesRefreshApplyComplete);
+    expect(call, "a SeriesRefreshApplyComplete handler was registered").toBeDefined();
+    return call![1] as (data: {
+      totalProcessed: number;
+      totalSucceeded: number;
+      totalFailed: number;
+      effectiveSeriesName?: string | null;
+    }) => void;
+  }
+
+  function mockRenamePendingSetup() {
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([]);
+    vi.spyOn(seriesApi, "getSeriesPending").mockResolvedValue({
+      seriesName: "Mistborn",
+      sourceName: "Hardcover",
+      sourceUrl: "https://hardcover.app/series/42",
+      sourceSeriesName: "Mistborn Saga",
+      fetchedAt: "2026-09-01T12:00:00Z",
+      changes: [],
+    });
+    vi.spyOn(seriesApi, "applySeriesPending").mockResolvedValue(undefined);
+  }
+
+  it("navigates with replace to the adopted series route after a rename apply completes", async () => {
+    mockRenamePendingSetup();
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockImplementation((name) =>
+        Promise.resolve(
+          name === "Mistborn" ? makeDetail([], 0) : makeDetail([], 0, [defaultOwned]),
+        ),
+      );
+
+    const { router } = renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    await screen.findByRole("button", { name: "Review Changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Review Changes" }));
+    await screen.findByText(/Review Series Refresh/);
+    const adopt = await screen.findByRole("checkbox", { name: /Adopt source series name/ });
+    fireEvent.click(adopt);
+    await screen.findByRole("button", { name: "Apply rename" });
+    fireEvent.click(screen.getByRole("button", { name: "Apply rename" }));
+
+    await waitFor(() => {
+      expect(seriesApi.applySeriesPending).toHaveBeenCalledWith("Mistborn", {
+        adoptSourceSeriesName: true,
+        selections: [],
+      });
+    });
+
+    seriesRefreshApplyCompleteHandler()({
+      totalProcessed: 1,
+      totalSucceeded: 1,
+      totalFailed: 0,
+      effectiveSeriesName: "Mistborn Saga",
+    });
+
+    // The route moves to the adopted name (the old one 404s), and the detail refetches for it.
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/series/Mistborn Saga");
+    });
+    await waitFor(() => {
+      expect(getSeriesDetail.mock.calls.at(-1)![0]).toBe("Mistborn Saga");
+    });
+  });
+
+  it("stays on the current route when the apply completes without a rename", async () => {
+    mockRenamePendingSetup();
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+
+    const { router } = renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    await screen.findByRole("button", { name: "Review Changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Review Changes" }));
+    await screen.findByText(/Review Series Refresh/);
+    // Arm a rename-only apply so the completion path runs, then complete it without an
+    // effective name (e.g. the adoption failed): the series is still addressable under the old
+    // name, so the page must not move.
+    const adopt = await screen.findByRole("checkbox", { name: /Adopt source series name/ });
+    fireEvent.click(adopt);
+    const applyButton = await screen.findByRole("button", { name: "Apply rename" });
+    fireEvent.click(applyButton);
+
+    await waitFor(() => {
+      expect(seriesApi.applySeriesPending).toHaveBeenCalledWith("Mistborn", {
+        adoptSourceSeriesName: true,
+        selections: [],
+      });
+    });
+
+    // No adoption succeeded, so the completion carries no effective name and the route stays.
+    seriesRefreshApplyCompleteHandler()({ totalProcessed: 1, totalSucceeded: 0, totalFailed: 1 });
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/series/Mistborn");
+    });
+  });
 });

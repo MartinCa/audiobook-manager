@@ -41,6 +41,10 @@ interface SeriesRefreshApplyCompletePayload {
   totalProcessed: number;
   totalSucceeded: number;
   totalFailed: number;
+  /** The series' name after the apply: the adopted source name when the rename fully succeeded,
+   *  absent otherwise (no adoption, a no-op name, or a partial failure left the old name
+   *  addressable). The caller navigates its route there when present. */
+  effectiveSeriesName?: string | null;
 }
 
 const changeLabel = (type: SeriesRefreshChangeType): string => {
@@ -66,9 +70,11 @@ interface SeriesRefreshPendingDialogProps {
   seriesName: string;
   /**
    * Called after a successful apply (or dismiss) so the caller refreshes whatever it renders
-   * from the pending list / series detail.
+   * from the pending list / series detail. `renamedTo` is the series' new name when the apply
+   * fully adopted the source's series name (the caller must navigate its route there); null
+   * when the series is still addressable under its original name.
    */
-  onApplied?: () => void;
+  onApplied?: (renamedTo?: string | null) => void;
 }
 
 /**
@@ -99,7 +105,10 @@ export function SeriesRefreshPendingDialog({
     refetch,
   } = useQuery({
     queryKey: queryKeys.seriesPending.bySeries(seriesName),
-    queryFn: () => seriesApi.getSeriesPending(seriesName),
+    // The endpoint 404s when no snapshot exists; the API layer normalizes that to undefined and
+    // the query layer maps it to null (TanStack Query's no-void-query-fn rule: queryFn must not
+    // resolve undefined) - both represent the same "nothing pending" state.
+    queryFn: () => seriesApi.getSeriesPending(seriesName).then((pending) => pending ?? null),
     enabled: open && Boolean(seriesName),
   });
 
@@ -197,7 +206,7 @@ export function SeriesRefreshPendingDialog({
         notifications.success(`Applied ${data.totalSucceeded} pending changes`);
       }
       invalidateViews();
-      onApplied?.();
+      onApplied?.(data.effectiveSeriesName ?? null);
       onOpenChange(false);
     },
   );
@@ -227,7 +236,7 @@ export function SeriesRefreshPendingDialog({
   const handleClose = () => {
     if (applying) return;
     onOpenChange(false);
-    onApplied?.();
+    onApplied?.(null);
   };
 
   const handleDismiss = async () => {
@@ -236,7 +245,7 @@ export function SeriesRefreshPendingDialog({
       await seriesApi.dismissSeriesPending(seriesName);
       notifications.success("Pending changes discarded");
       invalidateViews();
-      onApplied?.();
+      onApplied?.(null);
       onOpenChange(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);

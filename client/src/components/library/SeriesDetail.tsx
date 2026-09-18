@@ -110,7 +110,9 @@ export function SeriesDetail() {
     selection.clear();
   }
 
-  const handleBack = () => {
+  // Programmatic "leave this series" used only when the series is deleted in the background (a
+  // real link cannot do that); the visible back control above is a real link with a stable href.
+  const navigateBack = () => {
     if (router.history.canGoBack()) {
       router.history.back();
     } else if (authorId) {
@@ -236,7 +238,9 @@ export function SeriesDetail() {
   // must not surface as an error.
   const { data: pendingReviews } = useQuery({
     queryKey: queryKeys.seriesPending.bySeries(seriesName),
-    queryFn: () => seriesApi.getSeriesPending(seriesName),
+    // 404 (no snapshot) is normalized to undefined by the API layer; map it to null here
+    // (queryFn must not resolve undefined) so the banner's "pending &&" stays the absent case.
+    queryFn: () => seriesApi.getSeriesPending(seriesName).then((pending) => pending ?? null),
     enabled: Boolean(seriesName) && seriesDetailQuery.data?.overview.isMatched === true,
   });
 
@@ -510,7 +514,7 @@ export function SeriesDetail() {
     }
     void queryClient.invalidateQueries({ queryKey: ["series"] });
     void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
-    handleBack();
+    navigateBack();
   });
 
   const handleDeleteSeries = async () => {
@@ -551,15 +555,21 @@ export function SeriesDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Button
+        <LinkButton
           variant="ghost"
           size="sm"
+          render={
+            authorId ? (
+              <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
+            ) : (
+              <Link to="/library/series" />
+            )
+          }
           className="w-full justify-start sm:w-auto"
-          onClick={handleBack}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           {authorId ? "Back to Author" : "Back to Series"}
-        </Button>
+        </LinkButton>
       </div>
 
       <div className="border-border border-b pb-4">
@@ -1199,10 +1209,28 @@ export function SeriesDetail() {
         open={pendingReviewOpen}
         onOpenChange={setPendingReviewOpen}
         seriesName={seriesName}
-        onApplied={() => {
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
-          });
+        onApplied={(renamedTo) => {
+          if (renamedTo && renamedTo !== seriesName) {
+            // The apply fully adopted the source's series name: the current route's detail
+            // query now 404s (nobody owns the old name anymore). Move to the adopted name with
+            // replace so the back-stack still points where the user came from, and invalidate
+            // the new name's views so nothing stale is served for it.
+            void navigate({
+              to: "/library/series/$seriesName",
+              params: { seriesName: renamedTo },
+              search: { authorId },
+              replace: true,
+            });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.all() });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.seriesPending.bySeries(renamedTo),
+            });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.seriesMappings(renamedTo) });
+          } else {
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
+            });
+          }
         }}
       />
 
