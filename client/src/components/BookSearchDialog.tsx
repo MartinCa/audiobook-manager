@@ -334,7 +334,7 @@ export function BookSearchDialog({
                       </div>
                     </div>
 
-                    <div className="border-border/50 flex shrink-0 items-center justify-between gap-2 border-t pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0">
+                    <div className="border-border/50 flex items-center justify-between gap-2 border-t pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0">
                       {result.url && (
                         <a
                           href={result.url}
@@ -352,7 +352,7 @@ export function BookSearchDialog({
                         onClick={() => {
                           void handleChoose(result);
                         }}
-                        className="w-full sm:w-auto"
+                        className="min-w-0 flex-1 sm:w-auto"
                       >
                         {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                         Apply
