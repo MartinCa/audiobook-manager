@@ -8,6 +8,14 @@ public class SeriesRefreshApplyComplete
     public int TotalFailed { get; }
 
     /// <summary>
+    /// The series the apply was requested for (the name the caller passed to the apply
+    /// endpoint). The completion is broadcast to every connection, so a listener that is
+    /// reviewing a different series must match this before acting: an unscoped completion
+    /// from an unrelated series could otherwise close or navigate the wrong dialog.
+    /// </summary>
+    public string SeriesName { get; }
+
+    /// <summary>
     /// The series' effective name after the apply: the adopted source name when the
     /// source-series-name adoption fully succeeded (the client navigates that route there), or
     /// null when no adoption ran, it was a no-op (blank or already the series' own name), or it
@@ -15,11 +23,12 @@ public class SeriesRefreshApplyComplete
     /// </summary>
     public string? EffectiveSeriesName { get; }
 
-    public SeriesRefreshApplyComplete(int totalProcessed, int totalSucceeded, int totalFailed, string? effectiveSeriesName = null)
+    public SeriesRefreshApplyComplete(int totalProcessed, int totalSucceeded, int totalFailed, string seriesName, string? effectiveSeriesName = null)
     {
         TotalProcessed = totalProcessed;
         TotalSucceeded = totalSucceeded;
         TotalFailed = totalFailed;
+        SeriesName = seriesName;
         EffectiveSeriesName = effectiveSeriesName;
     }
 }

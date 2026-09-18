@@ -800,6 +800,7 @@ describe("SeriesDetail", () => {
     totalSucceeded: number;
     totalFailed: number;
     effectiveSeriesName?: string | null;
+    seriesName: string;
   }) => void {
     const call = [...mockSignalRValue.on.mock.calls]
       .reverse()
@@ -810,6 +811,7 @@ describe("SeriesDetail", () => {
       totalSucceeded: number;
       totalFailed: number;
       effectiveSeriesName?: string | null;
+      seriesName: string;
     }) => void;
   }
 
@@ -858,6 +860,7 @@ describe("SeriesDetail", () => {
       totalProcessed: 1,
       totalSucceeded: 1,
       totalFailed: 0,
+      seriesName: "Mistborn",
       effectiveSeriesName: "Mistborn Saga",
     });
 
@@ -896,7 +899,12 @@ describe("SeriesDetail", () => {
     });
 
     // No adoption succeeded, so the completion carries no effective name and the route stays.
-    seriesRefreshApplyCompleteHandler()({ totalProcessed: 1, totalSucceeded: 0, totalFailed: 1 });
+    seriesRefreshApplyCompleteHandler()({
+      totalProcessed: 1,
+      totalSucceeded: 0,
+      totalFailed: 1,
+      seriesName: "Mistborn",
+    });
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/library/series/Mistborn");

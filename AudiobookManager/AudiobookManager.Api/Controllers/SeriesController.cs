@@ -843,9 +843,11 @@ public class SeriesController : ControllerBase
     /// optional <c>AdoptSourceSeriesName</c> renames every member book to the source's own series
     /// name through the same pipeline. Progress is reported over SignalR; the operation status is
     /// recorded under <see cref="PendingApplyOperationKey"/> so a client can recover it after a
-    /// reconnect. The completion event carries the series' effective name after the apply (the
-    /// adopted name when the rename fully succeeded), so the client can navigate its route to the
-    /// new name instead of staying on one that no longer resolves.
+    /// reconnect. The completion event carries the series it was requested for (so a client
+    /// reviewing a different series can tell it apart and ignore it) and the series' effective
+    /// name after the apply (the adopted name when the rename fully succeeded), so the applying
+    /// client can navigate its route to the new name instead of staying on one that no longer
+    /// resolves.
     /// </summary>
     [HttpPost("pending/apply")]
     public IActionResult StartPendingApply([FromQuery] string seriesName, [FromBody] ApplySeriesRefreshRequestDto? dto)
@@ -941,9 +943,9 @@ public class SeriesController : ControllerBase
                     seriesName, request, ProgressAction);
 
                 await _organizeHub.Clients.All.SeriesRefreshApplyComplete(
-                    new SeriesRefreshApplyComplete(processed, succeeded, failed, effectiveSeriesName));
+                    new SeriesRefreshApplyComplete(processed, succeeded, failed, seriesName, effectiveSeriesName));
             },
-            () => _organizeHub.Clients.All.SeriesRefreshApplyComplete(new SeriesRefreshApplyComplete(0, 0, 0)),
+            () => _organizeHub.Clients.All.SeriesRefreshApplyComplete(new SeriesRefreshApplyComplete(0, 0, 0, seriesName)),
             _appLifetime.ApplicationStopping);
     }
 

@@ -988,7 +988,7 @@ public class SeriesControllerTests
         await AwaitOperationFinished(finished);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyProgress(It.Is<SeriesRefreshApplyProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
-        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0 && p.EffectiveSeriesName == null)), Times.Once);
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.SeriesName == "Mistborn" && p.TotalSucceeded == 1 && p.TotalFailed == 0 && p.EffectiveSeriesName == null)), Times.Once);
     }
 
     // The completion event must tell the client when the apply adopted the source's series name:
@@ -1020,7 +1020,77 @@ public class SeriesControllerTests
 
         await AwaitOperationFinished(finished);
 
-        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.EffectiveSeriesName == "Mistborn Saga")), Times.Once);
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.SeriesName == "Mistborn" && p.EffectiveSeriesName == "Mistborn Saga")), Times.Once);
+    }
+
+    /// <summary>
+    /// The completion is broadcast to every connection, but it names the series the apply was
+    /// requested for - a client reviewing a DIFFERENT series must be able to tell the two apart
+    /// (a dialog would otherwise close itself or navigate on someone else's result, e.g. when
+    /// an apply started from the metadata-refresh page lands while another series' review is
+    /// open). The originating name travels in the payload verbatim, not the adopted/effective
+    /// name, because that is the name the applying dialog presented when it started the apply.
+    /// </summary>
+    [TestMethod]
+    public async Task StartPendingApply_CompletionCarriesTheOriginatingSeriesName()
+    {
+        _seriesService
+            .Setup(s => s.ApplyPendingSeriesRefreshAsync(
+                "Mistborn",
+                It.IsAny<SeriesRefreshApplyRequest>(),
+                It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((string _, SeriesRefreshApplyRequest __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0, (string?)null);
+            });
+
+        var finished = RegisterFinishedWaiter(SeriesController.PendingApplyOperationKey);
+
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections = { new ApplySeriesRefreshChangeDto { ChangeType = "PartUpdate", AudiobookId = 5 } },
+        };
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p =>
+            p.SeriesName == "Mistborn" && p.EffectiveSeriesName == null)), Times.Once);
+    }
+
+    /// <summary>
+    /// The error path (the apply threw out of the background work) also broadcasts a completion,
+    /// and that one must carry the originating series name too, or a client that scopes its
+    /// completion handling by series would treat a crashed apply's zeroed counts as an event for
+    /// some other series (or, worse, a listening dialog for the right series would miss it).
+    /// </summary>
+    [TestMethod]
+    public async Task StartPendingApply_ErrorPathCompletionCarriesTheOriginatingSeriesName()
+    {
+        _seriesService
+            .Setup(s => s.ApplyPendingSeriesRefreshAsync(
+                "Mistborn",
+                It.IsAny<SeriesRefreshApplyRequest>(),
+                It.IsAny<Func<int, int, int, int, Task>>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var finished = RegisterFinishedWaiter(SeriesController.PendingApplyOperationKey);
+
+        var dto = new ApplySeriesRefreshRequestDto
+        {
+            Selections = { new ApplySeriesRefreshChangeDto { ChangeType = "PartUpdate", AudiobookId = 5 } },
+        };
+        var result = _controller.StartPendingApply("Mistborn", dto);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p =>
+            p.TotalProcessed == 0 && p.TotalSucceeded == 0 && p.TotalFailed == 0 && p.SeriesName == "Mistborn" && p.EffectiveSeriesName == null)), Times.Once);
     }
 
     [TestMethod]

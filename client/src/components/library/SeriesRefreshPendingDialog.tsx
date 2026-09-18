@@ -41,6 +41,11 @@ interface SeriesRefreshApplyCompletePayload {
   totalProcessed: number;
   totalSucceeded: number;
   totalFailed: number;
+  /** The series the apply was requested for (the name this dialog's seriesName prop held when it
+   *  started the apply). Completions are broadcast to every connection, so the dialog must match
+   *  this before acting: a completion for a different series (a parallel tab, or an apply started
+   *  from the metadata-refresh page) must not close or navigate this dialog. */
+  seriesName: string;
   /** The series' name after the apply: the adopted source name when the rename fully succeeded,
    *  absent otherwise (no adoption, a no-op name, or a partial failure left the old name
    *  addressable). The caller navigates its route there when present. */
@@ -192,6 +197,11 @@ export function SeriesRefreshPendingDialog({
     SignalREvents.SeriesRefreshApplyComplete,
     (data) => {
       if (!applying) return;
+      // The completion is broadcast connection-wide, not per-series: it belongs to the series
+      // this dialog applied for. A completion for another series must not close this dialog,
+      // toast its results or navigate on its rename - that series' own dialog (or a parallel
+      // tab's) is the one listening for it.
+      if (data.seriesName !== seriesName) return;
       setApplying(false);
       setProgress(null);
       if (data.totalProcessed === 0) {

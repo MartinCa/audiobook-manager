@@ -249,12 +249,18 @@ describe("SeriesRefreshPendingDialog", () => {
       totalProcessed: number;
       totalSucceeded: number;
       totalFailed: number;
+      seriesName: string;
     }) => void;
     expect(completeHandler).toBeDefined();
 
     // A completion with totalProcessed === 0 means the pending row was gone before the apply
     // ran (dismissed elsewhere, or superseded): an info notice, never a "Applied N" success.
-    completeHandler({ totalProcessed: 0, totalSucceeded: 0, totalFailed: 0 });
+    completeHandler({
+      totalProcessed: 0,
+      totalSucceeded: 0,
+      totalFailed: 0,
+      seriesName: "Mistborn",
+    });
 
     await waitFor(() => {
       expect(notifications.info).toHaveBeenCalledWith(
@@ -278,6 +284,7 @@ describe("SeriesRefreshPendingDialog", () => {
       totalSucceeded: number;
       totalFailed: number;
       effectiveSeriesName?: string | null;
+      seriesName: string;
     }) => void;
     expect(completeHandler).toBeDefined();
 
@@ -286,6 +293,7 @@ describe("SeriesRefreshPendingDialog", () => {
       totalProcessed: 2,
       totalSucceeded: 2,
       totalFailed: 0,
+      seriesName: "Mistborn",
       effectiveSeriesName: "Mistborn Saga",
     });
 
@@ -309,14 +317,71 @@ describe("SeriesRefreshPendingDialog", () => {
       totalSucceeded: number;
       totalFailed: number;
       effectiveSeriesName?: string | null;
+      seriesName: string;
     }) => void;
     expect(completeHandler).toBeDefined();
 
     // No adoption ran: the series is still addressable under its original name.
-    completeHandler({ totalProcessed: 2, totalSucceeded: 2, totalFailed: 0 });
+    completeHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      seriesName: "Mistborn",
+    });
 
     await waitFor(() => {
       expect(onApplied).toHaveBeenCalledWith(null);
     });
+  });
+
+  it("ignores a completion for another series instead of closing or navigating this dialog", async () => {
+    const onApplied = vi.fn();
+    renderDialog(true, onApplied);
+    await screen.findByText(/Book A · part 01 → 02/);
+
+    // Arm `applying` like the other completion tests.
+    fireEvent.click(screen.getByRole("button", { name: /Apply 2/ }));
+    expect(screen.getByRole("button", { name: /Applying/ })).toBeInTheDocument();
+
+    const completeCall = (mockSignalRValue as { on: ReturnType<typeof vi.fn> }).on.mock.calls.find(
+      (call) => call[0] === "SeriesRefreshApplyComplete",
+    );
+    const completeHandler = completeCall?.[1] as (data: {
+      totalProcessed: number;
+      totalSucceeded: number;
+      totalFailed: number;
+      effectiveSeriesName?: string | null;
+      seriesName: string;
+    }) => void;
+    expect(completeHandler).toBeDefined();
+
+    // A different series' apply completed (e.g. started from the metadata-refresh page or a
+    // parallel tab): this dialog must not close, toast the other series' counts or navigate.
+    completeHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      seriesName: "The Wheel of Time",
+    });
+
+    await waitFor(() => {
+      expect(onApplied).not.toHaveBeenCalled();
+    });
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Applying/ })).toBeInTheDocument();
+
+    // The dialog is still applying for its own series, and its own completion still lands after
+    // the ignored one - the ignore is a filter, not a state change.
+    completeHandler({
+      totalProcessed: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+      seriesName: "Mistborn",
+    });
+
+    await waitFor(() => {
+      expect(onApplied).toHaveBeenCalledWith(null);
+    });
+    expect(notifications.success).toHaveBeenCalledWith("Applied 2 pending changes");
   });
 });
