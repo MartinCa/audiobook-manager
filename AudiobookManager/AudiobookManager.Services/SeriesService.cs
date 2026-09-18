@@ -840,19 +840,33 @@ public class SeriesService : ISeriesService
         // the pending snapshot and catalog row carry as SourceName - never the source's own
         // series title, which is a separate piece of data (SourceSeriesName on the payload, the
         // catalog row's MatchedSeriesName).
-        return (changes.Count > 0, changes.Count, scraper.SourceName);
+        var hasChanges = changes.Count > 0 || HasAdoptableName(seriesName, roster);
+        return (hasChanges, changes.Count, scraper.SourceName);
     }
 
     /// <summary>
+    /// A roster whose source title differs from the stored series name is itself a pending
+    /// state even when the diff found no book-level changes: the review dialog's "adopt the
+    /// source name" action is only reachable through a pending snapshot, so a series renamed
+    /// locally before matching would otherwise never be offered the alignment again. The
+    /// comparison mirrors the dialog's own check (trimmed, ordinal) so both sides agree on
+    /// when the option appears.
+    /// </summary>
+    private static bool HasAdoptableName(string seriesName, SeriesSearchResult roster) =>
+        !string.IsNullOrWhiteSpace(roster.SeriesName) &&
+        !string.Equals(roster.SeriesName.Trim(), seriesName.Trim(), StringComparison.Ordinal);
+
+    /// <summary>
     /// Stores the pending snapshot for a refreshed series, or clears any stale one when the
-    /// refresh found no changes. This is the "no-change bulk items are omitted" guarantee's
-    /// write side: the pending list is only ever populated from here, and only rows with
-    /// changes are written.
+    /// refresh found no changes and the source title agrees with the stored name. This is the
+    /// "no-change bulk items are omitted" guarantee's write side: the pending list is only
+    /// ever populated from here, and only rows with something to review are written - which
+    /// includes a name alignment with no book-level changes.
     /// </summary>
     private async Task PersistPendingChangesAsync(
         string seriesName, string sourceName, SeriesSearchResult roster, IReadOnlyList<SeriesRefreshChange> changes)
     {
-        if (changes.Count == 0)
+        if (changes.Count == 0 && !HasAdoptableName(seriesName, roster))
         {
             await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(seriesName);
             return;

@@ -1914,6 +1914,59 @@ public class SeriesServiceTests
         _pendingSeriesRefreshRepository.Verify(r => r.UpsertAsync(It.IsAny<Database.Models.PendingSeriesRefresh>()), Times.Never);
     }
 
+    // Regression: a series renamed locally before matching (stored "Agent Cormac2", source
+    // "Agent Cormac") produced a zero-change diff, and the pending snapshot - the only route to
+    // the review dialog's "adopt the source name" action - was cleared. The alignment option
+    // was unreachable no matter how many times the user refreshed. A source title that differs
+    // from the stored name is itself a pending state.
+    [TestMethod]
+    public async Task RefreshSeriesAsync_SourceNameDiffersWithNoBookChanges_StoresPendingAndReturnsHasChanges()
+    {
+        var existing = new Series
+        {
+            Id = 1,
+            Name = "Agent Cormac2",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<SeriesExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Agent Cormac2")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 1; return row; });
+        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
+            .Returns(Task.CompletedTask);
+        var owned = new List<SeriesOwnedKey> { new(1, "1", "Book A") };
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Agent Cormac2", It.IsAny<int>()))
+            .ReturnsAsync((owned, false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        // The source's own title differs from the stored name, but the roster matches the owned
+        // books exactly - no book-level changes at all.
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Agent Cormac")
+            {
+                Books = new List<SeriesExpectedBookResult>
+                {
+                    new("Book A") { Position = "1" },
+                },
+            });
+
+        var result = await MakeService(scraper.Object).RefreshSeriesAsync("Agent Cormac2");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.HasChanges);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Agent Cormac2"), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(
+            r => r.UpsertAsync(It.Is<Database.Models.PendingSeriesRefresh>(row =>
+                row.SeriesName == "Agent Cormac2")),
+            Times.Once);
+    }
+
     [TestMethod]
     public async Task RefreshSeriesAsync_UnmatchedSeries_ThrowsKeyNotFound()
     {
