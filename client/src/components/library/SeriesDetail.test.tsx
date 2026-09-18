@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SignalREvents } from "@/constants/signalrEvents";
+import { notifications } from "@/lib/notifications";
 import { seriesApi } from "@/services/api";
 import type {
   SeriesDetail,
@@ -12,6 +14,10 @@ import type {
   SeriesOwnedBook,
   SeriesPartMismatch,
 } from "@/types/Series";
+
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 const mockSignalRValue = {
   connection: null,
@@ -108,6 +114,31 @@ function renderWithProviders(initialEntry = "/library/series/Mistborn") {
       </ThemeProvider>,
     ),
   };
+}
+
+function seriesDeleteCompleteHandler(): (data: {
+  totalProcessed: number;
+  totalSucceeded: number;
+  totalFailed: number;
+  errored: boolean;
+}) => void {
+  const call = [...mockSignalRValue.on.mock.calls]
+    .reverse()
+    .find(([name]) => name === SignalREvents.SeriesDeleteComplete);
+  expect(call, "a SeriesDeleteComplete handler was registered").toBeDefined();
+  return call![1] as (data: {
+    totalProcessed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+    errored: boolean;
+  }) => void;
+}
+
+/** Opens the delete confirmation dialog and clicks its destructive confirm button. */
+async function confirmDeleteSeries() {
+  fireEvent.click(screen.getByRole("button", { name: "Delete Series" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete Series" }));
 }
 
 describe("SeriesDetail", () => {
@@ -643,5 +674,98 @@ describe("SeriesDetail", () => {
     await waitFor(() => {
       expect(remove).toHaveBeenCalledWith("Mistborn", 5);
     });
+  });
+
+  // --- Series deletion (fire-and-forget over SignalR) ---
+
+  it("toasts a successful series deletion from the completion event", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    const startDelete = vi.spyOn(seriesApi, "startDeleteSeries").mockResolvedValue(undefined);
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+    await confirmDeleteSeries();
+
+    await waitFor(() => {
+      expect(startDelete).toHaveBeenCalledWith("Mistborn");
+    });
+
+    // The delete runs in the background and reports completion over SignalR.
+    seriesDeleteCompleteHandler()({
+      totalProcessed: 1,
+      totalSucceeded: 1,
+      totalFailed: 0,
+      errored: false,
+    });
+
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Series deleted");
+    });
+    // Closing the dialog and navigating back to the series list is the success path.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("toasts the failure count when a series delete completes with un-cleared books", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "startDeleteSeries").mockResolvedValue(undefined);
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+    await confirmDeleteSeries();
+
+    seriesDeleteCompleteHandler()({
+      totalProcessed: 3,
+      totalSucceeded: 1,
+      totalFailed: 2,
+      errored: false,
+    });
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith(
+        "Series deleted with 2 books that could not be cleared",
+      );
+    });
+    expect(notifications.success).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open and toasts the failure when the series delete background operation errored", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "startDeleteSeries").mockResolvedValue(undefined);
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+    await confirmDeleteSeries();
+
+    // errored carries zero counts, otherwise indistinguishable from an empty successful delete.
+    seriesDeleteCompleteHandler()({
+      totalProcessed: 0,
+      totalSucceeded: 0,
+      totalFailed: 0,
+      errored: true,
+    });
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("Series deletion failed");
+    });
+    // The dialog stays open on the (possibly partially-cleared) series; no navigate-away.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("toasts the error when starting the series delete is refused", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "startDeleteSeries").mockRejectedValue(
+      new Error("An operation is already in progress."),
+    );
+
+    renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+    await confirmDeleteSeries();
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("An operation is already in progress.");
+    });
+    // The failed start releases the deleting state, so the dialog is not stuck on a spinner.
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
   });
 });
