@@ -61,6 +61,7 @@ import {
   audiobookApi,
   consistencyApi,
   metadataRefreshApi,
+  settingsApi,
   similarValuesApi,
 } from "@/services/api";
 
@@ -165,6 +166,22 @@ describe("BookDetail", () => {
     renderWithProviders();
 
     expect(await screen.findByText(/Part One of the Stormlight Archive/)).toBeInTheDocument();
+  });
+
+  it("renders the language display name, not the raw ISO code, on the read-only page", async () => {
+    vi.mocked(settingsApi.getLanguages).mockResolvedValue({
+      languages: [
+        { code: "en", displayName: "English", aliases: ["en", "eng", "english"] },
+        { code: "da", displayName: "Danish", aliases: ["da", "dan", "danish", "dansk"] },
+      ],
+    });
+
+    renderWithProviders();
+
+    // sampleBookDetail.language is "eng" (an alias, as older m4b tags carry); the page must
+    // show "English", never the stored code.
+    expect(await screen.findByText("English")).toBeInTheDocument();
+    expect(screen.queryByText(/^eng$/)).toBeNull();
   });
 
   it("Edit button navigates to the edit route", async () => {

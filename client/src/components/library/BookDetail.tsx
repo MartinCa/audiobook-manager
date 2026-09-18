@@ -10,11 +10,18 @@ import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { browseApi, audiobookApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import {
+  browseApi,
+  audiobookApi,
+  consistencyApi,
+  metadataRefreshApi,
+  settingsApi,
+} from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { toAudiobook } from "@/helpers/audiobookMapping";
+import { languageLabel } from "@/helpers/languages";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
@@ -90,6 +97,13 @@ export function BookDetail({ mode }: BookDetailProps) {
     queryFn: () => metadataRefreshApi.getPendingForAudiobook(id).then((pending) => pending ?? null),
     enabled: Boolean(id),
   });
+
+  const { data: languagesRes } = useQuery({
+    queryKey: queryKeys.languages(),
+    queryFn: () => settingsApi.getLanguages(),
+    enabled: Boolean(id) && !isEditMode,
+  });
+  const languages = languagesRes?.languages ?? [];
 
   const bookDetail = data?.detail ?? null;
   const issues = data?.bookIssues ?? [];
@@ -516,7 +530,9 @@ export function BookDetail({ mode }: BookDetailProps) {
                     </span>
                   </DetailRow>
 
-                  <DetailRow label="Language">{bookDetail.language || "—"}</DetailRow>
+                  <DetailRow label="Language">
+                    {languageLabel(bookDetail.language, languages) || "—"}
+                  </DetailRow>
 
                   <DetailRow label="Publisher">{bookDetail.publisher || "—"}</DetailRow>
 
