@@ -27,10 +27,12 @@ public class SeriesRefreshDifferTests
         SeriesRefreshDiffer.Diff(roster, owned, includeOmnibus, previouslyIgnored);
 
     [TestMethod]
-    public void Diff_BookARenumberedTo02_BookBMissing_BookCLosesPart_ProducesAllThreeKinds()
+    public void Diff_BookARenumberedTo02_BookBMissing_BookCLosesPart_ProducesUpdateAndRemovalOnly()
     {
         // Book A was stored at part 01 but the source now positions it at 02 -> PartUpdate.
-        // Book B exists only on the source roster -> MissingBook.
+        // Book B exists only on the source roster -> no change any more (see the class doc: a
+        // roster entry no owned book matches is never reported here - it's already visible via
+        // the roster/reconciliation's Missing/Upcoming sections).
         // Book C carries part 3 but the source no longer lists it -> PartRemoval.
         var roster = new List<SeriesRefreshRosterEntry>
         {
@@ -45,7 +47,7 @@ public class SeriesRefreshDifferTests
 
         var changes = Diff(roster, owned);
 
-        Assert.AreEqual(3, changes.Count);
+        Assert.AreEqual(2, changes.Count);
         var update = changes.Single(c => c.Type == SeriesRefreshChangeType.PartUpdate);
         Assert.AreEqual(1, update.AudiobookId);
         Assert.AreEqual("01", update.StoredPart);
@@ -53,11 +55,8 @@ public class SeriesRefreshDifferTests
         Assert.AreEqual("Book A", update.BookName);
         Assert.AreEqual("Book A", update.RosterTitle);
 
-        var missing = changes.Single(c => c.Type == SeriesRefreshChangeType.MissingBook);
-        Assert.IsNull(missing.AudiobookId);
-        Assert.AreEqual("4", missing.Position);
-        Assert.AreEqual("Book B", missing.Title);
-        Assert.AreEqual(2010, missing.Year);
+        Assert.IsFalse(changes.Any(c => c.Type == SeriesRefreshChangeType.MissingBook),
+            "a roster entry no owned book matches is never reported as a pending change any more");
 
         var removal = changes.Single(c => c.Type == SeriesRefreshChangeType.PartRemoval);
         Assert.AreEqual(3, removal.AudiobookId);
@@ -179,7 +178,7 @@ public class SeriesRefreshDifferTests
     }
 
     [TestMethod]
-    public void Diff_IncludingOmnibusEditions_CountsAHiddenCompilationAsMissing()
+    public void Diff_IncludingOmnibusEditions_HiddenCompilationProducesNoChange()
     {
         var roster = new List<SeriesRefreshRosterEntry>
         {
@@ -193,17 +192,16 @@ public class SeriesRefreshDifferTests
 
         var changes = Diff(roster, owned, includeOmnibus: true);
 
-        Assert.AreEqual(1, changes.Count);
-        var missing = changes.Single(c => c.Type == SeriesRefreshChangeType.MissingBook);
-        Assert.AreEqual("Omnibus Edition", missing.Title);
+        Assert.AreEqual(0, changes.Count,
+            "an unmatched roster entry is never reported as a pending change - it's already visible via Missing/Upcoming");
     }
 
     // Regression for the refresh review finding: a roster entry the user has already ignored is
-    // deliberately excluded from the visible series, so a refresh must not re-report it as
-    // missing - that would contradict the detail page's ignored handling and re-litigate the
-    // same decision on every refresh.
+    // deliberately excluded from the visible series. Now that an unmatched entry is never
+    // reported as a pending change at all, the previouslyIgnored exemption has nothing left to
+    // exempt - this pins that a mix of ignored and owned entries produces no changes either way.
     [TestMethod]
-    public void Diff_PreviouslyIgnoredEntry_IsNotReportedMissing_WhileRealMissingEntriesStillAre()
+    public void Diff_PreviouslyIgnoredEntry_StillProducesNoChange()
     {
         var roster = new List<SeriesRefreshRosterEntry>
         {
@@ -225,9 +223,7 @@ public class SeriesRefreshDifferTests
                 SeriesRosterMatcher.BookKey.From("3.5", "Secret History"),
             });
 
-        Assert.AreEqual(1, changes.Count);
-        var missing = changes.Single(c => c.Type == SeriesRefreshChangeType.MissingBook);
-        Assert.AreEqual("The Hero of Ages", missing.Title, "the real missing entry still surfaces");
+        Assert.AreEqual(0, changes.Count);
     }
 
     // The exemption uses the same same-book rule the roster replace carries the ignore flags

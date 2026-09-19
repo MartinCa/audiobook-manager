@@ -5,16 +5,18 @@ namespace AudiobookManager.Services;
 
 /// <summary>
 /// The series-refresh diff: the explicit changes between a freshly fetched source roster and the
-/// series' currently owned books. Three change kinds together describe everything the review
+/// series' currently owned books. Two change kinds together describe everything the review
 /// dialog can act on:
 ///
 /// <list type="bullet">
-/// <item><see cref="SeriesRefreshChangeType.MissingBook"/> - a visible roster entry no owned
-/// book matches. The source knows a book the user does not. Entries the user has already
-/// ignored are deliberately NOT missing: they are excluded from the visible series on the
-/// detail page, so the diff excludes them too via the <paramref name="previouslyIgnored"/>
-/// natural keys, using the same same-book rule the roster replace carries the flags across
-/// with. An entry the ignore decision covers is not a change, whatever else the refresh found.</item>
+/// <item><see cref="SeriesRefreshChangeType.MissingBook"/> is deliberately never produced any
+/// more - a roster entry no owned book matches is already persistently visible via the
+/// roster/reconciliation's Missing/Upcoming sections (see <c>SeriesReconciliation</c>), so a
+/// refresh no longer re-surfaces it as a "pending change" to review. The enum member is kept only
+/// so a <c>PendingSeriesRefresh</c> row written before this change still deserializes; new rows
+/// never carry it, and <paramref name="previouslyIgnored"/> is accordingly unused by this method
+/// now (kept for signature/API stability - the ignore carry-across it fed still happens on the
+/// roster replace itself, see <c>SeriesService.MatchSeriesCoreAsync</c>).</item>
 /// <item><see cref="SeriesRefreshChangeType.PartUpdate"/> - an owned book that matches a roster
 /// entry with a position, whose stored part agrees with none of its matched entries. The source
 /// renumbered the book (a book stored as part "01" that the source now positions at "02").</item>
@@ -64,34 +66,20 @@ internal static class SeriesRefreshDiffer
         // Attribution is per book over ALL the entries it matches, exactly like the
         // reconciliation's part-mismatch pass, so a duplicate-title roster (an omnibus and the
         // individual editions of one book) cannot make the same book chase two positions.
+        //
+        // A roster entry no owned book matches is deliberately NOT reported here any more - it
+        // is already persistently visible via the roster/reconciliation's Missing/Upcoming
+        // sections (see SeriesReconciliation), so re-surfacing it as a "pending change" to review
+        // would ask the user to act on the same information twice. SeriesRefreshChangeType still
+        // carries a MissingBook member purely so a historical PendingSeriesRefresh row (written
+        // before this change) still deserializes - nothing here constructs one any more.
         var matchesByBook = new Dictionary<long, List<SeriesRefreshRosterEntry>>();
-        var missing = new List<SeriesRefreshChange>();
         foreach (var entry in visible)
         {
             var key = SeriesRosterMatcher.BookKey.From(entry.Position, entry.Title);
             var matches = ownedIndex.FindMatches(key);
             if (matches.Count == 0)
             {
-                // Only entries that WOULD be reported missing pay for the ignored-set scan, and
-                // the exemption uses the same same-book rule that carries the flags across the
-                // roster replace - so a source-renumbered (but recognisably the same) ignored
-                // entry stays quiet, and checking an entry the user owns costs nothing extra.
-                if (previouslyIgnored is not null &&
-                    previouslyIgnored.Any(p => SeriesRosterMatcher.IsSameBook(p, key)))
-                {
-                    continue;
-                }
-
-                missing.Add(new SeriesRefreshChange(
-                    SeriesRefreshChangeType.MissingBook,
-                    AudiobookId: null,
-                    BookName: null,
-                    StoredPart: null,
-                    NewPart: null,
-                    RosterTitle: null,
-                    Position: entry.Position,
-                    Title: entry.Title,
-                    Year: entry.Year));
                 continue;
             }
 
@@ -182,13 +170,10 @@ internal static class SeriesRefreshDiffer
                 Year: null));
         }
 
-        return missing
-            .OrderBy(c => SeriesRosterMatcher.PositionSortKey(c.Position))
-            .ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)
-            .Concat(partUpdates
-                .OrderBy(c => SeriesRosterMatcher.PositionSortKey(c.NewPart))
-                .ThenBy(c => c.BookName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(c => c.AudiobookId))
+        return partUpdates
+            .OrderBy(c => SeriesRosterMatcher.PositionSortKey(c.NewPart))
+            .ThenBy(c => c.BookName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.AudiobookId)
             .Concat(partRemovals
                 .OrderBy(c => SeriesRosterMatcher.PositionSortKey(c.StoredPart))
                 .ThenBy(c => c.BookName, StringComparer.OrdinalIgnoreCase)

@@ -1710,7 +1710,8 @@ public class LibraryConsistencyServiceTests
             },
             ExpectedBookCount: 1,
             OwnedCount: 1,
-            Authors: new List<string>());
+            Authors: new List<string>(),
+            Upcoming: new List<SeriesExpectedBookInfo>());
 
     // Regression: the issue's expected part was detected against the roster as it stood when the
     // full check ran. A refresh since (which renumbers or re-orders the source's books) can assign
@@ -1801,7 +1802,8 @@ public class LibraryConsistencyServiceTests
                 new List<SeriesPartMismatch>(),
                 ExpectedBookCount: 1,
                 OwnedCount: 1,
-                Authors: new List<string>()));
+                Authors: new List<string>(),
+                Upcoming: new List<SeriesExpectedBookInfo>()));
 
         var result = await _service.ResolveIssue(45);
 

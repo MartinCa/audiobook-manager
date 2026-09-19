@@ -583,11 +583,13 @@ public class HardcoverScraper : IScraper
         var slug = bookElement.GetPropertyValueOrNull("slug");
 
         int? year = null;
+        DateOnly? parsedReleaseDate = null;
         var releaseDate = bookElement.GetPropertyValueOrNull("release_date");
         if (releaseDate is not null &&
             DateTime.TryParse(releaseDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
         {
             year = parsedDate.Year;
+            parsedReleaseDate = DateOnly.FromDateTime(parsedDate);
         }
 
         string? position = null;
@@ -619,6 +621,7 @@ public class HardcoverScraper : IScraper
         {
             Position = position,
             Year = year,
+            ReleaseDate = parsedReleaseDate,
             SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
             IsCompilation = linkIsCompilation || bookIsCompilation,
         };
@@ -912,6 +915,127 @@ public class HardcoverScraper : IScraper
         }
 
         return results;
+    }
+
+    // Same canonical_id/is_partial_book filter as the upcoming-releases query above, but no
+    // release_date lower bound - this backs the author's full standalone-books roster, which
+    // needs the whole bibliography (missing AND upcoming), not just what's still ahead.
+    // `limit: 300` is a defensive cap: a single author's own SearchAuthors "books_count" is
+    // shown to the user before matching, so a hard limit far past any real bibliography just
+    // guards against the same pathological-source case every other bounded scrape query does.
+    private const string _authorAllBooksQuery = """
+        query GetAuthorAllBooks($id: Int!) {
+          authors_by_pk(id: $id) {
+            id
+            name
+            contributions(
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}}}
+              order_by: [{book: {release_date: desc}}]
+              limit: 300
+            ) {
+              contribution
+              book {
+                id
+                title
+                slug
+                release_date
+                book_series {
+                  series {
+                    id
+                  }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    public async Task<IList<AuthorBookResult>> GetAuthorBooks(string authorSourceId)
+    {
+        if (!int.TryParse(authorSourceId, out var id))
+        {
+            _logger.LogWarning("Could not parse a numeric Hardcover author id from {AuthorSourceId}", authorSourceId);
+            return new List<AuthorBookResult>();
+        }
+
+        var responseElement = await ExecuteGraphqlQuery(_authorAllBooksQuery, new { id });
+        var authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+        if (authorElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return new List<AuthorBookResult>();
+        }
+
+        var results = new List<AuthorBookResult>();
+        if (!authorElement.TryGetProperty("contributions", out var contributionsElement) ||
+            contributionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return results;
+        }
+
+        foreach (var contribution in contributionsElement.EnumerateArray())
+        {
+            try
+            {
+                var role = contribution.GetPropertyValueOrNull("contribution");
+                if (string.Equals(role, "Narrator", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!contribution.TryGetProperty("book", out var bookElement) ||
+                    bookElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var result = ParseAuthorBook(bookElement);
+                if (result is not null)
+                {
+                    results.Add(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse a Hardcover bibliography entry for author {AuthorSourceId}", authorSourceId);
+            }
+        }
+
+        return results;
+    }
+
+    private AuthorBookResult? ParseAuthorBook(JsonElement bookElement)
+    {
+        var title = bookElement.GetPropertyValueOrNull("title");
+        var bookId = GetScalarOrNull(bookElement, "id");
+        if (string.IsNullOrEmpty(title) || bookId is null)
+        {
+            return null;
+        }
+
+        int? year = null;
+        DateOnly? releaseDate = null;
+        var releaseDateRaw = bookElement.GetPropertyValueOrNull("release_date");
+        if (releaseDateRaw is not null &&
+            DateTime.TryParse(releaseDateRaw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            year = parsedDate.Year;
+            releaseDate = DateOnly.FromDateTime(parsedDate);
+        }
+
+        var slug = bookElement.GetPropertyValueOrNull("slug");
+        var identifier = slug ?? bookId;
+
+        var hasSeries = bookElement.TryGetProperty("book_series", out var bookSeriesElement) &&
+            bookSeriesElement.ValueKind == JsonValueKind.Array &&
+            bookSeriesElement.GetArrayLength() > 0;
+
+        return new AuthorBookResult(bookId, title)
+        {
+            Year = year,
+            ReleaseDate = releaseDate,
+            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            HasSeries = hasSeries,
+        };
     }
 
     // Same release_date >= $today server-side filter and defensive limit as the author query

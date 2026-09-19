@@ -18,9 +18,13 @@ public sealed record SeriesReconciliation(
     IReadOnlyList<SeriesPartMismatch> PartMismatches,
     int ExpectedBookCount,
     int OwnedCount,
-    IReadOnlyList<string> Authors)
+    IReadOnlyList<string> Authors,
+    // A roster entry no owned book matches, split from Missing by whether it is released yet -
+    // see AudiobookManager.Domain.ExpectedBookClassifier.
+    IReadOnlyList<SeriesExpectedBookInfo> Upcoming)
 {
     public int MissingBookCount => Missing.Count;
+    public int UpcomingBookCount => Upcoming.Count;
     public int IgnoredBookCount => Ignored.Count;
     public int PartMismatchCount => PartMismatches.Count;
 }

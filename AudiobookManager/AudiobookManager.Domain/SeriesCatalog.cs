@@ -22,6 +22,7 @@ public class SeriesOverview
     public DateTime? LastRefreshedAt { get; set; }
     public int ExpectedBookCount { get; set; }
     public int MissingBookCount { get; set; }
+    public int UpcomingBookCount { get; set; }
     public int IgnoredBookCount { get; set; }
 
     /// <summary>
@@ -45,6 +46,8 @@ public class SeriesDetailPage
     public int OwnedBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> MissingBooks { get; set; } = new();
     public int MissingBookTotal { get; set; }
+    public List<SeriesExpectedBookInfo> UpcomingBooks { get; set; } = new();
+    public int UpcomingBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> IgnoredBooks { get; set; } = new();
     public int IgnoredBookTotal { get; set; }
     public List<SeriesPartMismatch> PartMismatches { get; set; } = new();
@@ -88,6 +91,7 @@ public class SeriesExpectedBookInfo
     public string Title { get; set; } = string.Empty;
     public string? Position { get; set; }
     public int? Year { get; set; }
+    public DateOnly? ReleaseDate { get; set; }
     public string? SourceUrl { get; set; }
     public bool IsIgnored { get; set; }
 }

@@ -161,7 +161,8 @@ public class SeriesService : ISeriesService
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
         int ignoredSkip, int ignoredTake,
-        int partMismatchSkip, int partMismatchTake)
+        int partMismatchSkip, int partMismatchTake,
+        int upcomingSkip = 0, int upcomingTake = int.MaxValue)
     {
         // The per-request reads are bounded: one catalog metadata row, one SQL page of owned
         // books, and the cached reconciliation. The reconciliation itself - which classifies the
@@ -196,6 +197,8 @@ public class SeriesService : ISeriesService
             OwnedBookTotal = ownedPage.Total,
             MissingBooks = reconciliation.Missing.Skip(missingSkip).Take(missingTake).ToList(),
             MissingBookTotal = reconciliation.Missing.Count,
+            UpcomingBooks = reconciliation.Upcoming.Skip(upcomingSkip).Take(upcomingTake).ToList(),
+            UpcomingBookTotal = reconciliation.Upcoming.Count,
             IgnoredBooks = reconciliation.Ignored.Skip(ignoredSkip).Take(ignoredTake).ToList(),
             IgnoredBookTotal = reconciliation.Ignored.Count,
             PartMismatches = reconciliation.PartMismatches.Skip(partMismatchSkip).Take(partMismatchTake).ToList(),
@@ -518,6 +521,7 @@ public class SeriesService : ISeriesService
                 Position = b.Position,
                 Title = b.Title,
                 Year = b.Year,
+                ReleaseDate = b.ReleaseDate,
                 SourceUrl = b.SourceUrl,
                 IsCompilation = b.IsCompilation,
                 // Re-matching or refreshing replaces the roster wholesale, so carry the user's
@@ -1467,6 +1471,9 @@ public class SeriesService : ISeriesService
         var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(
             ownedBooks.Select(b => new SeriesOwnedKey(0, b.SeriesPart, b.BookName)));
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var unmatched = active.Where(e => !SeriesReconciliationProvider.IsOwned(e, ownedIndex)).ToList();
+
         return BuildOverview(
             seriesName,
             catalogRow,
@@ -1478,7 +1485,8 @@ public class SeriesService : ISeriesService
             ownedBooks.Count,
             active.Count,
             expected.Count - active.Count,
-            active.Count(e => !SeriesReconciliationProvider.IsOwned(e, ownedIndex)));
+            unmatched.Count(e => !ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today)),
+            unmatched.Count(e => ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today)));
     }
 
     /// <summary>
@@ -1495,7 +1503,8 @@ public class SeriesService : ISeriesService
             reconciliation.OwnedCount,
             reconciliation.ExpectedBookCount,
             reconciliation.IgnoredBookCount,
-            reconciliation.MissingBookCount);
+            reconciliation.MissingBookCount,
+            reconciliation.UpcomingBookCount);
 
     private static SeriesOverview BuildOverview(
         string seriesName,
@@ -1504,7 +1513,8 @@ public class SeriesService : ISeriesService
         int ownedBookCount,
         int expectedBookCount,
         int ignoredBookCount,
-        int missingBookCount) =>
+        int missingBookCount,
+        int upcomingBookCount = 0) =>
         new()
         {
             Id = catalogRow?.Id,
@@ -1522,6 +1532,7 @@ public class SeriesService : ISeriesService
             ExpectedBookCount = expectedBookCount,
             IgnoredBookCount = ignoredBookCount,
             MissingBookCount = missingBookCount,
+            UpcomingBookCount = upcomingBookCount,
             IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
         };
 
