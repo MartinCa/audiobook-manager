@@ -178,9 +178,21 @@ public class UpcomingReleasesController : ControllerBase
                 finally
                 {
                     stopwatch.Stop();
-                    var scheduledTaskService = sp.GetRequiredService<IScheduledTaskService>();
-                    await scheduledTaskService.RecordTaskRunAsync(
-                        ScheduledTaskKeys.UpcomingReleasesRefresh, startedAt, stopwatch.Elapsed, error is null, error);
+
+                    // Swallow a failure writing this bookkeeping row (logged, not rethrown) so it
+                    // can never replace/mask the sweep's own exception above - BackgroundOperationRunner
+                    // reports whatever this delegate throws as the operation's failure, and that
+                    // must stay the sweep's real error, not an unrelated DB write failure.
+                    try
+                    {
+                        var scheduledTaskService = sp.GetRequiredService<IScheduledTaskService>();
+                        await scheduledTaskService.RecordTaskRunAsync(
+                            ScheduledTaskKeys.UpcomingReleasesRefresh, startedAt, stopwatch.Elapsed, error is null, error);
+                    }
+                    catch (Exception recordEx)
+                    {
+                        _logger.LogError(recordEx, "Error recording upcoming-releases task run");
+                    }
                 }
             },
             () => Task.CompletedTask,
