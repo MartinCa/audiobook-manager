@@ -57,11 +57,11 @@ public class UpcomingReleasesWorkerTests
         await WaitUntilAsync(() => RefreshGate.CurrentCount == 1, TimeSpan.FromSeconds(5));
     }
 
-    private UpcomingReleasesWorker MakeWorker(TimeSpan? disabledPollInterval = null) => new(
+    private UpcomingReleasesWorker MakeWorker(TimeSpan? settingsPollInterval = null) => new(
         _serviceProvider,
         _statusRegistry.Object,
         _logger.Object,
-        disabledPollInterval);
+        settingsPollInterval);
 
     private void SetSchedule(bool enabled, string cronSchedule = FarFutureCron) =>
         _settingsService
@@ -197,7 +197,7 @@ public class UpcomingReleasesWorkerTests
     {
         SetSchedule(enabled: false);
 
-        var worker = MakeWorker(disabledPollInterval: TimeSpan.FromMilliseconds(20));
+        var worker = MakeWorker(settingsPollInterval: TimeSpan.FromMilliseconds(20));
         await worker.StartAsync(CancellationToken.None);
         await WaitUntilAsync(
             () => _settingsService.Invocations.Count(i => i.Method.Name == nameof(ISettingsService.GetLibrarySettings)) >= 3,
@@ -220,7 +220,7 @@ public class UpcomingReleasesWorkerTests
             .Callback(() => finished.TrySetResult());
         _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
 
-        var worker = MakeWorker(disabledPollInterval: TimeSpan.FromMilliseconds(20));
+        var worker = MakeWorker(settingsPollInterval: TimeSpan.FromMilliseconds(20));
         await worker.StartAsync(CancellationToken.None);
         await Task.Delay(60); // let it poll the disabled setting a couple of times
         SetSchedule(enabled: true);
@@ -266,6 +266,135 @@ public class UpcomingReleasesWorkerTests
         {
             RefreshGate.Release();
         }
+    }
+
+    // Regression guard for a cancelled run getting recorded as "Success": the run-cancelled catch
+    // block used to `throw;` without setting `error`, so the unconditional `finally` recorded the
+    // interrupted run with `error == null` - i.e. succeeded. Cancel the worker's own linked
+    // stoppingToken from inside the mocked sweep (BackgroundService.StartAsync links its
+    // _stoppingCts to the token passed in, so cancelling `cts` here cancels the very stoppingToken
+    // RunOnceAsync observes) so the OperationCanceledException is thrown while
+    // stoppingToken.IsCancellationRequested is genuinely true, exactly like a real shutdown mid-sweep.
+    [TestMethod]
+    public async Task ExecuteAsync_SweepCancelledDuringShutdown_RecordsFailedRunNotSuccess()
+    {
+        SetSchedule(enabled: true);
+        using var cts = new CancellationTokenSource();
+        _upcomingReleaseService
+            .Setup(s => s.RefreshUpcomingReleasesAsync())
+            .Callback(() => cts.Cancel())
+            .ThrowsAsync(new OperationCanceledException());
+
+        var worker = MakeWorker();
+        await worker.StartAsync(cts.Token);
+        await WaitUntilAsync(
+            () => _scheduledTaskService.Invocations.Any(i => i.Method.Name == nameof(IScheduledTaskService.RecordTaskRunAsync)),
+            TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        // Cooperative shutdown must still propagate as cancellation, not be swallowed as a
+        // generic failure - the worker's own ExecuteTask must complete cleanly, not fault.
+        Assert.IsFalse(worker.ExecuteTask!.IsFaulted);
+
+        _scheduledTaskService.Verify(
+            s => s.RecordTaskRunAsync(
+                ScheduledTaskKeys.UpcomingReleasesRefresh,
+                It.IsAny<DateTime>(),
+                It.IsAny<TimeSpan>(),
+                false,
+                It.Is<string?>(e => e != null)),
+            Times.Once);
+    }
+
+    // Regression guard: a transient DB error reading the schedule each iteration (e.g. SQLite
+    // busy under a concurrent scan) used to propagate straight out of ExecuteAsync uncaught,
+    // faulting the BackgroundService - which, with the default
+    // IHostOptions.BackgroundServiceExceptionBehavior of StopHost, takes the whole app down. The
+    // fix logs and retries on the settings poll interval instead.
+    [TestMethod]
+    public async Task ExecuteAsync_ScheduleReadThrowsTransientError_LogsAndKeepsPollingWithoutFaultingTheHost()
+    {
+        _settingsService
+            .Setup(s => s.GetLibrarySettings())
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+
+        var worker = MakeWorker(settingsPollInterval: TimeSpan.FromMilliseconds(20));
+        await worker.StartAsync(CancellationToken.None);
+        await WaitUntilAsync(
+            () => _settingsService.Invocations.Count(i => i.Method.Name == nameof(ISettingsService.GetLibrarySettings)) >= 3,
+            TimeSpan.FromSeconds(5));
+
+        Assert.IsFalse(worker.ExecuteTask!.IsFaulted, "A transient settings-read failure must not fault the worker's host task.");
+
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.IsFalse(worker.ExecuteTask!.IsFaulted);
+        _upcomingReleaseService.Verify(s => s.RefreshUpcomingReleasesAsync(), Times.Never);
+    }
+
+    // Regression guard: the review also flagged RecordTaskRunAsync (in RunOnceAsync's finally) as
+    // a second per-iteration DB call that could throw and escape uncaught. Unlike the settings
+    // read, this one must be swallowed at its own call site (logged, not rethrown) so a
+    // bookkeeping write failure can never mask the sweep's real outcome or fault the host.
+    [TestMethod]
+    public async Task ExecuteAsync_RecordTaskRunAsyncThrows_DoesNotFaultTheHostOrMaskTheOutcome()
+    {
+        SetSchedule(enabled: true);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry
+            .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
+            .Callback(() => finished.TrySetResult());
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
+        _scheduledTaskService
+            .Setup(s => s.RecordTaskRunAsync(
+                It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<string?>()))
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+
+        var worker = MakeWorker();
+        await worker.StartAsync(CancellationToken.None);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.IsFalse(
+            worker.ExecuteTask!.IsFaulted,
+            "A failure recording the task run must be swallowed, not fault the worker's host task.");
+        _statusRegistry.Verify(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey), Times.Once);
+    }
+
+    // Regression guard for schedule changes taking up to a full period to apply: the old worker
+    // computed the wait to the next occurrence once and slept the whole span in one Task.Delay,
+    // never re-reading the settings until that single delay elapsed - so a saved schedule/enabled
+    // change had to wait out the entire previous period. The fix bounds every sleep to the
+    // settings poll interval and re-reads on each slice. FarFutureCron's next occurrence (next
+    // Jan 1) never actually arrives inside this test's window, so a settings-read count that keeps
+    // climbing well past the single post-startup read is only explainable by bounded re-polling.
+    [TestMethod]
+    public async Task ExecuteAsync_WaitingForFarFutureOccurrence_RePollsSettingsOnBoundedSlicesInsteadOfOneLongDelay()
+    {
+        SetSchedule(enabled: true, cronSchedule: FarFutureCron);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry
+            .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
+            .Callback(() => finished.TrySetResult());
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
+
+        var worker = MakeWorker(settingsPollInterval: TimeSpan.FromMilliseconds(20));
+        await worker.StartAsync(CancellationToken.None);
+        // Let the immediate startup sweep (first iteration always runs regardless of the cron) finish.
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var countAfterStartupSweep = _settingsService.Invocations.Count(i => i.Method.Name == nameof(ISettingsService.GetLibrarySettings));
+
+        await WaitUntilAsync(
+            () => _settingsService.Invocations.Count(i => i.Method.Name == nameof(ISettingsService.GetLibrarySettings))
+                >= countAfterStartupSweep + 3,
+            TimeSpan.FromSeconds(5));
+
+        await worker.StopAsync(CancellationToken.None);
+
+        // The far-future occurrence itself never arrives, so repeated polling must not have
+        // triggered a second, spurious sweep.
+        _upcomingReleaseService.Verify(s => s.RefreshUpcomingReleasesAsync(), Times.Once);
     }
 
     // ComputeNextRun is the pure scheduling decision pulled out of ExecuteAsync specifically so

@@ -30,30 +30,34 @@ namespace AudiobookManager.Api.Workers;
 public class UpcomingReleasesWorker : BackgroundService
 {
     /// <summary>
-    /// Default for <see cref="_disabledPollInterval"/>: how long a disabled/unparsable-cron check
-    /// waits before re-checking the stored settings. Short enough that re-enabling the check (or
-    /// fixing a hand-edited bad cron) takes effect promptly without an app restart; long enough
-    /// not to hammer the database in a tight loop.
+    /// Default for <see cref="_settingsPollInterval"/>. Originally just the disabled/unparsable-cron
+    /// re-check wait, this now also caps how long the loop ever sleeps in one slice while waiting
+    /// for the next scheduled run (see <see cref="ExecuteAsync"/>) - both are the same underlying
+    /// question ("how stale is our view of the stored settings allowed to get"), so one constant
+    /// serves both rather than introducing a second, unrelated magic number. Short enough that a
+    /// saved change (re-enabling, fixing a hand-edited bad cron, or a new schedule entirely) takes
+    /// effect within minutes rather than up to a full cron period; long enough not to hammer the
+    /// database in a tight loop.
     /// </summary>
-    private static readonly TimeSpan DefaultDisabledPollInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan DefaultSettingsPollInterval = TimeSpan.FromMinutes(5);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly ILogger<UpcomingReleasesWorker> _logger;
-    private readonly TimeSpan _disabledPollInterval;
+    private readonly TimeSpan _settingsPollInterval;
 
     public UpcomingReleasesWorker(
         IServiceProvider serviceProvider,
         IOperationStatusRegistry statusRegistry,
         ILogger<UpcomingReleasesWorker> logger,
-        TimeSpan? disabledPollInterval = null)
+        TimeSpan? settingsPollInterval = null)
     {
         _serviceProvider = serviceProvider;
         _statusRegistry = statusRegistry;
         _logger = logger;
-        // Overridable only so tests can shrink the disabled/bad-cron re-check wait below a real
-        // 5 minutes; production always gets the default via DI (nothing registers a TimeSpan).
-        _disabledPollInterval = disabledPollInterval ?? DefaultDisabledPollInterval;
+        // Overridable only so tests can shrink the settings poll interval below a real 5 minutes;
+        // production always gets the default via DI (nothing registers a TimeSpan).
+        _settingsPollInterval = settingsPollInterval ?? DefaultSettingsPollInterval;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,9 +69,33 @@ public class UpcomingReleasesWorker : BackgroundService
             var firstIteration = true;
             while (!stoppingToken.IsCancellationRequested)
             {
-                var (enabled, cronSchedule) = await ReadScheduleAsync();
+                (bool Enabled, string CronSchedule) schedule;
+                try
+                {
+                    schedule = await ReadScheduleAsync();
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // A transient DB error (e.g. SQLite busy under a concurrent scan) reading the
+                    // schedule must not escape the loop - BackgroundService faults the whole host
+                    // on an unhandled exception (default IHostOptions.BackgroundServiceExceptionBehavior
+                    // is StopHost). Log and retry on the same poll interval used for the
+                    // disabled/unparsable-cron case, rather than crash the host over a read that
+                    // will very likely succeed next time.
+                    _logger.LogWarning(
+                        ex,
+                        "Error reading the upcoming-releases schedule; retrying in {PollInterval}",
+                        _settingsPollInterval);
+                    await Task.Delay(_settingsPollInterval, stoppingToken);
+                    continue;
+                }
+
                 var now = DateTimeOffset.UtcNow;
-                var nextOccurrence = ComputeNextRun(enabled, cronSchedule, now, _logger);
+                var nextOccurrence = ComputeNextRun(schedule.Enabled, schedule.CronSchedule, now, _logger);
 
                 if (nextOccurrence is null)
                 {
@@ -75,7 +103,7 @@ public class UpcomingReleasesWorker : BackgroundService
                     // SettingsController's write-side validation, but the stored value could
                     // predate that validation or have been hand-edited) - either way, wait and
                     // re-check rather than crash the worker or loop tightly.
-                    await Task.Delay(_disabledPollInterval, stoppingToken);
+                    await Task.Delay(_settingsPollInterval, stoppingToken);
                     continue;
                 }
 
@@ -88,13 +116,22 @@ public class UpcomingReleasesWorker : BackgroundService
                     continue;
                 }
 
-                var delay = nextOccurrence.Value - DateTimeOffset.UtcNow;
-                if (delay > TimeSpan.Zero)
+                var remaining = nextOccurrence.Value - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
                 {
-                    await Task.Delay(delay, stoppingToken);
+                    await RunOnceAsync(stoppingToken);
+                    continue;
                 }
 
-                await RunOnceAsync(stoppingToken);
+                // Sleep in slices no longer than the settings poll interval rather than one long
+                // Task.Delay all the way to the next occurrence, so a schedule/enabled change (or
+                // a fixed bad cron) saved from the Settings page is picked up - and the wait
+                // re-derived against it - within minutes instead of up to a whole cron period
+                // (e.g. ~24h for the daily default). The loop re-reads the schedule from the top
+                // on every slice; once the current occurrence is actually reached, the branch
+                // above runs it.
+                var sleepFor = remaining < _settingsPollInterval ? remaining : _settingsPollInterval;
+                await Task.Delay(sleepFor, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -158,6 +195,10 @@ public class UpcomingReleasesWorker : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            // Cooperative shutdown mid-sweep is not a successful run - record it as failed before
+            // rethrowing so ExecuteAsync still sees the cancellation and shuts down cleanly, while
+            // the Tasks page doesn't show a shutdown-interrupted sweep as "Success".
+            error = "Cancelled (application shutting down)";
             throw;
         }
         catch (Exception ex)
@@ -173,11 +214,21 @@ public class UpcomingReleasesWorker : BackgroundService
 
             // Record the run even on a cooperative shutdown mid-sweep - "Failed", not silently
             // absent - but only if this call didn't itself lose its own scope; a fresh scope is
-            // used deliberately since the one above may already be disposed.
-            using var recordScope = _serviceProvider.CreateScope();
-            var scheduledTaskService = recordScope.ServiceProvider.GetRequiredService<IScheduledTaskService>();
-            await scheduledTaskService.RecordTaskRunAsync(
-                ScheduledTaskKeys.UpcomingReleasesRefresh, startedAt, stopwatch.Elapsed, error is null, error);
+            // used deliberately since the one above may already be disposed. The record-write
+            // itself is swallowed on failure (logged, not rethrown/masking the original sweep
+            // exception or the pending OperationCanceledException) - a transient DB error writing
+            // bookkeeping must never crash the host or replace what actually happened.
+            try
+            {
+                using var recordScope = _serviceProvider.CreateScope();
+                var scheduledTaskService = recordScope.ServiceProvider.GetRequiredService<IScheduledTaskService>();
+                await scheduledTaskService.RecordTaskRunAsync(
+                    ScheduledTaskKeys.UpcomingReleasesRefresh, startedAt, stopwatch.Elapsed, error is null, error);
+            }
+            catch (Exception recordEx)
+            {
+                _logger.LogError(recordEx, "Error recording upcoming-releases task run");
+            }
         }
     }
 }
