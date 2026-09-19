@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { browseApi, upcomingReleasesApi } from "@/services/api";
+import { browseApi } from "@/services/api";
 import type { AuthorDetail } from "@/types/AuthorDetail";
 
 const mockSignalRValue = {
@@ -27,6 +27,7 @@ function makeDetail(
     lastRefreshedAt?: string | null;
     missingBooks?: AuthorDetail["missingBooks"];
     upcomingBooks?: AuthorDetail["upcomingBooks"];
+    ignoredBooks?: AuthorDetail["ignoredBooks"];
   } = {},
 ): AuthorDetail {
   const authorId = opts.authorId ?? 7;
@@ -72,6 +73,7 @@ function makeDetail(
     lastRefreshedAt: opts.lastRefreshedAt ?? null,
     missingBooks: opts.missingBooks ?? [],
     upcomingBooks: opts.upcomingBooks ?? [],
+    ignoredBooks: opts.ignoredBooks ?? [],
   };
 }
 
@@ -289,7 +291,7 @@ describe("AuthorDetail", () => {
     expect(screen.getByText(/releases 2027-03-01/)).toBeInTheDocument();
   });
 
-  it("dismisses a missing standalone book through the upcoming-releases dismiss-roster endpoint", async () => {
+  it("ignores a missing standalone book through the author expected-books/ignore endpoint", async () => {
     vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
       makeDetail(0, 0, {
         missingBooks: [
@@ -299,9 +301,7 @@ describe("AuthorDetail", () => {
     );
     vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
     vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
-    const dismiss = vi
-      .spyOn(upcomingReleasesApi, "dismissRosterUpcomingRelease")
-      .mockResolvedValue(undefined);
+    const ignore = vi.spyOn(browseApi, "ignoreAuthorExpectedBook").mockResolvedValue(undefined);
 
     renderWithProviders();
 
@@ -310,7 +310,30 @@ describe("AuthorDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
 
     await waitFor(() => {
-      expect(dismiss).toHaveBeenCalledWith({ authorId: 7, title: "Warbreaker 2" });
+      expect(ignore).toHaveBeenCalledWith(7, "Warbreaker 2");
+    });
+  });
+
+  it("unignores an ignored standalone book through the author expected-books/unignore endpoint", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        ignoredBooks: [
+          { id: 1, title: "Warbreaker 2", isIgnored: true, year: 2019, sourceUrl: null },
+        ],
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+    const unignore = vi.spyOn(browseApi, "unignoreAuthorExpectedBook").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    await screen.findByText("Ignored Books (1)");
+    fireEvent.click(screen.getByRole("button", { name: "Ignored Books (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unignore" }));
+
+    await waitFor(() => {
+      expect(unignore).toHaveBeenCalledWith(7, "Warbreaker 2");
     });
   });
 

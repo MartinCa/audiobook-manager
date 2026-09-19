@@ -9,6 +9,7 @@ import {
   Loader2,
   ExternalLink,
   EyeOff,
+  Eye,
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
@@ -26,7 +27,7 @@ import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { formatDate } from "@/helpers/formatHelpers";
-import { browseApi, upcomingReleasesApi } from "@/services/api";
+import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
@@ -82,6 +83,7 @@ export function AuthorDetail() {
   const standaloneSection = detailQuery.data?.standaloneBooks ?? { items: [], total: 0 };
   const missingBooks = detailQuery.data?.missingBooks ?? [];
   const upcomingBooks = detailQuery.data?.upcomingBooks ?? [];
+  const ignoredBooks = detailQuery.data?.ignoredBooks ?? [];
 
   const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / PAGE_SIZE));
   const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / PAGE_SIZE));
@@ -121,15 +123,18 @@ export function AuthorDetail() {
     }
   };
 
-  // The only affordance for a Missing/Upcoming standalone-books entry: there is no unignore
-  // endpoint for an author's roster (unlike series' expected-books/ignore+unignore pair), so
-  // this is one-way, matching what the backend currently exposes (POST
-  // upcoming-releases/dismiss-roster, which just sets IsIgnored).
-  const handleIgnore = async (book: AuthorExpectedBook) => {
+  // Mirrors SeriesDetail's ignore/unignore pair: an author's standalone-books roster entry can
+  // now be unignored from the Ignored Books section below, so a misclick is recoverable.
+  const handleSetIgnored = async (book: AuthorExpectedBook, ignored: boolean) => {
     setIgnoringTitle(book.title);
     try {
-      await upcomingReleasesApi.dismissRosterUpcomingRelease({ authorId: id, title: book.title });
-      notifications.success(`Ignored "${book.title}"`);
+      if (ignored) {
+        await browseApi.ignoreAuthorExpectedBook(id, book.title);
+        notifications.success(`Ignored "${book.title}"`);
+      } else {
+        await browseApi.unignoreAuthorExpectedBook(id, book.title);
+        notifications.success(`Unignored "${book.title}"`);
+      }
       invalidateDetail();
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -321,7 +326,7 @@ export function AuthorDetail() {
                 book={mb}
                 tone="amber"
                 ignoringTitle={ignoringTitle}
-                onIgnore={() => void handleIgnore(mb)}
+                onIgnore={() => void handleSetIgnored(mb, true)}
               />
             ))}
           </div>
@@ -345,8 +350,50 @@ export function AuthorDetail() {
                 book={ub}
                 tone="muted"
                 ignoringTitle={ignoringTitle}
-                onIgnore={() => void handleIgnore(ub)}
+                onIgnore={() => void handleSetIgnored(ub, true)}
               />
+            ))}
+          </div>
+        )}
+      </CollapsibleCountSection>
+
+      <CollapsibleCountSection
+        label="Ignored Books"
+        count={ignoredBooks.length}
+        labelClassName="text-muted-foreground"
+      >
+        {ignoredBooks.length === 0 ? (
+          <p className="text-muted-foreground text-xs">
+            No ignored standalone books for this author.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {ignoredBooks.map((ib) => (
+              <div
+                key={ib.id}
+                className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs opacity-75 sm:flex-row sm:items-center"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-muted-foreground break-words">{ib.title}</span>
+                  {ib.year && <span className="text-muted-foreground"> ({ib.year})</span>}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 self-end text-[11px] sm:self-center"
+                  disabled={ignoringTitle === ib.title}
+                  onClick={() => {
+                    void handleSetIgnored(ib, false);
+                  }}
+                >
+                  {ignoringTitle === ib.title ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Eye className="mr-1 h-3 w-3" />
+                  )}
+                  Unignore
+                </Button>
+              </div>
             ))}
           </div>
         )}
@@ -417,8 +464,8 @@ export function AuthorDetail() {
 
 /** One row of an author's Missing/Upcoming standalone-books sections - mirrors SeriesDetail's
  * ExpectedBookRow, minus the series-only position field and the "Find in Library" action (the
- * author roster has no per-book candidate-matching endpoint, unlike series' expected-books flow -
- * ignoring is the only affordance the backend currently exposes for these rows). */
+ * author roster has no per-book candidate-matching endpoint, unlike series' expected-books flow).
+ * Ignoring is recoverable via the Ignored Books section's Unignore action below. */
 function AuthorExpectedBookRow({
   book,
   tone,

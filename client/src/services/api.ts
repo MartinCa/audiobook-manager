@@ -59,7 +59,7 @@ import type {
   SeriesFollowStatus,
   UpcomingRelease,
 } from "@/types/UpcomingRelease";
-import type { AuthorRefreshAllResult, AuthorRefreshResult } from "@/types/AuthorDetail";
+import type { AuthorRefreshResult } from "@/types/AuthorDetail";
 import type { DismissRosterUpcomingRelease } from "@/types/UpcomingRelease";
 import type { ApplyUrlCleanupResult, UrlCleanupPage } from "@/types/UrlCleanup";
 
@@ -265,10 +265,17 @@ export const browseApi = {
   refreshAuthor: (authorId: number) =>
     api.post<AuthorRefreshResult>(`/browse/authors/${authorId}/refresh`, undefined),
 
-  // Synchronous sweep of every matched author's standalone-books roster. No SignalR progress
-  // stream - the client follows this the same way it awaits the single-author refresh above.
-  refreshAllAuthors: () =>
-    api.post<AuthorRefreshAllResult>("/browse/authors/refresh-all", undefined),
+  // Fire-and-forget sweep of every matched author's standalone-books roster (mirrors
+  // seriesApi.startRefreshAll): can run for minutes at the source's rate limit, so it returns as
+  // soon as it is accepted. There is no UI trigger for this yet - when one is added, follow it
+  // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
+  refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
+
+  ignoreAuthorExpectedBook: (authorId: number, title: string) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/ignore`, { title }),
+
+  unignoreAuthorExpectedBook: (authorId: number, title: string) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/unignore`, { title }),
 };
 
 // Library Scanning & Discovered

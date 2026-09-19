@@ -67,4 +67,5 @@ export const OperationKeys = {
   bulkEdit: "bulk-edit",
   urlCleanupApply: "url-cleanup-apply",
   upcomingReleasesRefresh: "upcoming-releases-refresh",
+  authorRosterRefreshAll: "author-roster-refresh-all",
 } as const;
