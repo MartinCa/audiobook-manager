@@ -110,19 +110,12 @@ public class UpcomingReleasesControllerTests
     [TestMethod]
     public async Task GetUpcomingReleases_MapsResultsAndPassesFiltersThrough()
     {
-        var release = new UpcomingRelease
-        {
-            Id = 1,
-            Title = "The Stormlight Archive 6",
-            ReleaseDate = new DateOnly(2030, 1, 1),
-            PersonId = 7,
-            Person = new Person(7, "Brandon Sanderson"),
-            SourceName = "Hardcover",
-            SourceBookId = "999",
-        };
+        var item = new UpcomingReleaseItem(
+            UpcomingReleaseSource.Legacy, 1, "The Stormlight Archive 6", new DateOnly(2030, 1, 1), 2030,
+            7, "Brandon Sanderson", null, null, null, "Hardcover", null, null);
         _upcomingReleaseService
             .Setup(s => s.GetUpcomingReleasesAsync(7, null, 50, 0))
-            .ReturnsAsync((new List<UpcomingRelease> { release }, 1));
+            .ReturnsAsync((new List<UpcomingReleaseItem> { item }, 1));
 
         var result = await _controller.GetUpcomingReleases(authorId: 7);
 

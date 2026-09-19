@@ -424,4 +424,25 @@ public class PersonRepository : IPersonRepository
             .Where(p => p.HardcoverAuthorId != null && p.HardcoverAuthorId != "")
             .ToListAsync();
     }
+
+    /// <summary>
+    /// Sets the ignore flag on a standalone-book roster entry addressed by its title - the author
+    /// roster counterpart of <see cref="SeriesRepository.SetExpectedBookIgnoredAsync"/>. Row ids
+    /// are not stable across a re-refresh (<see cref="ReplaceAuthorExpectedBooksAsync"/> deletes
+    /// and re-inserts the whole roster), so the entry is located by title, trimmed and
+    /// case-insensitively, the same way a re-refresh carries ignore decisions across.
+    /// </summary>
+    public async Task SetAuthorExpectedBookIgnoredAsync(long personId, string title, bool ignored)
+    {
+        var books = await _db.AuthorExpectedBooks
+            .Where(b => b.PersonId == personId)
+            .ToListAsync();
+
+        var normalizedTitle = title.Trim();
+        var book = books.FirstOrDefault(b => string.Equals(b.Title.Trim(), normalizedTitle, StringComparison.OrdinalIgnoreCase))
+            ?? throw new KeyNotFoundException($"Expected book (title '{title}') not found in author {personId}'s roster");
+
+        book.IsIgnored = ignored;
+        await _db.SaveChangesAsync();
+    }
 }

@@ -47,13 +47,31 @@ public interface IUpcomingReleaseService
     /// <summary>
     /// One page of upcoming releases, soonest release first, optionally scoped to one author
     /// and/or one series. No filter on either returns the consolidated view across every
-    /// followed author and series.
+    /// followed author and series. Unions the legacy scrape-and-store table with every
+    /// followed-and-matched series'/author's roster entries classified <c>Upcoming</c> - see
+    /// AudiobookManager/UPCOMING_RELEASES_DESIGN.md.
     /// </summary>
-    Task<(List<UpcomingRelease> Items, int Total)> GetUpcomingReleasesAsync(
+    Task<(List<UpcomingReleaseItem> Items, int Total)> GetUpcomingReleasesAsync(
         long? personId, long? seriesId, int limit, int offset);
 
-    /// <summary>Removes one upcoming release the user no longer wants tracked. Returns whether a row was deleted.</summary>
+    /// <summary>Removes one legacy upcoming release the user no longer wants tracked. Returns whether a row was deleted.</summary>
     Task<bool> RemoveUpcomingReleaseAsync(long id);
+
+    /// <summary>
+    /// Dismisses a roster-derived upcoming release for a followed author: sets <c>IsIgnored</c>
+    /// on the matching <see cref="AuthorExpectedBook"/> entry, the same mechanism the author
+    /// detail page's missing-books section already uses. Throws <see cref="KeyNotFoundException"/>
+    /// when no entry with that title exists for the author.
+    /// </summary>
+    Task DismissAuthorRosterUpcomingAsync(long personId, string title);
+
+    /// <summary>
+    /// Dismisses a roster-derived upcoming release for a followed series: sets <c>IsIgnored</c>
+    /// on the matching <see cref="SeriesExpectedBook"/> entry, the same mechanism the series
+    /// detail page's missing-books section already uses. Throws <see cref="KeyNotFoundException"/>
+    /// when no entry with that position/title exists for the series.
+    /// </summary>
+    Task DismissSeriesRosterUpcomingAsync(string seriesName, string? position, string title);
 
     /// <summary>
     /// Polls every followed-and-matched author and series for upcoming releases and stores

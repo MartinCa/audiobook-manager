@@ -14,6 +14,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     private readonly IAuthorFollowRepository _authorFollowRepository;
     private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly IUpcomingReleaseRepository _upcomingReleaseRepository;
+    private readonly ISeriesReconciliationProvider _seriesReconciliationProvider;
+    private readonly IAuthorReconciliationProvider _authorReconciliationProvider;
+    private readonly ISeriesReconciliationCache _seriesReconciliationCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<UpcomingReleaseService> _logger;
 
@@ -23,6 +26,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         IAuthorFollowRepository authorFollowRepository,
         ISeriesFollowRepository seriesFollowRepository,
         IUpcomingReleaseRepository upcomingReleaseRepository,
+        ISeriesReconciliationProvider seriesReconciliationProvider,
+        IAuthorReconciliationProvider authorReconciliationProvider,
+        ISeriesReconciliationCache seriesReconciliationCache,
         IEnumerable<IScraper> scrapers,
         ILogger<UpcomingReleaseService> logger)
     {
@@ -31,6 +37,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _authorFollowRepository = authorFollowRepository;
         _seriesFollowRepository = seriesFollowRepository;
         _upcomingReleaseRepository = upcomingReleaseRepository;
+        _seriesReconciliationProvider = seriesReconciliationProvider;
+        _authorReconciliationProvider = authorReconciliationProvider;
+        _seriesReconciliationCache = seriesReconciliationCache;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -119,11 +128,135 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         await _seriesFollowRepository.UnfollowAsync(series.Id);
     }
 
-    public Task<(List<UpcomingRelease> Items, int Total)> GetUpcomingReleasesAsync(
-        long? personId, long? seriesId, int limit, int offset) =>
-        _upcomingReleaseRepository.GetPagedAsync(personId, seriesId, limit, offset);
+    public async Task<(List<UpcomingReleaseItem> Items, int Total)> GetUpcomingReleasesAsync(
+        long? personId, long? seriesId, int limit, int offset)
+    {
+        var items = await BuildMergedItemsAsync(personId, seriesId);
+        var total = items.Count;
+        var page = items.Skip(offset).Take(limit).ToList();
+        return (page, total);
+    }
 
     public Task<bool> RemoveUpcomingReleaseAsync(long id) => _upcomingReleaseRepository.DeleteAsync(id);
+
+    public async Task DismissAuthorRosterUpcomingAsync(long personId, string title) =>
+        await _personRepository.SetAuthorExpectedBookIgnoredAsync(personId, title, true);
+
+    public async Task DismissSeriesRosterUpcomingAsync(string seriesName, string? position, string title)
+    {
+        await _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, true);
+        _seriesReconciliationCache.Invalidate(seriesName);
+    }
+
+    /// <summary>
+    /// Unions the legacy scrape-and-store table with every followed-and-matched series'/author's
+    /// roster entries classified <c>Upcoming</c>, de-duplicated by (scope, normalized title) so
+    /// the same upcoming book does not appear twice just because both pipelines know about it -
+    /// the roster-derived entry wins a duplicate, since it is the one that can actually be
+    /// dismissed (see <see cref="UpcomingReleaseSource"/>). The candidate set is bounded by the
+    /// number of followed-and-matched authors/series, which <see cref="RefreshUpcomingReleasesAsync"/>
+    /// already treats as small enough to poll synchronously, so building the whole set in memory
+    /// before sorting/paging is the same tradeoff that method already makes.
+    /// </summary>
+    private async Task<List<UpcomingReleaseItem>> BuildMergedItemsAsync(long? personId, long? seriesId)
+    {
+        var legacy = await _upcomingReleaseRepository.GetAllAsync(personId, seriesId);
+        var items = new List<UpcomingReleaseItem>(legacy.Count);
+        var rosterKeys = new HashSet<(string Scope, string Title)>();
+
+        if (seriesId is null)
+        {
+            var followedSeries = personId is null
+                ? await _seriesFollowRepository.GetFollowedMatchedSeriesAsync()
+                : new List<Series>();
+
+            foreach (var series in followedSeries)
+            {
+                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    var key = ($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title));
+                    rosterKeys.Add(key);
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
+                }
+            }
+        }
+        else
+        {
+            var series = await _seriesRepository.GetByIdWithExpectedBooksAsync(seriesId.Value);
+            if (series is not null && await _seriesFollowRepository.IsFollowedAsync(series.Id)
+                && !string.IsNullOrEmpty(series.MatchedSourceId))
+            {
+                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
+                }
+            }
+        }
+
+        if (personId is null)
+        {
+            var followedAuthorsScope = seriesId is null
+                ? await _authorFollowRepository.GetFollowedMatchedAuthorsAsync()
+                : new List<Person>();
+
+            foreach (var author in followedAuthorsScope)
+            {
+                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(author.Id);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"author:{author.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        author.Id, author.Name, null, null, null, "roster", entry.SourceUrl, null));
+                }
+            }
+        }
+        else
+        {
+            var person = await _personRepository.GetByIdAsync(personId.Value);
+            if (person is not null && await _authorFollowRepository.IsFollowedAsync(person.Id)
+                && !string.IsNullOrEmpty(person.HardcoverAuthorId))
+            {
+                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(person.Id);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"author:{person.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        person.Id, person.Name, null, null, null, "roster", entry.SourceUrl, null));
+                }
+            }
+        }
+
+        foreach (var r in legacy)
+        {
+            var scope = r.SeriesId is not null ? $"series:{r.SeriesId}" : r.PersonId is not null ? $"author:{r.PersonId}" : null;
+            if (scope is not null && rosterKeys.Contains((scope, NormalizeTitleForCarryOver(r.Title))))
+            {
+                // The roster-derived entry for this same book already represents it.
+                continue;
+            }
+
+            items.Add(new UpcomingReleaseItem(
+                UpcomingReleaseSource.Legacy, r.Id, r.Title, r.ReleaseDate, r.ReleaseDate.Year,
+                r.PersonId, r.Person?.Name, r.SeriesId, r.Series?.Name, r.SeriesPosition,
+                r.SourceName, r.SourceUrl, r.ImageUrl));
+        }
+
+        return items
+            .OrderBy(i => i.SortDate)
+            .ThenBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(i => i.Source)
+            .ThenBy(i => i.Id ?? long.MaxValue)
+            .ToList();
+    }
 
     public async Task RefreshUpcomingReleasesAsync()
     {

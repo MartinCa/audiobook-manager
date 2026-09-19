@@ -61,36 +61,42 @@ old rows to keep reading, even though nothing writes that shape any more). Autho
 review step in the first place - `RefreshAuthorRosterAsync` replaces the roster directly, no
 `PendingSeriesRefresh`-equivalent table.
 
-## The legacy `UpcomingRelease` table stays, scoped to the global page
+## The global Upcoming Releases page unions the legacy scrape table with the rosters
 
-The global Upcoming Releases page (`/library/upcoming-releases`) has one requirement the
-roster doesn't by itself satisfy: **only followed** authors/series, and a per-row "remove" action
-a user expects to stick. The existing scrape pipeline (`UpcomingReleaseService`,
-`UpcomingReleasesWorker`, the `UpcomingRelease` table) already does exactly that - it only ever
-polls followed-and-matched authors/series, and a user's removal is a real `DELETE` that the
-worker's `UpsertAsync` dedupe (keyed on source name + source book id) never resurrects on its own.
+The global Upcoming Releases page (`/library/upcoming-releases`) has one requirement the roster
+doesn't by itself satisfy: **only followed** authors/series, and a per-row "remove" action a user
+expects to stick. The legacy scrape pipeline (`UpcomingReleasesWorker`, the `UpcomingRelease`
+table) already scopes to followed-and-matched authors/series and gives real per-row removal, so it
+stays - but `UpcomingReleaseService.GetUpcomingReleasesAsync` no longer reads it alone. It now
+builds the union, in memory, per request:
 
-Rather than replace that pipeline with a roster-union query (a materially bigger, riskier change:
-the roster's classification is a live view with no per-user "I dismissed this" state, so a
-roster-derived "remove" would need a new dismissal table anyway, at which point the existing table
-already *is* that store), **this change keeps `UpcomingReleaseService`/`UpcomingReleasesWorker`/
-`UpcomingRelease` exactly as they were** for the global page. `UpcomingReleasesController` is
-unchanged.
+- For every followed-and-matched series (`ISeriesFollowRepository.GetFollowedMatchedSeriesAsync`),
+  its `SeriesReconciliationProvider.GetReconciliationAsync(...).Upcoming` entries.
+- For every followed-and-matched author (`IAuthorFollowRepository.GetFollowedMatchedAuthorsAsync`),
+  its `AuthorReconciliationProvider.GetReconciliationAsync(...).Upcoming` entries.
+- Every row still in the legacy `UpcomingRelease` table (`IUpcomingReleaseRepository.GetAllAsync`).
 
-This is a deliberate, documented scope decision, not an oversight: the frontend can keep consuming
-`GET api/UpcomingReleases` exactly as today for the global page, while the series/author detail
-pages switch to the new roster-derived `MissingBooks`/`UpcomingBooks` sections for their own
-(follow-status-independent) view. The two surfaces answer two different questions - "what's
-missing/upcoming for this roster" vs. "what's coming for what I follow, with a page I can curate" -
-and they now share the same underlying classification helper and roster data model, even though
-the global page's list is still populated by its own scrape-and-store poll rather than derived
-live from the roster on every request.
+Building the whole set before sorting/paging is the same tradeoff `RefreshUpcomingReleasesAsync`
+already makes for the same input (a followed-and-matched author/series list) - it is bounded by how
+many things a user follows, not by library size.
 
-**Future work**, not done here: teach `UpcomingReleaseService.GetUpcomingReleasesAsync` to union in
-roster-derived entries for followed series/authors that the scrape poll hasn't (yet) discovered,
-with removal for a roster-derived row implemented as `AuthorExpectedBook.IsIgnored` /
-`SeriesExpectedBook.IsIgnored` rather than a `DELETE` (which only makes sense for a real
-`UpcomingRelease` row). That is a bigger, separate change and is intentionally out of scope here.
+A legacy row and a roster entry can describe the exact same real-world book (the scrape poll and a
+roster refresh both learned about it independently). They're de-duplicated per request, scoped to
+the same series/author and matched by normalized title; the roster-derived entry wins the
+duplicate, since it is the one that carries a working "remove" action (see below). The merged,
+deduplicated set is sorted by effective release date (`UpcomingReleaseItem.SortDate`: the precise
+`ReleaseDate` when known, else January 1st of `Year`, else last) and paged in memory.
+
+Each returned `UpcomingReleaseItem`/`UpcomingReleaseDto` carries a `Source` discriminator
+(`"Legacy"` or `"Roster"`) telling the client which removal call applies:
+
+- `"Legacy"` - a real `UpcomingRelease` row. Remove with the existing
+  `DELETE api/UpcomingReleases/{id}` (`Id` is set).
+- `"Roster"` - a series/author roster entry classified `Upcoming`. There is no row to delete, so
+  "remove" instead sets `IsIgnored` on that roster entry (the exact mechanism the missing-books
+  section already uses to dismiss an entry) via the new
+  `POST api/UpcomingReleases/dismiss-roster`, addressed by `SeriesName`+`SeriesPosition`+`Title` or
+  `AuthorId`+`Title` (`Id` is null for these rows - roster ids are not stable across a refresh).
 
 ## API surface summary (for the frontend)
 
@@ -106,4 +112,10 @@ with removal for a roster-derived row implemented as `AuthorExpectedBook.IsIgnor
   {Processed, Succeeded, Failed}`. Both are synchronous (no SignalR progress stream, unlike
   `SeriesController`'s refresh-all) - an author refresh has no pending-review fan-out to report
   progress on.
-- `UpcomingReleasesController`/`GET api/UpcomingReleases` is unchanged.
+- `GET api/UpcomingReleases` items are now `UpcomingReleaseDto {Source, Id?, Title, ReleaseDate?,
+  Year?, AuthorId?, AuthorName?, SeriesId?, SeriesName?, SeriesPosition?, SourceName, SourceUrl?,
+  ImageUrl?}` - `Id` and `ReleaseDate` are now nullable (a roster-derived row has neither a stable
+  id nor always a precise date). `DELETE api/UpcomingReleases/{id}` is unchanged, for `"Legacy"`
+  rows. New: `POST api/UpcomingReleases/dismiss-roster` (body:
+  `{SeriesName?, SeriesPosition?, AuthorId?, Title}`, exactly one of `SeriesName`/`AuthorId` set)
+  for `"Roster"` rows.

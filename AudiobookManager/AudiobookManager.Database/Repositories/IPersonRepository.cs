@@ -97,4 +97,10 @@ public interface IPersonRepository
 
     /// <summary>Every author with a Hardcover match, for the bulk "refresh all matched authors" sweep.</summary>
     Task<List<Person>> GetMatchedAuthorsAsync();
+
+    /// <summary>
+    /// Sets the ignore flag on a standalone-book roster entry addressed by title. Throws
+    /// <see cref="KeyNotFoundException"/> when no entry with that title exists for the author.
+    /// </summary>
+    Task SetAuthorExpectedBookIgnoredAsync(long personId, string title, bool ignored);
 }

@@ -93,6 +93,49 @@ public class UpcomingReleasesController : ControllerBase
     }
 
     /// <summary>
+    /// Dismisses a roster-derived ("Source": "Roster") item from the unified list - there is no
+    /// backing <c>UpcomingRelease</c> row to <c>DELETE</c>, so this sets <c>IsIgnored</c> on the
+    /// matching series/author roster entry instead, exactly like the series/author detail pages'
+    /// own missing-books ignore action.
+    /// </summary>
+    [HttpPost("dismiss-roster")]
+    public async Task<IActionResult> DismissRosterUpcomingRelease([FromBody] DismissRosterUpcomingReleaseDto? dto)
+    {
+        if (dto is null || string.IsNullOrWhiteSpace(dto.Title))
+        {
+            return this.InvalidRequest("Title is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.SeriesName) == (dto.AuthorId is null))
+        {
+            return this.InvalidRequest("Exactly one of seriesName or authorId must be set.");
+        }
+
+        try
+        {
+            if (dto.AuthorId is not null)
+            {
+                await _upcomingReleaseService.DismissAuthorRosterUpcomingAsync(dto.AuthorId.Value, dto.Title);
+            }
+            else
+            {
+                await _upcomingReleaseService.DismissSeriesRosterUpcomingAsync(dto.SeriesName!, dto.SeriesPosition, dto.Title);
+            }
+
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dismissing roster-derived upcoming release (title {Title})", dto.Title);
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>
     /// Fire-and-forget: polls every followed-and-matched author/series right now rather than
     /// waiting for the periodic worker's next tick - the "refresh now" affordance
     /// <c>SeriesController.RefreshAllSeries</c> gives the whole series catalog (not the
@@ -121,16 +164,18 @@ public class UpcomingReleasesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
-    private static UpcomingReleaseDto ToDto(UpcomingRelease r) => new(
-        r.Id,
-        r.Title,
-        r.ReleaseDate,
-        r.PersonId,
-        r.Person?.Name,
-        r.SeriesId,
-        r.Series?.Name,
-        r.SeriesPosition,
-        r.SourceName,
-        r.SourceUrl,
-        r.ImageUrl);
+    private static UpcomingReleaseDto ToDto(UpcomingReleaseItem i) => new(
+        i.Source.ToString(),
+        i.Id,
+        i.Title,
+        i.ReleaseDate,
+        i.Year,
+        i.AuthorId,
+        i.AuthorName,
+        i.SeriesId,
+        i.SeriesName,
+        i.SeriesPosition,
+        i.SourceName,
+        i.SourceUrl,
+        i.ImageUrl);
 }
