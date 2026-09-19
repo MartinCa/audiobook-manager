@@ -21,6 +21,7 @@ public class BrowseControllerTests
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
+    private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
     private BrowseController _controller = null!;
 
     [TestInitialize]
@@ -30,9 +31,13 @@ public class BrowseControllerTests
         _personRepo = new Mock<IPersonRepository>();
         _seriesService = new Mock<ISeriesService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
+        _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>()))
+            .ReturnsAsync(new AuthorReconciliation(
+                new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), 0, 0));
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _seriesService.Object,
-            _upcomingReleaseService.Object, Mock.Of<ILogger<BrowseController>>());
+            _upcomingReleaseService.Object, _authorReconciliation.Object, Mock.Of<ILogger<BrowseController>>());
     }
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>

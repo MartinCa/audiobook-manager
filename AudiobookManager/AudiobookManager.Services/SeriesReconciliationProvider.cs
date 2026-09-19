@@ -89,8 +89,19 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
         var active = visible.Where(e => !e.IsIgnored).ToList();
 
         var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(ownedKeys);
-        var missing = active
-            .Where(e => !IsOwned(e, ownedIndex))
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var unmatched = active.Where(e => !IsOwned(e, ownedIndex)).ToList();
+
+        var missing = unmatched
+            .Where(e => !ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today))
+            .Select(ToExpectedInfo)
+            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Id)
+            .ToList();
+
+        var upcoming = unmatched
+            .Where(e => ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today))
             .Select(ToExpectedInfo)
             .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
@@ -180,7 +191,8 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
                 .ToList(),
             ExpectedBookCount: active.Count,
             OwnedCount: ownedKeys.Count,
-            authors);
+            authors,
+            upcoming);
     }
 
     internal static SeriesExpectedBookInfo ToExpectedInfo(SeriesExpectedBook book) => new()
@@ -189,6 +201,7 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
         Title = book.Title,
         Position = book.Position,
         Year = book.Year,
+        ReleaseDate = book.ReleaseDate,
         SourceUrl = book.SourceUrl,
         IsIgnored = book.IsIgnored,
     };

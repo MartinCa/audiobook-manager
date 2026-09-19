@@ -2,8 +2,8 @@ import type { components } from "@/lib/api-types";
 import type { Require } from "@/lib/dto";
 
 // AudiobookManager.Api/Dtos/SeriesDtos.cs: name/ownedBookCount/isMatched/expectedBookCount/
-// missingBookCount/ignoredBookCount/includeOmnibusEditions are non-nullable; id and everything
-// else (including the match-source fields) are genuinely nullable.
+// missingBookCount/ignoredBookCount/includeOmnibusEditions/upcomingBookCount are non-nullable;
+// id and everything else (including the match-source fields) are genuinely nullable.
 export type SeriesOverview = Require<
   components["schemas"]["SeriesOverviewDto"],
   | "name"
@@ -13,6 +13,7 @@ export type SeriesOverview = Require<
   | "missingBookCount"
   | "ignoredBookCount"
   | "includeOmnibusEditions"
+  | "upcomingBookCount"
 >;
 
 // AudiobookManager.Api/Dtos/SeriesDtos.cs: page records carry items/totalCount non-nullable.
@@ -28,7 +29,8 @@ export type SeriesCounts = Require<
   "total" | "matched" | "unmatched"
 >;
 
-// id/title/isIgnored are non-nullable; position/year/sourceUrl are genuinely nullable.
+// id/title/isIgnored are non-nullable; position/year/sourceUrl/releaseDate are genuinely
+// nullable.
 export type SeriesExpectedBook = Require<
   components["schemas"]["SeriesExpectedBookDto"],
   "id" | "title" | "isIgnored"
@@ -76,6 +78,7 @@ export interface SeriesDetail {
   missingBooks: SeriesExpectedBookPage;
   ignoredBooks: SeriesExpectedBookPage;
   partMismatches: SeriesPartMismatchPage;
+  upcomingBooks: SeriesExpectedBookPage;
 }
 
 // sourceName/sourceId/seriesName/authors/confidence are non-nullable; sourceUrl and bookCount

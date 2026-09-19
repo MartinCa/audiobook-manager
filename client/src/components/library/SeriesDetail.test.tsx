@@ -39,6 +39,18 @@ function missingBook(id: number, title: string, position?: string): SeriesExpect
   };
 }
 
+function upcomingBook(id: number, title: string, releaseDate?: string): SeriesExpectedBook {
+  return {
+    id,
+    title,
+    position: null,
+    year: null,
+    sourceUrl: null,
+    isIgnored: false,
+    releaseDate: releaseDate ?? null,
+  };
+}
+
 const defaultOwned: SeriesOwnedBook = {
   id: 10,
   bookName: "The Final Empire",
@@ -56,6 +68,8 @@ function makeDetail(
   ignoredTotal = 0,
   partMismatchItems: SeriesPartMismatch[] = [],
   partMismatchTotal = 0,
+  upcomingItems: SeriesExpectedBook[] = [],
+  upcomingTotal = 0,
 ): SeriesDetail {
   return {
     overview: {
@@ -73,6 +87,7 @@ function makeDetail(
       missingBookCount: missingTotal,
       ignoredBookCount: ignoredTotal,
       includeOmnibusEditions: false,
+      upcomingBookCount: upcomingTotal,
     },
     ownedBooks: {
       items: ownedItems,
@@ -89,6 +104,10 @@ function makeDetail(
     partMismatches: {
       items: partMismatchItems,
       totalCount: partMismatchTotal,
+    },
+    upcomingBooks: {
+      items: upcomingItems,
+      totalCount: upcomingTotal,
     },
   };
 }
@@ -166,14 +185,17 @@ describe("SeriesDetail", () => {
     const ownedBookLink = await screen.findByRole("link", { name: /The Final Empire/ });
     expect(ownedBookLink).toHaveAttribute("href", "/library/book/10");
     expect(ownedBookLink).not.toHaveAttribute("target");
+    // Sections display their full totals, not just the loaded page.
+    expect(screen.getByText(/Owned Books \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Books \(7\)/)).toBeInTheDocument();
+
+    // Missing Books is collapsed by default; expand it to reach its rows and actions.
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(7\)/ }));
     expect(screen.getAllByText(/The Alloy of Law/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Ignore")).toBeInTheDocument();
     expect(
       screen.getByText("Include omnibus/box-set editions in missing books list"),
     ).toBeInTheDocument();
-    // Sections display their full totals, not just the loaded page.
-    expect(screen.getByText(/Owned Books \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Missing Books \(7\)/)).toBeInTheDocument();
 
     // Critical info first: the header shows the matched-to source indication twice - once in the
     // header where the source NAME is the link to the source page, and once in the Management
@@ -296,7 +318,7 @@ describe("SeriesDetail", () => {
 
     renderWithProviders();
 
-    await screen.findByText(/The Alloy of Law/);
+    await screen.findByText(/Missing Books \(7\)/);
 
     expect(getSeriesDetail).toHaveBeenCalledTimes(1);
     expect(getSeriesDetail).toHaveBeenCalledWith("Mistborn", {
@@ -308,6 +330,8 @@ describe("SeriesDetail", () => {
       ignoredPageSize: 50,
       partMismatchPage: 0,
       partMismatchPageSize: 50,
+      upcomingPage: 0,
+      upcomingPageSize: 50,
     });
   });
 
@@ -334,6 +358,10 @@ describe("SeriesDetail", () => {
     });
 
     renderWithProviders();
+
+    // Missing Books is collapsed by default; expand it to reach its rows, pager and actions.
+    await screen.findByText(/Missing Books \(51\)/);
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(51\)/ }));
 
     // Page to the last page of the missing section; the owned section has a single row so the
     // only "Next" button is the missing section's.
@@ -550,6 +578,8 @@ describe("SeriesDetail", () => {
       ignoredPageSize: 50,
       partMismatchPage: 0,
       partMismatchPageSize: 50,
+      upcomingPage: 0,
+      upcomingPageSize: 50,
     });
   });
 
@@ -564,6 +594,7 @@ describe("SeriesDetail", () => {
     renderWithProviders();
 
     await screen.findByText(/Missing Books \(7\)/);
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(7\)/ }));
 
     // The bulk dialog is only offered when the series is matched and actually has missing books.
     expect(screen.getByRole("button", { name: "Match Missing Books" })).toBeInTheDocument();
@@ -586,6 +617,53 @@ describe("SeriesDetail", () => {
 
     await screen.findByRole("heading", { name: "Mistborn" });
     expect(screen.queryByRole("button", { name: "Match Missing Books" })).not.toBeInTheDocument();
+  });
+
+  // --- Upcoming Books: collapsed by default, shows not-yet-released roster entries with only an
+  // Ignore action (no "Find in Library" - an unreleased book cannot be owned yet). ---
+
+  it("renders the Upcoming Books section collapsed, with only an Ignore action", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail(
+        [],
+        0,
+        [defaultOwned],
+        0,
+        [],
+        0,
+        [upcomingBook(30, "The Lost Metal", "2026-11-01")],
+        1,
+      ),
+    );
+
+    renderWithProviders();
+
+    await screen.findByText(/Upcoming Books \(1\)/);
+    expect(screen.queryByText("The Lost Metal")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming Books \(1\)/ }));
+
+    expect(screen.getByText("The Lost Metal")).toBeInTheDocument();
+    expect(screen.getByText(/releases 2026-11-01/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ignore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Find in Library" })).not.toBeInTheDocument();
+  });
+
+  it("ignores an upcoming book through the same expected-books/ignore endpoint as Missing Books", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [defaultOwned], 0, [], 0, [upcomingBook(30, "The Lost Metal")], 1),
+    );
+    const ignore = vi.spyOn(seriesApi, "ignoreExpectedBook").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    await screen.findByText(/Upcoming Books \(1\)/);
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming Books \(1\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
+
+    await waitFor(() => {
+      expect(ignore).toHaveBeenCalledWith("Mistborn", null, "The Lost Metal");
+    });
   });
 
   // --- Series mapping patterns (owned by this series, managed in the Management section) ---

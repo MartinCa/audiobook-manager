@@ -46,7 +46,8 @@ public interface ISeriesService
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
         int ignoredSkip, int ignoredTake,
-        int partMismatchSkip, int partMismatchTake);
+        int partMismatchSkip, int partMismatchTake,
+        int upcomingSkip = 0, int upcomingTake = int.MaxValue);
 
     Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName);
 

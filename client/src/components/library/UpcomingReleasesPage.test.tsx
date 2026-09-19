@@ -37,6 +37,7 @@ vi.mock("@/lib/notifications", () => ({
 
 function release(overrides: Partial<UpcomingRelease> = {}): UpcomingRelease {
   return {
+    source: "Legacy",
     id: 1,
     title: "The Stormlight Archive 6",
     releaseDate: "2030-01-01",

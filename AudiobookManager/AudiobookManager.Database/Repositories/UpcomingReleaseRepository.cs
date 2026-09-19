@@ -109,6 +109,26 @@ public class UpcomingReleaseRepository : IUpcomingReleaseRepository
         return (items, total);
     }
 
+    public async Task<List<UpcomingRelease>> GetAllAsync(long? personId, long? seriesId)
+    {
+        var query = _db.UpcomingReleases.AsNoTracking();
+
+        if (personId is not null)
+        {
+            query = query.Where(r => r.PersonId == personId);
+        }
+
+        if (seriesId is not null)
+        {
+            query = query.Where(r => r.SeriesId == seriesId);
+        }
+
+        return await query
+            .Include(r => r.Person)
+            .Include(r => r.Series)
+            .ToListAsync();
+    }
+
     public async Task<bool> DeleteAsync(long id)
     {
         var deleted = await _db.UpcomingReleases.Where(r => r.Id == id).ExecuteDeleteAsync();

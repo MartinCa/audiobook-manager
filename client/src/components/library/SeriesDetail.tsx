@@ -35,10 +35,12 @@ import { BookBulkActionBar } from "./BookBulkActionBar";
 import { SeriesFollowButton } from "./SeriesFollowButton";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { LinkButton } from "../LinkButton";
+import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
+import { formatDate } from "@/helpers/formatHelpers";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -158,6 +160,7 @@ export function SeriesDetail() {
   const [missingPage, setMissingPage] = useState(0);
   const [ignoredPage, setIgnoredPage] = useState(0);
   const [partMismatchPage, setPartMismatchPage] = useState(0);
+  const [upcomingPage, setUpcomingPage] = useState(0);
   const [fixingMismatchId, setFixingMismatchId] = useState<number | null>(null);
 
   // One combined detail query instead of three: the endpoint already computes every section on
@@ -172,6 +175,7 @@ export function SeriesDetail() {
       missingPage,
       ignoredPage,
       partMismatchPage,
+      upcomingPage,
     ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
@@ -183,6 +187,8 @@ export function SeriesDetail() {
         ignoredPageSize: PAGE_SIZE,
         partMismatchPage,
         partMismatchPageSize: PAGE_SIZE,
+        upcomingPage,
+        upcomingPageSize: PAGE_SIZE,
       }),
     enabled: Boolean(seriesName),
     placeholderData: keepPreviousData,
@@ -216,10 +222,15 @@ export function SeriesDetail() {
     items: [] as SeriesPartMismatch[],
     totalCount: 0,
   };
+  const upcomingSection = seriesDetailQuery.data?.upcomingBooks ?? {
+    items: [] as SeriesExpectedBook[],
+    totalCount: 0,
+  };
   const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
   const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
   const ignoredPageCount = Math.max(1, Math.ceil(ignoredSection.totalCount / PAGE_SIZE));
   const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / PAGE_SIZE));
+  const upcomingPageCount = Math.max(1, Math.ceil(upcomingSection.totalCount / PAGE_SIZE));
 
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
@@ -227,6 +238,7 @@ export function SeriesDetail() {
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
   const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
   const currentPartMismatchPage = Math.min(partMismatchPage, partMismatchPageCount - 1);
+  const currentUpcomingPage = Math.min(upcomingPage, upcomingPageCount - 1);
 
   // And the raw page states are corrected back into range once a response shows the total has
   // shrunk under them (e.g. ignoring the last row of the last missing-books page), so the next
@@ -235,6 +247,7 @@ export function SeriesDetail() {
   useClampedPage(missingPage, missingPageCount, setMissingPage);
   useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
   useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
+  useClampedPage(upcomingPage, upcomingPageCount, setUpcomingPage);
 
   // The review banner shares the dialog's query key, so the banner and the open dialog never
   // disagree about whether a snapshot exists. 404 (no snapshot) is the normal absent case and
@@ -356,9 +369,11 @@ export function SeriesDetail() {
       if (ignored) {
         await seriesApi.ignoreExpectedBook(seriesName, book.position, book.title);
         notifications.success(`Ignored "${book.title || "book"}"`);
-        // Ignoring moves a book out of the missing list; drop that section back to page 0 so
-        // the refetch below never asks for a page the shrunk section no longer has.
+        // Ignoring moves a book out of the missing or upcoming list (whichever it came from);
+        // drop both sections back to page 0 so the refetch below never asks for a page the
+        // shrunk section no longer has.
         setMissingPage(0);
+        setUpcomingPage(0);
       } else {
         await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
         notifications.success(`Unignored "${book.title || "book"}"`);
@@ -580,6 +595,7 @@ export function SeriesDetail() {
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
   const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
+  const upcomingBooks = upcomingSection.items as SeriesExpectedBook[];
 
   return (
     <div className="space-y-6">
@@ -710,23 +726,22 @@ export function SeriesDetail() {
       </div>
 
       {overview.isMatched && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-bold text-amber-600 dark:text-amber-400">
-              Missing Books ({missingSection.totalCount})
-            </h2>
-            {missingSection.totalCount > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => setBulkMatchOpen(true)}
-              >
-                <Wand2 className="mr-1 h-3 w-3" />
-                Match Missing Books
-              </Button>
-            )}
-          </div>
+        <CollapsibleCountSection
+          label="Missing Books"
+          count={missingSection.totalCount}
+          labelClassName="text-amber-600 dark:text-amber-400"
+        >
+          {missingSection.totalCount > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => setBulkMatchOpen(true)}
+            >
+              <Wand2 className="mr-1 h-3 w-3" />
+              Match Missing Books
+            </Button>
+          )}
           {missingBooks.length === 0 ? (
             <p className="text-muted-foreground text-xs">
               No missing books detected in this series.
@@ -734,62 +749,16 @@ export function SeriesDetail() {
           ) : (
             <div className="space-y-2">
               {missingBooks.map((mb) => (
-                <div
+                <ExpectedBookRow
                   key={mb.id}
-                  className="flex flex-col justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs sm:flex-row sm:items-center"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="text-foreground font-semibold break-words">
-                      {mb.position ? `Part ${mb.position} — ` : ""}
-                      {mb.title}
-                    </span>
-                    {mb.year && <span className="text-muted-foreground"> ({mb.year})</span>}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-                    {mb.sourceUrl && (
-                      <a
-                        href={mb.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary flex items-center hover:underline"
-                      >
-                        <ExternalLink className="mr-1 h-3 w-3" />
-                        Source
-                      </a>
-                    )}
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-6 text-[11px]"
-                      onClick={() => {
-                        setMissingCandidatesOpen({
-                          id: mb.id,
-                          position: mb.position,
-                          title: mb.title,
-                        });
-                      }}
-                    >
-                      <BookPlus className="mr-1 h-3 w-3" />
-                      Find in Library
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-[11px]"
-                      disabled={ignoringBookId === mb.id}
-                      onClick={() => {
-                        void handleSetIgnored(mb, true);
-                      }}
-                    >
-                      {ignoringBookId === mb.id ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <EyeOff className="mr-1 h-3 w-3" />
-                      )}
-                      Ignore
-                    </Button>
-                  </div>
-                </div>
+                  book={mb}
+                  tone="amber"
+                  ignoringBookId={ignoringBookId}
+                  onIgnore={() => void handleSetIgnored(mb, true)}
+                  onFindInLibrary={() =>
+                    setMissingCandidatesOpen({ id: mb.id, position: mb.position, title: mb.title })
+                  }
+                />
               ))}
             </div>
           )}
@@ -801,7 +770,41 @@ export function SeriesDetail() {
               onPageChange={setMissingPage}
             />
           )}
-        </div>
+        </CollapsibleCountSection>
+      )}
+
+      {overview.isMatched && (
+        <CollapsibleCountSection
+          label="Upcoming Books"
+          count={upcomingSection.totalCount}
+          labelClassName="text-muted-foreground"
+        >
+          {upcomingBooks.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No upcoming books detected in this series.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {upcomingBooks.map((ub) => (
+                <ExpectedBookRow
+                  key={ub.id}
+                  book={ub}
+                  tone="muted"
+                  ignoringBookId={ignoringBookId}
+                  onIgnore={() => void handleSetIgnored(ub, true)}
+                />
+              ))}
+            </div>
+          )}
+          {upcomingPageCount > 1 && (
+            <SectionPager
+              currentPage={currentUpcomingPage}
+              pageCount={upcomingPageCount}
+              totalCount={upcomingSection.totalCount}
+              onPageChange={setUpcomingPage}
+            />
+          )}
+        </CollapsibleCountSection>
       )}
 
       {overview.isMatched && ignoredSection.totalCount > 0 && (
@@ -1496,6 +1499,80 @@ function SectionPager({
           onClick={() => onPageChange(currentPage + 1)}
         >
           Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** One row of the Missing/Upcoming Books sections: title, optional part/year/source link, plus
+ * whichever actions apply (an upcoming book cannot be "found in library" since it isn't released
+ * yet, so `onFindInLibrary` is only passed for missing rows). */
+function ExpectedBookRow({
+  book,
+  tone,
+  ignoringBookId,
+  onIgnore,
+  onFindInLibrary,
+}: {
+  book: SeriesExpectedBook;
+  tone: "amber" | "muted";
+  ignoringBookId: number | null;
+  onIgnore: () => void;
+  onFindInLibrary?: () => void;
+}) {
+  const toneClasses =
+    tone === "amber" ? "border-amber-500/20 bg-amber-500/5" : "border-border bg-card";
+  return (
+    <div
+      className={`flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs sm:flex-row sm:items-center ${toneClasses}`}
+    >
+      <div className="min-w-0 flex-1">
+        <span className="text-foreground font-semibold break-words">
+          {book.position ? `Part ${book.position} — ` : ""}
+          {book.title}
+        </span>
+        {book.year && <span className="text-muted-foreground"> ({book.year})</span>}
+        {book.releaseDate && (
+          <span className="text-muted-foreground"> · releases {formatDate(book.releaseDate)}</span>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+        {book.sourceUrl && (
+          <a
+            href={book.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary flex items-center hover:underline"
+          >
+            <ExternalLink className="mr-1 h-3 w-3" />
+            Source
+          </a>
+        )}
+        {onFindInLibrary && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-6 text-[11px]"
+            onClick={onFindInLibrary}
+          >
+            <BookPlus className="mr-1 h-3 w-3" />
+            Find in Library
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-[11px]"
+          disabled={ignoringBookId === book.id}
+          onClick={onIgnore}
+        >
+          {ignoringBookId === book.id ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : (
+            <EyeOff className="mr-1 h-3 w-3" />
+          )}
+          Ignore
         </Button>
       </div>
     </div>

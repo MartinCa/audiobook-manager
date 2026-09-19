@@ -36,6 +36,15 @@ public class SeriesExpectedBook
     [Column("year")]
     public int? Year { get; set; }
 
+    /// <summary>
+    /// A precise release date, when the source reports one - preferred over <see cref="Year"/>
+    /// for Missing-vs-Upcoming classification (see <see cref="AudiobookManager.Domain.ExpectedBookClassifier"/>).
+    /// Null for a row stored before this field existed or added by hand; it fills in naturally on
+    /// the series' next refresh.
+    /// </summary>
+    [Column("release_date")]
+    public DateOnly? ReleaseDate { get; set; }
+
     [Column("source_url")]
     public string? SourceUrl { get; set; }
 

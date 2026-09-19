@@ -52,6 +52,18 @@ public interface IScraper
         Task.FromResult<IList<UpcomingReleaseResult>>(new List<UpcomingReleaseResult>());
 
     /// <summary>
+    /// The author's full bibliography - not just not-yet-released books - identified by
+    /// <paramref name="authorSourceId"/> (the id returned from <see cref="SearchAuthors"/>).
+    /// Backs the author standalone-books roster; a book this returns with
+    /// <see cref="AuthorBookResult.HasSeries"/> set is left out of that roster by the caller (it
+    /// is already covered through its series' own roster). Optional capability, defaulting to
+    /// empty like <see cref="GetAuthorUpcomingReleases"/> - gated by the same
+    /// <see cref="SupportsAuthorLookup"/> flag.
+    /// </summary>
+    Task<IList<AuthorBookResult>> GetAuthorBooks(string authorSourceId) =>
+        Task.FromResult<IList<AuthorBookResult>>(new List<AuthorBookResult>());
+
+    /// <summary>
     /// Not-yet-released books in the series identified by <paramref name="seriesSourceId"/> (the
     /// same source id <see cref="SeriesSearchResult.SourceId"/>/<see cref="GetSeriesBooks"/> use).
     /// </summary>

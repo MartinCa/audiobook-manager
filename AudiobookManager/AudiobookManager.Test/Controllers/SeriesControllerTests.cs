@@ -214,7 +214,7 @@ public class SeriesControllerTests
     {
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -267,7 +267,8 @@ public class SeriesControllerTests
 
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _seriesService.Verify(
-            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+            s => s.GetSeriesDetailPageAsync(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -280,7 +281,7 @@ public class SeriesControllerTests
         const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -322,7 +323,8 @@ public class SeriesControllerTests
 
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _seriesService.Verify(
-            s => s.GetSeriesDetailPageAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+            s => s.GetSeriesDetailPageAsync(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 

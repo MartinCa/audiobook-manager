@@ -147,7 +147,9 @@ public class SeriesController : ControllerBase
         [FromQuery] int ignoredPage = 0,
         [FromQuery] int ignoredPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int partMismatchPage = 0,
-        [FromQuery] int partMismatchPageSize = PagingLimits.DefaultPageSize)
+        [FromQuery] int partMismatchPageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] int upcomingPage = 0,
+        [FromQuery] int upcomingPageSize = PagingLimits.DefaultPageSize)
     {
         foreach (var check in new[]
         {
@@ -155,6 +157,7 @@ public class SeriesController : ControllerBase
             ValidatePageSelection(missingPage, missingPageSize, "missing books"),
             ValidatePageSelection(ignoredPage, ignoredPageSize, "ignored books"),
             ValidatePageSelection(partMismatchPage, partMismatchPageSize, "part mismatches"),
+            ValidatePageSelection(upcomingPage, upcomingPageSize, "upcoming books"),
         })
         {
             if (check != null)
@@ -168,7 +171,8 @@ public class SeriesController : ControllerBase
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,
             missingSkip: (int)((long)missingPage * missingPageSize), missingTake: missingPageSize,
             ignoredSkip: (int)((long)ignoredPage * ignoredPageSize), ignoredTake: ignoredPageSize,
-            partMismatchSkip: (int)((long)partMismatchPage * partMismatchPageSize), partMismatchTake: partMismatchPageSize);
+            partMismatchSkip: (int)((long)partMismatchPage * partMismatchPageSize), partMismatchTake: partMismatchPageSize,
+            upcomingSkip: (int)((long)upcomingPage * upcomingPageSize), upcomingTake: upcomingPageSize);
         if (detail is null)
         {
             return NotFound();
@@ -180,7 +184,8 @@ public class SeriesController : ControllerBase
                 b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredBooks.Select(ToDto).ToList(), detail.IgnoredBookTotal),
-            new SeriesPartMismatchPageDto(detail.PartMismatches.Select(ToMismatchDto).ToList(), detail.PartMismatchTotal));
+            new SeriesPartMismatchPageDto(detail.PartMismatches.Select(ToMismatchDto).ToList(), detail.PartMismatchTotal),
+            new SeriesExpectedBookPageDto(detail.UpcomingBooks.Select(ToDto).ToList(), detail.UpcomingBookTotal));
     }
 
     [HttpGet("match-candidates")]
@@ -1092,7 +1097,7 @@ public class SeriesController : ControllerBase
     }
 
     private static SeriesExpectedBookDto ToDto(SeriesExpectedBookInfo b) => new(
-        b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored);
+        b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate);
 
     private static SeriesPartMismatchDto ToMismatchDto(SeriesPartMismatch m) => new(
         m.AudiobookId, m.BookName, m.StoredPart, m.ExpectedPart, m.RosterTitle);

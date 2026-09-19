@@ -20,6 +20,17 @@ public interface IUpcomingReleaseRepository
     Task<(List<UpcomingRelease> Items, int Total)> GetPagedAsync(
         long? personId, long? seriesId, int limit, int offset);
 
+    /// <summary>
+    /// Every legacy release row, optionally scoped to one author and/or one series, unpaged. Used
+    /// by <see cref="AudiobookManager.Services.IUpcomingReleaseService.GetUpcomingReleasesAsync"/>
+    /// to merge this table with the roster-derived upcoming entries before sorting and paging the
+    /// combined result - the merge needs every candidate row up front, not one page of them. Safe
+    /// to load whole: a row only ever exists for a followed-and-matched author or series, which is
+    /// a small set (see <see cref="AudiobookManager.Database.Repositories.IAuthorFollowRepository.GetFollowedMatchedAuthorsAsync"/>/
+    /// <see cref="AudiobookManager.Database.Repositories.ISeriesFollowRepository.GetFollowedMatchedSeriesAsync"/>).
+    /// </summary>
+    Task<List<UpcomingRelease>> GetAllAsync(long? personId, long? seriesId);
+
     /// <summary>Deletes one release by id. Returns whether a row was actually deleted.</summary>
     Task<bool> DeleteAsync(long id);
 }

@@ -1853,10 +1853,14 @@ public class SeriesServiceTests
 
         var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
 
-        // Owned nothing + a two-book roster = two missing source books.
+        // Owned nothing + a two-book roster used to mean two missing-source-book changes; those
+        // are no longer emitted (decision: unmatched roster entries are visible via
+        // Missing/Upcoming, not a pending change to review). HasChanges is still true here only
+        // because the source's own series name ("Mistborn Saga") differs from the stored name -
+        // the name-adoption pending state.
         Assert.IsTrue(result.Success);
         Assert.IsTrue(result.HasChanges);
-        Assert.AreEqual(2, result.ChangeCount);
+        Assert.AreEqual(0, result.ChangeCount);
         // The result's SourceName is the scraper's name, not the source series title.
         Assert.AreEqual("Hardcover", result.SourceName);
 
@@ -1865,7 +1869,7 @@ public class SeriesServiceTests
         Assert.AreEqual("Hardcover", stored.SourceName);
         var payload = PendingSeriesRefreshPayload.TryParse(stored.PayloadJson);
         Assert.IsNotNull(payload);
-        Assert.AreEqual(2, payload.Changes.Count);
+        Assert.AreEqual(0, payload.Changes.Count);
         Assert.AreEqual("Mistborn Saga", payload.SourceSeriesName);
     }
 
@@ -2027,10 +2031,12 @@ public class SeriesServiceTests
         _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
     }
 
-    // The exemption is per entry: a refresh that found a genuinely new source book still stores
-    // a pending review, just without the previously-ignored entry in it.
+    // Decision 4: a refresh that finds only a new (unmatched) roster entry - previously-ignored
+    // or not - is no longer a "pending change" at all. The book is already visible through the
+    // roster/reconciliation's Missing/Upcoming sections, so no review dialog is needed and no
+    // PendingSeriesRefresh row is written.
     [TestMethod]
-    public async Task RefreshSeriesAsync_IgnoredEntryNotReported_RealNewBookStillStoredAsPending()
+    public async Task RefreshSeriesAsync_OnlyNewUnmatchedBooks_NoPendingReviewIsStored()
     {
         var existing = new Series
         {
@@ -2074,14 +2080,10 @@ public class SeriesServiceTests
 
         var result = await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
 
-        Assert.IsTrue(result.HasChanges);
-        Assert.AreEqual(1, result.ChangeCount);
-        Assert.IsNotNull(stored);
-        var payload = PendingSeriesRefreshPayload.TryParse(stored.PayloadJson);
-        Assert.IsNotNull(payload);
-        Assert.AreEqual(1, payload.Changes.Count);
-        var missing = payload.Changes.Single(c => c.Type == SeriesRefreshChangeType.MissingBook);
-        Assert.AreEqual("The Hero of Ages", missing.Title, "only the genuinely new book is pending review");
+        Assert.IsFalse(result.HasChanges, "unmatched roster entries alone are no longer a pending change");
+        Assert.AreEqual(0, result.ChangeCount);
+        Assert.IsNull(stored, "no PendingSeriesRefresh row is written when the refresh found only missing/upcoming books");
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
     }
 
     [TestMethod]

@@ -16,7 +16,8 @@ public record SeriesOverviewDto(
     int ExpectedBookCount,
     int MissingBookCount,
     int IgnoredBookCount,
-    bool IncludeOmnibusEditions
+    bool IncludeOmnibusEditions,
+    int UpcomingBookCount = 0
 );
 
 public record SeriesExpectedBookDto(
@@ -25,7 +26,8 @@ public record SeriesExpectedBookDto(
     string? Position,
     int? Year,
     string? SourceUrl,
-    bool IsIgnored
+    bool IsIgnored,
+    DateOnly? ReleaseDate = null
 );
 
 public record SeriesOwnedBookDto(
@@ -44,7 +46,8 @@ public record SeriesDetailDto(
     SeriesOwnedBookPageDto OwnedBooks,
     SeriesExpectedBookPageDto MissingBooks,
     SeriesExpectedBookPageDto IgnoredBooks,
-    SeriesPartMismatchPageDto PartMismatches
+    SeriesPartMismatchPageDto PartMismatches,
+    SeriesExpectedBookPageDto? UpcomingBooks = null
 );
 
 /// <summary>
