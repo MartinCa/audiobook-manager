@@ -314,6 +314,106 @@ public class AudiobookRepositorySeriesOverviewPagingTests
     }
 
     [TestMethod]
+    public async Task GetSeriesValuesPageAsync_FollowedFilter_IncludesOnlyFollowedCatalogRows()
+    {
+        var followed = await SeedCatalogRowAsync("Followed Series", matched: true);
+        await SeedBookAsync("Book", "Followed Series");
+        await SeedCatalogRowAsync("Not Followed Series", matched: true);
+        await SeedBookAsync("Book", "Not Followed Series");
+
+        _db.SeriesFollows.Add(new SeriesFollow { SeriesId = followed.Id, CreatedAt = DateTime.UtcNow });
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, filter: new SeriesOverviewFilter(Followed: true));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Followed Series", items.Single());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_MinOwnedBooksFilter_ExcludesSparserSeries()
+    {
+        await SeedBookAsync("Book 1", "Big Series");
+        await SeedBookAsync("Book 2", "Big Series");
+        await SeedBookAsync("Book 1", "Small Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, filter: new SeriesOverviewFilter(MinOwnedBooks: 2));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Big Series", items.Single());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_MaxOwnedBooksFilter_ExcludesLargerSeries()
+    {
+        await SeedBookAsync("Book 1", "Big Series");
+        await SeedBookAsync("Book 2", "Big Series");
+        await SeedBookAsync("Book 1", "Small Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, filter: new SeriesOverviewFilter(MaxOwnedBooks: 1));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Small Series", items.Single());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_NeverRefreshedFilter_IncludesUnrefreshedCatalogRowsAndNoCatalogRowSeries()
+    {
+        var refreshed = await SeedCatalogRowAsync("Refreshed Series", matched: true);
+        refreshed.LastRefreshedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await SeedBookAsync("Book", "Refreshed Series");
+
+        await SeedCatalogRowAsync("Never Refreshed Catalog Series", matched: true);
+        await SeedBookAsync("Book", "Never Refreshed Catalog Series");
+
+        // No catalog row at all - also "never refreshed".
+        await SeedBookAsync("Book", "Unmatched Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, filter: new SeriesOverviewFilter(NeverRefreshed: true));
+
+        Assert.AreEqual(2, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "Never Refreshed Catalog Series", "Unmatched Series" }, items);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_RefreshedAfterFilter_ExcludesEarlierRefreshes()
+    {
+        var early = await SeedCatalogRowAsync("Early Series", matched: true);
+        early.LastRefreshedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var late = await SeedCatalogRowAsync("Late Series", matched: true);
+        late.LastRefreshedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _db.SaveChangesAsync();
+        await SeedBookAsync("Book", "Early Series");
+        await SeedBookAsync("Book", "Late Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10,
+            filter: new SeriesOverviewFilter(RefreshedAfter: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Late Series", items.Single());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_RestrictToNames_NarrowsTheResult()
+    {
+        await SeedBookAsync("Book", "Keep Series");
+        await SeedBookAsync("Book", "Drop Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, restrictToNames: new[] { "Keep Series" });
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Keep Series", items.Single());
+    }
+
+    [TestMethod]
     public async Task GetSeriesValueCountsAsync_CountsEachBucketSeparately()
     {
         await SeedBookAsync("Book", "MatchedSeries");

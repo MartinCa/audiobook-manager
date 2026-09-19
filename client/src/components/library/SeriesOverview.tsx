@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -20,6 +21,47 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
+import type { SeriesListFilters } from "@/types/EntityFilters";
+
+const FILTER_FIELDS: FilterFieldDef[] = [
+  {
+    type: "tristate",
+    key: "followed",
+    label: "Followed",
+    trueLabel: "Followed",
+    falseLabel: "Not followed",
+  },
+  {
+    type: "tristate",
+    key: "matched",
+    label: "Matched",
+    trueLabel: "Matched",
+    falseLabel: "Unmatched",
+  },
+  {
+    type: "tristate",
+    key: "hasMissingBooks",
+    label: "Missing books",
+    trueLabel: "Has missing",
+    falseLabel: "None missing",
+  },
+  {
+    type: "tristate",
+    key: "hasUpcomingBooks",
+    label: "Upcoming books",
+    trueLabel: "Has upcoming",
+    falseLabel: "None upcoming",
+  },
+  { type: "numberRange", label: "Owned books", minKey: "minOwnedBooks", maxKey: "maxOwnedBooks" },
+  {
+    type: "dateRange",
+    label: "Last refreshed",
+    afterKey: "refreshedAfter",
+    beforeKey: "refreshedBefore",
+    neverKey: "neverRefreshed",
+    neverLabel: "Never refreshed",
+  },
+];
 
 interface SeriesRefreshProgressPayload {
   processed: number;
@@ -38,7 +80,8 @@ interface SeriesRefreshCompletePayload {
 export function SeriesOverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { q = "" } = Route.useSearch();
+  const { q = "", ...filterSearch } = Route.useSearch();
+  const filters: SeriesListFilters = filterSearch;
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
@@ -51,6 +94,15 @@ export function SeriesOverviewPage() {
       setFilter(q);
     }
   }
+
+  const handleFiltersChange = (next: SeriesListFilters) => {
+    setPage(0);
+    void navigate({
+      to: "/library/series",
+      search: (prev) => ({ ...prev, ...next }),
+      replace: true,
+    });
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,11 +180,11 @@ export function SeriesOverviewPage() {
     // that shrank. The pager stays rendered even when such a page comes back empty (its items
     // count on totalCount, not on the items), so the user can page back instead of staring at a
     // dead-end heading - the CleanBookUrls shape.
-    queryKey: queryKeys.series.page(q, page),
+    queryKey: queryKeys.series.page(q, page, filters),
     // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
     // doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
-    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q),
+    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q, filters),
   });
 
   const seriesList = (pageData?.items ?? []) as SeriesOverview[];
@@ -281,6 +333,8 @@ export function SeriesOverviewPage() {
           </button>
         ) : null}
       </div>
+
+      <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
 
       {loading && seriesList.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">

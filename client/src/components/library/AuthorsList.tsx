@@ -6,15 +6,58 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
+import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
+import type { AuthorListFilters } from "@/types/EntityFilters";
+
+const FILTER_FIELDS: FilterFieldDef[] = [
+  {
+    type: "tristate",
+    key: "followed",
+    label: "Followed",
+    trueLabel: "Followed",
+    falseLabel: "Not followed",
+  },
+  {
+    type: "tristate",
+    key: "matched",
+    label: "Matched",
+    trueLabel: "Matched",
+    falseLabel: "Unmatched",
+  },
+  {
+    type: "tristate",
+    key: "hasMissingBooks",
+    label: "Missing books",
+    trueLabel: "Has missing",
+    falseLabel: "None missing",
+  },
+  {
+    type: "tristate",
+    key: "hasUpcomingBooks",
+    label: "Upcoming books",
+    trueLabel: "Has upcoming",
+    falseLabel: "None upcoming",
+  },
+  { type: "numberRange", label: "Book count", minKey: "minBookCount", maxKey: "maxBookCount" },
+  {
+    type: "dateRange",
+    label: "Last refreshed",
+    afterKey: "refreshedAfter",
+    beforeKey: "refreshedBefore",
+    neverKey: "neverRefreshed",
+    neverLabel: "Never refreshed",
+  },
+];
 
 export function AuthorsList() {
   const navigate = useNavigate();
-  const { q = "" } = Route.useSearch();
+  const { q = "", ...filterSearch } = Route.useSearch();
+  const filters: AuthorListFilters = filterSearch;
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   const [page, setPage] = useState(0);
@@ -25,6 +68,15 @@ export function AuthorsList() {
       setFilter(q);
     }
   }
+
+  const handleFiltersChange = (next: AuthorListFilters) => {
+    setPage(0);
+    void navigate({
+      to: "/library/authors",
+      search: (prev) => ({ ...prev, ...next }),
+      replace: true,
+    });
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -62,9 +114,9 @@ export function AuthorsList() {
   // The list is paged server-side: the filter also runs in SQL (accent-insensitive), so only the
   // requested page crosses the wire - the old version sent every author in the library.
   const { data: pageData, isLoading: loading } = useQuery({
-    queryKey: queryKeys.authors.page(q, page),
+    queryKey: queryKeys.authors.page(q, page, filters),
     placeholderData: keepPreviousData,
-    queryFn: () => browseApi.getAuthorPage(PAGE_SIZE, page * PAGE_SIZE, q),
+    queryFn: () => browseApi.getAuthorPage(PAGE_SIZE, page * PAGE_SIZE, q, filters),
   });
 
   const authors = pageData?.items ?? [];
@@ -125,6 +177,8 @@ export function AuthorsList() {
           </button>
         ) : null}
       </div>
+
+      <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
 
       {loading && authors.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">

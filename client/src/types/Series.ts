@@ -14,6 +14,7 @@ export type SeriesOverview = Require<
   | "ignoredBookCount"
   | "includeOmnibusEditions"
   | "upcomingBookCount"
+  | "isFollowed"
 >;
 
 // AudiobookManager.Api/Dtos/SeriesDtos.cs: page records carry items/totalCount non-nullable.

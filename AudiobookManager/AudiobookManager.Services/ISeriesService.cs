@@ -1,3 +1,4 @@
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
@@ -26,7 +27,8 @@ public interface ISeriesService
     /// wants.
     /// </summary>
     Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
-        int page, int pageSize, string? search, bool? matched, long? authorId = null);
+        int page, int pageSize, string? search, bool? matched, long? authorId = null,
+        SeriesOverviewFilter? filter = null);
 
     /// <summary>Total/matched/unmatched series counts for the overview header badge.</summary>
     Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync();

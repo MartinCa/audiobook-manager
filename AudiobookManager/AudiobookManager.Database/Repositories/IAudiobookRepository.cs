@@ -46,12 +46,28 @@ public interface IAudiobookRepository
     /// author alone. An author scope deliberately unions no catalog rows: a series the author
     /// owns no book in is not one the author has, so a catalog-only value would be wrong to list
     /// there. The search/matched filters still apply.
+    ///
+    /// <paramref name="filter"/> layers the additional followed/owned-count/refreshed-date
+    /// filters from <see cref="SeriesOverviewFilter"/> on top; <paramref name="restrictToNames"/>
+    /// is how <c>SeriesService</c> applies that filter's missing/upcoming-book fields, which this
+    /// repository cannot evaluate itself (see <see cref="SeriesOverviewFilter"/>'s doc) - when
+    /// non-null, only series values in this set are returned.
     /// </summary>
     Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
-        string? search, bool? matched, int skip, int take, long? authorId = null);
+        string? search, bool? matched, int skip, int take, long? authorId = null,
+        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null);
 
     /// <summary>Total distinct series values (catalog plus audiobook tags) and how many of those have a matched catalog source, for the overview header badges.</summary>
     Task<(int Total, int Matched)> GetSeriesValueCountsAsync();
+
+    /// <summary>
+    /// The standalone (no-series) owned book titles of each of the given authors, for the bulk
+    /// author missing/upcoming-book reconciliation the authors list filter needs
+    /// (<see cref="AuthorReconciliationProvider.GetBulkMissingOrUpcomingAuthorIdsAsync"/>). Only
+    /// the title is projected - the reconciliation there has no series part to compare, same as
+    /// <see cref="GetStandaloneOwnedKeysByAuthorAsync"/>.
+    /// </summary>
+    Task<Dictionary<long, List<string>>> GetStandaloneOwnedTitlesByAuthorsAsync(IReadOnlyCollection<long> authorIds);
 
     /// <summary>
     /// One page of audiobooks with a *dirty* website URL - one whose query string or fragment

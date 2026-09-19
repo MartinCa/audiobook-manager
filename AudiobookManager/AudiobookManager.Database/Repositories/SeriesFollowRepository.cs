@@ -52,4 +52,20 @@ public class SeriesFollowRepository : ISeriesFollowRepository
             .Select(f => f.Series)
             .ToListAsync();
     }
+
+    public async Task<HashSet<string>> GetFollowedSeriesNamesAsync(IReadOnlyCollection<string> seriesNames)
+    {
+        if (seriesNames.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var names = await _db.SeriesFollows
+            .AsNoTracking()
+            .Where(f => seriesNames.Contains(f.Series.Name))
+            .Select(f => f.Series.Name)
+            .ToListAsync();
+
+        return new HashSet<string>(names, StringComparer.Ordinal);
+    }
 }

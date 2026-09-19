@@ -143,4 +143,40 @@ public class AuthorReconciliationProviderTests
         Assert.AreEqual(0, result.Ignored.Count);
         Assert.AreEqual(0, result.ExpectedBookCount);
     }
+
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_ClassifiesEachAuthorSeparately()
+    {
+        _personRepository
+            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
+            .ReturnsAsync(new List<AuthorExpectedBookRef>
+            {
+                new(1, "Elantris", 2005, null), // author 1: missing (past year, not owned)
+                new(2, "Warbreaker", DateTime.UtcNow.Year + 1, null), // author 2: upcoming
+                new(3, "Mistborn", 2006, null), // author 3: owned, neither
+            });
+        _audiobookRepository
+            .Setup(r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new Dictionary<long, List<string>> { [3] = new List<string> { "Mistborn" } });
+
+        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        CollectionAssert.AreEquivalent(new long[] { 1 }, missing.ToList());
+        CollectionAssert.AreEquivalent(new long[] { 2 }, upcoming.ToList());
+    }
+
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_NoActiveExpectedBooks_ReturnsEmptySets()
+    {
+        _personRepository
+            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
+            .ReturnsAsync(new List<AuthorExpectedBookRef>());
+
+        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        Assert.AreEqual(0, missing.Count);
+        Assert.AreEqual(0, upcoming.Count);
+        _audiobookRepository.Verify(
+            r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()), Times.Never);
+    }
 }

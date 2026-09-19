@@ -321,6 +321,79 @@ public class BrowseControllerTests
     }
 
     [TestMethod]
+    public async Task GetAuthors_PassesNewFiltersThrough()
+    {
+        var expectedFilter = new AuthorSummaryFilter(
+            Followed: true, MinBookCount: 2, MaxBookCount: null, HasMissingBooks: null,
+            HasUpcomingBooks: null, Matched: true, RefreshedAfter: null, RefreshedBefore: null, NeverRefreshed: null);
+
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, expectedFilter, null, null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(followed: true, minBookCount: 2, matched: true);
+
+        Assert.IsNotNull(result.Value);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(null, 50, 0, expectedFilter, null, null), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_HasMissingBooksFilter_RestrictsToTheReconciledIdSet()
+    {
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync((new HashSet<long> { 1, 2 }, new HashSet<long> { 2, 3 }));
+
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, It.IsAny<AuthorSummaryFilter>(),
+                It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 1, 2 })), null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(hasMissingBooks: true);
+
+        Assert.IsNotNull(result.Value);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, It.IsAny<AuthorSummaryFilter>(),
+                It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 1, 2 })), null),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_HasMissingBooksFalse_ExcludesTheReconciledIdSet()
+    {
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync((new HashSet<long> { 1, 2 }, new HashSet<long>()));
+
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, It.IsAny<AuthorSummaryFilter>(), null,
+                It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 1, 2 }))))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(hasMissingBooks: false);
+
+        Assert.IsNotNull(result.Value);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, It.IsAny<AuthorSummaryFilter>(), null,
+                It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 1, 2 }))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_MinBookCountGreaterThanMax_IsRefused()
+    {
+        var result = await _controller.GetAuthors(minBookCount: 5, maxBookCount: 1);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
     public async Task GetAuthors_AnOutOfRangeOffset_IsRefusedWithoutTouchingTheRepository()
     {
         var result = await _controller.GetAuthors(limit: 50, offset: 1_000_001);

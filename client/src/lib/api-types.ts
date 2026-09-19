@@ -612,6 +612,15 @@ export interface paths {
                     q?: string;
                     limit?: number;
                     offset?: number;
+                    followed?: boolean;
+                    minBookCount?: number;
+                    maxBookCount?: number;
+                    hasMissingBooks?: boolean;
+                    hasUpcomingBooks?: boolean;
+                    matched?: boolean;
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -2851,6 +2860,14 @@ export interface paths {
                     pageSize?: number;
                     search?: string;
                     matched?: boolean;
+                    followed?: boolean;
+                    minOwnedBooks?: number;
+                    maxOwnedBooks?: number;
+                    hasMissingBooks?: boolean;
+                    hasUpcomingBooks?: boolean;
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -5194,6 +5211,7 @@ export interface components {
             includeOmnibusEditions?: boolean;
             /** Format: int32 */
             upcomingBookCount?: number;
+            isFollowed?: boolean;
         };
         SeriesOverviewDtoPaginatedResult: {
             /** Format: int32 */

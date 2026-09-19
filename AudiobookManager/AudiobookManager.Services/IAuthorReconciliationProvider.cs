@@ -11,4 +11,15 @@ namespace AudiobookManager.Services;
 public interface IAuthorReconciliationProvider
 {
     Task<AuthorReconciliation> GetReconciliationAsync(long personId);
+
+    /// <summary>
+    /// Which authors have at least one unmatched, non-upcoming ("missing") roster entry, and
+    /// which have at least one unmatched, not-yet-released ("upcoming") one - the authors list
+    /// filter's bulk counterpart of <see cref="GetReconciliationAsync"/>. One whole-library
+    /// computation (bounded the same way a single reconciliation is - see
+    /// <see cref="AuthorReconciliationProvider"/>) rather than one reconciliation per author, so
+    /// the filter costs one pass regardless of how many authors have a roster. Only runs when the
+    /// authors list actually asks for one of these two filters.
+    /// </summary>
+    Task<(HashSet<long> HasMissingBooks, HashSet<long> HasUpcomingBooks)> GetBulkMissingOrUpcomingAuthorIdsAsync();
 }

@@ -17,7 +17,8 @@ public record SeriesOverviewDto(
     int MissingBookCount,
     int IgnoredBookCount,
     bool IncludeOmnibusEditions,
-    int UpcomingBookCount = 0
+    int UpcomingBookCount = 0,
+    bool IsFollowed = false
 );
 
 public record SeriesExpectedBookDto(

@@ -19,6 +19,7 @@ public class SeriesServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<ISeriesFollowRepository> _seriesFollowRepository = null!;
     private Mock<ISeriesMappingRepository> _seriesMappingRepository = null!;
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
@@ -32,6 +33,10 @@ public class SeriesServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _seriesRepository = new Mock<ISeriesRepository>();
+        _seriesFollowRepository = new Mock<ISeriesFollowRepository>();
+        _seriesFollowRepository
+            .Setup(r => r.GetFollowedSeriesNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new HashSet<string>(StringComparer.Ordinal));
         _seriesMappingRepository = new Mock<ISeriesMappingRepository>();
         _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
         _audiobookService = new Mock<IAudiobookService>();
@@ -45,6 +50,7 @@ public class SeriesServiceTests
         new(
             _audiobookRepository.Object,
             _seriesRepository.Object,
+            _seriesFollowRepository.Object,
             _seriesMappingRepository.Object,
             _pendingSeriesRefreshRepository.Object,
             _audiobookService.Object,
@@ -944,6 +950,81 @@ public class SeriesServiceTests
         Assert.IsFalse(page.Items[0].IsMatched);
         CollectionAssert.AreEqual(new List<string> { "Brandon Sanderson" }, page.Items[0].Authors);
         _audiobookRepository.Verify(r => r.GetSeriesValuesPageAsync(null, null, 0, 50, 7), Times.Once);
+    }
+
+    // The page's follow status is looked up in one bulk call keyed by the page's names, not once
+    // per series - see GetFollowedSeriesNamesAsync.
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_MarksSeriesFollowedFromTheBulkLookup()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(null, null, 0, 50, null, null, null))
+            .ReturnsAsync((new List<string> { "Mistborn", "Stormlight" }, 2));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync(new List<string> { "Mistborn", "Stormlight" }))
+            .ReturnsAsync(new List<SeriesGroupingBook>());
+        _seriesRepository
+            .Setup(r => r.GetByNamesWithExpectedBooksAsync(new List<string> { "Mistborn", "Stormlight" }))
+            .ReturnsAsync(new List<Series>());
+        _seriesFollowRepository
+            .Setup(r => r.GetFollowedSeriesNamesAsync(new List<string> { "Mistborn", "Stormlight" }))
+            .ReturnsAsync(new HashSet<string> { "Mistborn" });
+
+        var page = await MakeService().GetSeriesOverviewPageAsync(0, 50, null, null);
+
+        Assert.IsTrue(page.Items.Single(i => i.Name == "Mistborn").IsFollowed);
+        Assert.IsFalse(page.Items.Single(i => i.Name == "Stormlight").IsFollowed);
+    }
+
+    // HasMissingBooks/HasUpcomingBooks are resolved via the whole-library overview computation
+    // (the fuzzy roster reconciliation the repository cannot evaluate itself), then passed to the
+    // repository as a restricting name set before the paged SQL query runs.
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_HasMissingBooksFilter_RestrictsByReconciledNames()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync())
+            .ReturnsAsync(new List<SeriesGroupingBook>
+            {
+                new("Missing Series", "1", "Book One", new List<string> { "Author" }),
+            });
+        _seriesRepository
+            .Setup(r => r.GetAllWithExpectedBooksAsync())
+            .ReturnsAsync(new List<Series>
+            {
+                new()
+                {
+                    Id = 1,
+                    Name = "Missing Series",
+                    ExpectedBooks = new List<SeriesExpectedBook>
+                    {
+                        MakeExpected(1, "Book One", "1"),
+                        MakeExpected(2, "Book Two", "2"),
+                    },
+                },
+                new() { Id = 2, Name = "Complete Series" },
+            });
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(
+                null, null, 0, 50, null,
+                It.Is<SeriesOverviewFilter>(f => f!.HasMissingBooks == true),
+                It.Is<IReadOnlyCollection<string>>(names => names.SequenceEqual(new[] { "Missing Series" }))))
+            .ReturnsAsync((new List<string> { "Missing Series" }, 1));
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync(new List<string> { "Missing Series" }))
+            .ReturnsAsync(new List<SeriesGroupingBook>
+            {
+                new("Missing Series", "1", "Book One", new List<string> { "Author" }),
+            });
+        _seriesRepository
+            .Setup(r => r.GetByNamesWithExpectedBooksAsync(new List<string> { "Missing Series" }))
+            .ReturnsAsync(new List<Series>());
+
+        var page = await MakeService().GetSeriesOverviewPageAsync(
+            0, 50, null, null, filter: new SeriesOverviewFilter(HasMissingBooks: true));
+
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual("Missing Series", page.Items[0].Name);
     }
 
     // The overview must stay library-wide in its owned/missing figures even when the page of

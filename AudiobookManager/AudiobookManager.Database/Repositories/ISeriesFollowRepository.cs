@@ -18,4 +18,11 @@ public interface ISeriesFollowRepository
     /// it has one.
     /// </summary>
     Task<List<Series>> GetFollowedMatchedSeriesAsync();
+
+    /// <summary>
+    /// Follow status for a batch of series values in one query, for the series overview page -
+    /// the bulk counterpart of <see cref="IsFollowedAsync"/>, so rendering a page of series never
+    /// costs one follow-status query per row.
+    /// </summary>
+    Task<HashSet<string>> GetFollowedSeriesNamesAsync(IReadOnlyCollection<string> seriesNames);
 }

@@ -87,7 +87,7 @@ describe("AuthorsList", () => {
 
     await waitFor(() => {
       // 50-row pages; the next one begins at offset 50.
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 50, "");
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 50, "", {});
     });
 
     expect(await screen.findByText("Author 51")).toBeInTheDocument();
@@ -102,7 +102,22 @@ describe("AuthorsList", () => {
     fireEvent.change(searchInput, { target: { value: "rene" } });
 
     await waitFor(() => {
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "rene");
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "rene", {});
+    });
+  });
+
+  // Same shared EntityFilterBar as the series list - a filter change lands in the route's search
+  // params and is sent to the server, resetting the page like the search debounce does.
+  it("sends a numeric filter change to the server", async () => {
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+    renderWithProviders();
+    await screen.findByPlaceholderText("Filter authors...");
+
+    fireEvent.change(screen.getByLabelText("Book count minimum"), { target: { value: "5" } });
+
+    await waitFor(() => {
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", { minBookCount: 5 });
     });
   });
 
@@ -141,7 +156,7 @@ describe("AuthorsList", () => {
 
     // The page must be corrected back to the last valid page and its fetch re-issued there.
     await waitFor(() => {
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "");
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", {});
     });
     expect(await screen.findByText("Author 01")).toBeInTheDocument();
     expect(await screen.findByText(/Authors \(50\)/)).toBeInTheDocument();

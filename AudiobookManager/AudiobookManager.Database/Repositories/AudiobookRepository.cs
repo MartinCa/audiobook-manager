@@ -589,11 +589,74 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     public async Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
-        string? search, bool? matched, int skip, int take, long? authorId = null)
+        string? search, bool? matched, int skip, int take, long? authorId = null,
+        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null)
     {
         var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
         // ESCAPEd like every other raw user-pattern LIKE in this repository.
         var pattern = folded is null ? null : $"%{LikePatterns.EscapeLikePattern(folded)}%";
+
+        // Catalog-row-level constraints (followed, refresh date, never-refreshed): a series with
+        // no catalog row can never satisfy any of these, so an empty result is correct, not a bug
+        // when the library has plenty of unmatched series.
+        var catalogNamesQuery = _db.Series.AsNoTracking().AsQueryable();
+        if (filter?.Followed is not null)
+        {
+            var followedNames = _db.SeriesFollows.AsNoTracking().Select(f => f.Series.Name);
+            catalogNamesQuery = filter.Followed == true
+                ? catalogNamesQuery.Where(s => followedNames.Contains(s.Name))
+                : catalogNamesQuery.Where(s => !followedNames.Contains(s.Name));
+        }
+
+        if (filter?.NeverRefreshed == true)
+        {
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt == null);
+        }
+        else if (filter?.NeverRefreshed == false)
+        {
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null);
+        }
+
+        if (filter?.RefreshedAfter is not null)
+        {
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt >= filter.RefreshedAfter);
+        }
+
+        if (filter?.RefreshedBefore is not null)
+        {
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt <= filter.RefreshedBefore);
+        }
+
+        // "Never refreshed" additionally includes every series that has no catalog row at all -
+        // those have quite literally never been refreshed. The other catalog-row filters
+        // (Followed, RefreshedAfter/Before) cannot be satisfied by a value with no row, so they
+        // stay scoped to catalogNamesQuery alone.
+        HashSet<string>? neverRefreshedNoCatalogNames = null;
+        var catalogFilterActive = filter?.Followed is not null || filter?.NeverRefreshed is not null
+            || filter?.RefreshedAfter is not null || filter?.RefreshedBefore is not null;
+        if (catalogFilterActive)
+        {
+            var eligibleCatalogNames = await catalogNamesQuery.Select(s => s.Name).ToListAsync();
+            neverRefreshedNoCatalogNames = new HashSet<string>(eligibleCatalogNames, StringComparer.Ordinal);
+
+            if (filter?.NeverRefreshed == true && filter.Followed != true)
+            {
+                // A series with no catalog row cannot be Followed=true (following creates the row),
+                // so this only needs to run when Followed isn't asserted true - a no-catalog-row
+                // series is also, trivially, "never refreshed".
+                var catalogNames = await _db.Series.AsNoTracking().Select(s => s.Name).ToListAsync();
+                var catalogNameSet = new HashSet<string>(catalogNames, StringComparer.Ordinal);
+                var allBookSeriesNames = await _db.Audiobooks.AsNoTracking()
+                    .Where(a => a.Series != null && a.Series != "")
+                    .Select(a => a.Series!)
+                    .Distinct()
+                    .ToListAsync();
+                foreach (var name in allBookSeriesNames.Where(n => !catalogNameSet.Contains(n)))
+                {
+                    neverRefreshedNoCatalogNames.Add(name);
+                }
+            }
+        }
 
         var booksQuery = _db.Audiobooks
             .AsNoTracking()
@@ -627,6 +690,34 @@ public class AudiobookRepository : IAudiobookRepository
 
             booksQuery = booksQuery.Where(a =>
                 wantMatched ? matchedCatalog.Contains(a.Series!) : !matchedCatalog.Contains(a.Series!));
+        }
+
+        if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
+        {
+            // Owned count is evaluated over every book of the series regardless of the other
+            // per-book filters above (search/authorId narrow WHICH series values are candidates,
+            // not what counts as "owned" for one) - a raw grouped count over the whole table,
+            // restricted to the candidate names once they're known below.
+            var countedNames = await _db.Audiobooks.AsNoTracking()
+                .Where(a => a.Series != null && a.Series != "")
+                .GroupBy(a => a.Series!)
+                .Select(g => new { Series = g.Key, Count = g.Count() })
+                .Where(g => (filter.MinOwnedBooks == null || g.Count >= filter.MinOwnedBooks)
+                    && (filter.MaxOwnedBooks == null || g.Count <= filter.MaxOwnedBooks))
+                .Select(g => g.Series)
+                .ToListAsync();
+            var countedNameSet = new HashSet<string>(countedNames, StringComparer.Ordinal);
+            booksQuery = booksQuery.Where(a => countedNameSet.Contains(a.Series!));
+        }
+
+        if (neverRefreshedNoCatalogNames is not null)
+        {
+            booksQuery = booksQuery.Where(a => neverRefreshedNoCatalogNames.Contains(a.Series!));
+        }
+
+        if (restrictToNames is not null)
+        {
+            booksQuery = booksQuery.Where(a => restrictToNames.Contains(a.Series!));
         }
 
         var fromBooks = booksQuery.Select(a => a.Series!).Distinct();
@@ -664,6 +755,27 @@ public class AudiobookRepository : IAudiobookRepository
                     || s.MatchedSourceId == null || s.MatchedSourceId == "");
         }
 
+        if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
+        {
+            // A catalog-only row (no owned book) has an owned count of zero - only relevant when
+            // the caller's minimum is itself zero-or-below, i.e. no effective minimum.
+            if (filter.MinOwnedBooks is > 0)
+            {
+                catalogQuery = catalogQuery.Where(s => false);
+            }
+        }
+
+        if (catalogFilterActive)
+        {
+            var eligible = neverRefreshedNoCatalogNames!;
+            catalogQuery = catalogQuery.Where(s => eligible.Contains(s.Name));
+        }
+
+        if (restrictToNames is not null)
+        {
+            catalogQuery = catalogQuery.Where(s => restrictToNames.Contains(s.Name));
+        }
+
         var fromCatalog = catalogQuery.Select(s => s.Name);
 
         // The two value spaces are one: a catalog row's name is exactly the free-text tag value it
@@ -681,6 +793,25 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
 
         return (items, total);
+    }
+
+    /// <inheritdoc cref="IAudiobookRepository.GetStandaloneOwnedTitlesByAuthorsAsync"/>
+    public async Task<Dictionary<long, List<string>>> GetStandaloneOwnedTitlesByAuthorsAsync(IReadOnlyCollection<long> authorIds)
+    {
+        if (authorIds.Count == 0)
+        {
+            return new Dictionary<long, List<string>>();
+        }
+
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => authorIds.Contains(p.Id)))
+            .SelectMany(a => a.Authors.Where(p => authorIds.Contains(p.Id)), (a, p) => new { AuthorId = p.Id, a.BookName })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.AuthorId)
+            .ToDictionary(g => g.Key, g => g.Select(r => r.BookName).ToList());
     }
 
     public async Task<(int Total, int Matched)> GetSeriesValueCountsAsync()
