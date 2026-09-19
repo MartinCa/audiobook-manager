@@ -972,6 +972,19 @@ public class HardcoverScraper : IScraper
             return results;
         }
 
+        // The query's `limit: 300` truncates silently server-side - there is no separate overflow
+        // signal to check, so hitting the cap exactly is the only local evidence a prolific
+        // author's bibliography was cut off. Unlike the reconciliation caps (which refuse rather
+        // than silently truncate), the caller stores whatever comes back and stamps
+        // LastRefreshedAt regardless, so this is the only place the truncation becomes observable
+        // at all - log it rather than let it pass unnoticed.
+        if (contributionsElement.GetArrayLength() >= 300)
+        {
+            _logger.LogWarning(
+                "Hardcover author {AuthorSourceId} (id {AuthorId}) returned {Count} bibliography contributions, hitting the 300-row query cap - the fetched roster is likely truncated and missing some of this author's books",
+                authorSourceId, id, contributionsElement.GetArrayLength());
+        }
+
         foreach (var contribution in contributionsElement.EnumerateArray())
         {
             try
