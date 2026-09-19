@@ -20,6 +20,7 @@ vi.mock("@/services/api", async (importOriginal) => {
     upcomingReleasesApi: {
       getUpcomingReleases: vi.fn(),
       removeUpcomingRelease: vi.fn().mockResolvedValue(undefined),
+      dismissRosterUpcomingRelease: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -30,6 +31,7 @@ vi.mock("@/lib/notifications", () => ({
 
 function release(overrides: Partial<UpcomingRelease> = {}): UpcomingRelease {
   return {
+    source: "Legacy",
     id: 1,
     title: "The Stormlight Archive 6",
     releaseDate: "2030-01-01",
@@ -172,5 +174,81 @@ describe("UpcomingReleasesList", () => {
     fireEvent.click(removeButton);
 
     await waitFor(() => expect(upcomingReleasesApi.removeUpcomingRelease).toHaveBeenCalledWith(1));
+  });
+
+  // "Roster" rows have no backing UpcomingRelease row - removing one dismisses the roster entry
+  // instead, through the series/author expected-book ignore mechanism (see
+  // AudiobookManager/UPCOMING_RELEASES_DESIGN.md).
+  it("dismisses a series-sourced roster release by series name and position", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        release({
+          source: "Roster",
+          id: null,
+          seriesName: "Mistborn",
+          seriesPosition: "5",
+          title: "The Lost Metal",
+        }),
+      ],
+    });
+
+    renderList();
+
+    const removeButton = await screen.findByTitle("Remove from upcoming releases");
+    fireEvent.click(removeButton);
+
+    await waitFor(() => {
+      expect(upcomingReleasesApi.dismissRosterUpcomingRelease).toHaveBeenCalledWith({
+        seriesName: "Mistborn",
+        seriesPosition: "5",
+        title: "The Lost Metal",
+      });
+    });
+    expect(upcomingReleasesApi.removeUpcomingRelease).not.toHaveBeenCalled();
+  });
+
+  it("dismisses an author-sourced roster release by author id", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        release({
+          source: "Roster",
+          id: null,
+          seriesName: null,
+          authorId: 9,
+          authorName: "Brandon Sanderson",
+          title: "Standalone Novella",
+        }),
+      ],
+    });
+
+    renderList();
+
+    const removeButton = await screen.findByTitle("Remove from upcoming releases");
+    fireEvent.click(removeButton);
+
+    await waitFor(() => {
+      expect(upcomingReleasesApi.dismissRosterUpcomingRelease).toHaveBeenCalledWith({
+        authorId: 9,
+        title: "Standalone Novella",
+      });
+    });
+  });
+
+  // A roster row can have a Year but no precise ReleaseDate yet; the bare year is shown instead
+  // of an empty date.
+  it("falls back to the year when a roster row has no precise release date", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release({ source: "Roster", id: null, releaseDate: null, year: 2027 })],
+    });
+
+    renderList();
+
+    expect(await screen.findByText("2027")).toBeInTheDocument();
   });
 });
