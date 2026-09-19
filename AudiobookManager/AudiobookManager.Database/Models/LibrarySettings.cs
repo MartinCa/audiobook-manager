@@ -34,12 +34,31 @@ public class LibrarySettings
     [Column("metadata_refresh_delay_ms")]
     public int MetadataRefreshDelayMs { get; set; } = 1000;
 
+    /// <summary>Whether the upcoming-releases worker's scheduled sweep runs at all.</summary>
+    [Column("upcoming_releases_enabled")]
+    public bool UpcomingReleasesEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Standard 5-field cron expression (minute hour day month weekday), evaluated in UTC, that
+    /// schedules the upcoming-releases worker's sweep. Defaults to once a day at 03:00 UTC,
+    /// replacing the old fixed 24-hour interval.
+    /// </summary>
+    [Column("upcoming_releases_cron_schedule")]
+    public string UpcomingReleasesCronSchedule { get; set; } = "0 3 * * *";
+
     public LibrarySettings() { }
 
-    public LibrarySettings(long id, InitialsSpacing initialsSpacing, int metadataRefreshDelayMs = 1000)
+    public LibrarySettings(
+        long id,
+        InitialsSpacing initialsSpacing,
+        int metadataRefreshDelayMs = 1000,
+        bool upcomingReleasesEnabled = true,
+        string upcomingReleasesCronSchedule = "0 3 * * *")
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
         MetadataRefreshDelayMs = metadataRefreshDelayMs;
+        UpcomingReleasesEnabled = upcomingReleasesEnabled;
+        UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
     }
 }

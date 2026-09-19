@@ -3,10 +3,8 @@ using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Workers;
 using AudiobookManager.Services;
-using AudiobookManager.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Moq;
 
 namespace AudiobookManager.Test.Workers;
@@ -16,6 +14,8 @@ public class UpcomingReleasesWorkerTests
 {
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
+    private Mock<ISettingsService> _settingsService = null!;
+    private Mock<IScheduledTaskService> _scheduledTaskService = null!;
     private Mock<ILogger<UpcomingReleasesWorker>> _logger = null!;
     private ServiceProvider _serviceProvider = null!;
 
@@ -27,15 +27,23 @@ public class UpcomingReleasesWorkerTests
         .GetField("RefreshGate", BindingFlags.NonPublic | BindingFlags.Static)!
         .GetValue(null)!;
 
+    // A schedule that will not fire again for the lifetime of any test run here - used by tests
+    // that only care about the immediate startup sweep and must not race a second, real tick.
+    private const string FarFutureCron = "0 0 1 1 *";
+
     [TestInitialize]
     public void Setup()
     {
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
+        _settingsService = new Mock<ISettingsService>();
+        _scheduledTaskService = new Mock<IScheduledTaskService>();
         _logger = new Mock<ILogger<UpcomingReleasesWorker>>();
 
         var services = new ServiceCollection();
         services.AddSingleton(_upcomingReleaseService.Object);
+        services.AddSingleton(_settingsService.Object);
+        services.AddSingleton(_scheduledTaskService.Object);
         _serviceProvider = services.BuildServiceProvider();
     }
 
@@ -49,15 +57,20 @@ public class UpcomingReleasesWorkerTests
         await WaitUntilAsync(() => RefreshGate.CurrentCount == 1, TimeSpan.FromSeconds(5));
     }
 
-    private UpcomingReleasesWorker MakeWorker(bool checkEnabled = true) => new(
+    private UpcomingReleasesWorker MakeWorker(TimeSpan? disabledPollInterval = null) => new(
         _serviceProvider,
         _statusRegistry.Object,
-        Options.Create(new AudiobookManagerSettings
-        {
-            UpcomingReleasesCheckEnabled = checkEnabled,
-            UpcomingReleasesCheckIntervalHours = 24,
-        }),
-        _logger.Object);
+        _logger.Object,
+        disabledPollInterval);
+
+    private void SetSchedule(bool enabled, string cronSchedule = FarFutureCron) =>
+        _settingsService
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings
+            {
+                UpcomingReleasesEnabled = enabled,
+                UpcomingReleasesCronSchedule = cronSchedule,
+            });
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
@@ -80,6 +93,7 @@ public class UpcomingReleasesWorkerTests
     [TestMethod]
     public async Task ExecuteAsync_StartupSweep_PublishesRunningThenFinishedToTheSharedStatusKey()
     {
+        SetSchedule(enabled: true);
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _statusRegistry
             .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
@@ -101,6 +115,7 @@ public class UpcomingReleasesWorkerTests
     [TestMethod]
     public async Task ExecuteAsync_SweepThrows_StillPublishesFinished()
     {
+        SetSchedule(enabled: true);
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _statusRegistry
             .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
@@ -117,19 +132,103 @@ public class UpcomingReleasesWorkerTests
         _statusRegistry.Verify(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey), Times.Once);
     }
 
+    // A failed sweep records "Failed" plus the exception message - stored server-side for the
+    // operator's own Settings page, not a client-facing response, so this is not the
+    // "never leak exception detail" case (see AGENTS.md's ProblemResults guidance).
     [TestMethod]
-    public async Task ExecuteAsync_CheckDisabled_NeverPublishesStatus()
+    public async Task ExecuteAsync_SweepThrows_RecordsFailedRunWithTheExceptionMessage()
     {
-        var worker = MakeWorker(checkEnabled: false);
+        SetSchedule(enabled: true);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry
+            .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
+            .Callback(() => finished.TrySetResult());
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync())
+            .ThrowsAsync(new InvalidOperationException("Hardcover request failed"));
 
+        var worker = MakeWorker();
         await worker.StartAsync(CancellationToken.None);
-        // Disabled means ExecuteAsync returns immediately (no timer, no sweep) - await that
-        // completion directly rather than a fixed delay, so the assertion isn't a timing window.
-        await worker.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        _scheduledTaskService.Verify(
+            s => s.RecordTaskRunAsync(
+                ScheduledTaskKeys.UpcomingReleasesRefresh,
+                It.IsAny<DateTime>(),
+                It.IsAny<TimeSpan>(),
+                false,
+                "Hardcover request failed"),
+            Times.Once);
+    }
+
+    // The successful counterpart: "Success" and no error, so the Tasks page doesn't show a stale
+    // failure once the next sweep succeeds.
+    [TestMethod]
+    public async Task ExecuteAsync_SweepSucceeds_RecordsSuccessfulRun()
+    {
+        SetSchedule(enabled: true);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry
+            .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
+            .Callback(() => finished.TrySetResult());
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
+
+        var worker = MakeWorker();
+        await worker.StartAsync(CancellationToken.None);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        _scheduledTaskService.Verify(
+            s => s.RecordTaskRunAsync(
+                ScheduledTaskKeys.UpcomingReleasesRefresh,
+                It.IsAny<DateTime>(),
+                It.IsAny<TimeSpan>(),
+                true,
+                null),
+            Times.Once);
+    }
+
+    // Disabled means no sweep ever runs - but the loop must keep re-checking on a short poll
+    // interval (shrunk here well below the real 5-minute default) so re-enabling from the
+    // Settings page takes effect without an app restart, rather than returning immediately like
+    // the old fixed-interval worker did.
+    [TestMethod]
+    public async Task ExecuteAsync_CheckDisabled_NeverRunsButKeepsRecheckingTheSetting()
+    {
+        SetSchedule(enabled: false);
+
+        var worker = MakeWorker(disabledPollInterval: TimeSpan.FromMilliseconds(20));
+        await worker.StartAsync(CancellationToken.None);
+        await WaitUntilAsync(
+            () => _settingsService.Invocations.Count(i => i.Method.Name == nameof(ISettingsService.GetLibrarySettings)) >= 3,
+            TimeSpan.FromSeconds(5));
         await worker.StopAsync(CancellationToken.None);
 
         _statusRegistry.Verify(r => r.SetRunning(It.IsAny<string>()), Times.Never);
         _upcomingReleaseService.Verify(s => s.RefreshUpcomingReleasesAsync(), Times.Never);
+    }
+
+    // Re-enabling (or fixing a hand-edited bad cron) takes effect on the very next poll, without
+    // restarting the app - the worker must not have latched the disabled/bad-cron state.
+    [TestMethod]
+    public async Task ExecuteAsync_ReEnabledAfterPolling_RunsOnTheNextCheck()
+    {
+        SetSchedule(enabled: false);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry
+            .Setup(r => r.SetFinished(UpcomingReleasesController.RefreshOperationKey))
+            .Callback(() => finished.TrySetResult());
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
+
+        var worker = MakeWorker(disabledPollInterval: TimeSpan.FromMilliseconds(20));
+        await worker.StartAsync(CancellationToken.None);
+        await Task.Delay(60); // let it poll the disabled setting a couple of times
+        SetSchedule(enabled: true);
+
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        _upcomingReleaseService.Verify(s => s.RefreshUpcomingReleasesAsync(), Times.Once);
     }
 
     // Shares UpcomingReleasesController.RefreshGate with the manual "Check Now" endpoint - a tick
@@ -138,12 +237,12 @@ public class UpcomingReleasesWorkerTests
     [TestMethod]
     public async Task ExecuteAsync_GateAlreadyHeld_SkipsWithoutPublishingStatus()
     {
+        SetSchedule(enabled: true);
         RefreshGate.Wait(0);
         try
         {
             // Observable signal for the skip itself (RunOnceAsync's Wait(0) failing and logging),
-            // rather than a fixed delay - the worker never publishes status or completes on its
-            // own here (the timer interval is 24h), so there is nothing else to await.
+            // rather than a fixed delay.
             var skipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _logger
                 .Setup(l => l.Log(
@@ -166,6 +265,56 @@ public class UpcomingReleasesWorkerTests
         finally
         {
             RefreshGate.Release();
+        }
+    }
+
+    // ComputeNextRun is the pure scheduling decision pulled out of ExecuteAsync specifically so
+    // the cron-driven scheduling can be verified without waiting on a real cron tick (which, at
+    // minute granularity, could take up to 60 real seconds).
+    [TestClass]
+    public class ComputeNextRunTests
+    {
+        [TestMethod]
+        public void Disabled_ReturnsNull()
+        {
+            var result = UpcomingReleasesWorker.ComputeNextRun(false, "0 3 * * *", DateTimeOffset.UtcNow);
+            Assert.IsNull(result);
+        }
+
+        [TestMethod]
+        public void UnparsableCron_ReturnsNull()
+        {
+            var result = UpcomingReleasesWorker.ComputeNextRun(true, "not a cron expression", DateTimeOffset.UtcNow);
+            Assert.IsNull(result);
+        }
+
+        [TestMethod]
+        public void SecondsExtendedFormat_IsRejected()
+        {
+            // CronFormat.Standard is 5-field (minute hour day month weekday); a 6-field
+            // seconds-extended expression must not silently parse as something else.
+            var result = UpcomingReleasesWorker.ComputeNextRun(true, "*/5 * * * * *", DateTimeOffset.UtcNow);
+            Assert.IsNull(result);
+        }
+
+        [TestMethod]
+        public void ValidCron_ReturnsTheNextOccurrenceStrictlyAfterNow()
+        {
+            var now = new DateTimeOffset(2026, 1, 1, 2, 59, 0, TimeSpan.Zero);
+
+            var result = UpcomingReleasesWorker.ComputeNextRun(true, "0 3 * * *", now);
+
+            Assert.AreEqual(new DateTimeOffset(2026, 1, 1, 3, 0, 0, TimeSpan.Zero), result);
+        }
+
+        [TestMethod]
+        public void ValidCron_AtExactOccurrence_ReturnsTheNextOneNotTheCurrentInstant()
+        {
+            var now = new DateTimeOffset(2026, 1, 1, 3, 0, 0, TimeSpan.Zero);
+
+            var result = UpcomingReleasesWorker.ComputeNextRun(true, "0 3 * * *", now);
+
+            Assert.AreEqual(new DateTimeOffset(2026, 1, 2, 3, 0, 0, TimeSpan.Zero), result);
         }
     }
 }

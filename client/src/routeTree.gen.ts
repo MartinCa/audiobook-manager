@@ -24,6 +24,7 @@ import { Route as LibrarySimilarValuesRouteImport } from './routes/library/simil
 import { Route as LibraryUpcomingReleasesRouteImport } from './routes/library/upcoming-releases'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsLibraryRouteImport } from './routes/settings/library'
+import { Route as SettingsTasksRouteImport } from './routes/settings/tasks'
 import { Route as LibraryAuthorsIndexRouteImport } from './routes/library/authors/index'
 import { Route as LibraryAuthorsAuthorIdRouteImport } from './routes/library/authors/$authorId'
 import { Route as LibraryBookBookIdRouteImport } from './routes/library/book.$bookId'
@@ -106,6 +107,11 @@ const SettingsLibraryRoute = SettingsLibraryRouteImport.update({
   path: '/settings/library',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsTasksRoute = SettingsTasksRouteImport.update({
+  id: '/settings/tasks',
+  path: '/settings/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryAuthorsIndexRoute = LibraryAuthorsIndexRouteImport.update({
   id: '/library/authors/',
   path: '/library/authors/',
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
+  '/settings/tasks': typeof SettingsTasksRoute
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
+  '/settings/tasks': typeof SettingsTasksRoute
   '/library': typeof LibraryIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
+  '/settings/tasks': typeof SettingsTasksRoute
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/library/authors/$authorId': typeof LibraryAuthorsAuthorIdRoute
@@ -223,6 +232,7 @@ export interface FileRouteTypes {
     | '/library/similar-values'
     | '/library/upcoming-releases'
     | '/settings/library'
+    | '/settings/tasks'
     | '/library/'
     | '/settings/'
     | '/library/authors/$authorId'
@@ -246,6 +256,7 @@ export interface FileRouteTypes {
     | '/library/similar-values'
     | '/library/upcoming-releases'
     | '/settings/library'
+    | '/settings/tasks'
     | '/library'
     | '/settings'
     | '/library/authors/$authorId'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/library/similar-values'
     | '/library/upcoming-releases'
     | '/settings/library'
+    | '/settings/tasks'
     | '/library/'
     | '/settings/'
     | '/library/authors/$authorId'
@@ -293,6 +305,7 @@ export interface RootRouteChildren {
   LibrarySimilarValuesRoute: typeof LibrarySimilarValuesRoute
   LibraryUpcomingReleasesRoute: typeof LibraryUpcomingReleasesRoute
   SettingsLibraryRoute: typeof SettingsLibraryRoute
+  SettingsTasksRoute: typeof SettingsTasksRoute
   LibraryIndexRoute: typeof LibraryIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   LibraryAuthorsAuthorIdRoute: typeof LibraryAuthorsAuthorIdRoute
@@ -409,6 +422,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsLibraryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/tasks': {
+      id: '/settings/tasks'
+      path: '/settings/tasks'
+      fullPath: '/settings/tasks'
+      preLoaderRoute: typeof SettingsTasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library/authors/': {
       id: '/library/authors/'
       path: '/library/authors'
@@ -479,6 +499,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibrarySimilarValuesRoute: LibrarySimilarValuesRoute,
   LibraryUpcomingReleasesRoute: LibraryUpcomingReleasesRoute,
   SettingsLibraryRoute: SettingsLibraryRoute,
+  SettingsTasksRoute: SettingsTasksRoute,
   LibraryIndexRoute: LibraryIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   LibraryAuthorsAuthorIdRoute: LibraryAuthorsAuthorIdRoute,

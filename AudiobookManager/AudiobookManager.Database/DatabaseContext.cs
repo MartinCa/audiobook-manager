@@ -68,4 +68,5 @@ public class DatabaseContext : DbContext
     public DbSet<SeriesFollow> SeriesFollows { get; set; }
     public DbSet<UpcomingRelease> UpcomingReleases { get; set; }
     public DbSet<AuthorExpectedBook> AuthorExpectedBooks { get; set; }
+    public DbSet<ScheduledTaskRun> ScheduledTaskRuns { get; set; }
 }

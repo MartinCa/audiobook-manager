@@ -45,6 +45,7 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getScheduledTasks: vi.fn().mockResolvedValue([]),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),
@@ -149,7 +150,7 @@ describe("RootLayout", () => {
     expect(router.state.location.pathname).toBe("/library/metadata-refresh");
   });
 
-  it("labels the settings entries /settings as System Information and /settings/library as Library Settings", async () => {
+  it("labels the settings entries /settings as System Information, /settings/library as Library Settings and /settings/tasks as Tasks", async () => {
     const user = userEvent.setup();
     renderWithRouter();
 
@@ -157,11 +158,22 @@ describe("RootLayout", () => {
 
     const items = await screen.findAllByRole("menuitem");
     // The settings menu must never label /settings with the retired Series Mappings name (that
-    // surface moved to each series' detail page) - System Information + Library Settings is the
-    // complete menu.
+    // surface moved to each series' detail page) - System Information + Library Settings + Tasks
+    // is the complete menu.
     expect(items.map((item) => item.textContent)).toEqual([
       "System Information",
       "Library Settings",
+      "Tasks",
     ]);
+  });
+
+  it("navigates to /settings/tasks from the Tasks item", async () => {
+    const user = userEvent.setup();
+    const { router } = renderWithRouter();
+
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+    await user.click(await screen.findByText("Tasks"));
+
+    expect(router.state.location.pathname).toBe("/settings/tasks");
   });
 });

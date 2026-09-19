@@ -9,6 +9,8 @@ public static class LibrarySettingsMapping
         {
             InitialsSpacing = ToDomain(dbModel.InitialsSpacing),
             MetadataRefreshDelayMs = dbModel.MetadataRefreshDelayMs,
+            UpcomingReleasesEnabled = dbModel.UpcomingReleasesEnabled,
+            UpcomingReleasesCronSchedule = dbModel.UpcomingReleasesCronSchedule,
         };
 
     public static Database.Models.InitialsSpacing ToDb(this Domain.InitialsSpacing domain) => domain switch
