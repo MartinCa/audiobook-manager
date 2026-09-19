@@ -746,11 +746,89 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content: {
-                        "text/plain": components["schemas"]["AuthorRefreshAllResultDto"];
-                        "application/json": components["schemas"]["AuthorRefreshAllResultDto"];
-                        "text/json": components["schemas"]["AuthorRefreshAllResultDto"];
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/expected-books/ignore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AuthorExpectedBookRefDto"];
+                    "text/json": components["schemas"]["AuthorExpectedBookRefDto"];
+                    "application/*+json": components["schemas"]["AuthorExpectedBookRefDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
                     };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/expected-books/unignore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AuthorExpectedBookRefDto"];
+                    "text/json": components["schemas"]["AuthorExpectedBookRefDto"];
+                    "application/*+json": components["schemas"]["AuthorExpectedBookRefDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -4558,6 +4636,7 @@ export interface components {
             lastRefreshedAt?: string | null;
             missingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
             upcomingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
+            ignoredBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
         };
         AuthorExpectedBookDto: {
             /** Format: int64 */
@@ -4569,6 +4648,9 @@ export interface components {
             isIgnored?: boolean;
             /** Format: date */
             releaseDate?: string | null;
+        };
+        AuthorExpectedBookRefDto: {
+            title?: string | null;
         };
         AuthorFollowStatusDto: {
             isFollowed?: boolean;
@@ -4585,14 +4667,6 @@ export interface components {
             sourceId?: string | null;
             sourceName?: string | null;
             sourceUrl?: string | null;
-        };
-        AuthorRefreshAllResultDto: {
-            /** Format: int32 */
-            processed?: number;
-            /** Format: int32 */
-            succeeded?: number;
-            /** Format: int32 */
-            failed?: number;
         };
         AuthorRefreshResultDto: {
             success?: boolean;
