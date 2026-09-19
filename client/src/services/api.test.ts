@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   audiobookApi,
+  browseApi,
   metadataRefreshApi,
   seriesApi,
   filesApi,
+  upcomingReleasesApi,
   toAudiobookDto,
   toPathPreviewDto,
 } from "./api";
@@ -561,6 +563,119 @@ describe("api service mappings and contracts", () => {
       await expect(seriesApi.getSeriesPending("Mistborn")).rejects.toMatchObject({
         status: 500,
       });
+    });
+  });
+
+  describe("author refresh (upcoming-releases feature)", () => {
+    it("calls the single-author refresh endpoint and returns the result", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ success: true, lastRefreshedAt: "2026-09-19T00:00:00Z" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(browseApi.refreshAuthor(7)).resolves.toEqual({
+        success: true,
+        lastRefreshedAt: "2026-09-19T00:00:00Z",
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/browse/authors/7/refresh",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("calls the sweep-all-authors refresh endpoint and returns the counters", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ processed: 5, succeeded: 4, failed: 1 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(browseApi.refreshAllAuthors()).resolves.toEqual({
+        processed: 5,
+        succeeded: 4,
+        failed: 1,
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/browse/authors/refresh-all",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+  });
+
+  describe("upcomingReleasesApi.dismissRosterUpcomingRelease", () => {
+    it("posts the series-scoped dismiss body", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        seriesName: "Mistborn",
+        seriesPosition: "5",
+        title: "The Lost Metal",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/upcoming-releases/dismiss-roster",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            seriesName: "Mistborn",
+            seriesPosition: "5",
+            title: "The Lost Metal",
+          }),
+        }),
+      );
+    });
+
+    it("posts the author-scoped dismiss body", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        authorId: 9,
+        title: "Standalone Novella",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/upcoming-releases/dismiss-roster",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ authorId: 9, title: "Standalone Novella" }),
+        }),
+      );
+    });
+  });
+
+  describe("seriesApi.getSeriesDetail", () => {
+    it("includes the upcoming-books page cursor alongside the existing sections", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            overview: { name: "Mistborn" },
+            ownedBooks: { items: [], totalCount: 0 },
+            missingBooks: { items: [], totalCount: 0 },
+            ignoredBooks: { items: [], totalCount: 0 },
+            partMismatches: { items: [], totalCount: 0 },
+            upcomingBooks: { items: [], totalCount: 0 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await seriesApi.getSeriesDetail("Mistborn", { upcomingPage: 1, upcomingPageSize: 25 });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("upcomingPage=1"),
+        expect.anything(),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("upcomingPageSize=25"),
+        expect.anything(),
+      );
     });
   });
 });

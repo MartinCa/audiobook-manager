@@ -82,6 +82,7 @@ export const queryKeys = {
       missingPage: number,
       ignoredPage: number,
       partMismatchPage: number,
+      upcomingPage: number,
     ) =>
       [
         "seriesDetail",
@@ -91,6 +92,7 @@ export const queryKeys = {
         missingPage,
         ignoredPage,
         partMismatchPage,
+        upcomingPage,
       ] as const,
   },
 

@@ -684,6 +684,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/{authorId}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshResultDto"];
+                        "application/json": components["schemas"]["AuthorRefreshResultDto"];
+                        "text/json": components["schemas"]["AuthorRefreshResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/refresh-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshAllResultDto"];
+                        "application/json": components["schemas"]["AuthorRefreshAllResultDto"];
+                        "text/json": components["schemas"]["AuthorRefreshAllResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/authors/{authorId}/follow": {
         parameters: {
             query?: never;
@@ -2800,6 +2876,8 @@ export interface paths {
                     ignoredPageSize?: number;
                     partMismatchPage?: number;
                     partMismatchPageSize?: number;
+                    upcomingPage?: number;
+                    upcomingPageSize?: number;
                 };
                 header?: never;
                 path?: never;
@@ -4114,6 +4192,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/upcoming-releases/dismiss-roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["DismissRosterUpcomingReleaseDto"];
+                    "text/json": components["schemas"]["DismissRosterUpcomingReleaseDto"];
+                    "application/*+json": components["schemas"]["DismissRosterUpcomingReleaseDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/upcoming-releases/refresh": {
         parameters: {
             query?: never;
@@ -4437,6 +4554,21 @@ export interface components {
             author?: components["schemas"]["AuthorSummaryDto"];
             series?: components["schemas"]["SeriesOverviewDtoPaginatedResult"];
             standaloneBooks?: components["schemas"]["AudiobookSummaryDtoPaginatedResult"];
+            /** Format: date-time */
+            lastRefreshedAt?: string | null;
+            missingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
+            upcomingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
+        };
+        AuthorExpectedBookDto: {
+            /** Format: int64 */
+            id?: number;
+            title?: string | null;
+            /** Format: int32 */
+            year?: number | null;
+            sourceUrl?: string | null;
+            isIgnored?: boolean;
+            /** Format: date */
+            releaseDate?: string | null;
         };
         AuthorFollowStatusDto: {
             isFollowed?: boolean;
@@ -4453,6 +4585,19 @@ export interface components {
             sourceId?: string | null;
             sourceName?: string | null;
             sourceUrl?: string | null;
+        };
+        AuthorRefreshAllResultDto: {
+            /** Format: int32 */
+            processed?: number;
+            /** Format: int32 */
+            succeeded?: number;
+            /** Format: int32 */
+            failed?: number;
+        };
+        AuthorRefreshResultDto: {
+            success?: boolean;
+            /** Format: date-time */
+            lastRefreshedAt?: string | null;
         };
         AuthorSummaryDto: {
             /** Format: int64 */
@@ -4597,6 +4742,13 @@ export interface components {
             /** Format: int32 */
             wellTaggedTotal?: number;
             items?: components["schemas"]["DiscoveredAudiobookDto"][] | null;
+        };
+        DismissRosterUpcomingReleaseDto: {
+            seriesName?: string | null;
+            seriesPosition?: string | null;
+            /** Format: int64 */
+            authorId?: number | null;
+            title?: string | null;
         };
         EntryMatchDto: {
             /** Format: int64 */
@@ -4905,6 +5057,7 @@ export interface components {
             missingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
             ignoredBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
             partMismatches?: components["schemas"]["SeriesPartMismatchPageDto"];
+            upcomingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
         };
         SeriesExpectedBookDto: {
             /** Format: int64 */
@@ -4915,6 +5068,8 @@ export interface components {
             year?: number | null;
             sourceUrl?: string | null;
             isIgnored?: boolean;
+            /** Format: date */
+            releaseDate?: string | null;
         };
         SeriesExpectedBookPageDto: {
             items?: components["schemas"]["SeriesExpectedBookDto"][] | null;
@@ -4963,6 +5118,8 @@ export interface components {
             /** Format: int32 */
             ignoredBookCount?: number;
             includeOmnibusEditions?: boolean;
+            /** Format: int32 */
+            upcomingBookCount?: number;
         };
         SeriesOverviewDtoPaginatedResult: {
             /** Format: int32 */
@@ -5089,11 +5246,14 @@ export interface components {
             existing?: components["schemas"]["ExistingTargetFileDto"];
         };
         UpcomingReleaseDto: {
+            source?: string | null;
             /** Format: int64 */
-            id?: number;
+            id?: number | null;
             title?: string | null;
             /** Format: date */
-            releaseDate?: string;
+            releaseDate?: string | null;
+            /** Format: int32 */
+            year?: number | null;
             /** Format: int64 */
             authorId?: number | null;
             authorName?: string | null;
