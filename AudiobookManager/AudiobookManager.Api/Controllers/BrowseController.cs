@@ -186,7 +186,16 @@ public class BrowseController : ControllerBase
     public async Task<ActionResult<PaginatedResult<AuthorSummaryDto>>> GetAuthors(
         [FromQuery] string? q = null,
         int limit = PagingLimits.DefaultPageSize,
-        int offset = 0)
+        int offset = 0,
+        [FromQuery] bool? followed = null,
+        [FromQuery] int? minBookCount = null,
+        [FromQuery] int? maxBookCount = null,
+        [FromQuery] bool? hasMissingBooks = null,
+        [FromQuery] bool? hasUpcomingBooks = null,
+        [FromQuery] bool? matched = null,
+        [FromQuery] DateTime? refreshedAfter = null,
+        [FromQuery] DateTime? refreshedBefore = null,
+        [FromQuery] bool? neverRefreshed = null)
     {
         var clampError = ValidateSearchPaging(limit, offset);
         if (clampError != null)
@@ -194,8 +203,63 @@ public class BrowseController : ControllerBase
             return clampError;
         }
 
+        if (minBookCount is < 0 || maxBookCount is < 0)
+        {
+            return this.InvalidRequest("minBookCount and maxBookCount must be zero or greater.");
+        }
+
+        if (minBookCount is not null && maxBookCount is not null && minBookCount > maxBookCount)
+        {
+            return this.InvalidRequest("minBookCount must not be greater than maxBookCount.");
+        }
+
+        if (refreshedAfter is not null && refreshedBefore is not null && refreshedAfter > refreshedBefore)
+        {
+            return this.InvalidRequest("refreshedAfter must not be after refreshedBefore.");
+        }
+
+        var filter = new AuthorSummaryFilter(
+            followed, minBookCount, maxBookCount, hasMissingBooks, hasUpcomingBooks, matched,
+            refreshedAfter, refreshedBefore, neverRefreshed);
+
+        // HasMissingBooks/HasUpcomingBooks depend on the fuzzy roster reconciliation, which this
+        // controller already holds a provider for (the author detail page's missing-books
+        // section uses the same one) - resolved into a restricting id set before the paged SQL
+        // query runs, exactly like SeriesService does for the series list. Only computed when the
+        // caller actually asks for one of these two filters.
+        IReadOnlyCollection<long>? restrictToIds = null;
+        IReadOnlyCollection<long>? excludeIds = null;
+        if (filter.NeedsReconciliation)
+        {
+            var (hasMissing, hasUpcoming) = await _authorReconciliation.GetBulkMissingOrUpcomingAuthorIdsAsync();
+            HashSet<long>? include = null;
+            var exclude = new HashSet<long>();
+
+            if (hasMissingBooks == true)
+            {
+                include = hasMissing;
+            }
+            else if (hasMissingBooks == false)
+            {
+                exclude.UnionWith(hasMissing);
+            }
+
+            if (hasUpcomingBooks == true)
+            {
+                include = include is null ? hasUpcoming : include.Intersect(hasUpcoming).ToHashSet();
+            }
+            else if (hasUpcomingBooks == false)
+            {
+                exclude.UnionWith(hasUpcoming);
+            }
+
+            restrictToIds = include;
+            excludeIds = exclude.Count > 0 ? exclude : null;
+        }
+
         var search = string.IsNullOrWhiteSpace(q) ? null : q!.Trim();
-        var (items, total) = await _personRepo.GetAuthorSummariesPagedAsync(search, limit, offset);
+        var (items, total) = await _personRepo.GetAuthorSummariesPagedAsync(
+            search, limit, offset, filter.IsEmpty ? null : filter, restrictToIds, excludeIds);
         var dtos = items.Select(p => new AuthorSummaryDto(p.Id, p.Name, p.BookCount)).ToList();
         return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
     }

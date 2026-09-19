@@ -13,6 +13,7 @@ import type {
   ConsistencyResolveResult,
 } from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
+import type { AuthorListFilters, SeriesListFilters } from "@/types/EntityFilters";
 import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
@@ -195,9 +196,14 @@ export const browseApi = {
   // Paged server-side (bounded-list invariant): the unpaged version returned every author in the
   // library and the page rendered them all into the DOM. q is the server-side, accent-insensitive
   // filter.
-  getAuthorPage: (limit: number = PAGE_SIZE, offset = 0, q?: string) =>
+  getAuthorPage: (
+    limit: number = PAGE_SIZE,
+    offset = 0,
+    q?: string,
+    filters: AuthorListFilters = {},
+  ) =>
     api.get<PaginatedResult<AuthorSummary>>("/browse/authors", {
-      query: { limit, offset, q: q || undefined },
+      query: { limit, offset, q: q || undefined, ...filters },
     }),
 
   // The two sections are paged server-side too: an author owning hundreds of series/books used
@@ -489,9 +495,14 @@ export const seriesApi = {
   // Paged server-side (bounded-list invariant): the union of every distinct series value in the
   // library used to be computed and returned whole. search and matched are the server-side
   // filters; the page's totals aren't the header badge counts (see getSeriesCounts).
-  getSeriesPage: (page: number, pageSize: number, search?: string, matched?: boolean) =>
+  getSeriesPage: (
+    page: number,
+    pageSize: number,
+    search?: string,
+    filters: SeriesListFilters = {},
+  ) =>
     api.get<SeriesOverviewPage>("/series", {
-      query: { page, pageSize, search: search || undefined, matched },
+      query: { page, pageSize, search: search || undefined, ...filters },
     }),
 
   /** Total/matched/unmatched series for the overview header badges, independent of any page. */

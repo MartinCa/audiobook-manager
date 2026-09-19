@@ -54,6 +54,7 @@ public class SeriesService : ISeriesService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly ISeriesMappingRepository _seriesMappingRepository;
     private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
     private readonly IAudiobookService _audiobookService;
@@ -68,6 +69,7 @@ public class SeriesService : ISeriesService
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        ISeriesFollowRepository seriesFollowRepository,
         ISeriesMappingRepository seriesMappingRepository,
         IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
         IAudiobookService audiobookService,
@@ -81,6 +83,7 @@ public class SeriesService : ISeriesService
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _seriesFollowRepository = seriesFollowRepository;
         _seriesMappingRepository = seriesMappingRepository;
         _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
         _audiobookService = audiobookService;
@@ -126,10 +129,27 @@ public class SeriesService : ISeriesService
     }
 
     public async Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
-        int page, int pageSize, string? search, bool? matched, long? authorId = null)
+        int page, int pageSize, string? search, bool? matched, long? authorId = null,
+        SeriesOverviewFilter? filter = null)
     {
+        // HasMissingBooks/HasUpcomingBooks depend on the fuzzy roster reconciliation
+        // (SeriesRosterMatcher), which the repository layer does not reference - resolve them
+        // here into a restricting name set before the paged SQL query runs. This is a
+        // whole-library computation, the same one BulkAutoMatchSeriesAsync already pays for; it
+        // only runs when the caller actually asks for one of these two filters.
+        IReadOnlyCollection<string>? restrictToNames = null;
+        if (filter?.NeedsReconciliation == true)
+        {
+            var allOverviews = await GetAllSeriesOverviewAsync();
+            restrictToNames = allOverviews
+                .Where(o => (filter.HasMissingBooks is null || (o.MissingBookCount > 0) == filter.HasMissingBooks)
+                    && (filter.HasUpcomingBooks is null || (o.UpcomingBookCount > 0) == filter.HasUpcomingBooks))
+                .Select(o => o.Name)
+                .ToList();
+        }
+
         var (names, totalCount) = await _audiobookRepository.GetSeriesValuesPageAsync(
-            search, matched, skip: (int)((long)page * pageSize), take: pageSize, authorId);
+            search, matched, skip: (int)((long)page * pageSize), take: pageSize, authorId, filter, restrictToNames);
 
         if (names.Count == 0)
         {
@@ -140,11 +160,15 @@ public class SeriesService : ISeriesService
             .ToLookup(b => b.Series, StringComparer.Ordinal);
         var catalogByName = (await _seriesRepository.GetByNamesWithExpectedBooksAsync(names))
             .ToDictionary(s => s.Name, StringComparer.Ordinal);
+        // Bulk follow-status lookup, not one query per row - see GetFollowedSeriesNamesAsync.
+        var followedNames = await _seriesFollowRepository.GetFollowedSeriesNamesAsync(names);
 
         var items = names.Select(name =>
         {
             catalogByName.TryGetValue(name, out var catalogRow);
-            return BuildOverview(name, booksBySeries[name].ToList(), catalogRow);
+            var overview = BuildOverview(name, booksBySeries[name].ToList(), catalogRow);
+            overview.IsFollowed = followedNames.Contains(name);
+            return overview;
         }).ToList();
 
         return new SeriesOverviewPage { Items = items, TotalCount = totalCount };

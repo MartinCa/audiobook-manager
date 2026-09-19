@@ -56,8 +56,25 @@ public interface IPersonRepository
     /// One page of all authors, ordered by name (then book count, then id) with the total, for the
     /// paged authors browse list. <paramref name="search"/> folds accents and filters on the
     /// precomputed <c>NameFolded</c> column; a null or blank search disables the filter.
+    ///
+    /// <paramref name="filter"/> layers the additional followed/book-count/matched/refreshed
+    /// filters from <see cref="AuthorSummaryFilter"/> on top; <paramref name="restrictToIds"/> is
+    /// how the caller applies that filter's missing/upcoming-book fields, which this repository
+    /// cannot evaluate itself (see <see cref="AuthorSummaryFilter"/>'s doc) - when non-null, only
+    /// authors whose id is in this set are returned.
     /// </summary>
-    Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(string? search, int limit, int offset);
+    Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(
+        string? search, int limit, int offset,
+        AuthorSummaryFilter? filter = null, IReadOnlyCollection<long>? restrictToIds = null,
+        IReadOnlyCollection<long>? excludeIds = null);
+
+    /// <summary>
+    /// Every non-ignored standalone-book roster entry in the library, as (person id, title, year,
+    /// release date), for the authors list filter's bulk missing/upcoming-book reconciliation
+    /// (<see cref="AuthorReconciliationProvider.GetBulkMissingOrUpcomingAuthorIdsAsync"/>). Only
+    /// runs when that filter is actually requested.
+    /// </summary>
+    Task<List<AuthorExpectedBookRef>> GetAllActiveAuthorExpectedBooksAsync();
 
     /// <summary>Name-matching authors, with the book count projected in SQL, paged with a total.</summary>
     Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset);

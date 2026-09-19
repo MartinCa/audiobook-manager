@@ -23,5 +23,6 @@ public static class SeriesOverviewMapper
         o.MissingBookCount,
         o.IgnoredBookCount,
         o.IncludeOmnibusEditions,
-        o.UpcomingBookCount);
+        o.UpcomingBookCount,
+        o.IsFollowed);
 }

@@ -52,6 +52,7 @@ function makeDetail(
         ignoredBookCount: 0,
         includeOmnibusEditions: false,
         upcomingBookCount: 0,
+        isFollowed: false,
       })),
     },
     standaloneBooks: {

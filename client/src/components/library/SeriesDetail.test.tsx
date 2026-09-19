@@ -88,6 +88,7 @@ function makeDetail(
       ignoredBookCount: ignoredTotal,
       includeOmnibusEditions: false,
       upcomingBookCount: upcomingTotal,
+      isFollowed: false,
     },
     ownedBooks: {
       items: ownedItems,

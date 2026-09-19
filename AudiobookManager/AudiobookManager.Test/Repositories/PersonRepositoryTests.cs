@@ -195,4 +195,140 @@ public class PersonRepositoryTests
         Assert.IsNotNull(result);
         Assert.IsFalse(result.ExpectedBooks.Single(b => b.Title == "Elantris").IsIgnored);
     }
+
+    private async Task<Person> SeedAuthorWithBooksAsync(string name, int bookCount)
+    {
+        var author = new Person(default, name);
+        for (var i = 0; i < bookCount; i++)
+        {
+            _db.Audiobooks.Add(new Audiobook(
+                default, $"{name} Book {i}", null, null, null, 2024,
+                null, null, null, null, null, null, null, null, null,
+                $"/library/{name}-{i}.m4b", $"{name}-{i}.m4b", 1000)
+            {
+                Authors = new List<Person> { author },
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        return author;
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_FollowedFilter_IncludesOnlyFollowedAuthors()
+    {
+        var followed = await SeedAuthorWithBooksAsync("Followed Author", 1);
+        await SeedAuthorWithBooksAsync("Other Author", 1);
+        _db.AuthorFollows.Add(new AuthorFollow { PersonId = followed.Id, CreatedAt = DateTime.UtcNow });
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, filter: new AuthorSummaryFilter(Followed: true));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Followed Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_MatchedFilter_IncludesOnlyMatchedAuthors()
+    {
+        var matched = await SeedAuthorWithBooksAsync("Matched Author", 1);
+        matched.HardcoverAuthorId = "hc-1";
+        await SeedAuthorWithBooksAsync("Unmatched Author", 1);
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, filter: new AuthorSummaryFilter(Matched: true));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Matched Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_MinBookCountFilter_ExcludesAuthorsWithFewerBooks()
+    {
+        await SeedAuthorWithBooksAsync("Prolific Author", 3);
+        await SeedAuthorWithBooksAsync("One Book Author", 1);
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, filter: new AuthorSummaryFilter(MinBookCount: 2));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Prolific Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_NeverRefreshedFilter_IncludesOnlyNullLastRefreshedAt()
+    {
+        var refreshed = await SeedAuthorWithBooksAsync("Refreshed Author", 1);
+        refreshed.LastRefreshedAt = DateTime.UtcNow;
+        await SeedAuthorWithBooksAsync("Unrefreshed Author", 1);
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, filter: new AuthorSummaryFilter(NeverRefreshed: true));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Unrefreshed Author", items.Single().Name);
+    }
+
+    // Regression: the UI sends a calendar date (day granularity), which model-binds to that
+    // day's midnight. A plain "<=" against that midnight used to exclude every refresh later
+    // that same day, so picking "before 2024-06-01" silently dropped an author refreshed at
+    // 2024-06-01T15:00 - asymmetric with RefreshedAfter's inclusive ">=" against the same day's
+    // midnight, which does include the whole day.
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_RefreshedBeforeFilter_IncludesRefreshesLaterThatSameDay()
+    {
+        var sameDayLater = await SeedAuthorWithBooksAsync("Same Day Author", 1);
+        sameDayLater.LastRefreshedAt = new DateTime(2024, 6, 1, 15, 30, 0, DateTimeKind.Utc);
+        var nextDay = await SeedAuthorWithBooksAsync("Next Day Author", 1);
+        nextDay.LastRefreshedAt = new DateTime(2024, 6, 2, 0, 0, 0, DateTimeKind.Utc);
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0,
+            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Same Day Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_RestrictToIds_NarrowsTheResult()
+    {
+        var keep = await SeedAuthorWithBooksAsync("Keep Author", 1);
+        await SeedAuthorWithBooksAsync("Drop Author", 1);
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, restrictToIds: new[] { keep.Id });
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Keep Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_ExcludeIds_RemovesMatchingAuthors()
+    {
+        await SeedAuthorWithBooksAsync("Keep Author", 1);
+        var drop = await SeedAuthorWithBooksAsync("Drop Author", 1);
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0, excludeIds: new[] { drop.Id });
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Keep Author", items.Single().Name);
+    }
+
+    [TestMethod]
+    public async Task GetAllActiveAuthorExpectedBooksAsync_ExcludesIgnoredEntries()
+    {
+        var author = await SeedAuthorAsync();
+        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", true);
+
+        var rows = await _repository.GetAllActiveAuthorExpectedBooksAsync();
+
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreEqual("Warbreaker", rows.Single().Title);
+    }
 }

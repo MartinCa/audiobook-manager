@@ -30,6 +30,9 @@ public class SeriesOverview
     /// of being filtered out.
     /// </summary>
     public bool IncludeOmnibusEditions { get; set; }
+
+    /// <summary>Whether this series is followed for upcoming releases (see <c>IUpcomingReleaseService</c>).</summary>
+    public bool IsFollowed { get; set; }
 }
 
 /// <summary>

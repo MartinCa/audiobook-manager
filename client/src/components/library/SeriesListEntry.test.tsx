@@ -44,6 +44,7 @@ function series(overrides: Partial<SeriesOverview> = {}): SeriesOverview {
     ignoredBookCount: 0,
     includeOmnibusEditions: false,
     upcomingBookCount: 0,
+    isFollowed: false,
     ...overrides,
   };
 }

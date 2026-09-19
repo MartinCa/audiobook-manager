@@ -3,6 +3,7 @@ using AudiobookManager.Api;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -167,6 +168,45 @@ public class SeriesControllerTests
         Assert.IsNotNull(page);
         Assert.AreEqual(3, page.TotalCount);
         _seriesService.Verify(s => s.GetSeriesOverviewPageAsync(4, 25, "mist", false), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetSeries_PassesNewFiltersThrough()
+    {
+        var refreshedAfter = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var expectedFilter = new SeriesOverviewFilter(
+            Followed: true, MinOwnedBooks: 2, MaxOwnedBooks: 10, HasMissingBooks: true,
+            HasUpcomingBooks: false, RefreshedAfter: refreshedAfter, RefreshedBefore: null, NeverRefreshed: null);
+
+        _seriesService
+            .Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, expectedFilter))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+
+        var result = await _controller.GetSeries(
+            followed: true, minOwnedBooks: 2, maxOwnedBooks: 10, hasMissingBooks: true,
+            hasUpcomingBooks: false, refreshedAfter: refreshedAfter);
+
+        Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, expectedFilter), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetSeries_MinOwnedBooksGreaterThanMax_IsRefused()
+    {
+        var result = await _controller.GetSeries(minOwnedBooks: 10, maxOwnedBooks: 2);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetSeries_RefreshedAfterLaterThanRefreshedBefore_IsRefused()
+    {
+        var result = await _controller.GetSeries(
+            refreshedAfter: new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            refreshedBefore: new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
     }
 
     [TestMethod]

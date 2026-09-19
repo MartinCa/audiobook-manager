@@ -47,6 +47,7 @@ function makeUnmatched(id: number) {
     ignoredBookCount: 0,
     includeOmnibusEditions: false,
     upcomingBookCount: 0,
+    isFollowed: false,
   };
 }
 
@@ -82,7 +83,7 @@ describe("SeriesMatchDialog", () => {
     expect(screen.getByText(/30 of 30 unmatched selected/)).toBeInTheDocument();
 
     // The dialog requested only unmatched series from the server.
-    expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, undefined, false);
+    expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, undefined, { matched: false });
   });
 
   it("matches everything in one click via the null subset rather than enumerating pages", async () => {
@@ -137,7 +138,7 @@ describe("SeriesMatchDialog", () => {
     nextButton.click();
 
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, undefined, false);
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, undefined, { matched: false });
     });
     expect(await screen.findByText("Unmatched 51")).toBeInTheDocument();
   });

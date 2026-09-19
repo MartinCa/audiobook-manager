@@ -1,3 +1,5 @@
+import type { AuthorListFilters, SeriesListFilters } from "@/types/EntityFilters";
+
 /**
  * TanStack Query key factories, one family per cached resource.
  *
@@ -59,7 +61,10 @@ export const queryKeys = {
   // prefix would make the list's broad invalidation also hit every open author-detail page.
   authors: {
     all: () => ["authors"] as const,
-    page: (q: string, page: number) => ["authors", q, page] as const,
+    // filters is included as a plain object - TanStack Query hashes query keys deeply, so two
+    // different filter combinations (or none) never share a cache entry.
+    page: (q: string, page: number, filters: AuthorListFilters) =>
+      ["authors", q, page, filters] as const,
   },
 
   missingBookCandidates: (
@@ -100,7 +105,8 @@ export const queryKeys = {
 
   series: {
     all: () => ["series"] as const,
-    page: (q: string, page: number) => ["series", q, page] as const,
+    page: (q: string, page: number, filters: SeriesListFilters) =>
+      ["series", q, page, filters] as const,
     unmatched: (page: number) => ["series", "unmatched", page] as const,
   },
 

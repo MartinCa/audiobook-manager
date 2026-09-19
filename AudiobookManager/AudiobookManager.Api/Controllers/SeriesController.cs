@@ -1,5 +1,6 @@
 ﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
@@ -118,7 +119,15 @@ public class SeriesController : ControllerBase
         [FromQuery] int page = 0,
         [FromQuery] int pageSize = PagingLimits.DefaultPageSize,
         [FromQuery] string? search = null,
-        [FromQuery] bool? matched = null)
+        [FromQuery] bool? matched = null,
+        [FromQuery] bool? followed = null,
+        [FromQuery] int? minOwnedBooks = null,
+        [FromQuery] int? maxOwnedBooks = null,
+        [FromQuery] bool? hasMissingBooks = null,
+        [FromQuery] bool? hasUpcomingBooks = null,
+        [FromQuery] DateTime? refreshedAfter = null,
+        [FromQuery] DateTime? refreshedBefore = null,
+        [FromQuery] bool? neverRefreshed = null)
     {
         var pagingError = ValidatePageSelection(page, pageSize, "series");
         if (pagingError != null)
@@ -126,7 +135,27 @@ public class SeriesController : ControllerBase
             return pagingError;
         }
 
-        var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(page, pageSize, search, matched);
+        if (minOwnedBooks is < 0 || maxOwnedBooks is < 0)
+        {
+            return this.InvalidRequest("minOwnedBooks and maxOwnedBooks must be zero or greater.");
+        }
+
+        if (minOwnedBooks is not null && maxOwnedBooks is not null && minOwnedBooks > maxOwnedBooks)
+        {
+            return this.InvalidRequest("minOwnedBooks must not be greater than maxOwnedBooks.");
+        }
+
+        if (refreshedAfter is not null && refreshedBefore is not null && refreshedAfter > refreshedBefore)
+        {
+            return this.InvalidRequest("refreshedAfter must not be after refreshedBefore.");
+        }
+
+        var filter = new SeriesOverviewFilter(
+            followed, minOwnedBooks, maxOwnedBooks, hasMissingBooks, hasUpcomingBooks,
+            refreshedAfter, refreshedBefore, neverRefreshed);
+
+        var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(
+            page, pageSize, search, matched, authorId: null, filter: filter.IsEmpty ? null : filter);
         return Ok(new SeriesOverviewPageDto(overviewPage.Items.Select(SeriesOverviewMapper.ToDto).ToList(), overviewPage.TotalCount));
     }
 

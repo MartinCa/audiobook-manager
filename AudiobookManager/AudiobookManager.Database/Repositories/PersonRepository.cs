@@ -253,7 +253,9 @@ public class PersonRepository : IPersonRepository
     }
 
     public async Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(
-        string? search, int limit, int offset)
+        string? search, int limit, int offset,
+        AuthorSummaryFilter? filter = null, IReadOnlyCollection<long>? restrictToIds = null,
+        IReadOnlyCollection<long>? excludeIds = null)
     {
         var dbQuery = _db.Persons
             .AsNoTracking()
@@ -268,6 +270,65 @@ public class PersonRepository : IPersonRepository
             // typed must match the literal character, not act as a wildcard.
             var pattern = $"%{LikePatterns.EscapeLikePattern(AccentFolding.FoldPlain(search!.Trim()))}%";
             dbQuery = dbQuery.Where(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter));
+        }
+
+        if (filter?.Followed is not null)
+        {
+            var followedIds = _db.AuthorFollows.AsNoTracking().Select(f => f.PersonId);
+            dbQuery = filter.Followed == true
+                ? dbQuery.Where(p => followedIds.Contains(p.Id))
+                : dbQuery.Where(p => !followedIds.Contains(p.Id));
+        }
+
+        if (filter?.Matched is not null)
+        {
+            dbQuery = filter.Matched == true
+                ? dbQuery.Where(p => p.HardcoverAuthorId != null && p.HardcoverAuthorId != "")
+                : dbQuery.Where(p => p.HardcoverAuthorId == null || p.HardcoverAuthorId == "");
+        }
+
+        if (filter?.NeverRefreshed == true)
+        {
+            dbQuery = dbQuery.Where(p => p.LastRefreshedAt == null);
+        }
+        else if (filter?.NeverRefreshed == false)
+        {
+            dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null);
+        }
+
+        if (filter?.RefreshedAfter is not null)
+        {
+            dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null && p.LastRefreshedAt >= filter.RefreshedAfter);
+        }
+
+        if (filter?.RefreshedBefore is not null)
+        {
+            // The UI sends a calendar date (day granularity), which model-binds to that day's
+            // midnight - a plain "<=" would exclude every refresh later that same day. Treat the
+            // bound as "before the day after", so the whole chosen day is included, symmetric
+            // with RefreshedAfter's inclusive ">=" against that day's midnight.
+            var exclusiveUpperBound = filter.RefreshedBefore.Value.Date.AddDays(1);
+            dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null && p.LastRefreshedAt < exclusiveUpperBound);
+        }
+
+        if (filter?.MinBookCount is not null)
+        {
+            dbQuery = dbQuery.Where(p => p.BooksAuthored.Count >= filter.MinBookCount);
+        }
+
+        if (filter?.MaxBookCount is not null)
+        {
+            dbQuery = dbQuery.Where(p => p.BooksAuthored.Count <= filter.MaxBookCount);
+        }
+
+        if (restrictToIds is not null)
+        {
+            dbQuery = dbQuery.Where(p => restrictToIds.Contains(p.Id));
+        }
+
+        if (excludeIds is not null)
+        {
+            dbQuery = dbQuery.Where(p => !excludeIds.Contains(p.Id));
         }
 
         var total = await dbQuery.CountAsync();
@@ -286,6 +347,16 @@ public class PersonRepository : IPersonRepository
             .ToListAsync();
 
         return (rows, total);
+    }
+
+    /// <inheritdoc cref="IPersonRepository.GetAllActiveAuthorExpectedBooksAsync"/>
+    public async Task<List<AuthorExpectedBookRef>> GetAllActiveAuthorExpectedBooksAsync()
+    {
+        return await _db.AuthorExpectedBooks
+            .AsNoTracking()
+            .Where(b => !b.IsIgnored)
+            .Select(b => new AuthorExpectedBookRef(b.PersonId, b.Title, b.Year, b.ReleaseDate))
+            .ToListAsync();
     }
 
     public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)

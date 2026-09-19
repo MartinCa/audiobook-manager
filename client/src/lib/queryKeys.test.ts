@@ -51,7 +51,7 @@ describe("queryKeys", () => {
 
   describe("series/seriesCounts/seriesPending family shapes", () => {
     it("keeps series.page and series.unmatched both prefixed by series.all", () => {
-      expect(queryKeys.series.page("query", 1).slice(0, 1)).toEqual(queryKeys.series.all());
+      expect(queryKeys.series.page("query", 1, {}).slice(0, 1)).toEqual(queryKeys.series.all());
       expect(queryKeys.series.unmatched(1).slice(0, 1)).toEqual(queryKeys.series.all());
     });
 

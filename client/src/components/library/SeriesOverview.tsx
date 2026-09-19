@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
+import { countActiveFilters } from "@/components/filters/filterUtils";
+import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -20,6 +23,47 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
+import type { SeriesListFilters } from "@/types/EntityFilters";
+
+const FILTER_FIELDS: FilterFieldDef[] = [
+  {
+    type: "tristate",
+    key: "followed",
+    label: "Followed",
+    trueLabel: "Followed",
+    falseLabel: "Not followed",
+  },
+  {
+    type: "tristate",
+    key: "matched",
+    label: "Matched",
+    trueLabel: "Matched",
+    falseLabel: "Unmatched",
+  },
+  {
+    type: "tristate",
+    key: "hasMissingBooks",
+    label: "Missing books",
+    trueLabel: "Has missing",
+    falseLabel: "None missing",
+  },
+  {
+    type: "tristate",
+    key: "hasUpcomingBooks",
+    label: "Upcoming books",
+    trueLabel: "Has upcoming",
+    falseLabel: "None upcoming",
+  },
+  { type: "numberRange", label: "Owned books", minKey: "minOwnedBooks", maxKey: "maxOwnedBooks" },
+  {
+    type: "dateRange",
+    label: "Last refreshed",
+    afterKey: "refreshedAfter",
+    beforeKey: "refreshedBefore",
+    neverKey: "neverRefreshed",
+    neverLabel: "Never refreshed",
+  },
+];
 
 interface SeriesRefreshProgressPayload {
   processed: number;
@@ -38,9 +82,15 @@ interface SeriesRefreshCompletePayload {
 export function SeriesOverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { q = "" } = Route.useSearch();
+  const { q = "", ...filterSearch } = Route.useSearch();
+  const filters: SeriesListFilters = filterSearch;
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
+  // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
+  // expanded so the list isn't filtered with no visible explanation.
+  const [filtersExpanded, setFiltersExpanded] = useState(
+    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
+  );
   // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
   // page at a time and the pager clamps it; a filter change drops back to page 0.
   const [page, setPage] = useState(0);
@@ -51,6 +101,15 @@ export function SeriesOverviewPage() {
       setFilter(q);
     }
   }
+
+  const handleFiltersChange = (next: SeriesListFilters) => {
+    setPage(0);
+    void navigate({
+      to: "/library/series",
+      search: (prev) => ({ ...prev, ...next }),
+      replace: true,
+    });
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,11 +187,11 @@ export function SeriesOverviewPage() {
     // that shrank. The pager stays rendered even when such a page comes back empty (its items
     // count on totalCount, not on the items), so the user can page back instead of staring at a
     // dead-end heading - the CleanBookUrls shape.
-    queryKey: queryKeys.series.page(q, page),
+    queryKey: queryKeys.series.page(q, page, filters),
     // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
     // doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
-    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q),
+    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q, filters),
   });
 
   const seriesList = (pageData?.items ?? []) as SeriesOverview[];
@@ -246,41 +305,56 @@ export function SeriesOverviewPage() {
         />
       )}
 
-      <div className="relative max-w-md">
-        <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-        <Input
-          placeholder="Filter series or authors..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const trimmed = filter.trim();
-              if (trimmed !== q) {
-                setPage(0);
-                void navigate({
-                  to: "/library/series",
-                  search: (prev) => ({
-                    ...prev,
-                    q: trimmed || undefined,
-                  }),
-                  replace: true,
-                });
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-md flex-1">
+          <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
+          <Input
+            placeholder="Filter series or authors..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const trimmed = filter.trim();
+                if (trimmed !== q) {
+                  setPage(0);
+                  void navigate({
+                    to: "/library/series",
+                    search: (prev) => ({
+                      ...prev,
+                      q: trimmed || undefined,
+                    }),
+                    replace: true,
+                  });
+                }
               }
-            }
-          }}
-          className="pr-9 pl-9"
+            }}
+            className="pr-9 pl-9"
+          />
+          {filter ? (
+            <button
+              type="button"
+              onClick={handleClearFilter}
+              aria-label="Clear filter"
+              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+
+        <FilterToggleButton
+          expanded={filtersExpanded}
+          onToggle={() => setFiltersExpanded((prev) => !prev)}
+          activeCount={countActiveFilters(FILTER_FIELDS, filters)}
+          controls="series-filter-panel"
         />
-        {filter ? (
-          <button
-            type="button"
-            onClick={handleClearFilter}
-            aria-label="Clear filter"
-            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
       </div>
+
+      {filtersExpanded && (
+        <div id="series-filter-panel">
+          <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
+        </div>
+      )}
 
       {loading && seriesList.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">

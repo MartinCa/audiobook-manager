@@ -88,6 +88,7 @@ function makeSeries(id: number) {
     ignoredBookCount: 0,
     includeOmnibusEditions: false,
     upcomingBookCount: 0,
+    isFollowed: false,
   };
 }
 
@@ -121,7 +122,7 @@ describe("SeriesOverview", () => {
     nextButton.click();
 
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "");
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {});
     });
 
     expect(await screen.findByText("Series 51")).toBeInTheDocument();
@@ -138,8 +139,73 @@ describe("SeriesOverview", () => {
     await waitFor(() => {
       // The debounced term lands in the TanStack Query key and the server is asked for the
       // filtered page, from page 0.
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "mist");
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "mist", {});
     });
+  });
+
+  // The shared EntityFilterBar wires into the route's search params exactly like q does, so a
+  // filter change is shareable/bookmarkable and resets to page 0 like the search debounce does.
+  it("sends a numeric filter change to the server and resets to page 0", async () => {
+    const call = vi.mocked(seriesApi.getSeriesPage);
+    call.mockResolvedValueOnce(page1).mockResolvedValue(page0);
+
+    renderWithProviders();
+    await screen.findByText("Series 01");
+
+    // Move to page 1 first, so the filter change resetting it back to 0 is observable.
+    screen.getByRole("button", { name: "Next" }).click();
+    await waitFor(() => {
+      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(1, 50, "", {});
+    });
+
+    // The filter bar starts collapsed - open it before reaching for a field inside it.
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Owned books minimum"), { target: { value: "3" } });
+
+    await waitFor(() => {
+      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", { minOwnedBooks: 3 });
+    });
+  });
+
+  it("starts with the filter bar collapsed, and expands it on toggle", async () => {
+    renderWithProviders();
+    await screen.findByText("Series 01");
+
+    expect(screen.queryByLabelText("Owned books minimum")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /Filters/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Owned books minimum")).toBeInTheDocument();
+  });
+
+  it("starts expanded when a filter is already active from the URL", async () => {
+    // Navigate through the router's own search API (rather than guessing the query-string
+    // encoding) so this exercises exactly what Route.useSearch() decodes.
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/library/series"] }),
+    });
+    await router.navigate({ to: "/library/series", search: { minOwnedBooks: 3 } });
+
+    render(
+      <ThemeProvider defaultTheme="system" storageKey="theme">
+        <SignalRContext.Provider value={signalR as SignalRContextValue}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </SignalRContext.Provider>
+      </ThemeProvider>,
+    );
+
+    await screen.findByText("Series 01");
+    expect(screen.getByRole("button", { name: /Filters/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByLabelText("Owned books minimum")).toBeInTheDocument();
   });
 
   // Regression for the review finding: a refresh-all can match previously-unmatched series, i.e.
@@ -161,7 +227,7 @@ describe("SeriesOverview", () => {
     expect(await screen.findByText(/Showing 1–50 of 120/)).toBeInTheDocument();
     screen.getByRole("button", { name: "Next" }).click();
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "");
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {});
     });
     expect(screen.getByText(/Showing 51–100 of 120/)).toBeInTheDocument();
 
@@ -177,7 +243,7 @@ describe("SeriesOverview", () => {
 
     // Only the page-0 fetch is issued after completion...
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "");
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "", {});
     });
     // ...and its items render instead of a dead-end empty page.
     expect(await screen.findByText("Series 01")).toBeInTheDocument();

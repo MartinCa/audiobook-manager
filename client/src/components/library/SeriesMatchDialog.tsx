@@ -60,7 +60,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
 
   const { data: pageData, isLoading: loadingPage } = useQuery({
     queryKey: queryKeys.series.unmatched(page),
-    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, undefined, false),
+    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, undefined, { matched: false }),
     enabled: open,
     placeholderData: keepPreviousData,
   });
