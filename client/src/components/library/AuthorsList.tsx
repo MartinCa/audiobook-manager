@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
+import { countActiveFilters } from "@/components/filters/filterUtils";
+import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -61,6 +63,11 @@ export function AuthorsList() {
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   const [page, setPage] = useState(0);
+  // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
+  // expanded so the list isn't filtered with no visible explanation.
+  const [filtersExpanded, setFiltersExpanded] = useState(
+    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
+  );
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -142,43 +149,56 @@ export function AuthorsList() {
         <p className="text-muted-foreground text-sm">Browse books and series grouped by author.</p>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-        <Input
-          placeholder="Filter authors..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const trimmed = filter.trim();
-              if (trimmed !== q) {
-                setPage(0);
-                void navigate({
-                  to: "/library/authors",
-                  search: (prev) => ({
-                    ...prev,
-                    q: trimmed || undefined,
-                  }),
-                  replace: true,
-                });
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-md flex-1">
+          <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
+          <Input
+            placeholder="Filter authors..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const trimmed = filter.trim();
+                if (trimmed !== q) {
+                  setPage(0);
+                  void navigate({
+                    to: "/library/authors",
+                    search: (prev) => ({
+                      ...prev,
+                      q: trimmed || undefined,
+                    }),
+                    replace: true,
+                  });
+                }
               }
-            }
-          }}
-          className="pr-9 pl-9"
+            }}
+            className="pr-9 pl-9"
+          />
+          {filter ? (
+            <button
+              type="button"
+              onClick={handleClearFilter}
+              aria-label="Clear filter"
+              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+
+        <FilterToggleButton
+          expanded={filtersExpanded}
+          onToggle={() => setFiltersExpanded((prev) => !prev)}
+          activeCount={countActiveFilters(FILTER_FIELDS, filters)}
+          controls="authors-filter-panel"
         />
-        {filter ? (
-          <button
-            type="button"
-            onClick={handleClearFilter}
-            aria-label="Clear filter"
-            className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : null}
       </div>
 
-      <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
+      {filtersExpanded && (
+        <div id="authors-filter-panel">
+          <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
+        </div>
+      )}
 
       {loading && authors.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-16">

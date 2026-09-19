@@ -114,11 +114,56 @@ describe("AuthorsList", () => {
     renderWithProviders();
     await screen.findByPlaceholderText("Filter authors...");
 
+    // The filter bar starts collapsed - open it before reaching for a field inside it.
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.change(screen.getByLabelText("Book count minimum"), { target: { value: "5" } });
 
     await waitFor(() => {
       expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", { minBookCount: 5 });
     });
+  });
+
+  it("starts with the filter bar collapsed, and expands it on toggle", async () => {
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+    renderWithProviders();
+    await screen.findByPlaceholderText("Filter authors...");
+
+    expect(screen.queryByLabelText("Book count minimum")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /Filters/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Book count minimum")).toBeInTheDocument();
+  });
+
+  it("starts expanded when a filter is already active from the URL", async () => {
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/library/authors"] }),
+    });
+    await router.navigate({ to: "/library/authors", search: { minBookCount: 5 } });
+
+    render(
+      <ThemeProvider defaultTheme="system" storageKey="theme">
+        <SignalRContext.Provider value={mockSignalRValue}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </SignalRContext.Provider>
+      </ThemeProvider>,
+    );
+
+    await screen.findByPlaceholderText("Filter authors...");
+    expect(screen.getByRole("button", { name: /Filters/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByLabelText("Book count minimum")).toBeInTheDocument();
   });
 
   // Regression for the review finding: sitting on a later page while the list shrinks (e.g. a

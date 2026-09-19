@@ -158,11 +158,54 @@ describe("SeriesOverview", () => {
       expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(1, 50, "", {});
     });
 
+    // The filter bar starts collapsed - open it before reaching for a field inside it.
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.change(screen.getByLabelText("Owned books minimum"), { target: { value: "3" } });
 
     await waitFor(() => {
       expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", { minOwnedBooks: 3 });
     });
+  });
+
+  it("starts with the filter bar collapsed, and expands it on toggle", async () => {
+    renderWithProviders();
+    await screen.findByText("Series 01");
+
+    expect(screen.queryByLabelText("Owned books minimum")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /Filters/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Owned books minimum")).toBeInTheDocument();
+  });
+
+  it("starts expanded when a filter is already active from the URL", async () => {
+    // Navigate through the router's own search API (rather than guessing the query-string
+    // encoding) so this exercises exactly what Route.useSearch() decodes.
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/library/series"] }),
+    });
+    await router.navigate({ to: "/library/series", search: { minOwnedBooks: 3 } });
+
+    render(
+      <ThemeProvider defaultTheme="system" storageKey="theme">
+        <SignalRContext.Provider value={signalR as SignalRContextValue}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </SignalRContext.Provider>
+      </ThemeProvider>,
+    );
+
+    await screen.findByText("Series 01");
+    expect(screen.getByRole("button", { name: /Filters/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByLabelText("Owned books minimum")).toBeInTheDocument();
   });
 
   // Regression for the review finding: a refresh-all can match previously-unmatched series, i.e.
