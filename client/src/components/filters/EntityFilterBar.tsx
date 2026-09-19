@@ -128,6 +128,11 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                   onValueChange={(v) =>
                     onChange({ ...values, [field.key]: v === "any" ? undefined : v === "true" })
                   }
+                  items={[
+                    { value: "any", label: "Any" },
+                    { value: "true", label: field.trueLabel },
+                    { value: "false", label: field.falseLabel },
+                  ]}
                 >
                   <SelectTrigger size="sm" className="w-36" aria-label={field.label}>
                     <SelectValue />
