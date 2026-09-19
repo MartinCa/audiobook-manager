@@ -24,6 +24,21 @@ public class Person
 
     public List<Audiobook> BooksNarrated { get; set; }
 
+    /// <summary>
+    /// The source-specific author identifier this person is matched to (currently always a
+    /// Hardcover author id), or null when unmatched. Follows <see cref="Series.MatchedSourceId"/>'s
+    /// shape - a matched author is what lets the upcoming-releases worker poll a source for this
+    /// person's future books.
+    /// </summary>
+    [Column("hardcover_author_id")]
+    public string? HardcoverAuthorId { get; set; }
+
+    [Column("hardcover_author_name")]
+    public string? HardcoverAuthorName { get; set; }
+
+    [Column("hardcover_author_url")]
+    public string? HardcoverAuthorUrl { get; set; }
+
     public Person(long id, string name)
     {
         Id = id;

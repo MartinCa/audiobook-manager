@@ -21,6 +21,7 @@ import { Route as LibraryMetadataRefreshRouteImport } from './routes/library/met
 import { Route as LibraryMissingTagsRouteImport } from './routes/library/missing-tags'
 import { Route as LibrarySearchRouteImport } from './routes/library/search'
 import { Route as LibrarySimilarValuesRouteImport } from './routes/library/similar-values'
+import { Route as LibraryUpcomingReleasesRouteImport } from './routes/library/upcoming-releases'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsLibraryRouteImport } from './routes/settings/library'
 import { Route as LibraryAuthorsIndexRouteImport } from './routes/library/authors/index'
@@ -90,6 +91,11 @@ const LibrarySimilarValuesRoute = LibrarySimilarValuesRouteImport.update({
   path: '/library/similar-values',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LibraryUpcomingReleasesRoute = LibraryUpcomingReleasesRouteImport.update({
+  id: '/library/upcoming-releases',
+  path: '/library/upcoming-releases',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -165,6 +172,7 @@ export interface FileRoutesByTo {
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
   '/library': typeof LibraryIndexRoute
   '/settings': typeof SettingsIndexRoute
@@ -188,6 +196,7 @@ export interface FileRoutesById {
   '/library/missing-tags': typeof LibraryMissingTagsRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
+  '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
   '/settings/library': typeof SettingsLibraryRoute
   '/library/': typeof LibraryIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/library/missing-tags'
     | '/library/search'
     | '/library/similar-values'
+    | '/library/upcoming-releases'
     | '/settings/library'
     | '/library/'
     | '/settings/'
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
     | '/library/missing-tags'
     | '/library/search'
     | '/library/similar-values'
+    | '/library/upcoming-releases'
     | '/settings/library'
     | '/library'
     | '/settings'
@@ -256,6 +267,7 @@ export interface FileRouteTypes {
     | '/library/missing-tags'
     | '/library/search'
     | '/library/similar-values'
+    | '/library/upcoming-releases'
     | '/settings/library'
     | '/library/'
     | '/settings/'
@@ -279,6 +291,7 @@ export interface RootRouteChildren {
   LibraryMissingTagsRoute: typeof LibraryMissingTagsRoute
   LibrarySearchRoute: typeof LibrarySearchRoute
   LibrarySimilarValuesRoute: typeof LibrarySimilarValuesRoute
+  LibraryUpcomingReleasesRoute: typeof LibraryUpcomingReleasesRoute
   SettingsLibraryRoute: typeof SettingsLibraryRoute
   LibraryIndexRoute: typeof LibraryIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -375,6 +388,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibrarySimilarValuesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/library/upcoming-releases': {
+      id: '/library/upcoming-releases'
+      path: '/library/upcoming-releases'
+      fullPath: '/library/upcoming-releases'
+      preLoaderRoute: typeof LibraryUpcomingReleasesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/': {
       id: '/settings/'
       path: '/settings'
@@ -457,6 +477,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibraryMissingTagsRoute: LibraryMissingTagsRoute,
   LibrarySearchRoute: LibrarySearchRoute,
   LibrarySimilarValuesRoute: LibrarySimilarValuesRoute,
+  LibraryUpcomingReleasesRoute: LibraryUpcomingReleasesRoute,
   SettingsLibraryRoute: SettingsLibraryRoute,
   LibraryIndexRoute: LibraryIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,

@@ -52,6 +52,13 @@ import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 import type { TagMismatchField } from "@/types/TagMismatchField";
+import type {
+  AuthorFollowStatus,
+  AuthorMatchCandidate,
+  AuthorMatchStatus,
+  SeriesFollowStatus,
+  UpcomingRelease,
+} from "@/types/UpcomingRelease";
 import type { ApplyUrlCleanupResult, UrlCleanupPage } from "@/types/UrlCleanup";
 
 export function toAudiobookDto(data: Audiobook) {
@@ -219,6 +226,37 @@ export const browseApi = {
     api.get<ManagedAudiobook[]>("/browse/series", {
       query: { seriesName, authorId },
     }),
+
+  getAuthorFollowStatus: (authorId: number) =>
+    api.get<AuthorFollowStatus>(`/browse/authors/${authorId}/follow`),
+
+  followAuthor: (authorId: number) =>
+    api.post<void>(`/browse/authors/${authorId}/follow`, undefined),
+
+  unfollowAuthor: (authorId: number) => api.delete<void>(`/browse/authors/${authorId}/follow`),
+
+  getAuthorHardcoverMatch: (authorId: number) =>
+    api.get<AuthorMatchStatus>(`/browse/authors/${authorId}/hardcover-match`),
+
+  getAuthorHardcoverMatchCandidates: (authorId: number, query?: string) =>
+    api.get<AuthorMatchCandidate[]>(`/browse/authors/${authorId}/hardcover-match-candidates`, {
+      query: { query: query || undefined },
+    }),
+
+  matchAuthorToHardcover: (
+    authorId: number,
+    sourceId: string,
+    sourceName: string,
+    sourceUrl?: string,
+  ) =>
+    api.post<void>(`/browse/authors/${authorId}/hardcover-match`, {
+      sourceId,
+      sourceName,
+      sourceUrl,
+    }),
+
+  unmatchAuthorFromHardcover: (authorId: number) =>
+    api.delete<void>(`/browse/authors/${authorId}/hardcover-match`),
 };
 
 // Library Scanning & Discovered
@@ -627,6 +665,38 @@ export const seriesApi = {
   // (roster, mapping patterns) and any pending refresh snapshot. Progress/completion arrive over
   // SignalR (SeriesDeleteProgress/Complete) and via GET /operations/series-delete/status.
   startDeleteSeries: (seriesName: string) => api.delete<void>("/series", { query: { seriesName } }),
+
+  getFollowStatus: (seriesName: string) =>
+    api.get<SeriesFollowStatus>("/series/follow", { query: { seriesName } }),
+
+  followSeries: (seriesName: string) =>
+    api.post<void>("/series/follow", undefined, { query: { seriesName } }),
+
+  unfollowSeries: (seriesName: string) =>
+    api.delete<void>("/series/follow", { query: { seriesName } }),
+};
+
+// Upcoming Releases
+export const upcomingReleasesApi = {
+  // The consolidated view (no filter) and the author/series-detail-scoped views share this one
+  // endpoint - authorId/seriesId narrow it server-side.
+  getUpcomingReleases: (
+    params: { authorId?: number; seriesId?: number; limit?: number; offset?: number } = {},
+  ) =>
+    api.get<PaginatedResult<UpcomingRelease>>("/upcoming-releases", {
+      query: {
+        authorId: params.authorId,
+        seriesId: params.seriesId,
+        limit: params.limit,
+        offset: params.offset,
+      },
+    }),
+
+  removeUpcomingRelease: (id: number) => api.delete<void>(`/upcoming-releases/${id}`),
+
+  // Polls every followed-and-matched author/series right now rather than waiting for the
+  // periodic worker's next tick.
+  refreshUpcomingReleases: () => api.post<void>("/upcoming-releases/refresh", undefined),
 };
 
 // Metadata Search

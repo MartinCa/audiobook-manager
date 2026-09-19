@@ -8,6 +8,8 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { SeriesListEntry } from "./SeriesListEntry";
+import { AuthorFollowSection } from "./AuthorFollowSection";
+import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { LinkButton } from "../LinkButton";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -108,6 +110,20 @@ export function AuthorDetail() {
         <p className="text-muted-foreground text-sm">
           {author.bookCount} {author.bookCount === 1 ? "audiobook" : "audiobooks"} in library
         </p>
+        <div className="mt-3">
+          <AuthorFollowSection authorId={author.id} authorName={author.name} />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
+          <BookMarked className="text-primary h-5 w-5" />
+          Upcoming Releases
+        </h2>
+        <UpcomingReleasesList
+          authorId={author.id}
+          emptyMessage="No upcoming releases tracked for this author yet. Follow them to start tracking."
+        />
       </div>
 
       {seriesSection.total > 0 && (

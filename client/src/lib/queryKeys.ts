@@ -162,4 +162,21 @@ export const queryKeys = {
   bookDetails: (targetPath: string) => ["bookDetails", targetPath] as const,
 
   quickSearch: (query: string) => ["quickSearch", query] as const,
+
+  authorFollow: (authorId: number) => ["authorFollow", authorId] as const,
+
+  authorHardcoverMatch: (authorId: number) => ["authorHardcoverMatch", authorId] as const,
+
+  authorHardcoverMatchCandidates: (authorId: number, query: string) =>
+    ["authorHardcoverMatchCandidates", authorId, query] as const,
+
+  seriesFollow: (seriesName: string) => ["seriesFollow", seriesName] as const,
+
+  upcomingReleases: {
+    all: () => ["upcomingReleases"] as const,
+    page: (authorId: number | undefined, seriesId: number | undefined, page: number) =>
+      ["upcomingReleases", authorId, seriesId, page] as const,
+  },
+
+  upcomingReleasesRefreshStatus: () => ["upcomingReleasesRefreshStatus"] as const,
 } as const;

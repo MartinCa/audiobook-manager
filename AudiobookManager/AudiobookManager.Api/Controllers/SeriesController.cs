@@ -41,6 +41,7 @@ public class SeriesController : ControllerBase
     private readonly ISeriesService _seriesService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
+    private readonly IUpcomingReleaseService _upcomingReleaseService;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<SeriesController> _logger;
 
@@ -51,6 +52,7 @@ public class SeriesController : ControllerBase
         ISeriesService seriesService,
         IAudiobookSaveGate saveGate,
         ILibraryConsistencyService libraryConsistencyService,
+        IUpcomingReleaseService upcomingReleaseService,
         IHostApplicationLifetime appLifetime,
         ILogger<SeriesController> logger)
     {
@@ -60,8 +62,55 @@ public class SeriesController : ControllerBase
         _seriesService = seriesService;
         _saveGate = saveGate;
         _libraryConsistencyService = libraryConsistencyService;
+        _upcomingReleaseService = upcomingReleaseService;
         _appLifetime = appLifetime;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Followed status is keyed by the series' catalog row, but a never-matched series has no
+    /// row until something creates one - so an unfollowed, never-matched series legitimately
+    /// reports false without a lookup.
+    /// </summary>
+    [HttpGet("follow")]
+    public async Task<ActionResult<SeriesFollowStatusDto>> GetFollowStatus([FromQuery] string seriesName)
+    {
+        return new SeriesFollowStatusDto(await _upcomingReleaseService.IsSeriesFollowedByNameAsync(seriesName));
+    }
+
+    [HttpPost("follow")]
+    public async Task<IActionResult> FollowSeries([FromQuery] string seriesName)
+    {
+        if (string.IsNullOrWhiteSpace(seriesName))
+        {
+            return this.InvalidRequest("seriesName is required.");
+        }
+
+        try
+        {
+            await _upcomingReleaseService.FollowSeriesAsync(seriesName);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error following series {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
+    }
+
+    [HttpDelete("follow")]
+    public async Task<IActionResult> UnfollowSeries([FromQuery] string seriesName)
+    {
+        try
+        {
+            await _upcomingReleaseService.UnfollowSeriesAsync(seriesName);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error unfollowing series {SeriesName}", seriesName);
+            return this.UnexpectedError();
+        }
     }
 
     [HttpGet]

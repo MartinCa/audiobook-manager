@@ -66,4 +66,5 @@ export const OperationKeys = {
   discoveredImport: "discovered-import",
   bulkEdit: "bulk-edit",
   urlCleanupApply: "url-cleanup-apply",
+  upcomingReleasesRefresh: "upcoming-releases-refresh",
 } as const;

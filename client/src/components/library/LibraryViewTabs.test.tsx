@@ -8,12 +8,13 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("LibraryViewTabs", () => {
-  it("renders Books, Series, and Authors tabs with active state", () => {
+  it("renders Books, Series, Authors, and Releases tabs with active state", () => {
     render(<LibraryViewTabs activeTab="books" />);
 
     expect(screen.getByRole("tab", { name: /books/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /series/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /authors/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /releases/i })).toBeInTheDocument();
   });
 
   it("navigates to the appropriate route when a tab is clicked", () => {
@@ -26,5 +27,9 @@ describe("LibraryViewTabs", () => {
     const authorsTab = screen.getByRole("tab", { name: /authors/i });
     fireEvent.click(authorsTab);
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/library/authors" });
+
+    const releasesTab = screen.getByRole("tab", { name: /releases/i });
+    fireEvent.click(releasesTab);
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/library/upcoming-releases" });
   });
 });

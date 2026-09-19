@@ -36,4 +36,11 @@ public class AudiobookManagerSettings
     public int HardcoverDailyRequestLimit { get; set; } = 5000;
     public int HardcoverBurstLimit { get; set; } = 5;
     public int HardcoverPerMinuteLimit { get; set; } = 55;
+
+    // How often the upcoming-releases worker polls followed authors/series for new releases.
+    // Once a day is plenty - release dates don't change minute to minute, and this keeps the
+    // feature well within the Hardcover daily request budget alongside everything else that
+    // shares it (series refresh, metadata refresh, search).
+    public bool UpcomingReleasesCheckEnabled { get; set; } = true;
+    public int UpcomingReleasesCheckIntervalHours { get; set; } = 24;
 }

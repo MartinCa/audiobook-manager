@@ -23,6 +23,14 @@ public interface ISeriesRepository
     Task<Series?> GetByNameAsync(string name);
 
     /// <summary>
+    /// The catalog row matched to this exact source (e.g. Hardcover) id, or null. Name-independent
+    /// - unlike <see cref="GetByNameAsync"/>, this is what the upcoming-releases poll uses to link
+    /// a release discovered through a followed author to a followed-but-differently-named series,
+    /// since the local series name and the source's own series name are not guaranteed to agree.
+    /// </summary>
+    Task<Series?> GetByMatchedSourceIdAsync(string sourceName, string sourceId);
+
+    /// <summary>
     /// The names of every matched series, names only. The library-wide series-part-mismatch
     /// sweep consumes the cached per-series reconciliation for exactly these series; unmatched
     /// series have no roster to reconcile against and never produce a part mismatch.

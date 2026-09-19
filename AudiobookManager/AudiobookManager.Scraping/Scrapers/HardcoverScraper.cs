@@ -724,6 +724,344 @@ public class HardcoverScraper : IScraper
         return segments.LastOrDefault();
     }
 
+    public bool SupportsAuthorLookup => true;
+
+    public async Task<IList<AuthorSearchResult>> SearchAuthors(string searchTerm)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return new List<AuthorSearchResult>();
+        }
+
+        var query = """
+            query SearchAuthors($query: String!) {
+              search(query: $query, query_type: "Authors", per_page: 10, page: 1) {
+                results
+              }
+            }
+            """;
+
+        var variables = new { query = searchTerm.Trim() };
+        var responseElement = await ExecuteGraphqlQuery(query, variables);
+
+        var resultsJson = responseElement.GetNestedProperty("data", "search", "results");
+
+        JsonElement hitsArray;
+        if (resultsJson.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = resultsJson;
+        }
+        else if (resultsJson.ValueKind == JsonValueKind.Object &&
+                 resultsJson.TryGetProperty("hits", out var hitsElement) &&
+                 hitsElement.ValueKind == JsonValueKind.Array)
+        {
+            hitsArray = hitsElement;
+        }
+        else
+        {
+            return new List<AuthorSearchResult>();
+        }
+
+        var results = new List<AuthorSearchResult>();
+        foreach (var hit in hitsArray.EnumerateArray())
+        {
+            try
+            {
+                var parsed = ParseAuthorSearchHit(hit);
+                if (parsed is not null)
+                {
+                    results.Add(parsed);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse Hardcover author search result");
+            }
+        }
+
+        return results;
+    }
+
+    private AuthorSearchResult? ParseAuthorSearchHit(JsonElement hit)
+    {
+        var document = hit.TryGetProperty("document", out var docElement) &&
+                       docElement.ValueKind == JsonValueKind.Object
+            ? docElement
+            : hit;
+
+        var id = document.GetPropertyValueOrNull("id");
+        var name = document.GetPropertyValueOrNull("name");
+
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name))
+        {
+            return null;
+        }
+
+        var slug = document.GetPropertyValueOrNull("slug");
+
+        var result = new AuthorSearchResult(id, name)
+        {
+            SourceUrl = $"{_hardcoverBaseUrl}/authors/{slug ?? id}",
+        };
+
+        if (document.TryGetProperty("books_count", out var booksCountElement) &&
+            booksCountElement.ValueKind == JsonValueKind.Number)
+        {
+            result.BookCount = booksCountElement.GetInt32();
+        }
+
+        return result;
+    }
+
+    // Mirrors the recipe the series roster query above documents: canonical_id/is_partial_book
+    // filter out translated/partial duplicates. release_date >= $today is filtered server-side
+    // (not just required to be non-null) so a prolific author's entire dated back catalog is
+    // never downloaded and thrown away client-side - $today is the caller's DateOnly.FromDateTime
+    // (UtcNow) formatted as an ISO date, the same value ParseUpcomingBook's own defense-in-depth
+    // lower-bound check compares against. `_gte` is a plain comparison operator, not one of the
+    // disabled pattern-matching operators (see the "Limitations" note above the series query).
+    // `limit: 100` bounds the response regardless: unlikely for a single author, but nothing
+    // caps how many books Hardcover records against one, and this is a periodic background poll,
+    // not a page a user is actively waiting on. Unlike the series roster query, no per-position
+    // popularity dedupe is needed here - the caller (UpcomingReleasesService) dedupes discovered
+    // releases by source book id across every followed author/series.
+    private const string _authorUpcomingBooksQuery = """
+        query GetAuthorUpcomingBooks($id: Int!, $today: date!) {
+          authors_by_pk(id: $id) {
+            id
+            name
+            contributions(
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_gte: $today}}}
+              order_by: [{book: {release_date: desc}}]
+              limit: 100
+            ) {
+              contribution
+              book {
+                id
+                title
+                slug
+                release_date
+                cached_image
+                book_series {
+                  position
+                  series {
+                    id
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    public async Task<IList<UpcomingReleaseResult>> GetAuthorUpcomingReleases(string authorSourceId)
+    {
+        if (!int.TryParse(authorSourceId, out var id))
+        {
+            _logger.LogWarning("Could not parse a numeric Hardcover author id from {AuthorSourceId}", authorSourceId);
+            return new List<UpcomingReleaseResult>();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var responseElement = await ExecuteGraphqlQuery(_authorUpcomingBooksQuery, new { id, today });
+        var authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+        if (authorElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return new List<UpcomingReleaseResult>();
+        }
+
+        var results = new List<UpcomingReleaseResult>();
+        if (!authorElement.TryGetProperty("contributions", out var contributionsElement) ||
+            contributionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return results;
+        }
+
+        foreach (var contribution in contributionsElement.EnumerateArray())
+        {
+            try
+            {
+                // Only the author's own writing credits - a book this person merely narrates
+                // is not "their" upcoming release.
+                var role = contribution.GetPropertyValueOrNull("contribution");
+                if (string.Equals(role, "Narrator", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!contribution.TryGetProperty("book", out var bookElement) ||
+                    bookElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var result = ParseUpcomingBook(bookElement, today);
+                if (result is not null)
+                {
+                    results.Add(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse a Hardcover upcoming release for author {AuthorSourceId}", authorSourceId);
+            }
+        }
+
+        return results;
+    }
+
+    // Same release_date >= $today server-side filter and defensive limit as the author query
+    // above - a long-running series (or one whose omnibus/box-set editions are excluded
+    // elsewhere but still counted here) should not force a full-roster download on every poll.
+    private const string _seriesUpcomingBooksQuery = """
+        query GetSeriesUpcomingBooks($id: Int!, $today: date!) {
+          series_by_pk(id: $id) {
+            id
+            name
+            book_series(
+              order_by: [{position: asc}]
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_gte: $today}}}
+              limit: 100
+            ) {
+              position
+              book {
+                id
+                title
+                slug
+                release_date
+                cached_image
+              }
+            }
+          }
+        }
+        """;
+
+    public async Task<IList<UpcomingReleaseResult>> GetSeriesUpcomingReleases(string seriesSourceId)
+    {
+        if (!int.TryParse(seriesSourceId, out var id))
+        {
+            _logger.LogWarning("Could not parse a numeric Hardcover series id from {SeriesSourceId}", seriesSourceId);
+            return new List<UpcomingReleaseResult>();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var responseElement = await ExecuteGraphqlQuery(_seriesUpcomingBooksQuery, new { id, today });
+        var seriesElement = responseElement.GetNestedProperty("data", "series_by_pk");
+        if (seriesElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return new List<UpcomingReleaseResult>();
+        }
+
+        var seriesName = seriesElement.GetPropertyValueOrNull("name");
+
+        var results = new List<UpcomingReleaseResult>();
+        if (!seriesElement.TryGetProperty("book_series", out var bookSeriesElement) ||
+            bookSeriesElement.ValueKind != JsonValueKind.Array)
+        {
+            return results;
+        }
+
+        foreach (var entry in bookSeriesElement.EnumerateArray())
+        {
+            try
+            {
+                if (!entry.TryGetProperty("book", out var bookElement) ||
+                    bookElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var result = ParseUpcomingBook(bookElement, today);
+                if (result is null)
+                {
+                    continue;
+                }
+
+                result.SeriesName = seriesName;
+                result.SeriesSourceId = seriesSourceId;
+                if (entry.TryGetProperty("position", out var positionElement))
+                {
+                    result.SeriesPosition = FormatSeriesPosition(positionElement);
+                }
+
+                results.Add(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse a Hardcover upcoming release for series {SeriesSourceId}", seriesSourceId);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Shared book-row parsing for both upcoming-release queries: a valid, still-future
+    /// release_date and a title are required, and the first series the book carries (if any)
+    /// is attached - the author query's <c>book_series</c> only asks for id/name, not position,
+    /// since a book can front multiple series and the author feed has no single "position" of
+    /// its own; the series-scoped query attaches its own known position separately.
+    /// </summary>
+    private UpcomingReleaseResult? ParseUpcomingBook(JsonElement bookElement, DateOnly today)
+    {
+        var title = bookElement.GetPropertyValueOrNull("title");
+        if (string.IsNullOrEmpty(title))
+        {
+            return null;
+        }
+
+        var releaseDateRaw = bookElement.GetPropertyValueOrNull("release_date");
+        if (releaseDateRaw is null ||
+            !DateOnly.TryParse(releaseDateRaw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var releaseDate))
+        {
+            return null;
+        }
+
+        // Only genuinely upcoming books are ingested - the back catalog is not what "upcoming
+        // releases" means, and UpcomingReleaseRepository keeps whatever was already stored
+        // regardless of date, so a book that later slips into the past stays without being
+        // re-fetched here.
+        if (releaseDate < today)
+        {
+            return null;
+        }
+
+        var bookId = GetScalarOrNull(bookElement, "id");
+        var slug = bookElement.GetPropertyValueOrNull("slug");
+        var identifier = slug ?? bookId;
+
+        if (bookId is null)
+        {
+            return null;
+        }
+
+        var result = new UpcomingReleaseResult(bookId, title, releaseDate)
+        {
+            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            ImageUrl = ParseCachedImage(bookElement),
+        };
+
+        if (bookElement.TryGetProperty("book_series", out var bookSeriesElement) &&
+            bookSeriesElement.ValueKind == JsonValueKind.Array)
+        {
+            var first = bookSeriesElement.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == JsonValueKind.Object &&
+                first.TryGetProperty("series", out var seriesElement) &&
+                seriesElement.ValueKind == JsonValueKind.Object)
+            {
+                result.SeriesName = seriesElement.GetPropertyValueOrNull("name");
+                result.SeriesSourceId = GetScalarOrNull(seriesElement, "id");
+                if (first.TryGetProperty("position", out var positionElement))
+                {
+                    result.SeriesPosition = FormatSeriesPosition(positionElement);
+                }
+            }
+        }
+
+        return result;
+    }
+
     private async Task<JsonElement> GetBookById(int bookId)
     {
         var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$id: Int!")

@@ -350,4 +350,18 @@ public class PersonRepository : IPersonRepository
 
         return rows.ToDictionary(r => r.Name, r => r.Count, StringComparer.Ordinal);
     }
+
+    public Task<Person?> GetByIdAsync(long id) =>
+        _db.Persons.FirstOrDefaultAsync(p => p.Id == id);
+
+    public async Task SetHardcoverMatchAsync(long personId, string? sourceId, string? sourceName, string? sourceUrl)
+    {
+        var person = await _db.Persons.FirstOrDefaultAsync(p => p.Id == personId)
+            ?? throw new KeyNotFoundException($"Person {personId} not found");
+
+        person.HardcoverAuthorId = sourceId;
+        person.HardcoverAuthorName = sourceName;
+        person.HardcoverAuthorUrl = sourceUrl;
+        await _db.SaveChangesAsync();
+    }
 }

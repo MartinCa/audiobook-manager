@@ -64,4 +64,7 @@ public class DatabaseContext : DbContext
     public DbSet<Series> Series { get; set; }
     public DbSet<SeriesExpectedBook> SeriesExpectedBooks { get; set; }
     public DbSet<HardcoverRequestQuota> HardcoverRequestQuotas { get; set; }
+    public DbSet<AuthorFollow> AuthorFollows { get; set; }
+    public DbSet<SeriesFollow> SeriesFollows { get; set; }
+    public DbSet<UpcomingRelease> UpcomingReleases { get; set; }
 }

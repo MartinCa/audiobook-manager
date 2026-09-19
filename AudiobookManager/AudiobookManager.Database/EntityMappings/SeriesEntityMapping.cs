@@ -16,6 +16,12 @@ public class SeriesEntityMapping : IEntityTypeConfiguration<Series>
             .HasIndex(s => s.Name, "ix_series_name")
             .IsUnique();
 
+        // Backs ISeriesRepository.GetByMatchedSourceIdAsync - the upcoming-releases poll looks
+        // up a matched series by its exact (source name, source id) pair once per author-side
+        // release per sweep, which would otherwise be a full table scan.
+        builder
+            .HasIndex(s => new { s.MatchedSourceName, s.MatchedSourceId }, "ix_series_matched_source");
+
         builder
             .HasMany(s => s.ExpectedBooks)
             .WithOne(b => b.Series)

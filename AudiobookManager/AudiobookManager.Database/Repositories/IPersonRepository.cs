@@ -72,4 +72,13 @@ public interface IPersonRepository
     /// book/author link.
     /// </summary>
     Task<Dictionary<string, int>> GetAuthorBookCountsAsync(IReadOnlyCollection<string> authorNames);
+
+    /// <summary>The tracked person row by id, or null - for the Hardcover-match write path.</summary>
+    Task<Person?> GetByIdAsync(long id);
+
+    /// <summary>
+    /// Sets or clears (when <paramref name="sourceId"/> is null) this person's Hardcover author
+    /// match. Throws <see cref="KeyNotFoundException"/> when no person with this id exists.
+    /// </summary>
+    Task SetHardcoverMatchAsync(long personId, string? sourceId, string? sourceName, string? sourceUrl);
 }

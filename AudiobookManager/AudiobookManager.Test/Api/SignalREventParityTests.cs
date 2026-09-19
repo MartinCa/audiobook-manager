@@ -100,6 +100,7 @@ public class SignalREventParityTests
             MissingTagsController.LanguageBackfillOperationKey,
             AudiobookController.BulkEditOperationKey,
             UrlCleanupController.ApplyAllOperationKey,
+            UpcomingReleasesController.RefreshOperationKey,
         };
 
         var entries = ExtractObjectEntries(ReadTextFile(FindClientFile(ClientEventConstantsFile)), "OperationKeys");

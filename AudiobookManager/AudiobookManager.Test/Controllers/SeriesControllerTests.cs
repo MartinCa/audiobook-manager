@@ -26,6 +26,7 @@ public class SeriesControllerTests
     private Mock<ISeriesService> _seriesService = null!;
     private AudiobookSaveGate _saveGate = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
+    private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<ILogger<SeriesController>> _logger = null!;
     private SeriesController _controller = null!;
 
@@ -79,6 +80,7 @@ public class SeriesControllerTests
         _seriesService = new Mock<ISeriesService>();
         _saveGate = new AudiobookSaveGate();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _logger = new Mock<ILogger<SeriesController>>();
 
         var mockScope = new Mock<IServiceScope>();
@@ -95,6 +97,7 @@ public class SeriesControllerTests
             _seriesService.Object,
             _saveGate,
             _libraryConsistencyService.Object,
+            _upcomingReleaseService.Object,
             Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
@@ -1600,5 +1603,42 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType<OkResult>(result);
         _seriesService.Verify(s => s.DeleteSeriesMappingAsync("Mistborn", 7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetFollowStatus_ReflectsTheServiceResult()
+    {
+        _upcomingReleaseService.Setup(s => s.IsSeriesFollowedByNameAsync("Mistborn")).ReturnsAsync(true);
+
+        var result = await _controller.GetFollowStatus("Mistborn");
+
+        Assert.IsTrue(result.Value!.IsFollowed);
+    }
+
+    [TestMethod]
+    public async Task FollowSeries_BlankName_ReturnsInvalidRequest()
+    {
+        var result = await _controller.FollowSeries("");
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "seriesName is required.");
+        _upcomingReleaseService.Verify(s => s.FollowSeriesAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task FollowSeries_ValidName_DelegatesToTheService()
+    {
+        var result = await _controller.FollowSeries("Mistborn");
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(s => s.FollowSeriesAsync("Mistborn"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnfollowSeries_DelegatesToTheService()
+    {
+        var result = await _controller.UnfollowSeries("Mistborn");
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(s => s.UnfollowSeriesAsync("Mistborn"), Times.Once);
     }
 }

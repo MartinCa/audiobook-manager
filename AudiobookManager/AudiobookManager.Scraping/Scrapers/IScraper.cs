@@ -33,4 +33,28 @@ public interface IScraper
     /// </summary>
     Task<SeriesSearchResult?> GetSeriesBooks(string seriesIdOrUrl) =>
         Task.FromResult<SeriesSearchResult?>(null);
+
+    /// <summary>
+    /// Whether this source can look up authors by id and report their upcoming releases.
+    /// Optional capability, like <see cref="SupportsSeriesLookup"/> - sources that don't
+    /// support it leave the defaults below in place.
+    /// </summary>
+    bool SupportsAuthorLookup => false;
+
+    Task<IList<AuthorSearchResult>> SearchAuthors(string searchTerm) =>
+        Task.FromResult<IList<AuthorSearchResult>>(new List<AuthorSearchResult>());
+
+    /// <summary>
+    /// Not-yet-released books credited to the author identified by <paramref name="authorSourceId"/>
+    /// (the id returned from <see cref="SearchAuthors"/>).
+    /// </summary>
+    Task<IList<UpcomingReleaseResult>> GetAuthorUpcomingReleases(string authorSourceId) =>
+        Task.FromResult<IList<UpcomingReleaseResult>>(new List<UpcomingReleaseResult>());
+
+    /// <summary>
+    /// Not-yet-released books in the series identified by <paramref name="seriesSourceId"/> (the
+    /// same source id <see cref="SeriesSearchResult.SourceId"/>/<see cref="GetSeriesBooks"/> use).
+    /// </summary>
+    Task<IList<UpcomingReleaseResult>> GetSeriesUpcomingReleases(string seriesSourceId) =>
+        Task.FromResult<IList<UpcomingReleaseResult>>(new List<UpcomingReleaseResult>());
 }

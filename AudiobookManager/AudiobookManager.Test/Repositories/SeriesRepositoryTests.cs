@@ -480,4 +480,47 @@ public class SeriesRepositoryTests
 
         Assert.IsFalse(deleted);
     }
+
+    [TestMethod]
+    public async Task GetByMatchedSourceIdAsync_ReturnsTheRowMatchingBothSourceNameAndSourceId()
+    {
+        await _repository.UpsertSeriesAsync(new Series
+        {
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+        });
+
+        var result = await _repository.GetByMatchedSourceIdAsync("Hardcover", "42");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("Mistborn", result.Name);
+    }
+
+    [TestMethod]
+    public async Task GetByMatchedSourceIdAsync_SameIdDifferentSource_DoesNotMatch()
+    {
+        // The composite key is (source name, source id) together - a source id that happens to
+        // collide with a different source's id must not resolve to the wrong series.
+        await _repository.UpsertSeriesAsync(new Series
+        {
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+        });
+
+        var result = await _repository.GetByMatchedSourceIdAsync("SomeOtherSource", "42");
+
+        Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public async Task GetByMatchedSourceIdAsync_UnmatchedSeries_ReturnsNull()
+    {
+        await _repository.GetOrCreateByNameAsync("Unmatched Series");
+
+        var result = await _repository.GetByMatchedSourceIdAsync("Hardcover", "42");
+
+        Assert.IsNull(result);
+    }
 }
