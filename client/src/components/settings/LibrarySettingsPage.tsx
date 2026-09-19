@@ -50,6 +50,10 @@ export function LibrarySettingsPage() {
     onSuccess: () => {
       notifications.success("Library settings saved");
       void queryClient.invalidateQueries({ queryKey: queryKeys.librarySettings() });
+      // The Settings > Tasks page reads the same upcoming-releases enabled/cron values from this
+      // save via a separate query - without this it would show the previous schedule until its
+      // own 30s refetch caught up.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduledTasks() });
     },
     onError: (err: unknown) => {
       notifications.error(handleApiError(err).message);

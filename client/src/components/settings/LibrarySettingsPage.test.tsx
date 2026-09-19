@@ -23,15 +23,17 @@ vi.mock("@/services/api", () => ({
 
 import { settingsApi } from "@/services/api";
 
-function renderPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <LibrarySettingsPage />
-    </QueryClientProvider>,
-  );
+function renderPage(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <LibrarySettingsPage />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings {
@@ -120,6 +122,28 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 5 * * *",
       });
     });
+  });
+
+  // Regression guard: the save mutation only invalidated its own librarySettings query, so the
+  // Settings > Tasks page (which reads the same upcoming-releases enabled/cron values via
+  // queryKeys.scheduledTasks()) kept showing the pre-save schedule until its own 30s refetch.
+  it("also invalidates the scheduled-tasks query on a successful save", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    renderPage(queryClient);
+
+    await user.click(await screen.findByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalled();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["librarySettings"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["scheduledTasks"] });
   });
 
   it("surfaces save errors via toast", async () => {
