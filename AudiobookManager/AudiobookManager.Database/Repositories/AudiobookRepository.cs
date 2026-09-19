@@ -340,6 +340,29 @@ public class AudiobookRepository : IAudiobookRepository
             .FirstOrDefaultAsync();
     }
 
+    /// <summary>
+    /// Every standalone (no-series) owned book of one author reduced to (part, book name, id)
+    /// keys - the author-roster counterpart of <see cref="GetSeriesOwnedKeysAsync"/>. SeriesPart
+    /// is always null in the returned keys; a standalone book carries no series position, so the
+    /// author reconciliation matches purely on title, the same way the series matcher treats a
+    /// positionless roster entry. Bounded the same way: at most
+    /// <paramref name="maxKeys"/> + 1 rows, with the overflow flag telling the caller whether the
+    /// cap was breached.
+    /// </summary>
+    public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetStandaloneOwnedKeysByAuthorAsync(
+        long authorId, int maxKeys)
+    {
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId))
+            .OrderBy(a => a.Id)
+            .Take(maxKeys + 1)
+            .Select(a => new { a.Id, a.BookName })
+            .ToListAsync();
+
+        return (rows.Select(r => new SeriesOwnedKey(r.Id, null, r.BookName)).ToList(), rows.Count > maxKeys);
+    }
+
     /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
     public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
         long authorId, int limit, int offset)

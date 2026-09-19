@@ -206,6 +206,96 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         }
     }
 
+    public async Task RefreshAuthorRosterAsync(long personId)
+    {
+        var person = await _personRepository.GetByIdAsync(personId)
+            ?? throw new KeyNotFoundException($"Author {personId} not found");
+
+        if (string.IsNullOrEmpty(person.HardcoverAuthorId))
+        {
+            throw new KeyNotFoundException($"Author {personId} is not matched to a metadata source, so it cannot be refreshed.");
+        }
+
+        var scraper = AuthorLookupScraper
+            ?? throw new ArgumentException("No author-capable scraper is available to refresh this author's roster.");
+
+        await RefreshAuthorRosterCoreAsync(scraper, person);
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> RefreshAllAuthorRostersAsync()
+    {
+        var scraper = AuthorLookupScraper;
+        if (scraper is null)
+        {
+            return (0, 0, 0);
+        }
+
+        var authors = await _personRepository.GetMatchedAuthorsAsync();
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+
+        foreach (var author in authors)
+        {
+            processed++;
+            try
+            {
+                await RefreshAuthorRosterCoreAsync(scraper, author);
+                succeeded++;
+            }
+            catch (HardcoverDailyLimitExceededException ex)
+            {
+                processed--;
+                _logger.LogWarning(ex, "Stopping author-roster refresh after {Processed}/{Total} authors: {Message}",
+                    processed, authors.Count, ex.Message);
+                break;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogWarning(ex, "Failed to refresh the standalone-books roster for author {PersonId}", author.Id);
+            }
+        }
+
+        return (processed, succeeded, failed);
+    }
+
+    /// <summary>
+    /// The one-author workload shared by the single and bulk refresh: fetch the author's full
+    /// bibliography, drop anything that belongs to a series (already rostered/refreshed through
+    /// that series' own roster - see the design note this feature ships with), replace the
+    /// stored roster wholesale (carrying ignore decisions across for entries recognisably the
+    /// same book, by normalized title - the author roster has no position to match on), and
+    /// stamp LastRefreshedAt.
+    /// </summary>
+    private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
+    {
+        var books = await scraper.GetAuthorBooks(person.HardcoverAuthorId!);
+        var standalone = books.Where(b => !b.HasSeries).ToList();
+
+        var (existing, _) = await _personRepository.GetByIdWithExpectedBooksBoundedAsync(
+            person.Id, AuthorReconciliationProvider.MaxReconciliationRosterEntries);
+        var previouslyIgnoredTitles = new HashSet<string>(
+            (existing?.ExpectedBooks ?? new List<AuthorExpectedBook>())
+                .Where(b => b.IsIgnored)
+                .Select(b => NormalizeTitleForCarryOver(b.Title)),
+            StringComparer.Ordinal);
+
+        var newExpected = standalone.Select(b => new AuthorExpectedBook
+        {
+            Title = b.Title,
+            Year = b.Year,
+            ReleaseDate = b.ReleaseDate,
+            SourceUrl = b.SourceUrl,
+            IsIgnored = previouslyIgnoredTitles.Contains(NormalizeTitleForCarryOver(b.Title)),
+        }).ToList();
+
+        await _personRepository.ReplaceAuthorExpectedBooksAsync(person.Id, newExpected);
+        await _personRepository.SetLastRefreshedAtAsync(person.Id, DateTime.UtcNow);
+    }
+
+    private static string NormalizeTitleForCarryOver(string title) => title.Trim().ToLowerInvariant();
+
     private static UpcomingRelease ToEntity(IScraper scraper, UpcomingReleaseResult release, long? personId, long? seriesId) => new()
     {
         Title = release.Title,

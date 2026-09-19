@@ -364,4 +364,64 @@ public class PersonRepository : IPersonRepository
         person.HardcoverAuthorUrl = sourceUrl;
         await _db.SaveChangesAsync();
     }
+
+    public async Task<(Person? Person, bool Overflow)> GetByIdWithExpectedBooksBoundedAsync(long id, int maxExpectedBooks)
+    {
+        var row = await _db.Persons
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        if (row is null)
+        {
+            return (null, false);
+        }
+
+        var books = await _db.AuthorExpectedBooks
+            .AsNoTracking()
+            .Where(b => b.PersonId == row.Id)
+            .OrderBy(b => b.Id)
+            .Take(maxExpectedBooks + 1)
+            .ToListAsync();
+
+        row.ExpectedBooks = books;
+        return (row, books.Count > maxExpectedBooks);
+    }
+
+    public async Task ReplaceAuthorExpectedBooksAsync(long personId, List<AuthorExpectedBook> expectedBooks)
+    {
+        // Same tracked delete/re-insert as SeriesRepository.ReplaceExpectedBooksAsync, and for
+        // the same reason - a set-based delete would bypass the change tracker and risk SQLite
+        // handing a deleted rowid straight back to a replacement row.
+        var existing = await _db.AuthorExpectedBooks
+            .Where(b => b.PersonId == personId)
+            .ToListAsync();
+
+        _db.AuthorExpectedBooks.RemoveRange(existing);
+
+        foreach (var book in expectedBooks)
+        {
+            book.Id = 0;
+            book.PersonId = personId;
+            _db.AuthorExpectedBooks.Add(book);
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task SetLastRefreshedAtAsync(long personId, DateTime at)
+    {
+        var person = await _db.Persons.FirstOrDefaultAsync(p => p.Id == personId)
+            ?? throw new KeyNotFoundException($"Person {personId} not found");
+
+        person.LastRefreshedAt = at;
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<List<Person>> GetMatchedAuthorsAsync()
+    {
+        return await _db.Persons
+            .AsNoTracking()
+            .Where(p => p.HardcoverAuthorId != null && p.HardcoverAuthorId != "")
+            .ToListAsync();
+    }
 }

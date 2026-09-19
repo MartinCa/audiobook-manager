@@ -108,6 +108,9 @@ public interface IAudiobookRepository
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
+
+    /// <summary>The author-roster counterpart of <see cref="GetSeriesOwnedKeysAsync"/> - see the implementation's doc comment.</summary>
+    Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetStandaloneOwnedKeysByAuthorAsync(long authorId, int maxKeys);
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
 
     /// <summary>

@@ -16,6 +16,7 @@ public class BrowseController : ControllerBase
     private readonly IPersonRepository _personRepo;
     private readonly ISeriesService _seriesService;
     private readonly IUpcomingReleaseService _upcomingReleaseService;
+    private readonly IAuthorReconciliationProvider _authorReconciliation;
     private readonly ILogger<BrowseController> _logger;
 
     public BrowseController(
@@ -23,12 +24,14 @@ public class BrowseController : ControllerBase
         IPersonRepository personRepo,
         ISeriesService seriesService,
         IUpcomingReleaseService upcomingReleaseService,
+        IAuthorReconciliationProvider authorReconciliation,
         ILogger<BrowseController> logger)
     {
         _audiobookRepo = audiobookRepo;
         _personRepo = personRepo;
         _seriesService = seriesService;
         _upcomingReleaseService = upcomingReleaseService;
+        _authorReconciliation = authorReconciliation;
         _logger = logger;
     }
 
@@ -221,10 +224,76 @@ public class BrowseController : ControllerBase
         var seriesDtos = seriesPage.Items.Select(SeriesOverviewMapper.ToDto).ToList();
         var standaloneDtos = standalone.Select(MapToSummaryDto).ToList();
 
+        // The Hardcover-match/LastRefreshedAt fields live on the tracked Person row, like
+        // GetAuthorMatch above - the cheap AuthorSummaryRow projection this endpoint otherwise
+        // reads from doesn't carry them.
+        var person = await _personRepo.GetByIdAsync(authorId);
+        var reconciliation = await _authorReconciliation.GetReconciliationAsync(authorId);
+
         return new AuthorDetailDto(
             summary,
             new PaginatedResult<SeriesOverviewDto>(seriesDtos.Count, seriesPage.TotalCount, seriesDtos),
-            new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos));
+            new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos),
+            person?.LastRefreshedAt,
+            reconciliation.Missing.Select(ToAuthorExpectedBookDto).ToList(),
+            reconciliation.Upcoming.Select(ToAuthorExpectedBookDto).ToList());
+    }
+
+    private static AuthorExpectedBookDto ToAuthorExpectedBookDto(AuthorExpectedBookInfo b) =>
+        new(b.Id, b.Title, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate);
+
+    /// <summary>
+    /// Refreshes one author's standalone-books roster from their matched source. Mirrors
+    /// SeriesController.RefreshSeries, but without the pending-changes review step - an author
+    /// refresh replaces the roster directly (see IUpcomingReleaseService.RefreshAuthorRosterAsync).
+    /// </summary>
+    [HttpPost("authors/{authorId}/refresh")]
+    public async Task<ActionResult<AuthorRefreshResultDto>> RefreshAuthor(long authorId)
+    {
+        try
+        {
+            await _upcomingReleaseService.RefreshAuthorRosterAsync(authorId);
+            var person = await _personRepo.GetByIdAsync(authorId);
+            return new AuthorRefreshResultDto(true, person?.LastRefreshedAt);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (HardcoverDailyLimitExceededException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing standalone-books roster for author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the standalone-books roster of every matched author, synchronously. Simpler than
+    /// SeriesController's fire-and-forget refresh-all (no SignalR progress stream) - an author
+    /// sweep has no pending-review step to fan out, so there is nothing for a progress dialog to
+    /// track beyond the final counts this returns.
+    /// </summary>
+    [HttpPost("authors/refresh-all")]
+    public async Task<ActionResult<AuthorRefreshAllResultDto>> RefreshAllAuthors()
+    {
+        try
+        {
+            var (processed, succeeded, failed) = await _upcomingReleaseService.RefreshAllAuthorRostersAsync();
+            return new AuthorRefreshAllResultDto(processed, succeeded, failed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing standalone-books rosters for every matched author");
+            return this.UnexpectedError();
+        }
     }
 
     [HttpGet("authors/{authorId}/follow")]

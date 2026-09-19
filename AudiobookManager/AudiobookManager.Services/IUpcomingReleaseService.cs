@@ -62,4 +62,24 @@ public interface IUpcomingReleaseService
     /// that was just announced.
     /// </summary>
     Task RefreshUpcomingReleasesAsync();
+
+    /// <summary>
+    /// Refreshes one author's standalone-books roster (<see cref="AuthorExpectedBook"/>) from
+    /// their matched source: fetches the author's full bibliography, keeps only the books that
+    /// belong to no series (a series' books are already rostered through that series' own
+    /// roster - see the design note this feature ships with), replaces the stored roster
+    /// wholesale (carrying ignore decisions across for entries recognisably the same book, like
+    /// a series refresh does), and stamps <see cref="Person.LastRefreshedAt"/>. Throws
+    /// <see cref="KeyNotFoundException"/> when the author does not exist or has no Hardcover
+    /// match.
+    /// </summary>
+    Task RefreshAuthorRosterAsync(long personId);
+
+    /// <summary>
+    /// Refreshes the standalone-books roster of every matched author, synchronously, continuing
+    /// past a per-author failure (mirrors <see cref="RefreshUpcomingReleasesAsync"/>'s
+    /// resilience) but stopping early if the source's daily request budget runs out. Returns how
+    /// many authors were processed and how many succeeded.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> RefreshAllAuthorRostersAsync();
 }
