@@ -1,0 +1,142 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { UpcomingReleasesPage } from "./UpcomingReleasesPage";
+import { operationsApi, upcomingReleasesApi } from "@/services/api";
+import type * as ApiModule from "@/services/api";
+import type { UpcomingRelease } from "@/types/UpcomingRelease";
+
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
+  Link: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => (
+    <a {...rest}>{children}</a>
+  ),
+}));
+
+vi.mock("@/services/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof ApiModule>();
+  return {
+    ...actual,
+    upcomingReleasesApi: {
+      getUpcomingReleases: vi.fn(),
+      removeUpcomingRelease: vi.fn().mockResolvedValue(undefined),
+      refreshUpcomingReleases: vi.fn().mockResolvedValue(undefined),
+    },
+    operationsApi: {
+      getStatus: vi.fn(),
+    },
+  };
+});
+
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
+function release(overrides: Partial<UpcomingRelease> = {}): UpcomingRelease {
+  return {
+    id: 1,
+    title: "The Stormlight Archive 6",
+    releaseDate: "2030-01-01",
+    sourceName: "Hardcover",
+    authorId: null,
+    authorName: null,
+    seriesId: null,
+    seriesName: null,
+    seriesPosition: null,
+    sourceUrl: null,
+    imageUrl: null,
+    ...overrides,
+  };
+}
+
+function renderPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <UpcomingReleasesPage />
+    </QueryClientProvider>,
+  );
+}
+
+describe("UpcomingReleasesPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
+  });
+
+  it("shows the total release count in the heading", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release()],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Upcoming Releases (1)")).toBeInTheDocument();
+  });
+
+  it("starts a refresh when Check Now is clicked", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: /check now/i });
+    button.click();
+
+    await waitFor(() => expect(upcomingReleasesApi.refreshUpcomingReleases).toHaveBeenCalled());
+  });
+
+  it("disables Check Now and shows Checking... while a refresh is running", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: true,
+      processed: 2,
+      total: 5,
+    });
+
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: /checking/i });
+    expect(button).toBeDisabled();
+  });
+
+  it("shows a pager only when more than one page of releases exists", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 50,
+      total: 120,
+      items: Array.from({ length: 50 }, (_, i) => release({ id: i + 1 })),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /next/i })).toBeInTheDocument();
+    expect(screen.getByText(/showing 1–50 of 120/i)).toBeInTheDocument();
+  });
+
+  it("does not show a pager when everything fits on one page", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release()],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("The Stormlight Archive 6")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+  });
+});

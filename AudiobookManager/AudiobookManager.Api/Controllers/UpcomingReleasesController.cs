@@ -1,3 +1,4 @@
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Services;
@@ -16,14 +17,33 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class UpcomingReleasesController : ControllerBase
 {
+    /// <summary>
+    /// Shared with <see cref="Workers.UpcomingReleasesWorker"/>'s periodic sweep, so a manual
+    /// refresh and a scheduled tick can never run concurrently against Hardcover - both call the
+    /// exact same <see cref="IUpcomingReleaseService.RefreshUpcomingReleasesAsync"/> sweep, and
+    /// running two at once would double the request spend for the same discoveries.
+    /// </summary>
+    internal static readonly SemaphoreSlim RefreshGate = new(1, 1);
+
+    public const string RefreshOperationKey = "upcoming-releases-refresh";
+
     private readonly IUpcomingReleaseService _upcomingReleaseService;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<UpcomingReleasesController> _logger;
 
     public UpcomingReleasesController(
         IUpcomingReleaseService upcomingReleaseService,
+        IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
+        IHostApplicationLifetime appLifetime,
         ILogger<UpcomingReleasesController> logger)
     {
         _upcomingReleaseService = upcomingReleaseService;
+        _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -73,24 +93,32 @@ public class UpcomingReleasesController : ControllerBase
     }
 
     /// <summary>
-    /// Polls every followed-and-matched author/series right now, synchronously, rather than
-    /// waiting for the periodic worker's next tick - the same "refresh now" affordance
-    /// <c>SeriesController.RefreshSeries</c> gives a single series. A single author/series
-    /// failure does not fail the request; only an unhandled failure in the sweep itself does.
+    /// Fire-and-forget: polls every followed-and-matched author/series right now rather than
+    /// waiting for the periodic worker's next tick - the "refresh now" affordance
+    /// <c>SeriesController.RefreshAllSeries</c> gives the whole series catalog (not the
+    /// synchronous single-series <c>RefreshSeries</c>, since this sweeps every followed
+    /// author/series and can run for minutes at the Hardcover rate limit's pace). Progress is not
+    /// reported over SignalR - like <c>MissingTagsController.StartLanguageBackfill</c>, the client
+    /// follows it by polling <c>GET api/operations/{key}/status</c>. <see cref="RefreshGate"/> is
+    /// shared with <see cref="Workers.UpcomingReleasesWorker"/>, so a busy gate here means a
+    /// scheduled tick is already running - a 409, not a stacked duplicate sweep.
     /// </summary>
     [HttpPost("refresh")]
-    public async Task<IActionResult> RefreshUpcomingReleases()
+    public IActionResult RefreshUpcomingReleases()
     {
-        try
-        {
-            await _upcomingReleaseService.RefreshUpcomingReleasesAsync();
-            return Ok();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing upcoming releases");
-            return this.UnexpectedError();
-        }
+        return BackgroundOperationRunner.Start(
+            RefreshGate,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            RefreshOperationKey,
+            async sp =>
+            {
+                var upcomingReleaseService = sp.GetRequiredService<IUpcomingReleaseService>();
+                await upcomingReleaseService.RefreshUpcomingReleasesAsync();
+            },
+            () => Task.CompletedTask,
+            _appLifetime.ApplicationStopping);
     }
 
     private static UpcomingReleaseDto ToDto(UpcomingRelease r) => new(

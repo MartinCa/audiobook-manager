@@ -22,10 +22,11 @@ export type SeriesFollowStatus = Require<
 // AuthorMatchStatusDto: every field is genuinely optional (an unmatched author has none of them).
 export type AuthorMatchStatus = components["schemas"]["AuthorMatchStatusDto"];
 
-// AuthorMatchCandidateDto: sourceId/name are non-nullable; sourceUrl/bookCount are optional.
+// AuthorMatchCandidateDto: sourceId/sourceName/name are non-nullable; sourceUrl/bookCount are
+// optional.
 export type AuthorMatchCandidate = Require<
   components["schemas"]["AuthorMatchCandidateDto"],
-  "sourceId" | "name"
+  "sourceId" | "sourceName" | "name"
 >;
 
 export type { UpcomingRelease as default };

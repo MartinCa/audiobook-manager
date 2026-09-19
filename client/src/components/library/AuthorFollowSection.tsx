@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, Bell, Link2, Link2Off, Loader2, Search } from "lucide-react";
+import { BellRing, Bell, Link2, Link2Off, Loader2, Search, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -114,15 +114,31 @@ interface AuthorMatchDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+// Below this, a search is not worth firing - matches the entry-time type-ahead's own floor
+// (see similarValuesApi.getAutocomplete callers) and avoids a burst of single/double-letter
+// requests against the shared Hardcover daily budget while the user is still typing a name.
+const MIN_SEARCH_LENGTH = 2;
+
 function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorMatchDialogProps) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(authorName);
+  const [debouncedQuery, setDebouncedQuery] = useState(authorName);
   const [matching, setMatching] = useState(false);
 
+  // Debounced like AuthorsList's own filter: a fast typist must not enqueue a Hardcover search
+  // request per keystroke through the shared 5000/day budget.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const trimmedQuery = debouncedQuery.trim();
+  const searchEnabled = open && trimmedQuery.length >= MIN_SEARCH_LENGTH;
+
   const candidatesQuery = useQuery({
-    queryKey: queryKeys.authorHardcoverMatchCandidates(authorId, query),
-    queryFn: () => browseApi.getAuthorHardcoverMatchCandidates(authorId, query),
-    enabled: open,
+    queryKey: queryKeys.authorHardcoverMatchCandidates(authorId, trimmedQuery),
+    queryFn: () => browseApi.getAuthorHardcoverMatchCandidates(authorId, trimmedQuery),
+    enabled: searchEnabled,
   });
 
   const candidates: AuthorMatchCandidate[] = candidatesQuery.data ?? [];
@@ -133,11 +149,11 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
       await browseApi.matchAuthorToHardcover(
         authorId,
         candidate.sourceId,
-        "Hardcover",
+        candidate.sourceName,
         candidate.sourceUrl ?? undefined,
       );
       await queryClient.invalidateQueries({ queryKey: queryKeys.authorHardcoverMatch(authorId) });
-      notifications.success(`Matched to Hardcover: ${candidate.name}`);
+      notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
       onOpenChange(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -163,10 +179,19 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
             />
           </div>
 
-          {candidatesQuery.isLoading ? (
+          {!searchEnabled ? (
+            <p className="text-muted-foreground py-6 text-center">
+              Type at least {MIN_SEARCH_LENGTH} characters to search.
+            </p>
+          ) : candidatesQuery.isLoading ? (
             <div className="text-muted-foreground flex items-center justify-center py-8">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Searching...
+            </div>
+          ) : candidatesQuery.isError ? (
+            <div className="text-destructive flex items-center justify-center gap-1.5 py-6 text-center">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {handleApiError(candidatesQuery.error).message}
             </div>
           ) : candidates.length === 0 ? (
             <p className="text-muted-foreground py-6 text-center">No matching authors found.</p>

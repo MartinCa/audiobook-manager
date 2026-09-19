@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PAGE_SIZE } from "@/constants/paging";
+import { OperationKeys } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
-import { upcomingReleasesApi } from "@/services/api";
+import { operationsApi, upcomingReleasesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { handleApiError } from "@/lib/api";
@@ -19,7 +20,6 @@ import { notifications } from "@/lib/notifications";
 export function UpcomingReleasesPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
 
   // Shares its query key with UpcomingReleasesList's own fetch below (same
   // authorId/seriesId/page triple), so this only reads the total off the cache the list's query
@@ -39,16 +39,33 @@ export function UpcomingReleasesPage() {
   // display - lands on a valid page.
   useClampedPage(page, pageCount, setPage);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await upcomingReleasesApi.refreshUpcomingReleases();
+  // Fire-and-forget on the backend (the sweep can run for minutes at the Hardcover rate limit's
+  // pace), so this follows it the same way MissingTags follows the language backfill: poll the
+  // shared operation-status endpoint while it runs, and react to the running -> not-running
+  // transition rather than awaiting the POST itself.
+  const { data: refreshStatus } = useQuery({
+    queryKey: queryKeys.upcomingReleasesRefreshStatus(),
+    queryFn: () => operationsApi.getStatus(OperationKeys.upcomingReleasesRefresh),
+    refetchInterval: (query) => (query.state.data?.isRunning ? 1500 : false),
+  });
+
+  const isRefreshing = Boolean(refreshStatus?.isRunning);
+  const prevRefreshingRef = useRef(false);
+
+  useEffect(() => {
+    if (prevRefreshingRef.current && !isRefreshing) {
       notifications.success("Checked followed authors and series for new releases");
       void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
+    }
+    prevRefreshingRef.current = isRefreshing;
+  }, [isRefreshing, queryClient]);
+
+  const handleRefresh = async () => {
+    try {
+      await upcomingReleasesApi.refreshUpcomingReleases();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleasesRefreshStatus() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
-    } finally {
-      setRefreshing(false);
     }
   };
 
@@ -72,23 +89,24 @@ export function UpcomingReleasesPage() {
         <Button
           variant="outline"
           size="sm"
-          disabled={refreshing}
+          disabled={isRefreshing}
           onClick={() => {
             void handleRefresh();
           }}
         >
-          {refreshing ? (
+          {isRefreshing ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
           ) : (
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           )}
-          Check Now
+          {isRefreshing ? "Checking..." : "Check Now"}
         </Button>
       </div>
 
       <UpcomingReleasesList
         showSource
         page={page}
+        showOverflowHint={false}
         emptyMessage="No upcoming releases tracked yet. Follow an author or series to start tracking."
       />
 

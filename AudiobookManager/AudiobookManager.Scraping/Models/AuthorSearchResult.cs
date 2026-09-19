@@ -6,6 +6,14 @@ namespace AudiobookManager.Scraping.Models;
 /// </summary>
 public class AuthorSearchResult
 {
+    /// <summary>
+    /// The scraper's own <c>SourceName</c> (e.g. "Hardcover"). Not set by the scraper itself -
+    /// mirrors <see cref="MetadataSearchResult.Source"/>, which the calling service tags results
+    /// with after the scraper returns them, rather than every scraper implementation setting its
+    /// own name on every result.
+    /// </summary>
+    public string Source { get; set; } = string.Empty;
+
     /// <summary>The source-specific identifier (e.g. a Hardcover author id).</summary>
     public string SourceId { get; set; }
 

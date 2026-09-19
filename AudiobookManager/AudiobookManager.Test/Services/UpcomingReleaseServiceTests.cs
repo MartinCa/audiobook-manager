@@ -121,8 +121,8 @@ public class UpcomingReleaseServiceTests
         _scraper.Setup(s => s.GetAuthorUpcomingReleases("123"))
             .ReturnsAsync((IList<UpcomingReleaseResult>)new List<UpcomingReleaseResult> { release });
 
-        _seriesRepository.Setup(r => r.GetByNameAsync("The Stormlight Archive"))
-            .ReturnsAsync(new Series { Id = 3, Name = "The Stormlight Archive", MatchedSourceId = "55" });
+        _seriesRepository.Setup(r => r.GetByMatchedSourceIdAsync("Hardcover", "55"))
+            .ReturnsAsync(new Series { Id = 3, Name = "The Stormlight Archive (renamed locally)", MatchedSourceId = "55" });
 
         await _service.RefreshUpcomingReleasesAsync();
 
@@ -131,10 +131,11 @@ public class UpcomingReleaseServiceTests
     }
 
     [TestMethod]
-    public async Task RefreshUpcomingReleasesAsync_DoesNotAttachADifferentlyMatchedLocalSeries()
+    public async Task RefreshUpcomingReleasesAsync_DoesNotAttachASeriesWithNoLocalMatch()
     {
-        // A same-named local series matched to a DIFFERENT source id (or unmatched) must not be
-        // linked by name alone - only an exact MatchedSourceId agreement counts.
+        // No local series is matched to this exact (source name, source id) pair - a
+        // same-named-but-differently-matched (or entirely unmatched) local series must never be
+        // linked by name alone.
         var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
@@ -147,8 +148,7 @@ public class UpcomingReleaseServiceTests
         _scraper.Setup(s => s.GetAuthorUpcomingReleases("123"))
             .ReturnsAsync((IList<UpcomingReleaseResult>)new List<UpcomingReleaseResult> { release });
 
-        _seriesRepository.Setup(r => r.GetByNameAsync("Some Series"))
-            .ReturnsAsync(new Series { Id = 3, Name = "Some Series", MatchedSourceId = "999-different" });
+        _seriesRepository.Setup(r => r.GetByMatchedSourceIdAsync("Hardcover", "55")).ReturnsAsync((Series?)null);
 
         await _service.RefreshUpcomingReleasesAsync();
 

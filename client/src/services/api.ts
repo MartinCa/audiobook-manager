@@ -683,7 +683,7 @@ export const upcomingReleasesApi = {
   getUpcomingReleases: (
     params: { authorId?: number; seriesId?: number; limit?: number; offset?: number } = {},
   ) =>
-    api.get<PaginatedResult<UpcomingRelease>>("/upcomingreleases", {
+    api.get<PaginatedResult<UpcomingRelease>>("/upcoming-releases", {
       query: {
         authorId: params.authorId,
         seriesId: params.seriesId,
@@ -692,11 +692,11 @@ export const upcomingReleasesApi = {
       },
     }),
 
-  removeUpcomingRelease: (id: number) => api.delete<void>(`/upcomingreleases/${id}`),
+  removeUpcomingRelease: (id: number) => api.delete<void>(`/upcoming-releases/${id}`),
 
   // Polls every followed-and-matched author/series right now rather than waiting for the
   // periodic worker's next tick.
-  refreshUpcomingReleases: () => api.post<void>("/upcomingreleases/refresh", undefined),
+  refreshUpcomingReleases: () => api.post<void>("/upcoming-releases/refresh", undefined),
 };
 
 // Metadata Search

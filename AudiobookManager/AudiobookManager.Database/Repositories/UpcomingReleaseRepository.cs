@@ -19,9 +19,7 @@ public class UpcomingReleaseRepository : IUpcomingReleaseRepository
 
         if (existing is not null)
         {
-            existing.PersonId ??= release.PersonId;
-            existing.SeriesId ??= release.SeriesId;
-            existing.SeriesPosition ??= release.SeriesPosition;
+            ApplyRefresh(existing, release);
             await _db.SaveChangesAsync();
             return;
         }
@@ -46,11 +44,32 @@ public class UpcomingReleaseRepository : IUpcomingReleaseRepository
                 throw;
             }
 
-            winner.PersonId ??= release.PersonId;
-            winner.SeriesId ??= release.SeriesId;
-            winner.SeriesPosition ??= release.SeriesPosition;
+            ApplyRefresh(winner, release);
             await _db.SaveChangesAsync();
         }
+    }
+
+    /// <summary>
+    /// Applies a freshly-polled release onto an already-known row. Title/date/links are always
+    /// overwritten - Hardcover (and every other source) routinely ships an announced book under a
+    /// placeholder title ("Untitled Mistborn novel") or a provisional date, and corrects it once
+    /// real details are available, so the stored row must track that correction on the next poll
+    /// rather than freezing it at first discovery. PersonId/SeriesId/SeriesPosition are the
+    /// opposite: a link is filled in only when still null, and never cleared or replaced once
+    /// set, so a book discovered through both a followed author and a followed series keeps both
+    /// links even if a later poll (of just one side) doesn't itself carry the other.
+    /// <see cref="UpcomingRelease.DiscoveredAt"/> is likewise untouched - it is when this release
+    /// was first seen, not when it was last refreshed.
+    /// </summary>
+    private static void ApplyRefresh(UpcomingRelease existing, UpcomingRelease polled)
+    {
+        existing.Title = polled.Title;
+        existing.ReleaseDate = polled.ReleaseDate;
+        existing.SourceUrl = polled.SourceUrl;
+        existing.ImageUrl = polled.ImageUrl;
+        existing.PersonId ??= polled.PersonId;
+        existing.SeriesId ??= polled.SeriesId;
+        existing.SeriesPosition ??= polled.SeriesPosition;
     }
 
     public async Task<(List<UpcomingRelease> Items, int Total)> GetPagedAsync(

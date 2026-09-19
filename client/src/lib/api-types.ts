@@ -4443,6 +4443,7 @@ export interface components {
         };
         AuthorMatchCandidateDto: {
             sourceId?: string | null;
+            sourceName?: string | null;
             name?: string | null;
             sourceUrl?: string | null;
             /** Format: int32 */

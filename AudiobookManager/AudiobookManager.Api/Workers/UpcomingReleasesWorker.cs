@@ -1,3 +1,4 @@
+using AudiobookManager.Api.Controllers;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Options;
@@ -11,6 +12,11 @@ namespace AudiobookManager.Api.Workers;
 /// author/series failing without aborting the sweep - so this loop only needs to survive a whole
 /// sweep throwing, which it does the same way OrganizeWorker survives a bad queue read: log and
 /// wait for the next tick rather than crash the host.
+///
+/// Each tick takes <see cref="UpcomingReleasesController.RefreshGate"/> - the same gate the
+/// manual "Check Now" refresh endpoint uses - non-blocking: a tick landing while a manual refresh
+/// is already running skips rather than queuing behind it, so the two never run the sweep back to
+/// back and double the Hardcover request spend for the same discoveries.
 /// </summary>
 public class UpcomingReleasesWorker : BackgroundService
 {
@@ -40,12 +46,16 @@ public class UpcomingReleasesWorker : BackgroundService
         var interval = TimeSpan.FromHours(Math.Max(1, _settings.UpcomingReleasesCheckIntervalHours));
         using var timer = new PeriodicTimer(interval);
 
-        // Run once immediately on startup - a fresh follow shouldn't have to wait a full
-        // interval for its first poll - then on the timer from there.
-        await RunOnceAsync(stoppingToken);
-
         try
         {
+            // Run once immediately on startup - a fresh follow shouldn't have to wait a full
+            // interval for its first poll - then on the timer from there. Both calls share the
+            // same try/catch below: RunOnceAsync rethrows OperationCanceledException on a
+            // cooperative shutdown, and the startup call must not let that escape ExecuteAsync
+            // uncaught (BackgroundService logs an escaping exception as a hosted-service
+            // failure, even for an expected shutdown).
+            await RunOnceAsync(stoppingToken);
+
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
                 await RunOnceAsync(stoppingToken);
@@ -59,9 +69,17 @@ public class UpcomingReleasesWorker : BackgroundService
 
     private async Task RunOnceAsync(CancellationToken stoppingToken)
     {
-        using var scope = _serviceProvider.CreateScope();
+        // Non-blocking: a tick landing while the manual "Check Now" refresh is already running
+        // (or vice versa) skips rather than queuing behind it - see the gate's own doc comment.
+        if (!UpcomingReleasesController.RefreshGate.Wait(0))
+        {
+            _logger.LogInformation("Skipping this upcoming-releases tick: a refresh is already running");
+            return;
+        }
+
         try
         {
+            using var scope = _serviceProvider.CreateScope();
             var upcomingReleaseService = scope.ServiceProvider.GetRequiredService<IUpcomingReleaseService>();
             await upcomingReleaseService.RefreshUpcomingReleasesAsync();
         }
@@ -72,6 +90,10 @@ public class UpcomingReleasesWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing upcoming releases");
+        }
+        finally
+        {
+            UpcomingReleasesController.RefreshGate.Release();
         }
     }
 }

@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -296,8 +297,15 @@ public class BrowseController : ControllerBase
             var searchTerm = string.IsNullOrWhiteSpace(query) ? author.Name : query!.Trim();
             var candidates = await _upcomingReleaseService.SearchAuthorMatchCandidatesAsync(searchTerm);
             return candidates
-                .Select(c => new AuthorMatchCandidateDto(c.SourceId, c.Name, c.SourceUrl, c.BookCount))
+                .Select(c => new AuthorMatchCandidateDto(c.SourceId, c.Source, c.Name, c.SourceUrl, c.BookCount))
                 .ToList();
+        }
+        catch (HardcoverDailyLimitExceededException ex)
+        {
+            // 4xx detail is relayed to the user by design, mirroring SeriesController's refresh
+            // action - this message names the cause and the remedy without leaking anything
+            // about the environment.
+            return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)
         {

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, ExternalLink, Loader2, X } from "lucide-react";
+import { AlertCircle, CalendarClock, ExternalLink, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PAGE_SIZE } from "@/constants/paging";
 import { upcomingReleasesApi } from "@/services/api";
@@ -19,6 +19,13 @@ interface UpcomingReleasesListProps {
   /** Zero-based page, for the consolidated view's pager. Author/series-scoped uses fit on one
    * page in practice, so they default to the first. */
   page?: number;
+  /**
+   * Shows a "Showing X of Y" hint when more releases exist than this one page holds. The
+   * consolidated view already renders its own pager below this component with the same total,
+   * so it opts out to avoid showing the count twice; the author/series-scoped uses (a single,
+   * unpaged call) want it since they have no pager of their own.
+   */
+  showOverflowHint?: boolean;
 }
 
 export function UpcomingReleasesList({
@@ -27,6 +34,7 @@ export function UpcomingReleasesList({
   showSource = false,
   emptyMessage = "No upcoming releases tracked yet.",
   page = 0,
+  showOverflowHint = true,
 }: UpcomingReleasesListProps) {
   const queryClient = useQueryClient();
 
@@ -60,97 +68,117 @@ export function UpcomingReleasesList({
     );
   }
 
+  // A failed fetch must not fall through to `emptyMessage` - "No upcoming releases tracked yet"
+  // reads as a real (if unwelcome) answer, not as "something went wrong", so a network/500
+  // failure would otherwise look identical to an author with nothing tracked.
+  if (query.isError) {
+    return (
+      <div className="text-destructive flex items-center justify-center gap-1.5 py-4 text-center text-sm">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {handleApiError(query.error).message}
+      </div>
+    );
+  }
+
   const releases = query.data?.items ?? [];
+  const total = query.data?.total ?? releases.length;
 
   if (releases.length === 0) {
     return <p className="text-muted-foreground py-4 text-center text-sm">{emptyMessage}</p>;
   }
 
   return (
-    <div className="border-border divide-y rounded-md border">
-      {releases.map((release) => (
-        <div
-          key={release.id}
-          className="hover:bg-muted/50 flex items-start gap-3 p-3 transition-colors"
-        >
-          {release.imageUrl ? (
-            <img
-              src={release.imageUrl}
-              alt=""
-              className="h-16 w-11 shrink-0 rounded-sm object-cover"
-            />
-          ) : (
-            <div className="bg-muted flex h-16 w-11 shrink-0 items-center justify-center rounded-sm">
-              <CalendarClock className="text-muted-foreground h-4 w-4" />
-            </div>
-          )}
+    <div className="space-y-2">
+      <div className="border-border divide-y rounded-md border">
+        {releases.map((release) => (
+          <div
+            key={release.id}
+            className="hover:bg-muted/50 flex items-start gap-3 p-3 transition-colors"
+          >
+            {release.imageUrl ? (
+              <img
+                src={release.imageUrl}
+                alt=""
+                className="h-16 w-11 shrink-0 rounded-sm object-cover"
+              />
+            ) : (
+              <div className="bg-muted flex h-16 w-11 shrink-0 items-center justify-center rounded-sm">
+                <CalendarClock className="text-muted-foreground h-4 w-4" />
+              </div>
+            )}
 
-          <div className="min-w-0 flex-1">
-            <div className="text-foreground font-medium break-words">
-              {release.title}
-              {release.seriesPosition && (
-                <span className="text-muted-foreground ml-1.5 text-xs">
-                  #{release.seriesPosition}
-                </span>
-              )}
-            </div>
-            <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
-              <span>{formatDate(release.releaseDate)}</span>
-              {showSource && release.authorName && (
-                <>
-                  <span>&middot;</span>
-                  {release.authorId ? (
+            <div className="min-w-0 flex-1">
+              <div className="text-foreground font-medium break-words">
+                {release.title}
+                {release.seriesPosition && (
+                  <span className="text-muted-foreground ml-1.5 text-xs">
+                    #{release.seriesPosition}
+                  </span>
+                )}
+              </div>
+              <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
+                <span>{formatDate(release.releaseDate)}</span>
+                {showSource && release.authorName && (
+                  <>
+                    <span>&middot;</span>
+                    {release.authorId ? (
+                      <Link
+                        to="/library/authors/$authorId"
+                        params={{ authorId: String(release.authorId) }}
+                        className="hover:text-foreground hover:underline"
+                      >
+                        {release.authorName}
+                      </Link>
+                    ) : (
+                      <span>{release.authorName}</span>
+                    )}
+                  </>
+                )}
+                {showSource && release.seriesName && (
+                  <>
+                    <span>&middot;</span>
                     <Link
-                      to="/library/authors/$authorId"
-                      params={{ authorId: String(release.authorId) }}
+                      to="/library/series/$seriesName"
+                      params={{ seriesName: release.seriesName }}
                       className="hover:text-foreground hover:underline"
                     >
-                      {release.authorName}
+                      {release.seriesName}
                     </Link>
-                  ) : (
-                    <span>{release.authorName}</span>
-                  )}
-                </>
-              )}
-              {showSource && release.seriesName && (
-                <>
-                  <span>&middot;</span>
-                  <Link
-                    to="/library/series/$seriesName"
-                    params={{ seriesName: release.seriesName }}
-                    className="hover:text-foreground hover:underline"
+                  </>
+                )}
+                {release.sourceUrl && (
+                  <a
+                    href={release.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-foreground flex items-center gap-0.5"
                   >
-                    {release.seriesName}
-                  </Link>
-                </>
-              )}
-              {release.sourceUrl && (
-                <a
-                  href={release.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-foreground flex items-center gap-0.5"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  {release.sourceName}
-                </a>
-              )}
+                    <ExternalLink className="h-3 w-3" />
+                    {release.sourceName}
+                  </a>
+                )}
+              </div>
             </div>
-          </div>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive h-7 w-7 shrink-0"
-            title="Remove from upcoming releases"
-            onClick={() => {
-              void handleRemove(release);
-            }}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive h-7 w-7 shrink-0"
+              title="Remove from upcoming releases"
+              onClick={() => {
+                void handleRemove(release);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      {showOverflowHint && total > releases.length && (
+        <p className="text-muted-foreground text-center text-xs">
+          Showing {releases.length} of {total} upcoming releases.
+        </p>
+      )}
     </div>
   );
 }

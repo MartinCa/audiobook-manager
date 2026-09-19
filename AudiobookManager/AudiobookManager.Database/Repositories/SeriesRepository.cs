@@ -54,6 +54,13 @@ public class SeriesRepository : ISeriesRepository
             .FirstOrDefaultAsync(s => s.Name == name);
     }
 
+    public async Task<Series?> GetByMatchedSourceIdAsync(string sourceName, string sourceId)
+    {
+        return await _db.Series
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.MatchedSourceName == sourceName && s.MatchedSourceId == sourceId);
+    }
+
     /// <summary>
     /// The names of every matched series, names only - no roster. The library-wide
     /// series-part-mismatch sweep iterates the matched series to reconcile each one against its

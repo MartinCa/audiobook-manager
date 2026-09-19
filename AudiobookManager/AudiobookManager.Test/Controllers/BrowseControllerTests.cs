@@ -2,7 +2,10 @@ using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping.Models;
+using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -462,5 +465,199 @@ public class BrowseControllerTests
         _audiobookRepo.Verify(
             r => r.GetStandaloneBooksByAuthorAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorFollowStatus_ReflectsTheServiceResult()
+    {
+        _upcomingReleaseService.Setup(s => s.IsAuthorFollowedAsync(7)).ReturnsAsync(true);
+
+        var result = await _controller.GetAuthorFollowStatus(7);
+
+        Assert.IsTrue(result.Value!.IsFollowed);
+    }
+
+    [TestMethod]
+    public async Task FollowAuthor_KnownAuthor_ReturnsOk()
+    {
+        var result = await _controller.FollowAuthor(7);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(s => s.FollowAuthorAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task FollowAuthor_UnknownAuthor_Returns404()
+    {
+        _upcomingReleaseService.Setup(s => s.FollowAuthorAsync(999)).ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.FollowAuthor(999);
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task UnfollowAuthor_DelegatesToTheService()
+    {
+        var result = await _controller.UnfollowAuthor(7);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(s => s.UnfollowAuthorAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatch_UnknownAuthor_Returns404()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(999)).ReturnsAsync((AuthorSummaryRow?)null);
+
+        var result = await _controller.GetAuthorMatch(999);
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatch_KnownAuthor_ReturnsTheStoredMatch()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson")
+        {
+            HardcoverAuthorId = "123",
+            HardcoverAuthorName = "Hardcover",
+            HardcoverAuthorUrl = "https://hardcover.app/authors/123",
+        });
+
+        var result = await _controller.GetAuthorMatch(7);
+
+        Assert.AreEqual("123", result.Value!.SourceId);
+        Assert.AreEqual("Hardcover", result.Value!.SourceName);
+        Assert.AreEqual("https://hardcover.app/authors/123", result.Value!.SourceUrl);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatch_UnmatchedAuthor_ReturnsAllNullFields()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson"));
+
+        var result = await _controller.GetAuthorMatch(7);
+
+        Assert.IsNull(result.Value!.SourceId);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatchCandidates_UnknownAuthor_Returns404()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(999)).ReturnsAsync((AuthorSummaryRow?)null);
+
+        var result = await _controller.GetAuthorMatchCandidates(999);
+
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+        _upcomingReleaseService.Verify(
+            s => s.SearchAuthorMatchCandidatesAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatchCandidates_NoQuery_SearchesByTheAuthorsOwnName()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _upcomingReleaseService.Setup(s => s.SearchAuthorMatchCandidatesAsync("Brandon Sanderson"))
+            .ReturnsAsync(new List<AuthorSearchResult>());
+
+        await _controller.GetAuthorMatchCandidates(7);
+
+        _upcomingReleaseService.Verify(s => s.SearchAuthorMatchCandidatesAsync("Brandon Sanderson"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatchCandidates_ExplicitQuery_OverridesTheAuthorsName()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _upcomingReleaseService.Setup(s => s.SearchAuthorMatchCandidatesAsync("Sando"))
+            .ReturnsAsync(new List<AuthorSearchResult> { new("123", "Brandon Sanderson") { Source = "Hardcover", BookCount = 40 } });
+
+        var result = await _controller.GetAuthorMatchCandidates(7, "Sando");
+
+        var candidate = result.Value!.Single();
+        Assert.AreEqual("123", candidate.SourceId);
+        Assert.AreEqual("Hardcover", candidate.SourceName);
+        Assert.AreEqual(40, candidate.BookCount);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorMatchCandidates_DailyLimitExceeded_ReturnsInvalidRequestNotUnexpectedError()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _upcomingReleaseService.Setup(s => s.SearchAuthorMatchCandidatesAsync(It.IsAny<string>()))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
+
+        var result = await _controller.GetAuthorMatchCandidates(7);
+
+        var objectResult = result.Result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task MatchAuthor_BlankSourceId_ReturnsInvalidRequest()
+    {
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("", "Hardcover", null));
+
+        var objectResult = result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        _upcomingReleaseService.Verify(
+            s => s.MatchAuthorAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task MatchAuthor_NullBody_ReturnsInvalidRequest()
+    {
+        var result = await _controller.MatchAuthor(7, null);
+
+        var objectResult = result as ObjectResult;
+        Assert.IsNotNull(objectResult);
+        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task MatchAuthor_ValidRequest_CallsTheServiceAndReturnsOk()
+    {
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", "https://hardcover.app/authors/123"));
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(
+            s => s.MatchAuthorAsync(7, "123", "Hardcover", "https://hardcover.app/authors/123"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task MatchAuthor_UnknownAuthor_Returns404()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.MatchAuthorAsync(999, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.MatchAuthor(999, new MatchAuthorDto("123", "Hardcover", null));
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task UnmatchAuthor_DelegatesToTheService()
+    {
+        var result = await _controller.UnmatchAuthor(7);
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(s => s.UnmatchAuthorAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnmatchAuthor_UnknownAuthor_Returns404()
+    {
+        _upcomingReleaseService.Setup(s => s.UnmatchAuthorAsync(999)).ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.UnmatchAuthor(999);
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
     }
 }

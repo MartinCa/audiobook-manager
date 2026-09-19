@@ -9,8 +9,6 @@ namespace AudiobookManager.Services;
 
 public class UpcomingReleaseService : IUpcomingReleaseService
 {
-    private const string _hardcoverSourceName = "Hardcover";
-
     private readonly IPersonRepository _personRepository;
     private readonly ISeriesRepository _seriesRepository;
     private readonly IAuthorFollowRepository _authorFollowRepository;
@@ -66,7 +64,13 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             return new List<AuthorSearchResult>();
         }
 
-        return (await scraper.SearchAuthors(query.Trim())).ToList();
+        var results = await scraper.SearchAuthors(query.Trim());
+        foreach (var result in results)
+        {
+            result.Source = scraper.SourceName;
+        }
+
+        return results.ToList();
     }
 
     public async Task MatchAuthorAsync(long personId, string sourceId, string sourceName, string? sourceUrl)
@@ -177,17 +181,19 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             long? seriesId = null;
             if (!string.IsNullOrEmpty(release.SeriesSourceId))
             {
-                var matchedSeries = await _seriesRepository.GetByNameAsync(release.SeriesName ?? string.Empty);
-                // Only attach a series id when the roster row we'd attach to is actually matched
-                // to the same Hardcover series this release came from - a same-named but
-                // unmatched (or differently matched) local series must not be linked by name alone.
-                if (matchedSeries is not null && matchedSeries.MatchedSourceId == release.SeriesSourceId)
+                // Keyed on the exact (source name, source id) pair, not the local series name -
+                // the local catalog row's name and the source's own series name are not
+                // guaranteed to agree (the user may have renamed it, or adopted a different
+                // spelling), so a name-based lookup would miss a followed-but-differently-named
+                // series entirely.
+                var matchedSeries = await _seriesRepository.GetByMatchedSourceIdAsync(scraper.SourceName, release.SeriesSourceId);
+                if (matchedSeries is not null)
                 {
                     seriesId = matchedSeries.Id;
                 }
             }
 
-            await _upcomingReleaseRepository.UpsertAsync(ToEntity(release, personId: author.Id, seriesId: seriesId));
+            await _upcomingReleaseRepository.UpsertAsync(ToEntity(scraper, release, personId: author.Id, seriesId: seriesId));
         }
     }
 
@@ -196,18 +202,18 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         var releases = await scraper.GetSeriesUpcomingReleases(series.MatchedSourceId!);
         foreach (var release in releases)
         {
-            await _upcomingReleaseRepository.UpsertAsync(ToEntity(release, personId: null, seriesId: series.Id));
+            await _upcomingReleaseRepository.UpsertAsync(ToEntity(scraper, release, personId: null, seriesId: series.Id));
         }
     }
 
-    private static UpcomingRelease ToEntity(UpcomingReleaseResult release, long? personId, long? seriesId) => new()
+    private static UpcomingRelease ToEntity(IScraper scraper, UpcomingReleaseResult release, long? personId, long? seriesId) => new()
     {
         Title = release.Title,
         ReleaseDate = release.ReleaseDate,
         PersonId = personId,
         SeriesId = seriesId,
         SeriesPosition = release.SeriesPosition,
-        SourceName = _hardcoverSourceName,
+        SourceName = scraper.SourceName,
         SourceBookId = release.SourceBookId,
         SourceUrl = release.SourceUrl,
         ImageUrl = release.ImageUrl,

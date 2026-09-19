@@ -814,18 +814,26 @@ public class HardcoverScraper : IScraper
     }
 
     // Mirrors the recipe the series roster query above documents: canonical_id/is_partial_book
-    // filter out translated/partial duplicates, and release_date is required so only
-    // already-dated (i.e. announced) books come back. Unlike the series roster query, no
-    // per-position popularity dedupe is needed here - the caller (UpcomingReleasesService)
-    // dedupes discovered releases by source book id across every followed author/series.
+    // filter out translated/partial duplicates. release_date >= $today is filtered server-side
+    // (not just required to be non-null) so a prolific author's entire dated back catalog is
+    // never downloaded and thrown away client-side - $today is the caller's DateOnly.FromDateTime
+    // (UtcNow) formatted as an ISO date, the same value ParseUpcomingBook's own defense-in-depth
+    // lower-bound check compares against. `_gte` is a plain comparison operator, not one of the
+    // disabled pattern-matching operators (see the "Limitations" note above the series query).
+    // `limit: 100` bounds the response regardless: unlikely for a single author, but nothing
+    // caps how many books Hardcover records against one, and this is a periodic background poll,
+    // not a page a user is actively waiting on. Unlike the series roster query, no per-position
+    // popularity dedupe is needed here - the caller (UpcomingReleasesService) dedupes discovered
+    // releases by source book id across every followed author/series.
     private const string _authorUpcomingBooksQuery = """
-        query GetAuthorUpcomingBooks($id: Int!) {
+        query GetAuthorUpcomingBooks($id: Int!, $today: date!) {
           authors_by_pk(id: $id) {
             id
             name
             contributions(
-              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_is_null: false}}}
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_gte: $today}}}
               order_by: [{book: {release_date: desc}}]
+              limit: 100
             ) {
               contribution
               book {
@@ -855,7 +863,8 @@ public class HardcoverScraper : IScraper
             return new List<UpcomingReleaseResult>();
         }
 
-        var responseElement = await ExecuteGraphqlQuery(_authorUpcomingBooksQuery, new { id });
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var responseElement = await ExecuteGraphqlQuery(_authorUpcomingBooksQuery, new { id, today });
         var authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
         if (authorElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
@@ -869,7 +878,6 @@ public class HardcoverScraper : IScraper
             return results;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         foreach (var contribution in contributionsElement.EnumerateArray())
         {
             try
@@ -903,14 +911,18 @@ public class HardcoverScraper : IScraper
         return results;
     }
 
+    // Same release_date >= $today server-side filter and defensive limit as the author query
+    // above - a long-running series (or one whose omnibus/box-set editions are excluded
+    // elsewhere but still counted here) should not force a full-roster download on every poll.
     private const string _seriesUpcomingBooksQuery = """
-        query GetSeriesUpcomingBooks($id: Int!) {
+        query GetSeriesUpcomingBooks($id: Int!, $today: date!) {
           series_by_pk(id: $id) {
             id
             name
             book_series(
               order_by: [{position: asc}]
-              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_is_null: false}}}
+              where: {book: {canonical_id: {_is_null: true}, is_partial_book: {_eq: false}, release_date: {_gte: $today}}}
+              limit: 100
             ) {
               position
               book {
@@ -933,7 +945,8 @@ public class HardcoverScraper : IScraper
             return new List<UpcomingReleaseResult>();
         }
 
-        var responseElement = await ExecuteGraphqlQuery(_seriesUpcomingBooksQuery, new { id });
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var responseElement = await ExecuteGraphqlQuery(_seriesUpcomingBooksQuery, new { id, today });
         var seriesElement = responseElement.GetNestedProperty("data", "series_by_pk");
         if (seriesElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
@@ -949,7 +962,6 @@ public class HardcoverScraper : IScraper
             return results;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         foreach (var entry in bookSeriesElement.EnumerateArray())
         {
             try

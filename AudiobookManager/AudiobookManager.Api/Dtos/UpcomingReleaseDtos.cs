@@ -20,6 +20,7 @@ public record SeriesFollowStatusDto(bool IsFollowed);
 
 public record AuthorMatchCandidateDto(
     string SourceId,
+    string SourceName,
     string Name,
     string? SourceUrl,
     int? BookCount

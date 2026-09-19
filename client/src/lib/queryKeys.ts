@@ -177,4 +177,6 @@ export const queryKeys = {
     page: (authorId: number | undefined, seriesId: number | undefined, page: number) =>
       ["upcomingReleases", authorId, seriesId, page] as const,
   },
+
+  upcomingReleasesRefreshStatus: () => ["upcomingReleasesRefreshStatus"] as const,
 } as const;
