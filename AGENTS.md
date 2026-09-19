@@ -66,6 +66,19 @@ cd client && pnpm run format
 cd client && pnpm run generate-api-types
 ```
 
+### OpenCode commands
+
+Vendored OpenCode commands live at the repo root in `.opencode/commands/`: `new-frontend.md` (scaffold a new frontend from the frontend-kit preset) and `migrate-ui.md` (migrate this app's UI onto the frontend-kit stack). They are sourced from the `MartinCa/frontend-kit/opencode-commands` registry item.
+
+These commands must live at the repo root, not under `client/`: OpenCode discovers `.opencode/` by walking **up** from the session working directory to the git root, so a repo-root session would never find `client/.opencode/`. shadcn's `~` target anchors to the `components.json` directory (here `client/`), so a fresh install writes them to `client/.opencode/`. To refresh:
+
+```bash
+cd client && pnpm dlx shadcn@latest add MartinCa/frontend-kit/opencode-commands   # writes client/.opencode/
+mv client/.opencode .opencode                                                    # root sessions only discover them here
+```
+
+This item installs only the commands; do **not** run the `conventions` or `agent-skill` items here. This repo keeps the legacy `client/src/DESIGN.md` and `client/src/AGENTS.md` placement, and a `~/`-targeted `conventions` install would create conflicting root-level copies — that reconciliation is a separate, deliberate task.
+
 ### Docker
 
 ```bash
