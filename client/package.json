@@ -36,7 +36,7 @@
     "@babel/types": "8.0.5",
     "@martinrun/frontend-config": "0.2.11",
     "@tailwindcss/vite": "4.3.3",
-    "@tanstack/router-plugin": "1.168.38",
+    "@tanstack/router-plugin": "1.168.39",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.7",
