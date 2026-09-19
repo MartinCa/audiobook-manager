@@ -733,9 +733,12 @@ public class HardcoverScraper : IScraper
             return new List<AuthorSearchResult>();
         }
 
+        // query_type is "Author" (singular) per docs.hardcover.app/api/guides/searching - "Authors"
+        // (plural) is not a recognized query_type and silently returns zero results rather than
+        // erroring, which is why author search returned nothing for every query.
         var query = """
             query SearchAuthors($query: String!) {
-              search(query: $query, query_type: "Authors", per_page: 10, page: 1) {
+              search(query: $query, query_type: "Author", per_page: 10, page: 1) {
                 results
               }
             }

@@ -720,6 +720,106 @@ public class HardcoverScraperTests
     }
 
     [TestMethod]
+    public async Task SearchAuthors_NeverSendsADisabledPatternMatchingOperator()
+    {
+        var authorSearchResponse = """
+            { "data": { "search": { "results": { "hits": [] } } } }
+            """;
+        var target = CreateScraper(authorSearchResponse, out var handler);
+        await target.SearchAuthors("some author");
+
+        AssertNoDisabledOperators(handler.CapturedRequestBodies.Single());
+    }
+
+    // ---------- SearchAuthors() ----------
+
+    // Regression guard: query_type must be the documented singular "Author" -
+    // docs.hardcover.app/api/guides/searching lists query_type values as singular
+    // (author/book/character/list/prompt/publisher/series/user). The plural "Authors" that
+    // shipped here silently returned zero results for every author search instead of erroring,
+    // so nothing caught it short of hitting the live API.
+    [TestMethod]
+    public async Task SearchAuthors_SendsTheDocumentedSingularQueryType()
+    {
+        var emptyResponse = """{ "data": { "search": { "results": { "hits": [] } } } }""";
+        var target = CreateScraper(emptyResponse, out var handler);
+
+        await target.SearchAuthors("Brandon Sanderson");
+
+        var query = ExtractGraphqlQuery(handler.CapturedRequestBodies.Single());
+        StringAssert.Contains(query, "query_type: \"Author\"");
+        Assert.IsFalse(query.Contains("\"Authors\""), "query_type must be singular, not \"Authors\".");
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_MapsGraphqlSearchResponseToResults()
+    {
+        var authorSearchResponse = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "123",
+                          "slug": "brandon-sanderson",
+                          "name": "Brandon Sanderson",
+                          "books_count": 40
+                        }
+                      },
+                      {
+                        "document": {
+                          "id": "456",
+                          "name": "No Slug Author"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(authorSearchResponse, out _);
+
+        var results = await target.SearchAuthors("sanderson");
+
+        Assert.AreEqual(2, results.Count);
+
+        var sanderson = results.Single(r => r.Name == "Brandon Sanderson");
+        Assert.AreEqual("123", sanderson.SourceId);
+        Assert.AreEqual("https://hardcover.app/authors/brandon-sanderson", sanderson.SourceUrl);
+        Assert.AreEqual(40, sanderson.BookCount);
+
+        var noSlug = results.Single(r => r.Name == "No Slug Author");
+        // Falls back to the numeric id in the URL when no slug is present.
+        Assert.AreEqual("https://hardcover.app/authors/456", noSlug.SourceUrl);
+        Assert.IsNull(noSlug.BookCount);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_NoHits_ReturnsEmptyList()
+    {
+        var emptyResponse = """{ "data": { "search": { "results": { "hits": [] } } } }""";
+        var target = CreateScraper(emptyResponse, out _);
+
+        var results = await target.SearchAuthors("nonexistent");
+
+        Assert.AreEqual(0, results.Count);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthors_BlankQuery_ReturnsEmptyListWithoutCallingTheApi()
+    {
+        var target = CreateScraper("{}", out var handler);
+
+        var results = await target.SearchAuthors("   ");
+
+        Assert.AreEqual(0, results.Count);
+        Assert.AreEqual(0, handler.CapturedRequestBodies.Count);
+    }
+
+    [TestMethod]
     public async Task GetBookDetails_NeverSendsADisabledPatternMatchingOperator()
     {
         var target = CreateScraper(_bookDetailsBySlugResponseJson, out var handler);
