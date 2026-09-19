@@ -272,6 +272,28 @@ public class PersonRepositoryTests
         Assert.AreEqual("Unrefreshed Author", items.Single().Name);
     }
 
+    // Regression: the UI sends a calendar date (day granularity), which model-binds to that
+    // day's midnight. A plain "<=" against that midnight used to exclude every refresh later
+    // that same day, so picking "before 2024-06-01" silently dropped an author refreshed at
+    // 2024-06-01T15:00 - asymmetric with RefreshedAfter's inclusive ">=" against the same day's
+    // midnight, which does include the whole day.
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_RefreshedBeforeFilter_IncludesRefreshesLaterThatSameDay()
+    {
+        var sameDayLater = await SeedAuthorWithBooksAsync("Same Day Author", 1);
+        sameDayLater.LastRefreshedAt = new DateTime(2024, 6, 1, 15, 30, 0, DateTimeKind.Utc);
+        var nextDay = await SeedAuthorWithBooksAsync("Next Day Author", 1);
+        nextDay.LastRefreshedAt = new DateTime(2024, 6, 2, 0, 0, 0, DateTimeKind.Utc);
+        await _db.SaveChangesAsync();
+
+        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0,
+            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Same Day Author", items.Single().Name);
+    }
+
     [TestMethod]
     public async Task GetAuthorSummariesPagedAsync_RestrictToIds_NarrowsTheResult()
     {

@@ -22,6 +22,19 @@ export function tristateValue(v: boolean | number | string | undefined): string 
   return v === true ? "true" : v === false ? "false" : "any";
 }
 
+/**
+ * Parses a numberRange input's raw text into the integer the backend's `int?` model binding
+ * expects, dropping anything a fraction (`2.5`) or exponent notation (`1e3`) would otherwise
+ * smuggle through - the server rejects a non-integer with an unexplained 400.
+ */
+export function toIntFilterValue(raw: string): number | undefined {
+  if (raw === "") {
+    return undefined;
+  }
+  const parsed = Math.trunc(Number(raw));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 /** Every field that currently carries a value, as a removable summary chip. */
 export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
   const chips: { key: string; label: string; clear: () => FilterValueMap }[] = [];

@@ -165,6 +165,36 @@ public class AuthorReconciliationProviderTests
         CollectionAssert.AreEquivalent(new long[] { 2 }, upcoming.ToList());
     }
 
+    // Regression: GetReconciliationAsync refuses (throws) an author whose roster exceeds
+    // MaxReconciliationRosterEntries, so the detail view never reconciles a pathological roster
+    // whole. The bulk classifier used to have no equivalent cap at all - one such author would
+    // have every one of their entries matched/classified in full. A list-filter endpoint that
+    // classifies every author with a roster in one pass must not throw over a single pathological
+    // author (that would take the whole authors list down), so the capped author is left out of
+    // both result sets instead, while every other author is still classified normally.
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_AuthorPastRosterCap_IsExcludedFromBothSets()
+    {
+        var oversizedRoster = Enumerable
+            .Range(1, AuthorReconciliationProvider.MaxReconciliationRosterEntries + 1)
+            .Select(i => new AuthorExpectedBookRef(1, $"Book {i}", 2005, null))
+            .Append(new AuthorExpectedBookRef(2, "Warbreaker", DateTime.UtcNow.Year + 1, null))
+            .ToList();
+
+        _personRepository
+            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
+            .ReturnsAsync(oversizedRoster);
+        _audiobookRepository
+            .Setup(r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new Dictionary<long, List<string>>());
+
+        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        CollectionAssert.DoesNotContain(missing.ToList(), 1L);
+        CollectionAssert.DoesNotContain(upcoming.ToList(), 1L);
+        CollectionAssert.AreEquivalent(new long[] { 2 }, upcoming.ToList());
+    }
+
     [TestMethod]
     public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_NoActiveExpectedBooks_ReturnsEmptySets()
     {

@@ -96,8 +96,20 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
             // Same matching (SeriesRosterMatcher, title-only - a standalone book has no
             // position) and Missing-vs-Upcoming classification (ExpectedBookClassifier) as
             // GetReconciliationAsync, just batched across every author with a roster entry
-            // instead of one author at a time.
+            // instead of one author at a time. GetReconciliationAsync enforces
+            // MaxReconciliationRosterEntries/MaxReconciliationOwnedKeys per author and throws on
+            // overflow - the right response for a single detail-page request. This is a
+            // list-filter endpoint that classifies every author with a roster in one pass, so
+            // throwing here would take the whole authors list down over one pathological author.
+            // Instead, an author past either cap is left out of both result sets (silently
+            // unclassifiable to the filter, exactly like the detail view refuses to reconcile it)
+            // rather than letting an unbounded roster or owned-title set through uncapped.
             var ownedTitles = ownedTitlesByAuthor.GetValueOrDefault(group.Key, new List<string>());
+            if (group.Count() > MaxReconciliationRosterEntries || ownedTitles.Count > MaxReconciliationOwnedKeys)
+            {
+                continue;
+            }
+
             var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(
                 ownedTitles.Select(t => new Database.Repositories.SeriesOwnedKey(0, null, t)));
 

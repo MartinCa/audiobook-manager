@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import {
   activeChips,
+  toIntFilterValue,
   tristateValue,
   type FilterFieldDef,
   type FilterValueMap,
@@ -77,13 +78,14 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                   <Input
                     type="number"
                     inputMode="numeric"
+                    step={1}
                     min={field.min ?? 0}
                     placeholder="Min"
                     value={values[field.minKey] === undefined ? "" : String(values[field.minKey])}
                     onChange={(e) =>
                       onChange({
                         ...values,
-                        [field.minKey]: e.target.value === "" ? undefined : Number(e.target.value),
+                        [field.minKey]: toIntFilterValue(e.target.value),
                       })
                     }
                     className="w-20"
@@ -93,13 +95,14 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                   <Input
                     type="number"
                     inputMode="numeric"
+                    step={1}
                     min={field.min ?? 0}
                     placeholder="Max"
                     value={values[field.maxKey] === undefined ? "" : String(values[field.maxKey])}
                     onChange={(e) =>
                       onChange({
                         ...values,
-                        [field.maxKey]: e.target.value === "" ? undefined : Number(e.target.value),
+                        [field.maxKey]: toIntFilterValue(e.target.value),
                       })
                     }
                     className="w-20"

@@ -331,6 +331,32 @@ public class AudiobookRepositorySeriesOverviewPagingTests
         Assert.AreEqual("Followed Series", items.Single());
     }
 
+    // Regression: a series with no catalog row at all (never matched, never followed - following
+    // creates the row) is trivially "not followed", the same way it is trivially "never
+    // refreshed". Followed=false used to be scoped to catalogNamesQuery alone, which silently
+    // dropped every such series from the "Not followed" filter.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_FollowedFalseFilter_IncludesNoCatalogRowSeries()
+    {
+        var followed = await SeedCatalogRowAsync("Followed Series", matched: true);
+        await SeedBookAsync("Book", "Followed Series");
+        _db.SeriesFollows.Add(new SeriesFollow { SeriesId = followed.Id, CreatedAt = DateTime.UtcNow });
+        await _db.SaveChangesAsync();
+
+        await SeedCatalogRowAsync("Not Followed Catalog Series", matched: true);
+        await SeedBookAsync("Book", "Not Followed Catalog Series");
+
+        // No catalog row at all - unmatched and never followed.
+        await SeedBookAsync("Book", "Unmatched Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10, filter: new SeriesOverviewFilter(Followed: false));
+
+        Assert.AreEqual(2, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "Not Followed Catalog Series", "Unmatched Series" }, items);
+    }
+
     [TestMethod]
     public async Task GetSeriesValuesPageAsync_MinOwnedBooksFilter_ExcludesSparserSeries()
     {
@@ -398,6 +424,30 @@ public class AudiobookRepositorySeriesOverviewPagingTests
 
         Assert.AreEqual(1, total);
         Assert.AreEqual("Late Series", items.Single());
+    }
+
+    // Regression: the UI sends a calendar date (day granularity), which model-binds to that
+    // day's midnight. A plain "<=" against that midnight used to exclude every refresh later
+    // that same day, so picking "before 2024-06-01" silently dropped a series refreshed at
+    // 2024-06-01T15:00 - asymmetric with RefreshedAfter's inclusive ">=" against the same day's
+    // midnight, which does include the whole day.
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_RefreshedBeforeFilter_IncludesRefreshesLaterThatSameDay()
+    {
+        var sameDayLater = await SeedCatalogRowAsync("Same Day Series", matched: true);
+        sameDayLater.LastRefreshedAt = new DateTime(2024, 6, 1, 15, 30, 0, DateTimeKind.Utc);
+        var nextDay = await SeedCatalogRowAsync("Next Day Series", matched: true);
+        nextDay.LastRefreshedAt = new DateTime(2024, 6, 2, 0, 0, 0, DateTimeKind.Utc);
+        await _db.SaveChangesAsync();
+        await SeedBookAsync("Book", "Same Day Series");
+        await SeedBookAsync("Book", "Next Day Series");
+
+        var (items, total) = await _repository.GetSeriesValuesPageAsync(
+            null, null, skip: 0, take: 10,
+            filter: new SeriesOverviewFilter(RefreshedBefore: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Same Day Series", items.Single());
     }
 
     [TestMethod]

@@ -37,6 +37,18 @@ describe("EntityFilterBar", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minOwnedBooks: 3 }));
   });
 
+  // Regression: minOwnedBooks/maxOwnedBooks bind to an int? on the server, which rejects a
+  // fraction or exponent notation with an unexplained 400. Number(e.target.value) used to pass
+  // "2.5" straight through.
+  it("truncates a fractional number input to an integer before reporting the change", () => {
+    const onChange = vi.fn();
+    render(<EntityFilterBar fields={FIELDS} values={{}} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Owned books minimum"), { target: { value: "2.5" } });
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minOwnedBooks: 2 }));
+  });
+
   it("clearing a number input reports undefined rather than an empty string", () => {
     const onChange = vi.fn();
     render(<EntityFilterBar fields={FIELDS} values={{ minOwnedBooks: 3 }} onChange={onChange} />);

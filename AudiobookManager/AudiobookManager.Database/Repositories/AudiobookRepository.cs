@@ -622,28 +622,39 @@ public class AudiobookRepository : IAudiobookRepository
             catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt >= filter.RefreshedAfter);
         }
 
+        DateTime? refreshedBeforeExclusive = null;
         if (filter?.RefreshedBefore is not null)
         {
-            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt <= filter.RefreshedBefore);
+            // The UI sends a calendar date (day granularity), which model-binds to that day's
+            // midnight - a plain "<=" would exclude every refresh later that same day. Treat the
+            // bound as "before the day after", so the whole chosen day is included, symmetric
+            // with RefreshedAfter's inclusive ">=" against that day's midnight.
+            refreshedBeforeExclusive = filter.RefreshedBefore.Value.Date.AddDays(1);
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt < refreshedBeforeExclusive);
         }
 
-        // "Never refreshed" additionally includes every series that has no catalog row at all -
-        // those have quite literally never been refreshed. The other catalog-row filters
-        // (Followed, RefreshedAfter/Before) cannot be satisfied by a value with no row, so they
-        // stay scoped to catalogNamesQuery alone.
-        HashSet<string>? neverRefreshedNoCatalogNames = null;
+        // A series with no catalog row trivially satisfies Followed=false (it has never been
+        // followed - following creates the row) and NeverRefreshed=true (it has, quite literally,
+        // never been refreshed), but can never satisfy Followed=true, NeverRefreshed=false,
+        // RefreshedAfter or RefreshedBefore - all of which need an actual row/date to compare
+        // against. Include the no-catalog-row series only when every active catalog-row filter is
+        // one of the two trivially-satisfied ones, mirroring how the author list applies
+        // Followed=false directly over persons (which have no separate "catalog row" concept).
+        HashSet<string>? catalogEligibleNames = null;
         var catalogFilterActive = filter?.Followed is not null || filter?.NeverRefreshed is not null
             || filter?.RefreshedAfter is not null || filter?.RefreshedBefore is not null;
         if (catalogFilterActive)
         {
             var eligibleCatalogNames = await catalogNamesQuery.Select(s => s.Name).ToListAsync();
-            neverRefreshedNoCatalogNames = new HashSet<string>(eligibleCatalogNames, StringComparer.Ordinal);
+            catalogEligibleNames = new HashSet<string>(eligibleCatalogNames, StringComparer.Ordinal);
 
-            if (filter?.NeverRefreshed == true && filter.Followed != true)
+            var noCatalogRowSeriesQualify =
+                filter?.Followed != true &&
+                filter?.NeverRefreshed != false &&
+                filter?.RefreshedAfter is null &&
+                filter?.RefreshedBefore is null;
+            if (noCatalogRowSeriesQualify)
             {
-                // A series with no catalog row cannot be Followed=true (following creates the row),
-                // so this only needs to run when Followed isn't asserted true - a no-catalog-row
-                // series is also, trivially, "never refreshed".
                 var catalogNames = await _db.Series.AsNoTracking().Select(s => s.Name).ToListAsync();
                 var catalogNameSet = new HashSet<string>(catalogNames, StringComparer.Ordinal);
                 var allBookSeriesNames = await _db.Audiobooks.AsNoTracking()
@@ -653,7 +664,7 @@ public class AudiobookRepository : IAudiobookRepository
                     .ToListAsync();
                 foreach (var name in allBookSeriesNames.Where(n => !catalogNameSet.Contains(n)))
                 {
-                    neverRefreshedNoCatalogNames.Add(name);
+                    catalogEligibleNames.Add(name);
                 }
             }
         }
@@ -710,9 +721,9 @@ public class AudiobookRepository : IAudiobookRepository
             booksQuery = booksQuery.Where(a => countedNameSet.Contains(a.Series!));
         }
 
-        if (neverRefreshedNoCatalogNames is not null)
+        if (catalogEligibleNames is not null)
         {
-            booksQuery = booksQuery.Where(a => neverRefreshedNoCatalogNames.Contains(a.Series!));
+            booksQuery = booksQuery.Where(a => catalogEligibleNames.Contains(a.Series!));
         }
 
         if (restrictToNames is not null)
@@ -767,7 +778,7 @@ public class AudiobookRepository : IAudiobookRepository
 
         if (catalogFilterActive)
         {
-            var eligible = neverRefreshedNoCatalogNames!;
+            var eligible = catalogEligibleNames!;
             catalogQuery = catalogQuery.Where(s => eligible.Contains(s.Name));
         }
 
