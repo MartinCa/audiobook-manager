@@ -47,13 +47,31 @@ public interface IUpcomingReleaseService
     /// <summary>
     /// One page of upcoming releases, soonest release first, optionally scoped to one author
     /// and/or one series. No filter on either returns the consolidated view across every
-    /// followed author and series.
+    /// followed author and series. Unions the legacy scrape-and-store table with every
+    /// followed-and-matched series'/author's roster entries classified <c>Upcoming</c> - see
+    /// AudiobookManager/UPCOMING_RELEASES_DESIGN.md.
     /// </summary>
-    Task<(List<UpcomingRelease> Items, int Total)> GetUpcomingReleasesAsync(
+    Task<(List<UpcomingReleaseItem> Items, int Total)> GetUpcomingReleasesAsync(
         long? personId, long? seriesId, int limit, int offset);
 
-    /// <summary>Removes one upcoming release the user no longer wants tracked. Returns whether a row was deleted.</summary>
+    /// <summary>Removes one legacy upcoming release the user no longer wants tracked. Returns whether a row was deleted.</summary>
     Task<bool> RemoveUpcomingReleaseAsync(long id);
+
+    /// <summary>
+    /// Dismisses a roster-derived upcoming release for a followed author: sets <c>IsIgnored</c>
+    /// on the matching <see cref="AuthorExpectedBook"/> entry, the same mechanism the author
+    /// detail page's missing-books section already uses. Throws <see cref="KeyNotFoundException"/>
+    /// when no entry with that title exists for the author.
+    /// </summary>
+    Task DismissAuthorRosterUpcomingAsync(long personId, string title);
+
+    /// <summary>
+    /// Dismisses a roster-derived upcoming release for a followed series: sets <c>IsIgnored</c>
+    /// on the matching <see cref="SeriesExpectedBook"/> entry, the same mechanism the series
+    /// detail page's missing-books section already uses. Throws <see cref="KeyNotFoundException"/>
+    /// when no entry with that position/title exists for the series.
+    /// </summary>
+    Task DismissSeriesRosterUpcomingAsync(string seriesName, string? position, string title);
 
     /// <summary>
     /// Polls every followed-and-matched author and series for upcoming releases and stores
@@ -62,4 +80,28 @@ public interface IUpcomingReleaseService
     /// that was just announced.
     /// </summary>
     Task RefreshUpcomingReleasesAsync();
+
+    /// <summary>
+    /// Refreshes one author's standalone-books roster (<see cref="AuthorExpectedBook"/>) from
+    /// their matched source: fetches the author's full bibliography, keeps only the books that
+    /// belong to no series (a series' books are already rostered through that series' own
+    /// roster - see the design note this feature ships with), replaces the stored roster
+    /// wholesale (carrying ignore decisions across for entries recognisably the same book, like
+    /// a series refresh does), and stamps <see cref="Person.LastRefreshedAt"/>. Throws
+    /// <see cref="KeyNotFoundException"/> when the author does not exist or has no Hardcover
+    /// match.
+    /// </summary>
+    Task RefreshAuthorRosterAsync(long personId);
+
+    /// <summary>
+    /// Refreshes the standalone-books roster of every matched author, synchronously, continuing
+    /// past a per-author failure (mirrors <see cref="RefreshUpcomingReleasesAsync"/>'s
+    /// resilience) but stopping early if the source's daily request budget runs out. Returns how
+    /// many authors were processed, how many succeeded, and - mirroring
+    /// <see cref="ISeriesService.RefreshAllSeriesAsync"/>'s shape - a <c>StopReason</c> that lets
+    /// the caller distinguish "stopped early because the daily request budget ran out" or "no
+    /// author-capable scraper is configured" from an unremarkable "nothing to do" (no matched
+    /// authors), both of which would otherwise return the same all-zero tuple.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllAuthorRostersAsync();
 }

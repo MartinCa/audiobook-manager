@@ -50,14 +50,47 @@ export function UpcomingReleasesList({
     placeholderData: keepPreviousData,
   });
 
+  // "Legacy" rows have a real UpcomingRelease row to DELETE; "Roster" rows have none (they're a
+  // series/author roster entry classified Upcoming) and are dismissed by setting IsIgnored on
+  // that entry instead - addressed by series name+position or by author id, matching whichever
+  // roster it came from (AudiobookManager/UPCOMING_RELEASES_DESIGN.md).
   const handleRemove = async (release: UpcomingRelease) => {
     try {
-      await upcomingReleasesApi.removeUpcomingRelease(release.id);
+      if (release.source === "Legacy") {
+        if (release.id == null) return;
+        await upcomingReleasesApi.removeUpcomingRelease(release.id);
+      } else if (release.seriesName) {
+        await upcomingReleasesApi.dismissRosterUpcomingRelease({
+          seriesName: release.seriesName,
+          seriesPosition: release.seriesPosition ?? undefined,
+          title: release.title,
+        });
+      } else if (release.authorId != null) {
+        await upcomingReleasesApi.dismissRosterUpcomingRelease({
+          authorId: release.authorId,
+          title: release.title,
+        });
+      } else {
+        return;
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     }
   };
+
+  // A "Roster" row carries no stable id (roster ids are not stable across a refresh - see the
+  // design doc), so the key has to be built from whatever does identify it uniquely on the page:
+  // its source scope (author or series+position) plus its title. Title isn't guaranteed unique
+  // within one roster (two entries could legitimately share a normalized title in the same
+  // author/series scope), so the index within this render's page is appended as a tie-breaker -
+  // stable within one fetch, which is all a React key needs. This is a display-key-only fix: the
+  // dismiss-by-title backend lookup still addresses by title alone (an accepted, low-likelihood
+  // limitation - see the review this line came from).
+  const releaseKey = (release: UpcomingRelease, index: number): string =>
+    release.source === "Legacy"
+      ? `legacy-${release.id}`
+      : `roster-${release.authorId ?? ""}-${release.seriesName ?? ""}-${release.seriesPosition ?? ""}-${release.title}-${index}`;
 
   if (query.isLoading) {
     return (
@@ -90,9 +123,9 @@ export function UpcomingReleasesList({
   return (
     <div className="space-y-2">
       <div className="border-border divide-y rounded-md border">
-        {releases.map((release) => (
+        {releases.map((release, index) => (
           <div
-            key={release.id}
+            key={releaseKey(release, index)}
             className="hover:bg-muted/50 flex items-start gap-3 p-3 transition-colors"
           >
             {release.imageUrl ? (
@@ -117,7 +150,15 @@ export function UpcomingReleasesList({
                 )}
               </div>
               <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
-                <span>{formatDate(release.releaseDate)}</span>
+                {/* A precise ReleaseDate is preferred; otherwise fall back to the bare Year (a
+                    roster-derived entry can carry a Year with no precise date yet - see
+                    AudiobookManager/UPCOMING_RELEASES_DESIGN.md's SortDate). Neither present
+                    means the source gave no timing at all. */}
+                <span>
+                  {release.releaseDate
+                    ? formatDate(release.releaseDate)
+                    : (release.year ?? "Release date unknown")}
+                </span>
                 {showSource && release.authorName && (
                   <>
                     <span>&middot;</span>

@@ -31,7 +31,8 @@ public class PartMismatchIssueDetectorTests
             mismatches.ToList(),
             ExpectedBookCount: 0,
             OwnedCount: 0,
-            Authors: new List<string>());
+            Authors: new List<string>(),
+            Upcoming: new List<SeriesExpectedBookInfo>());
 
     private static SeriesPartMismatch MakeMismatch(long audiobookId, string expectedPart = "2", string? storedPart = "") =>
         new()

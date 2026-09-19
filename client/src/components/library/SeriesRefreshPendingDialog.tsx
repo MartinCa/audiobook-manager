@@ -1,15 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  RefreshCcw,
-  Trash2,
-  ExternalLink,
-} from "lucide-react";
+import { AlertTriangle, Check, Loader2, RefreshCcw, Trash2, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,12 +14,7 @@ import { useOperationResync } from "@/hooks/useOperationResync";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
-import type {
-  SeriesRefreshApplyRequest,
-  SeriesRefreshChange,
-  SeriesRefreshChangeType,
-} from "@/types/SeriesRefresh";
-import type { SeriesBookCandidate } from "@/types/Series";
+import type { SeriesRefreshApplyRequest, SeriesRefreshChange } from "@/types/SeriesRefresh";
 
 interface SeriesRefreshApplyProgressPayload {
   processed: number;
@@ -52,21 +38,8 @@ interface SeriesRefreshApplyCompletePayload {
   effectiveSeriesName?: string | null;
 }
 
-const changeLabel = (type: SeriesRefreshChangeType): string => {
-  switch (type) {
-    case "PartUpdate":
-      return "Part update";
-    case "MissingBook":
-      return "Missing source book";
-    case "PartRemoval":
-      return "Part removal";
-  }
-};
-
 function changeKey(c: SeriesRefreshChange): string {
-  return c.changeType === "MissingBook"
-    ? `missing:${c.position ?? ""}:${c.title ?? ""}`
-    : `${c.changeType}:${c.audiobookId ?? ""}`;
+  return `${c.changeType}:${c.audiobookId ?? ""}`;
 }
 
 interface SeriesRefreshPendingDialogProps {
@@ -97,8 +70,6 @@ export function SeriesRefreshPendingDialog({
 }: SeriesRefreshPendingDialogProps) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [missingChoice, setMissingChoice] = useState<Record<string, number>>({});
-  const [expandedMissing, setExpandedMissing] = useState<string | null>(null);
   const [adoptName, setAdoptName] = useState(false);
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState<SeriesRefreshApplyProgressPayload | null>(null);
@@ -129,11 +100,14 @@ export function SeriesRefreshPendingDialog({
   if (lastSeededKey !== seededKey) {
     setLastSeededKey(seededKey);
     if (pending) {
+      // A legacy PendingSeriesRefresh snapshot can still contain MissingBook entries (the enum
+      // member is kept only so those old rows still deserialize - see UPCOMING_RELEASES_DESIGN.md).
+      // They render nowhere any more and carry no audiobookId, so they can never actually be
+      // applied; seeding them into the selection would inflate "Apply N" with a count that has
+      // no visible row behind it.
       setSelected(
         new Set(pending.changes.filter((c) => c.changeType !== "MissingBook").map(changeKey)),
       );
-      setMissingChoice({});
-      setExpandedMissing(null);
       setAdoptName(false);
     }
   }
@@ -146,10 +120,6 @@ export function SeriesRefreshPendingDialog({
     () => changes.filter((c) => c.changeType === "PartUpdate"),
     [changes],
   );
-  const missingBooks = useMemo(
-    () => changes.filter((c) => c.changeType === "MissingBook"),
-    [changes],
-  );
   const partRemovals = useMemo(
     () => changes.filter((c) => c.changeType === "PartRemoval"),
     [changes],
@@ -157,13 +127,7 @@ export function SeriesRefreshPendingDialog({
 
   const selectedCount = selected.size;
   const willAdoptSourceName = hasAdoptableName && adoptName;
-  const readyToApply =
-    (selectedCount > 0 || willAdoptSourceName) &&
-    [...selected].every((key) => !missingChoiceMissing(key));
-
-  function missingChoiceMissing(key: string): boolean {
-    return key.startsWith("missing:") && !missingChoice[key];
-  }
+  const readyToApply = selectedCount > 0 || willAdoptSourceName;
 
   function isSelected(key: string): boolean {
     return selected.has(key);
@@ -273,19 +237,8 @@ export function SeriesRefreshPendingDialog({
     for (const c of changes) {
       const key = changeKey(c);
       if (!selected.has(key)) continue;
-      if (c.changeType === "MissingBook") {
-        const audiobookId = missingChoice[key];
-        if (!audiobookId) continue;
-        selections.push({
-          changeType: c.changeType,
-          audiobookId,
-          position: c.position ?? undefined,
-          title: c.title ?? undefined,
-        });
-      } else {
-        if (c.audiobookId == null) continue;
-        selections.push({ changeType: c.changeType, audiobookId: c.audiobookId });
-      }
+      if (c.audiobookId == null) continue;
+      selections.push({ changeType: c.changeType, audiobookId: c.audiobookId });
     }
 
     const request: SeriesRefreshApplyRequest = {
@@ -380,77 +333,6 @@ export function SeriesRefreshPendingDialog({
                             : undefined
                         }
                       />
-                    );
-                  })}
-                </ChangeSection>
-              )}
-
-              {/* Missing source books */}
-              {missingBooks.length > 0 && (
-                <ChangeSection title={`Missing Source Books (${missingBooks.length})`}>
-                  {missingBooks.map((c) => {
-                    const key = changeKey(c);
-                    const chosen = missingChoice[key];
-                    return (
-                      <div
-                        key={key}
-                        className="border-border rounded-md border bg-amber-500/5 p-2.5 text-xs"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="flex min-w-0 flex-1 items-start gap-2">
-                            <Checkbox
-                              checked={isSelected(key)}
-                              disabled={!chosen}
-                              aria-label={`Apply missing book "${c.title}"`}
-                              onCheckedChange={() => toggle(key)}
-                              className="mt-0.5"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-foreground font-semibold break-words">
-                                {c.title ?? "Unknown book"}
-                              </div>
-                              <div className="text-muted-foreground break-words">
-                                {changeLabel(c.changeType)}
-                                {c.position ? ` · part ${c.position}` : ""}
-                                {c.year ? ` · ${c.year}` : ""}
-                              </div>
-                              {!chosen && (
-                                <p className="mt-0.5 text-amber-700 dark:text-amber-400">
-                                  Choose a library book below to enable this change.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 shrink-0 self-end text-[11px] sm:self-start"
-                            onClick={() => setExpandedMissing(expandedMissing === key ? null : key)}
-                          >
-                            {expandedMissing === key ? (
-                              <ChevronUp className="mr-1 h-3 w-3" />
-                            ) : (
-                              <ChevronDown className="mr-1 h-3 w-3" />
-                            )}
-                            {chosen ? "Change book" : "Find in library"}
-                          </Button>
-                        </div>
-
-                        {expandedMissing === key && (
-                          <MissingCandidatePicker
-                            seriesName={seriesName}
-                            position={c.position ?? null}
-                            title={c.title ?? null}
-                            chosenAudiobookId={chosen}
-                            onChoose={(audiobookId) => {
-                              // Choosing a library book for a missing roster entry means
-                              // applying the assignment - arm the change in the same click.
-                              setMissingChoice((prev) => ({ ...prev, [key]: audiobookId }));
-                              setSelected((prev) => new Set(prev).add(key));
-                            }}
-                          />
-                        )}
-                      </div>
                     );
                   })}
                 </ChangeSection>
@@ -590,99 +472,6 @@ function ChangeRow({
         {subtitle && <span className="text-muted-foreground block break-words">{subtitle}</span>}
       </button>
     </div>
-  );
-}
-
-function MissingCandidatePicker({
-  seriesName,
-  position,
-  title,
-  chosenAudiobookId,
-  onChoose,
-}: {
-  seriesName: string;
-  position: string | null;
-  title: string | null;
-  chosenAudiobookId?: number;
-  onChoose: (audiobookId: number) => void;
-}) {
-  const {
-    data: candidates,
-    isFetching,
-    isError,
-  } = useQuery({
-    queryKey: queryKeys.missingBookCandidates(seriesName, position, title),
-    queryFn: () => seriesApi.getMissingBookCandidates(seriesName, position, title),
-    staleTime: 30_000,
-  });
-
-  if (isFetching) {
-    return (
-      <div className="text-muted-foreground flex items-center gap-1.5 pt-2 pl-7 text-[11px]">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading candidates...
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <p className="text-status-error pt-2 pl-7 text-[11px]">
-        Couldn't load candidates — saving is still allowed for the other changes.
-      </p>
-    );
-  }
-
-  if (!candidates || candidates.length === 0) {
-    return (
-      <p className="text-muted-foreground pt-2 pl-7 text-[11px]">
-        No candidate book found in the library. This change stays disabled until you own a match.
-      </p>
-    );
-  }
-
-  return (
-    <div className="mt-2 space-y-1 pl-7">
-      {candidates.map((c) => (
-        <CandidateRow
-          key={c.audiobookId}
-          candidate={c}
-          chosen={chosenAudiobookId === c.audiobookId}
-          onChoose={() => onChoose(c.audiobookId)}
-        />
-      ))}
-    </div>
-  );
-}
-
-function CandidateRow({
-  candidate,
-  chosen,
-  onChoose,
-}: {
-  candidate: SeriesBookCandidate;
-  chosen: boolean;
-  onChoose: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onChoose}
-      className={`border-border bg-muted/30 rounded-md border px-2 py-1.5 text-left transition-colors ${
-        chosen ? "border-primary text-foreground" : "hover:bg-muted/50"
-      }`}
-    >
-      <span className="text-foreground font-medium break-words">
-        {candidate.bookName ?? "Unknown"}
-      </span>
-      <span className="text-muted-foreground block text-[11px]">
-        {(candidate.authors ?? []).join(", ") || "Unknown author"}
-        {candidate.year ? ` · ${candidate.year}` : ""}
-        {candidate.series && candidate.series.trim()
-          ? ` · currently ${candidate.series}${candidate.seriesPart ? ` #${candidate.seriesPart}` : ""}`
-          : ""}
-      </span>
-    </button>
   );
 }
 

@@ -39,6 +39,16 @@ public class Person
     [Column("hardcover_author_url")]
     public string? HardcoverAuthorUrl { get; set; }
 
+    /// <summary>
+    /// When this author's standalone-books roster (<see cref="AuthorExpectedBook"/>) was last
+    /// refreshed from the matched source - the author-roster counterpart of
+    /// <see cref="Series.LastRefreshedAt"/>. Null until the first refresh.
+    /// </summary>
+    [Column("last_refreshed_at")]
+    public DateTime? LastRefreshedAt { get; set; }
+
+    public List<AuthorExpectedBook> ExpectedBooks { get; set; } = new();
+
     public Person(long id, string name)
     {
         Id = id;

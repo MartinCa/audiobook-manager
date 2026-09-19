@@ -36,6 +36,9 @@ public class SeriesExpectedBookResult
 
     public int? Year { get; set; }
 
+    /// <summary>A precise release date, when the source reports one - see <see cref="Database.Models.SeriesExpectedBook.ReleaseDate"/>.</summary>
+    public DateOnly? ReleaseDate { get; set; }
+
     public string? SourceUrl { get; set; }
 
     /// <summary>

@@ -20,7 +20,15 @@ const mockSignalRValue = {
 function makeDetail(
   seriesCount: number,
   standaloneCount: number,
-  opts: { seriesItems?: number; standaloneItems?: number; authorId?: number } = {},
+  opts: {
+    seriesItems?: number;
+    standaloneItems?: number;
+    authorId?: number;
+    lastRefreshedAt?: string | null;
+    missingBooks?: AuthorDetail["missingBooks"];
+    upcomingBooks?: AuthorDetail["upcomingBooks"];
+    ignoredBooks?: AuthorDetail["ignoredBooks"];
+  } = {},
 ): AuthorDetail {
   const authorId = opts.authorId ?? 7;
   return {
@@ -43,6 +51,7 @@ function makeDetail(
         missingBookCount: i % 2 === 0 ? 1 : 0,
         ignoredBookCount: 0,
         includeOmnibusEditions: false,
+        upcomingBookCount: 0,
       })),
     },
     standaloneBooks: {
@@ -61,6 +70,10 @@ function makeDetail(
         }),
       ),
     },
+    lastRefreshedAt: opts.lastRefreshedAt ?? null,
+    missingBooks: opts.missingBooks ?? [],
+    upcomingBooks: opts.upcomingBooks ?? [],
+    ignoredBooks: opts.ignoredBooks ?? [],
   };
 }
 
@@ -238,5 +251,134 @@ describe("AuthorDetail", () => {
       "aria-checked",
       "false",
     );
+  });
+
+  // --- Missing/Upcoming standalone books: collapsed by default, mirroring SeriesDetail's ---
+
+  it("renders Missing and Upcoming Books collapsed, with counts in the header", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        missingBooks: [
+          { id: 1, title: "Warbreaker 2", isIgnored: false, year: 2019, sourceUrl: null },
+        ],
+        upcomingBooks: [
+          {
+            id: 2,
+            title: "Stormlight 6",
+            isIgnored: false,
+            year: null,
+            sourceUrl: null,
+            releaseDate: "2027-03-01",
+          },
+        ],
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Missing Books (1)")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming Books (1)")).toBeInTheDocument();
+    expect(screen.queryByText("Warbreaker 2")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stormlight 6")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Missing Books (1)" }));
+    expect(screen.getByText("Warbreaker 2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upcoming Books (1)" }));
+    expect(screen.getByText("Stormlight 6")).toBeInTheDocument();
+    expect(screen.getByText(/releases 2027-03-01/)).toBeInTheDocument();
+  });
+
+  it("ignores a missing standalone book through the author expected-books/ignore endpoint", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        missingBooks: [
+          { id: 1, title: "Warbreaker 2", isIgnored: false, year: 2019, sourceUrl: null },
+        ],
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+    const ignore = vi.spyOn(browseApi, "ignoreAuthorExpectedBook").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    await screen.findByText("Missing Books (1)");
+    fireEvent.click(screen.getByRole("button", { name: "Missing Books (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
+
+    await waitFor(() => {
+      expect(ignore).toHaveBeenCalledWith(7, "Warbreaker 2");
+    });
+  });
+
+  it("unignores an ignored standalone book through the author expected-books/unignore endpoint", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        ignoredBooks: [
+          { id: 1, title: "Warbreaker 2", isIgnored: true, year: 2019, sourceUrl: null },
+        ],
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+    const unignore = vi.spyOn(browseApi, "unignoreAuthorExpectedBook").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    await screen.findByText("Ignored Books (1)");
+    fireEvent.click(screen.getByRole("button", { name: "Ignored Books (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unignore" }));
+
+    await waitFor(() => {
+      expect(unignore).toHaveBeenCalledWith(7, "Warbreaker 2");
+    });
+  });
+
+  // --- Management & Settings: matched-source badge, last-refreshed hint, refresh action ---
+
+  it("shows the matched-source badge, last-refreshed hint and a working Refresh Online button", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, { lastRefreshedAt: "2026-09-01T12:00:00Z" }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({
+      sourceId: "123",
+      sourceName: "Hardcover",
+      sourceUrl: "https://hardcover.app/authors/brandon-sanderson",
+    });
+    const refresh = vi
+      .spyOn(browseApi, "refreshAuthor")
+      .mockResolvedValue({ success: true, lastRefreshedAt: "2026-09-19T00:00:00Z" });
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Management & Settings")).toBeInTheDocument();
+    expect(await screen.findByText(/Matched to/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Hardcover/ })).toHaveAttribute(
+      "href",
+      "https://hardcover.app/authors/brandon-sanderson",
+    );
+    expect(screen.getByText(/Last refreshed from source: 2026-09-01/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Online" }));
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it("shows the not-matched message instead of Refresh Online for an unmatched author", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 0));
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Management & Settings")).toBeInTheDocument();
+    expect(screen.getByText(/Not matched to an online metadata provider yet/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh Online" })).not.toBeInTheDocument();
   });
 });

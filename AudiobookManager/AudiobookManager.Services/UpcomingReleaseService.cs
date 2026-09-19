@@ -14,6 +14,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     private readonly IAuthorFollowRepository _authorFollowRepository;
     private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly IUpcomingReleaseRepository _upcomingReleaseRepository;
+    private readonly ISeriesReconciliationProvider _seriesReconciliationProvider;
+    private readonly IAuthorReconciliationProvider _authorReconciliationProvider;
+    private readonly ISeriesReconciliationCache _seriesReconciliationCache;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<UpcomingReleaseService> _logger;
 
@@ -23,6 +26,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         IAuthorFollowRepository authorFollowRepository,
         ISeriesFollowRepository seriesFollowRepository,
         IUpcomingReleaseRepository upcomingReleaseRepository,
+        ISeriesReconciliationProvider seriesReconciliationProvider,
+        IAuthorReconciliationProvider authorReconciliationProvider,
+        ISeriesReconciliationCache seriesReconciliationCache,
         IEnumerable<IScraper> scrapers,
         ILogger<UpcomingReleaseService> logger)
     {
@@ -31,6 +37,9 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _authorFollowRepository = authorFollowRepository;
         _seriesFollowRepository = seriesFollowRepository;
         _upcomingReleaseRepository = upcomingReleaseRepository;
+        _seriesReconciliationProvider = seriesReconciliationProvider;
+        _authorReconciliationProvider = authorReconciliationProvider;
+        _seriesReconciliationCache = seriesReconciliationCache;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -119,11 +128,165 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         await _seriesFollowRepository.UnfollowAsync(series.Id);
     }
 
-    public Task<(List<UpcomingRelease> Items, int Total)> GetUpcomingReleasesAsync(
-        long? personId, long? seriesId, int limit, int offset) =>
-        _upcomingReleaseRepository.GetPagedAsync(personId, seriesId, limit, offset);
+    public async Task<(List<UpcomingReleaseItem> Items, int Total)> GetUpcomingReleasesAsync(
+        long? personId, long? seriesId, int limit, int offset)
+    {
+        var items = await BuildMergedItemsAsync(personId, seriesId);
+        var total = items.Count;
+        var page = items.Skip(offset).Take(limit).ToList();
+        return (page, total);
+    }
 
     public Task<bool> RemoveUpcomingReleaseAsync(long id) => _upcomingReleaseRepository.DeleteAsync(id);
+
+    public async Task DismissAuthorRosterUpcomingAsync(long personId, string title) =>
+        await _personRepository.SetAuthorExpectedBookIgnoredAsync(personId, title, true);
+
+    public async Task DismissSeriesRosterUpcomingAsync(string seriesName, string? position, string title)
+    {
+        await _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, true);
+        _seriesReconciliationCache.Invalidate(seriesName);
+    }
+
+    /// <summary>
+    /// Unions the legacy scrape-and-store table with every followed-and-matched series'/author's
+    /// roster entries classified <c>Upcoming</c>, de-duplicated by (scope, normalized title) so
+    /// the same upcoming book does not appear twice just because both pipelines know about it -
+    /// the roster-derived entry wins a duplicate, since it is the one that can actually be
+    /// dismissed (see <see cref="UpcomingReleaseSource"/>). The candidate set is bounded by the
+    /// number of followed-and-matched authors/series, which <see cref="RefreshUpcomingReleasesAsync"/>
+    /// already treats as small enough to poll synchronously, so building the whole set in memory
+    /// before sorting/paging is the same tradeoff that method already makes.
+    ///
+    /// The dedup key set also includes each series'/author's <c>Ignored</c> roster entries (not
+    /// just <c>Upcoming</c>) for the same reason: once a roster-derived entry is dismissed, it
+    /// must keep suppressing its legacy-table duplicate, or the same book reappears immediately
+    /// as a fresh "Legacy" row the moment its "Upcoming" entry is ignored. An ignored entry
+    /// contributes only to <c>rosterKeys</c>, never to <c>items</c> - it stays invisible, it just
+    /// keeps suppressing the legacy duplicate.
+    /// </summary>
+    private async Task<List<UpcomingReleaseItem>> BuildMergedItemsAsync(long? personId, long? seriesId)
+    {
+        var legacy = await _upcomingReleaseRepository.GetAllAsync(personId, seriesId);
+        var items = new List<UpcomingReleaseItem>(legacy.Count);
+        var rosterKeys = new HashSet<(string Scope, string Title)>();
+
+        if (seriesId is null)
+        {
+            var followedSeries = personId is null
+                ? await _seriesFollowRepository.GetFollowedMatchedSeriesAsync()
+                : new List<Series>();
+
+            foreach (var series in followedSeries)
+            {
+                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    var key = ($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title));
+                    rosterKeys.Add(key);
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
+                }
+
+                // An ignored roster entry has no visible item, but must still suppress its legacy
+                // duplicate - otherwise dismissing a roster-derived "upcoming" entry immediately
+                // resurrects the same book as a fresh "Legacy" row. See UPCOMING_RELEASES_DESIGN.md.
+                foreach (var entry in reconciliation.Ignored)
+                {
+                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                }
+            }
+        }
+        else
+        {
+            var series = await _seriesRepository.GetByIdWithExpectedBooksAsync(seriesId.Value);
+            if (series is not null && await _seriesFollowRepository.IsFollowedAsync(series.Id)
+                && !string.IsNullOrEmpty(series.MatchedSourceId))
+            {
+                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
+                }
+
+                foreach (var entry in reconciliation.Ignored)
+                {
+                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                }
+            }
+        }
+
+        if (personId is null)
+        {
+            var followedAuthorsScope = seriesId is null
+                ? await _authorFollowRepository.GetFollowedMatchedAuthorsAsync()
+                : new List<Person>();
+
+            foreach (var author in followedAuthorsScope)
+            {
+                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(author.Id);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"author:{author.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        author.Id, author.Name, null, null, null, "roster", entry.SourceUrl, null));
+                }
+
+                foreach (var entry in reconciliation.Ignored)
+                {
+                    rosterKeys.Add(($"author:{author.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                }
+            }
+        }
+        else
+        {
+            var person = await _personRepository.GetByIdAsync(personId.Value);
+            if (person is not null && await _authorFollowRepository.IsFollowedAsync(person.Id)
+                && !string.IsNullOrEmpty(person.HardcoverAuthorId))
+            {
+                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(person.Id);
+                foreach (var entry in reconciliation.Upcoming)
+                {
+                    rosterKeys.Add(($"author:{person.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                    items.Add(new UpcomingReleaseItem(
+                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                        person.Id, person.Name, null, null, null, "roster", entry.SourceUrl, null));
+                }
+
+                foreach (var entry in reconciliation.Ignored)
+                {
+                    rosterKeys.Add(($"author:{person.Id}", NormalizeTitleForCarryOver(entry.Title)));
+                }
+            }
+        }
+
+        foreach (var r in legacy)
+        {
+            var scope = r.SeriesId is not null ? $"series:{r.SeriesId}" : r.PersonId is not null ? $"author:{r.PersonId}" : null;
+            if (scope is not null && rosterKeys.Contains((scope, NormalizeTitleForCarryOver(r.Title))))
+            {
+                // The roster-derived entry for this same book already represents it.
+                continue;
+            }
+
+            items.Add(new UpcomingReleaseItem(
+                UpcomingReleaseSource.Legacy, r.Id, r.Title, r.ReleaseDate, r.ReleaseDate.Year,
+                r.PersonId, r.Person?.Name, r.SeriesId, r.Series?.Name, r.SeriesPosition,
+                r.SourceName, r.SourceUrl, r.ImageUrl));
+        }
+
+        return items
+            .OrderBy(i => i.SortDate)
+            .ThenBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(i => i.Source)
+            .ThenBy(i => i.Id ?? long.MaxValue)
+            .ToList();
+    }
 
     public async Task RefreshUpcomingReleasesAsync()
     {
@@ -205,6 +368,114 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             await _upcomingReleaseRepository.UpsertAsync(ToEntity(scraper, release, personId: null, seriesId: series.Id));
         }
     }
+
+    public async Task RefreshAuthorRosterAsync(long personId)
+    {
+        var person = await _personRepository.GetByIdAsync(personId)
+            ?? throw new KeyNotFoundException($"Author {personId} not found");
+
+        if (string.IsNullOrEmpty(person.HardcoverAuthorId))
+        {
+            throw new KeyNotFoundException($"Author {personId} is not matched to a metadata source, so it cannot be refreshed.");
+        }
+
+        var scraper = AuthorLookupScraper
+            ?? throw new ArgumentException("No author-capable scraper is available to refresh this author's roster.");
+
+        await RefreshAuthorRosterCoreAsync(scraper, person);
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllAuthorRostersAsync()
+    {
+        var scraper = AuthorLookupScraper;
+        if (scraper is null)
+        {
+            return (0, 0, 0, "No author-capable metadata source is configured.");
+        }
+
+        // Concurrency between this sweep, the single-author refresh, and a second direct call to
+        // either is gated by BrowseController's shared static _refreshLock (mirrors
+        // SeriesController's _refreshLock over RefreshSeries/RefreshAllSeries) - both endpoints
+        // that reach RefreshAuthorRosterCoreAsync take it before calling into this service, so
+        // two callers can never both read the ignore set and then both replace the same author's
+        // roster. See the concurrency note on RefreshAuthorRosterCoreAsync.
+        var authors = await _personRepository.GetMatchedAuthorsAsync();
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+        string? stopReason = null;
+
+        foreach (var author in authors)
+        {
+            processed++;
+            try
+            {
+                await RefreshAuthorRosterCoreAsync(scraper, author);
+                succeeded++;
+            }
+            catch (HardcoverDailyLimitExceededException ex)
+            {
+                processed--;
+                stopReason = "Stopped early: the daily request budget for this source ran out.";
+                _logger.LogWarning(ex, "Stopping author-roster refresh after {Processed}/{Total} authors: {Message}",
+                    processed, authors.Count, ex.Message);
+                break;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogWarning(ex, "Failed to refresh the standalone-books roster for author {PersonId}", author.Id);
+            }
+        }
+
+        return (processed, succeeded, failed, stopReason);
+    }
+
+    /// <summary>
+    /// The one-author workload shared by the single and bulk refresh: fetch the author's full
+    /// bibliography, drop anything that belongs to a series (already rostered/refreshed through
+    /// that series' own roster - see the design note this feature ships with), replace the
+    /// stored roster wholesale (carrying ignore decisions across for entries recognisably the
+    /// same book, by normalized title - the author roster has no position to match on), and
+    /// stamp LastRefreshedAt.
+    ///
+    /// This method is reachable concurrently from two controller endpoints
+    /// (<c>BrowseController.RefreshAuthor</c>/<c>RefreshAllAuthors</c>) and does not itself gate
+    /// against that - the concurrency invariant is enforced by the caller. Both endpoints take
+    /// the SAME static <c>BrowseController._refreshLock</c> (mirroring
+    /// <c>SeriesController._refreshLock</c> over <c>RefreshSeries</c>/<c>RefreshAllSeries</c>)
+    /// before reaching this method, so a single-author refresh can never race the bulk sweep (or
+    /// another single-author refresh) into a read-then-delete-then-insert on the same author's
+    /// roster, and a dismissal made between the ignore-set read and the replace can never be lost
+    /// to a concurrent re-insert of the stale flag.
+    /// </summary>
+    private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
+    {
+        var books = await scraper.GetAuthorBooks(person.HardcoverAuthorId!);
+        var standalone = books.Where(b => !b.HasSeries).ToList();
+
+        var (existing, _) = await _personRepository.GetByIdWithExpectedBooksBoundedAsync(
+            person.Id, AuthorReconciliationProvider.MaxReconciliationRosterEntries);
+        var previouslyIgnoredTitles = new HashSet<string>(
+            (existing?.ExpectedBooks ?? new List<AuthorExpectedBook>())
+                .Where(b => b.IsIgnored)
+                .Select(b => NormalizeTitleForCarryOver(b.Title)),
+            StringComparer.Ordinal);
+
+        var newExpected = standalone.Select(b => new AuthorExpectedBook
+        {
+            Title = b.Title,
+            Year = b.Year,
+            ReleaseDate = b.ReleaseDate,
+            SourceUrl = b.SourceUrl,
+            IsIgnored = previouslyIgnoredTitles.Contains(NormalizeTitleForCarryOver(b.Title)),
+        }).ToList();
+
+        await _personRepository.ReplaceAuthorExpectedBooksAsync(person.Id, newExpected);
+        await _personRepository.SetLastRefreshedAtAsync(person.Id, DateTime.UtcNow);
+    }
+
+    private static string NormalizeTitleForCarryOver(string title) => title.Trim().ToLowerInvariant();
 
     private static UpcomingRelease ToEntity(IScraper scraper, UpcomingReleaseResult release, long? personId, long? seriesId) => new()
     {

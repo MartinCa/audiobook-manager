@@ -1,3 +1,4 @@
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.RateLimiting;
@@ -12,10 +13,25 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class BrowseController : ControllerBase
 {
+    // Shared by the single-author refresh and the bulk sweep, mirroring
+    // SeriesController._refreshLock over RefreshSeries/RefreshAllSeries: both endpoints reach
+    // IUpcomingReleaseService.RefreshAuthorRosterAsync/RefreshAllAuthorRostersAsync, which share
+    // the read-then-delete-then-insert ReplaceAuthorExpectedBooksAsync pattern with no unique
+    // index backing it - two concurrent callers (a direct single refresh racing the sweep, or two
+    // direct API calls) could otherwise both read the ignore set and then both replace the same
+    // author's roster, duplicating rows and losing a dismissal made in between.
+    private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+
+    public const string RefreshAllOperationKey = "author-roster-refresh-all";
+
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
     private readonly ISeriesService _seriesService;
     private readonly IUpcomingReleaseService _upcomingReleaseService;
+    private readonly IAuthorReconciliationProvider _authorReconciliation;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IOperationStatusRegistry _statusRegistry;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<BrowseController> _logger;
 
     public BrowseController(
@@ -23,12 +39,20 @@ public class BrowseController : ControllerBase
         IPersonRepository personRepo,
         ISeriesService seriesService,
         IUpcomingReleaseService upcomingReleaseService,
+        IAuthorReconciliationProvider authorReconciliation,
+        IServiceScopeFactory serviceScopeFactory,
+        IOperationStatusRegistry statusRegistry,
+        IHostApplicationLifetime appLifetime,
         ILogger<BrowseController> logger)
     {
         _audiobookRepo = audiobookRepo;
         _personRepo = personRepo;
         _seriesService = seriesService;
         _upcomingReleaseService = upcomingReleaseService;
+        _authorReconciliation = authorReconciliation;
+        _serviceScopeFactory = serviceScopeFactory;
+        _statusRegistry = statusRegistry;
+        _appLifetime = appLifetime;
         _logger = logger;
     }
 
@@ -221,10 +245,142 @@ public class BrowseController : ControllerBase
         var seriesDtos = seriesPage.Items.Select(SeriesOverviewMapper.ToDto).ToList();
         var standaloneDtos = standalone.Select(MapToSummaryDto).ToList();
 
+        // The Hardcover-match/LastRefreshedAt fields live on the tracked Person row, like
+        // GetAuthorMatch above - the cheap AuthorSummaryRow projection this endpoint otherwise
+        // reads from doesn't carry them.
+        var person = await _personRepo.GetByIdAsync(authorId);
+        var reconciliation = await _authorReconciliation.GetReconciliationAsync(authorId);
+
         return new AuthorDetailDto(
             summary,
             new PaginatedResult<SeriesOverviewDto>(seriesDtos.Count, seriesPage.TotalCount, seriesDtos),
-            new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos));
+            new PaginatedResult<AudiobookSummaryDto>(standaloneDtos.Count, standaloneTotal, standaloneDtos),
+            person?.LastRefreshedAt,
+            reconciliation.Missing.Select(ToAuthorExpectedBookDto).ToList(),
+            reconciliation.Upcoming.Select(ToAuthorExpectedBookDto).ToList(),
+            reconciliation.Ignored.Select(ToAuthorExpectedBookDto).ToList());
+    }
+
+    private static AuthorExpectedBookDto ToAuthorExpectedBookDto(AuthorExpectedBookInfo b) =>
+        new(b.Id, b.Title, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate);
+
+    /// <summary>
+    /// Refreshes one author's standalone-books roster from their matched source. Mirrors
+    /// SeriesController.RefreshSeries, but without the pending-changes review step - an author
+    /// refresh replaces the roster directly (see IUpcomingReleaseService.RefreshAuthorRosterAsync).
+    ///
+    /// Takes the SAME static <see cref="_refreshLock"/> the bulk sweep below holds for its whole
+    /// run, so a single-author refresh can never run concurrently with (or interleave with) the
+    /// bulk sweep re-fetching the same author's roster - a busy gate returns 409 immediately,
+    /// exactly like the fire-and-forget endpoints, rather than parking the request thread.
+    /// </summary>
+    [HttpPost("authors/{authorId}/refresh")]
+    public async Task<ActionResult<AuthorRefreshResultDto>> RefreshAuthor(long authorId)
+    {
+        if (!_refreshLock.Wait(0))
+        {
+            return this.ConflictingState("An author-roster refresh is already in progress.", "Operation in progress");
+        }
+
+        try
+        {
+            await _upcomingReleaseService.RefreshAuthorRosterAsync(authorId);
+            var person = await _personRepo.GetByIdAsync(authorId);
+            return new AuthorRefreshResultDto(true, person?.LastRefreshedAt);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (HardcoverDailyLimitExceededException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing standalone-books roster for author {AuthorId}", authorId);
+            return this.UnexpectedError();
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the standalone-books roster of every matched author, fire-and-forget - mirroring
+    /// SeriesController's refresh-all rather than the synchronous single-author refresh above.
+    /// This issues one rate-limited request per matched author (burst 5, <=55/min), so a library
+    /// with a meaningful number of matched authors can run for minutes; awaiting that on the
+    /// request thread would commonly hit a reverse proxy's or browser's timeout while the sweep
+    /// kept running server-side. No SignalR progress stream - like
+    /// MissingTagsController.StartLanguageBackfill, the client follows it by polling
+    /// GET api/operations/author-roster-refresh-all/status. Shares the SAME static
+    /// <see cref="_refreshLock"/> the single-author refresh takes, so the two can never run
+    /// concurrently against the same rosters.
+    /// </summary>
+    [HttpPost("authors/refresh-all")]
+    public IActionResult RefreshAllAuthors()
+    {
+        return BackgroundOperationRunner.Start(
+            _refreshLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            RefreshAllOperationKey,
+            async sp =>
+            {
+                var upcomingReleaseService = sp.GetRequiredService<IUpcomingReleaseService>();
+                var (processed, succeeded, failed, stopReason) =
+                    await upcomingReleaseService.RefreshAllAuthorRostersAsync();
+
+                _logger.LogInformation(
+                    "Author-roster refresh-all finished. Processed: {Processed}, Succeeded: {Succeeded}, Failed: {Failed}, StopReason: {StopReason}",
+                    processed, succeeded, failed, stopReason ?? "(none)");
+            },
+            () => Task.CompletedTask,
+            _appLifetime.ApplicationStopping);
+    }
+
+    // Standalone-books roster entries are addressed by their natural key (title), not by row id:
+    // a refresh deletes and re-inserts the whole roster, so an id a client cached earlier can
+    // point at a different book by the time it is used. Mirrors SeriesController's
+    // IgnoreExpectedBook/UnignoreExpectedBook pair.
+    [HttpPost("authors/{authorId}/expected-books/ignore")]
+    public Task<IActionResult> IgnoreExpectedBook(long authorId, [FromBody] AuthorExpectedBookRefDto dto) =>
+        SetExpectedBookIgnored(authorId, dto, true);
+
+    [HttpPost("authors/{authorId}/expected-books/unignore")]
+    public Task<IActionResult> UnignoreExpectedBook(long authorId, [FromBody] AuthorExpectedBookRefDto dto) =>
+        SetExpectedBookIgnored(authorId, dto, false);
+
+    private async Task<IActionResult> SetExpectedBookIgnored(long authorId, AuthorExpectedBookRefDto? dto, bool ignored)
+    {
+        if (string.IsNullOrWhiteSpace(dto?.Title))
+        {
+            return this.InvalidRequest("Title is required to identify the expected book.");
+        }
+
+        try
+        {
+            await _personRepo.SetAuthorExpectedBookIgnoredAsync(authorId, dto.Title, ignored);
+            return Ok();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Error setting ignored={Ignored} on expected book (title {Title}) of author {AuthorId}",
+                ignored, dto.Title, authorId);
+            return this.UnexpectedError();
+        }
     }
 
     [HttpGet("authors/{authorId}/follow")]

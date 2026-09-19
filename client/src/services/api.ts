@@ -59,6 +59,8 @@ import type {
   SeriesFollowStatus,
   UpcomingRelease,
 } from "@/types/UpcomingRelease";
+import type { AuthorRefreshResult } from "@/types/AuthorDetail";
+import type { DismissRosterUpcomingRelease } from "@/types/UpcomingRelease";
 import type { ApplyUrlCleanupResult, UrlCleanupPage } from "@/types/UrlCleanup";
 
 export function toAudiobookDto(data: Audiobook) {
@@ -257,6 +259,23 @@ export const browseApi = {
 
   unmatchAuthorFromHardcover: (authorId: number) =>
     api.delete<void>(`/browse/authors/${authorId}/hardcover-match`),
+
+  // Synchronous (no SignalR progress, unlike seriesApi.refreshSeries): an author refresh replaces
+  // the standalone-books roster directly, with no pending-changes review step.
+  refreshAuthor: (authorId: number) =>
+    api.post<AuthorRefreshResult>(`/browse/authors/${authorId}/refresh`, undefined),
+
+  // Fire-and-forget sweep of every matched author's standalone-books roster (mirrors
+  // seriesApi.startRefreshAll): can run for minutes at the source's rate limit, so it returns as
+  // soon as it is accepted. There is no UI trigger for this yet - when one is added, follow it
+  // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
+  refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
+
+  ignoreAuthorExpectedBook: (authorId: number, title: string) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/ignore`, { title }),
+
+  unignoreAuthorExpectedBook: (authorId: number, title: string) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/unignore`, { title }),
 };
 
 // Library Scanning & Discovered
@@ -489,6 +508,8 @@ export const seriesApi = {
       ignoredPageSize?: number;
       partMismatchPage?: number;
       partMismatchPageSize?: number;
+      upcomingPage?: number;
+      upcomingPageSize?: number;
     } = {},
   ) =>
     api.get<SeriesDetail>("/series/detail", {
@@ -693,6 +714,12 @@ export const upcomingReleasesApi = {
     }),
 
   removeUpcomingRelease: (id: number) => api.delete<void>(`/upcoming-releases/${id}`),
+
+  // Dismisses a "Roster"-sourced item (no backing UpcomingRelease row to DELETE): sets IsIgnored
+  // on the matching series/author roster entry, addressed by SeriesName(+SeriesPosition)+Title or
+  // AuthorId+Title - exactly one of seriesName/authorId must be set, matching the item's Source.
+  dismissRosterUpcomingRelease: (dto: DismissRosterUpcomingRelease) =>
+    api.post<void>("/upcoming-releases/dismiss-roster", dto),
 
   // Polls every followed-and-matched author/series right now rather than waiting for the
   // periodic worker's next tick.

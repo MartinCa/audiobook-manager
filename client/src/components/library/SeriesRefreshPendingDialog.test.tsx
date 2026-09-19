@@ -19,7 +19,6 @@ vi.mock("@/services/api", async (importOriginal) => {
     ...actual,
     seriesApi: {
       getSeriesPending: vi.fn(),
-      getMissingBookCandidates: vi.fn(),
       applySeriesPending: vi.fn().mockResolvedValue(undefined),
       dismissSeriesPending: vi.fn().mockResolvedValue(undefined),
     },
@@ -56,17 +55,6 @@ function pendingFixture(): SeriesRefreshPending {
         position: null,
         title: null,
         year: null,
-      },
-      {
-        changeType: "MissingBook",
-        audiobookId: null,
-        bookName: "Book B",
-        storedPart: null,
-        newPart: null,
-        rosterTitle: null,
-        position: "4",
-        title: "Book B",
-        year: 2010,
       },
       {
         changeType: "PartRemoval",
@@ -112,64 +100,29 @@ describe("SeriesRefreshPendingDialog", () => {
 
     expect(await screen.findByText(/Review Series Refresh/)).toBeInTheDocument();
     expect(await screen.findByText(/Book A · part 01 → 02/)).toBeInTheDocument();
-    expect(screen.getByText(/Book B/)).toBeInTheDocument();
     expect(screen.getByText(/Book C · part 3 → no part/)).toBeInTheDocument();
     expect(screen.getByText(/"Mistborn" → "Mistborn Saga"/)).toBeInTheDocument();
+    // The backend no longer emits a MissingBook change (see AudiobookManager/
+    // UPCOMING_RELEASES_DESIGN.md) - the section that used to review it is gone.
+    expect(screen.queryByText(/Missing Source Books/)).not.toBeInTheDocument();
   });
 
   it("sends only the accepted selections when applying", async () => {
-    vi.mocked(seriesApi.getMissingBookCandidates).mockResolvedValue([
-      {
-        audiobookId: 9,
-        bookName: "Candidate Book",
-        year: 2010,
-        authors: ["Brandon Sanderson"],
-        series: "Mistborn",
-        seriesPart: "4",
-        titleSimilarity: 0.95,
-        authorMatches: true,
-      },
-    ]);
-
     renderDialog();
     await screen.findByText(/Book A · part 01 → 02/);
 
     // The part update and part removal rows start selected; uncheck the removal.
     fireEvent.click(screen.getByRole("checkbox", { name: /Book C · part 3 → no part/ }));
 
-    // A missing book needs a chosen library book; open its picker and choose the top candidate.
-    // Choosing a candidate arms the missing-book change in the same click.
-    fireEvent.click(screen.getByRole("button", { name: /Find in library/ }));
-    await waitFor(() => {
-      expect(seriesApi.getMissingBookCandidates).toHaveBeenCalledWith("Mistborn", "4", "Book B");
-    });
-    const candidate = await screen.findByRole("button", { name: /Candidate Book/ });
-    fireEvent.click(candidate);
-
     fireEvent.click(screen.getByRole("checkbox", { name: /Adopt source series name/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Apply 2/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Apply 1 \+ rename/ }));
 
     await waitFor(() => {
       expect(seriesApi.applySeriesPending).toHaveBeenCalledWith("Mistborn", {
         adoptSourceSeriesName: true,
-        selections: [
-          { changeType: "PartUpdate", audiobookId: 5 },
-          { changeType: "MissingBook", audiobookId: 9, position: "4", title: "Book B" },
-        ],
+        selections: [{ changeType: "PartUpdate", audiobookId: 5 }],
       });
     });
-  });
-
-  it("keeps a missing book disabled until a library book is chosen", async () => {
-    renderDialog();
-    await screen.findByText(/Book B/);
-
-    // The two part changes start selected; the unarmed missing book stays disabled until a
-    // library book is chosen for it - the applied part changes never include an unchosen book.
-    expect(
-      await screen.findByRole("checkbox", { name: /Apply missing book "Book B"/ }),
-    ).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("button", { name: /Apply 2/ })).toBeEnabled();
   });
 
   it("defaults part changes to selected", async () => {

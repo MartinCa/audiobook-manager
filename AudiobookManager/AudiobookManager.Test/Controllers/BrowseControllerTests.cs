@@ -1,3 +1,5 @@
+using System.Reflection;
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
@@ -7,6 +9,8 @@ using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
 using SeriesOverview = AudiobookManager.Domain.SeriesOverview;
@@ -21,6 +25,9 @@ public class BrowseControllerTests
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
+    private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
+    private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
+    private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private BrowseController _controller = null!;
 
     [TestInitialize]
@@ -30,9 +37,39 @@ public class BrowseControllerTests
         _personRepo = new Mock<IPersonRepository>();
         _seriesService = new Mock<ISeriesService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
+        _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>()))
+            .ReturnsAsync(new AuthorReconciliation(
+                new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), 0, 0));
+        _serviceScopeFactory = new Mock<IServiceScopeFactory>();
+        _statusRegistry = new Mock<IOperationStatusRegistry>();
+
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(IUpcomingReleaseService))).Returns(_upcomingReleaseService.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _seriesService.Object,
-            _upcomingReleaseService.Object, Mock.Of<ILogger<BrowseController>>());
+            _upcomingReleaseService.Object, _authorReconciliation.Object,
+            _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
+            Mock.Of<ILogger<BrowseController>>());
+    }
+
+    // BackgroundOperationRunner calls statusRegistry.SetFinished(key) and THEN releases the
+    // static gate in its finally block - see SeriesControllerTests for the full rationale.
+    private Task RegisterFinishedWaiter(string operationKey)
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry.Setup(r => r.SetFinished(operationKey)).Callback(() => tcs.TrySetResult());
+        return tcs.Task;
+    }
+
+    private static async Task AwaitOperationFinished(Task finishedSignal)
+    {
+        await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
+        await OperationGate.WaitUntilReleasedAsync(typeof(BrowseController));
     }
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>
@@ -656,5 +693,185 @@ public class BrowseControllerTests
         var result = await _controller.UnmatchAuthor(999);
 
         Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthor_Success_ReturnsMappedResult()
+    {
+        var refreshedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson") { LastRefreshedAt = refreshedAt });
+
+        var result = await _controller.RefreshAuthor(7);
+
+        Assert.IsTrue(result.Value!.Success);
+        Assert.AreEqual(refreshedAt, result.Value!.LastRefreshedAt);
+        _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(7), Times.Once);
+    }
+
+    // Review finding 1: the single-author refresh and the bulk sweep share a static gate, so a
+    // sweep already running refuses a second refresh with 409 instead of letting both mutate the
+    // same author's roster concurrently.
+    [TestMethod]
+    public async Task RefreshAuthor_RefreshAlreadyRunning_ReturnsConflict()
+    {
+        var refreshLock = (SemaphoreSlim)typeof(BrowseController)
+            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        Assert.IsTrue(refreshLock.Wait(0));
+
+        try
+        {
+            var result = await _controller.RefreshAuthor(7);
+
+            ProblemAssert.HasDetail(result.Result, StatusCodes.Status409Conflict, "An author-roster refresh is already in progress.");
+            _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthor_ReleasesTheRefreshGate()
+    {
+        _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson"));
+
+        await _controller.RefreshAuthor(7);
+
+        var refreshLock = (SemaphoreSlim)typeof(BrowseController)
+            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        Assert.IsTrue(refreshLock.Wait(0), "a single refresh must not leave the gate held");
+        refreshLock.Release();
+    }
+
+    // Review finding 2: refresh-all used to run synchronously on the request thread (one
+    // rate-limited call per matched author, potentially minutes). It is now fire-and-forget,
+    // mirroring SeriesController.StartRefreshAllSeries: it returns immediately and the work runs
+    // in the background.
+    [TestMethod]
+    public async Task RefreshAllAuthors_ReturnsOkImmediately_AndRunsInTheBackground()
+    {
+        _upcomingReleaseService.Setup(s => s.RefreshAllAuthorRostersAsync())
+            .ReturnsAsync((3, 3, 0, (string?)null));
+
+        var finished = RegisterFinishedWaiter(BrowseController.RefreshAllOperationKey);
+
+        var result = _controller.RefreshAllAuthors();
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+
+        await AwaitOperationFinished(finished);
+
+        _upcomingReleaseService.Verify(s => s.RefreshAllAuthorRostersAsync(), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthors_AlreadyRunning_ReturnsConflict()
+    {
+        var release = new TaskCompletionSource();
+        _upcomingReleaseService.Setup(s => s.RefreshAllAuthorRostersAsync())
+            .Returns(async () =>
+            {
+                await release.Task;
+                return (1, 1, 0, (string?)null);
+            });
+
+        var first = _controller.RefreshAllAuthors();
+        Assert.IsInstanceOfType(first, typeof(OkResult));
+
+        var second = _controller.RefreshAllAuthors();
+        ProblemAssert.HasStatus(second, StatusCodes.Status409Conflict);
+
+        var finished = RegisterFinishedWaiter(BrowseController.RefreshAllOperationKey);
+        release.SetResult();
+        await AwaitOperationFinished(finished);
+    }
+
+    // The single-author refresh and the bulk sweep take the SAME static gate, so a sweep already
+    // running also refuses a concurrent single-author refresh (not just a second sweep).
+    [TestMethod]
+    public async Task RefreshAllAuthors_Running_BlocksASingleAuthorRefreshToo()
+    {
+        var release = new TaskCompletionSource();
+        _upcomingReleaseService.Setup(s => s.RefreshAllAuthorRostersAsync())
+            .Returns(async () =>
+            {
+                await release.Task;
+                return (1, 1, 0, (string?)null);
+            });
+
+        var sweep = _controller.RefreshAllAuthors();
+        Assert.IsInstanceOfType(sweep, typeof(OkResult));
+
+        var single = await _controller.RefreshAuthor(7);
+        ProblemAssert.HasDetail(single.Result, StatusCodes.Status409Conflict, "An author-roster refresh is already in progress.");
+
+        var finished = RegisterFinishedWaiter(BrowseController.RefreshAllOperationKey);
+        release.SetResult();
+        await AwaitOperationFinished(finished);
+    }
+
+    [TestMethod]
+    public async Task IgnoreExpectedBook_BlankTitle_ReturnsInvalidRequest()
+    {
+        var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = " " });
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Title is required to identify the expected book.");
+        _personRepo.Verify(
+            r => r.SetAuthorExpectedBookIgnoredAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task IgnoreExpectedBook_ValidTitle_SetsIgnoredTrue()
+    {
+        var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Elantris" });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _personRepo.Verify(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Elantris", true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnignoreExpectedBook_ValidTitle_SetsIgnoredFalse()
+    {
+        var result = await _controller.UnignoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Elantris" });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _personRepo.Verify(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Elantris", false), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnignoreExpectedBook_UnknownEntry_Returns404()
+    {
+        _personRepo.Setup(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Nonexistent", false))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.UnignoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Nonexistent" });
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_MapsIgnoredBooksSection()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7)).ReturnsAsync(
+            new AuthorReconciliation(
+                Missing: new List<AuthorExpectedBookInfo>(),
+                Upcoming: new List<AuthorExpectedBookInfo>(),
+                Ignored: new List<AuthorExpectedBookInfo> { new() { Id = 1, Title = "Warbreaker", IsIgnored = true } },
+                ExpectedBookCount: 0,
+                OwnedCount: 0));
+
+        var result = await _controller.GetAuthorDetail(7);
+
+        var ignored = result.Value!.IgnoredBooks!.Single();
+        Assert.AreEqual("Warbreaker", ignored.Title);
+        Assert.IsTrue(ignored.IsIgnored);
     }
 }

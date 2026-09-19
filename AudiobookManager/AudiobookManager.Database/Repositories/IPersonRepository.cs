@@ -81,4 +81,26 @@ public interface IPersonRepository
     /// match. Throws <see cref="KeyNotFoundException"/> when no person with this id exists.
     /// </summary>
     Task SetHardcoverMatchAsync(long personId, string? sourceId, string? sourceName, string? sourceUrl);
+
+    /// <summary>
+    /// The tracked person row plus its standalone-books roster, bounded to
+    /// <paramref name="maxExpectedBooks"/> + 1 rows - the author-roster counterpart of
+    /// <c>ISeriesRepository.GetByNameWithExpectedBooksBoundedAsync</c>.
+    /// </summary>
+    Task<(Person? Person, bool Overflow)> GetByIdWithExpectedBooksBoundedAsync(long id, int maxExpectedBooks);
+
+    /// <summary>Replaces an author's whole standalone-books roster, tolerating a re-refresh's read-then-replace pattern.</summary>
+    Task ReplaceAuthorExpectedBooksAsync(long personId, List<AuthorExpectedBook> expectedBooks);
+
+    /// <summary>Stamps when an author's standalone-books roster was last refreshed from its matched source.</summary>
+    Task SetLastRefreshedAtAsync(long personId, DateTime at);
+
+    /// <summary>Every author with a Hardcover match, for the bulk "refresh all matched authors" sweep.</summary>
+    Task<List<Person>> GetMatchedAuthorsAsync();
+
+    /// <summary>
+    /// Sets the ignore flag on a standalone-book roster entry addressed by title. Throws
+    /// <see cref="KeyNotFoundException"/> when no entry with that title exists for the author.
+    /// </summary>
+    Task SetAuthorExpectedBookIgnoredAsync(long personId, string title, bool ignored);
 }

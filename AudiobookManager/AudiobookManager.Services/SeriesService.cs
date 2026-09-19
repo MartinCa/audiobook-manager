@@ -161,7 +161,8 @@ public class SeriesService : ISeriesService
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
         int ignoredSkip, int ignoredTake,
-        int partMismatchSkip, int partMismatchTake)
+        int partMismatchSkip, int partMismatchTake,
+        int upcomingSkip = 0, int upcomingTake = int.MaxValue)
     {
         // The per-request reads are bounded: one catalog metadata row, one SQL page of owned
         // books, and the cached reconciliation. The reconciliation itself - which classifies the
@@ -196,6 +197,8 @@ public class SeriesService : ISeriesService
             OwnedBookTotal = ownedPage.Total,
             MissingBooks = reconciliation.Missing.Skip(missingSkip).Take(missingTake).ToList(),
             MissingBookTotal = reconciliation.Missing.Count,
+            UpcomingBooks = reconciliation.Upcoming.Skip(upcomingSkip).Take(upcomingTake).ToList(),
+            UpcomingBookTotal = reconciliation.Upcoming.Count,
             IgnoredBooks = reconciliation.Ignored.Skip(ignoredSkip).Take(ignoredTake).ToList(),
             IgnoredBookTotal = reconciliation.Ignored.Count,
             PartMismatches = reconciliation.PartMismatches.Skip(partMismatchSkip).Take(partMismatchTake).ToList(),
@@ -518,6 +521,7 @@ public class SeriesService : ISeriesService
                 Position = b.Position,
                 Title = b.Title,
                 Year = b.Year,
+                ReleaseDate = b.ReleaseDate,
                 SourceUrl = b.SourceUrl,
                 IsCompilation = b.IsCompilation,
                 // Re-matching or refreshing replaces the roster wholesale, so carry the user's
@@ -818,17 +822,7 @@ public class SeriesService : ISeriesService
         var changes = SeriesRefreshDiffer.Diff(
             ToRosterEntries(roster.Books),
             ownedKeys,
-            includeOmnibusEditions: row.IncludeOmnibusEditions,
-            // The entries the user has already ignored are deliberately NOT part of the review:
-            // they are excluded from the visible series on the detail page, so re-reporting them
-            // as missing here would contradict that handling and re-litigate the same decision on
-            // every refresh. The same-book rule the roster replace uses to carry the flags across
-            // is what exempts them here, so a source-renumbered (but recognisably the same) entry
-            // stays quiet too.
-            previouslyIgnored: (row.ExpectedBooks ?? new List<SeriesExpectedBook>())
-                .Where(p => p.IsIgnored)
-                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
-                .ToList());
+            includeOmnibusEditions: row.IncludeOmnibusEditions);
 
         await MatchSeriesCoreAsync(
             seriesName, row.MatchedSourceName!, row.MatchedSourceId!,
@@ -1061,23 +1055,7 @@ public class SeriesService : ISeriesService
         var remaining = SeriesRefreshDiffer.Diff(
             pending.Roster,
             freshOwnedKeys,
-            includeOmnibusEditions,
-            // Same exemption the refresh applies: an entry the user has already ignored must not
-            // re-enter the pending review here either, or it would come back the moment the
-            // apply recomputes the snapshot. The authoritative flags live on the stored roster
-            // under the effective name, where the refresh carried them (and adoption has since
-            // moved them, if it succeeded).
-            // Read through the bounded variant, like every other roster read on the reconciliation
-            // paths: this one fetched the whole roster unbounded to pick the ignored entries off
-            // it. The overflow flag is deliberately ignored rather than thrown on - an
-            // over-cap roster here costs at most a re-reported ignored entry, and failing the
-            // apply's recompute after the books are already rewritten would be worse than that.
-            previouslyIgnored: ((await _seriesRepository.GetByNameWithExpectedBooksBoundedAsync(
-                        effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationRosterEntries))
-                    .Series?.ExpectedBooks ?? new List<SeriesExpectedBook>())
-                .Where(p => p.IsIgnored)
-                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
-                .ToList()).ToList();
+            includeOmnibusEditions).ToList();
 
         // The pending row is always removed from the ORIGINAL name on this path: a fully adopted
         // series has no books under it anymore, and a non-adopted series either resolved all its
@@ -1467,6 +1445,9 @@ public class SeriesService : ISeriesService
         var ownedIndex = new SeriesRosterMatcher.OwnedBookIndex(
             ownedBooks.Select(b => new SeriesOwnedKey(0, b.SeriesPart, b.BookName)));
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var unmatched = active.Where(e => !SeriesReconciliationProvider.IsOwned(e, ownedIndex)).ToList();
+
         return BuildOverview(
             seriesName,
             catalogRow,
@@ -1478,7 +1459,8 @@ public class SeriesService : ISeriesService
             ownedBooks.Count,
             active.Count,
             expected.Count - active.Count,
-            active.Count(e => !SeriesReconciliationProvider.IsOwned(e, ownedIndex)));
+            unmatched.Count(e => !ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today)),
+            unmatched.Count(e => ExpectedBookClassifier.IsUpcoming(e.ReleaseDate, e.Year, today)));
     }
 
     /// <summary>
@@ -1495,7 +1477,8 @@ public class SeriesService : ISeriesService
             reconciliation.OwnedCount,
             reconciliation.ExpectedBookCount,
             reconciliation.IgnoredBookCount,
-            reconciliation.MissingBookCount);
+            reconciliation.MissingBookCount,
+            reconciliation.UpcomingBookCount);
 
     private static SeriesOverview BuildOverview(
         string seriesName,
@@ -1504,7 +1487,8 @@ public class SeriesService : ISeriesService
         int ownedBookCount,
         int expectedBookCount,
         int ignoredBookCount,
-        int missingBookCount) =>
+        int missingBookCount,
+        int upcomingBookCount = 0) =>
         new()
         {
             Id = catalogRow?.Id,
@@ -1522,6 +1506,7 @@ public class SeriesService : ISeriesService
             ExpectedBookCount = expectedBookCount,
             IgnoredBookCount = ignoredBookCount,
             MissingBookCount = missingBookCount,
+            UpcomingBookCount = upcomingBookCount,
             IncludeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false,
         };
 
