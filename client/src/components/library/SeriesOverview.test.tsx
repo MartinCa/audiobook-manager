@@ -87,6 +87,7 @@ function makeSeries(id: number) {
     missingBookCount: 0,
     ignoredBookCount: 0,
     includeOmnibusEditions: false,
+    upcomingBookCount: 0,
   };
 }
 
