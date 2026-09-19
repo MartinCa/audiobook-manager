@@ -1620,8 +1620,7 @@ public class SeriesControllerTests
     {
         var result = await _controller.FollowSeries("");
 
-        Assert.IsInstanceOfType<ObjectResult>(result);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result).StatusCode);
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "seriesName is required.");
         _upcomingReleaseService.Verify(s => s.FollowSeriesAsync(It.IsAny<string>()), Times.Never);
     }
 

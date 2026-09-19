@@ -1,3 +1,4 @@
+using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Services;
 using AudiobookManager.Settings;
@@ -17,19 +18,28 @@ namespace AudiobookManager.Api.Workers;
 /// manual "Check Now" refresh endpoint uses - non-blocking: a tick landing while a manual refresh
 /// is already running skips rather than queuing behind it, so the two never run the sweep back to
 /// back and double the Hardcover request spend for the same discoveries.
+///
+/// Publishes to the same <see cref="IOperationStatusRegistry"/> key
+/// (<see cref="UpcomingReleasesController.RefreshOperationKey"/>) the manual "Check Now" endpoint
+/// uses, so the frontend's poll of <c>GET api/operations/{key}/status</c> reflects a scheduled
+/// sweep too - without this, a tick landing while the page happened to be open would run for
+/// minutes with the "Check Now" button showing idle the whole time.
 /// </summary>
 public class UpcomingReleasesWorker : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly IOperationStatusRegistry _statusRegistry;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<UpcomingReleasesWorker> _logger;
 
     public UpcomingReleasesWorker(
         IServiceProvider serviceProvider,
+        IOperationStatusRegistry statusRegistry,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<UpcomingReleasesWorker> logger)
     {
         _serviceProvider = serviceProvider;
+        _statusRegistry = statusRegistry;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -77,6 +87,8 @@ public class UpcomingReleasesWorker : BackgroundService
             return;
         }
 
+        _statusRegistry.SetRunning(UpcomingReleasesController.RefreshOperationKey);
+
         try
         {
             using var scope = _serviceProvider.CreateScope();
@@ -93,6 +105,7 @@ public class UpcomingReleasesWorker : BackgroundService
         }
         finally
         {
+            _statusRegistry.SetFinished(UpcomingReleasesController.RefreshOperationKey);
             UpcomingReleasesController.RefreshGate.Release();
         }
     }

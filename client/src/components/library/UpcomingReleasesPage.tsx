@@ -63,7 +63,19 @@ export function UpcomingReleasesPage() {
   const handleRefresh = async () => {
     try {
       await upcomingReleasesApi.refreshUpcomingReleases();
-      void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleasesRefreshStatus() });
+      // The sweep can start and finish between the POST above and this tab's next status poll,
+      // so the running -> not-running transition the effect above watches for may never fire -
+      // every poll would see isRunning: false and there is nothing to transition from. Await the
+      // status refetch directly and, if it already reports not-running, treat that as completion
+      // ourselves rather than relying solely on the transition check.
+      const result = await queryClient.fetchQuery({
+        queryKey: queryKeys.upcomingReleasesRefreshStatus(),
+        queryFn: () => operationsApi.getStatus(OperationKeys.upcomingReleasesRefresh),
+      });
+      if (!result.isRunning) {
+        notifications.success("Checked followed authors and series for new releases");
+        void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
+      }
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     }

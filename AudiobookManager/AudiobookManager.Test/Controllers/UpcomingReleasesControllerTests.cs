@@ -65,9 +65,10 @@ public class UpcomingReleasesControllerTests
     {
         var result = await _controller.GetUpcomingReleases(limit: 0);
 
-        var objectResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result,
+            StatusCodes.Status400BadRequest,
+            $"limit must be between 1 and {PagingLimits.MaxPageSize}.");
         _upcomingReleaseService.Verify(
             s => s.GetUpcomingReleasesAsync(It.IsAny<long?>(), It.IsAny<long?>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
@@ -78,9 +79,10 @@ public class UpcomingReleasesControllerTests
     {
         var result = await _controller.GetUpcomingReleases(limit: PagingLimits.MaxPageSize + 1);
 
-        var objectResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result,
+            StatusCodes.Status400BadRequest,
+            $"limit must be between 1 and {PagingLimits.MaxPageSize}.");
     }
 
     [TestMethod]
@@ -88,9 +90,10 @@ public class UpcomingReleasesControllerTests
     {
         var result = await _controller.GetUpcomingReleases(offset: -1);
 
-        var objectResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result,
+            StatusCodes.Status400BadRequest,
+            $"offset must be between 0 and {PagingLimits.MaxPageOffset}.");
     }
 
     [TestMethod]
@@ -98,9 +101,10 @@ public class UpcomingReleasesControllerTests
     {
         var result = await _controller.GetUpcomingReleases(offset: (int)PagingLimits.MaxPageOffset + 1);
 
-        var objectResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result,
+            StatusCodes.Status400BadRequest,
+            $"offset must be between 0 and {PagingLimits.MaxPageOffset}.");
     }
 
     [TestMethod]

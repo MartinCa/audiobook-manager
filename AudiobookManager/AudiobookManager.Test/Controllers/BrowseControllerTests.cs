@@ -592,9 +592,10 @@ public class BrowseControllerTests
 
         var result = await _controller.GetAuthorMatchCandidates(7);
 
-        var objectResult = result.Result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(
+            result.Result,
+            StatusCodes.Status400BadRequest,
+            "Hardcover daily request limit of 5000 requests has been reached for today (UTC). Further requests are blocked until the limit resets at UTC midnight.");
     }
 
     [TestMethod]
@@ -602,9 +603,7 @@ public class BrowseControllerTests
     {
         var result = await _controller.MatchAuthor(7, new MatchAuthorDto("", "Hardcover", null));
 
-        var objectResult = result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
         _upcomingReleaseService.Verify(
             s => s.MatchAuthorAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
             Times.Never);
@@ -615,9 +614,7 @@ public class BrowseControllerTests
     {
         var result = await _controller.MatchAuthor(7, null);
 
-        var objectResult = result as ObjectResult;
-        Assert.IsNotNull(objectResult);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
     }
 
     [TestMethod]

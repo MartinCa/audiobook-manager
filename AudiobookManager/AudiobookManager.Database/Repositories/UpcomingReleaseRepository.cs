@@ -50,23 +50,28 @@ public class UpcomingReleaseRepository : IUpcomingReleaseRepository
     }
 
     /// <summary>
-    /// Applies a freshly-polled release onto an already-known row. Title/date/links are always
-    /// overwritten - Hardcover (and every other source) routinely ships an announced book under a
-    /// placeholder title ("Untitled Mistborn novel") or a provisional date, and corrects it once
-    /// real details are available, so the stored row must track that correction on the next poll
-    /// rather than freezing it at first discovery. PersonId/SeriesId/SeriesPosition are the
-    /// opposite: a link is filled in only when still null, and never cleared or replaced once
-    /// set, so a book discovered through both a followed author and a followed series keeps both
-    /// links even if a later poll (of just one side) doesn't itself carry the other.
-    /// <see cref="UpcomingRelease.DiscoveredAt"/> is likewise untouched - it is when this release
-    /// was first seen, not when it was last refreshed.
+    /// Applies a freshly-polled release onto an already-known row. Title/date/source URL are
+    /// always overwritten - Hardcover (and every other source) routinely ships an announced book
+    /// under a placeholder title ("Untitled Mistborn novel") or a provisional date, and corrects
+    /// it once real details are available, so the stored row must track that correction on the
+    /// next poll rather than freezing it at first discovery. Title is guaranteed non-empty and
+    /// SourceUrl is always derivable from the book's id/slug (see
+    /// <c>HardcoverScraper.ParseUpcomingBook</c>), so overwriting them unconditionally is safe.
+    /// <see cref="UpcomingRelease.ImageUrl"/> is the one refreshed field that is legitimately
+    /// nullable per poll (a transiently-missing <c>cached_image</c>), so it only overwrites when
+    /// the new poll actually has one - a poll with no image must not wipe a previously stored
+    /// one. PersonId/SeriesId/SeriesPosition are filled in only when still null, and never
+    /// cleared or replaced once set, so a book discovered through both a followed author and a
+    /// followed series keeps both links even if a later poll (of just one side) doesn't itself
+    /// carry the other. <see cref="UpcomingRelease.DiscoveredAt"/> is likewise untouched - it is
+    /// when this release was first seen, not when it was last refreshed.
     /// </summary>
     private static void ApplyRefresh(UpcomingRelease existing, UpcomingRelease polled)
     {
         existing.Title = polled.Title;
         existing.ReleaseDate = polled.ReleaseDate;
         existing.SourceUrl = polled.SourceUrl;
-        existing.ImageUrl = polled.ImageUrl;
+        existing.ImageUrl = polled.ImageUrl ?? existing.ImageUrl;
         existing.PersonId ??= polled.PersonId;
         existing.SeriesId ??= polled.SeriesId;
         existing.SeriesPosition ??= polled.SeriesPosition;

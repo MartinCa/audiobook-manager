@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthorFollowSection } from "./AuthorFollowSection";
 import { browseApi } from "@/services/api";
@@ -161,5 +161,57 @@ describe("AuthorFollowSection", () => {
 
     expect(await screen.findByText(/type at least 2 characters/i)).toBeInTheDocument();
     expect(browseApi.getAuthorHardcoverMatchCandidates).not.toHaveBeenCalled();
+  });
+
+  // Regression guard: the search is meant to be debounced (300ms), not fire one request per
+  // keystroke. Without the debounce, each fireEvent.change below would have triggered its own
+  // call the moment the query re-rendered.
+  it("debounces the Hardcover author search so only the settled query fires", async () => {
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockResolvedValue([]);
+
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: /match to hardcover/i }));
+    const input = await screen.findByPlaceholderText(/search hardcover authors/i);
+
+    // Let the dialog's autofilled initial search (debounced from the author's own name) settle
+    // before exercising fake timers for the keystroke-driven debounce.
+    await waitFor(() =>
+      expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledWith(
+        7,
+        "Brandon Sanderson",
+      ),
+    );
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockClear();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(input, { target: { value: "Sand" } });
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      fireEvent.change(input, { target: { value: "Sanderso" } });
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      fireEvent.change(input, { target: { value: "Sanderson II" } });
+      act(() => {
+        vi.advanceTimersByTime(299);
+      });
+
+      // Still within the 300ms debounce window of the last keystroke - nothing should fire yet.
+      expect(browseApi.getAuthorHardcoverMatchCandidates).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await waitFor(() =>
+      expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledWith(7, "Sanderson II"),
+    );
+    expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledTimes(1);
   });
 });

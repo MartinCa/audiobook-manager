@@ -109,6 +109,21 @@ public class UpcomingReleaseRepositoryTests
         Assert.AreEqual("https://hardcover.app/covers/999.jpg", stored.ImageUrl);
     }
 
+    // Regression guard: ImageUrl is the one refreshed field that is legitimately nullable per
+    // poll (a transiently-missing cached_image) - a poll with no image must not wipe a
+    // previously stored one, unlike Title/ReleaseDate/SourceUrl which are always overwritten.
+    [TestMethod]
+    public async Task UpsertAsync_ExistingRelease_KeepsThePreviousImageWhenTheNewPollHasNone()
+    {
+        await _repository.UpsertAsync(MakeRelease(imageUrl: "https://hardcover.app/covers/999.jpg"));
+
+        await _repository.UpsertAsync(MakeRelease(title: "Updated Title", imageUrl: null));
+
+        var stored = await _db.UpcomingReleases.AsNoTracking().SingleAsync();
+        Assert.AreEqual("Updated Title", stored.Title);
+        Assert.AreEqual("https://hardcover.app/covers/999.jpg", stored.ImageUrl);
+    }
+
     [TestMethod]
     public async Task UpsertAsync_ExistingRelease_FillsInAPreviouslyMissingSeriesLinkWithoutClobberingThePersonLink()
     {
@@ -149,7 +164,8 @@ public class UpcomingReleaseRepositoryTests
         await _repository.UpsertAsync(MakeRelease());
         var firstDiscoveredAt = (await _db.UpcomingReleases.AsNoTracking().SingleAsync()).DiscoveredAt;
 
-        await Task.Delay(10);
+        // No delay needed: ApplyRefresh never touches DiscoveredAt, so the assertion holds
+        // regardless of how much time elapses between the two upserts.
         await _repository.UpsertAsync(MakeRelease(title: "Updated Title"));
 
         var stored = await _db.UpcomingReleases.AsNoTracking().SingleAsync();

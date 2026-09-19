@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { UpcomingReleasesPage } from "./UpcomingReleasesPage";
 import { operationsApi, upcomingReleasesApi } from "@/services/api";
+import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
 import type { UpcomingRelease } from "@/types/UpcomingRelease";
 
@@ -138,5 +139,74 @@ describe("UpcomingReleasesPage", () => {
 
     expect(await screen.findByText("The Stormlight Archive 6")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+  });
+
+  // Regression guard: the completion effect fires on the running -> not-running transition of
+  // the polled status, not just once on mount - a refresh that goes from not-running to running
+  // to not-running again must notify and refresh the list exactly once, when it actually finishes.
+  it("shows a success notification and refreshes the list once a refresh finishes", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+    vi.mocked(operationsApi.getStatus)
+      .mockResolvedValueOnce({ isRunning: false, processed: 0, total: 0 })
+      .mockResolvedValueOnce({ isRunning: true, processed: 1, total: 5 })
+      .mockResolvedValue({ isRunning: false, processed: 5, total: 5 });
+
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: /check now/i });
+    fireEvent.click(button);
+
+    await screen.findByRole("button", { name: /checking/i });
+    const callsBeforeFinish = vi.mocked(upcomingReleasesApi.getUpcomingReleases).mock.calls.length;
+
+    await waitFor(
+      () =>
+        expect(notifications.success).toHaveBeenCalledWith(
+          "Checked followed authors and series for new releases",
+        ),
+      { timeout: 3000 },
+    );
+
+    await waitFor(() =>
+      expect(vi.mocked(upcomingReleasesApi.getUpcomingReleases).mock.calls.length).toBeGreaterThan(
+        callsBeforeFinish,
+      ),
+    );
+    expect(notifications.success).toHaveBeenCalledTimes(1);
+  }, 10000);
+
+  // Regression guard: the sweep can start and finish between the POST and this tab's next status
+  // poll, so the running -> not-running transition is never observed (every poll sees
+  // isRunning: false). A refresh this tab itself triggered must still be recognized as completed
+  // instead of silently never notifying.
+  it("shows a success notification even when the refresh finishes before any poll observes it running", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+    // Every poll - before and after the triggered refresh - reports not-running.
+    vi.mocked(operationsApi.getStatus).mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
+
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: /check now/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(upcomingReleasesApi.refreshUpcomingReleases).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(notifications.success).toHaveBeenCalledWith(
+        "Checked followed authors and series for new releases",
+      ),
+    );
+    expect(notifications.success).toHaveBeenCalledTimes(1);
   });
 });
