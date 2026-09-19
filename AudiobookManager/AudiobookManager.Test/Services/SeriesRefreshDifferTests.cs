@@ -22,9 +22,8 @@ public class SeriesRefreshDifferTests
     private static IReadOnlyList<SeriesRefreshChange> Diff(
         IReadOnlyList<SeriesRefreshRosterEntry> roster,
         IReadOnlyList<SeriesOwnedKey> owned,
-        bool includeOmnibus = false,
-        IReadOnlyList<SeriesRosterMatcher.BookKey>? previouslyIgnored = null) =>
-        SeriesRefreshDiffer.Diff(roster, owned, includeOmnibus, previouslyIgnored);
+        bool includeOmnibus = false) =>
+        SeriesRefreshDiffer.Diff(roster, owned, includeOmnibus);
 
     [TestMethod]
     public void Diff_BookARenumberedTo02_BookBMissing_BookCLosesPart_ProducesUpdateAndRemovalOnly()
@@ -196,12 +195,13 @@ public class SeriesRefreshDifferTests
             "an unmatched roster entry is never reported as a pending change - it's already visible via Missing/Upcoming");
     }
 
-    // Regression for the refresh review finding: a roster entry the user has already ignored is
-    // deliberately excluded from the visible series. Now that an unmatched entry is never
-    // reported as a pending change at all, the previouslyIgnored exemption has nothing left to
-    // exempt - this pins that a mix of ignored and owned entries produces no changes either way.
+    // Regression for the refresh review finding: an ignored roster entry (renumbered by the
+    // source or not) and an owned one both produce no changes, same as any other unmatched or
+    // matched entry now that MissingBook is never reported - there is no ignore-specific
+    // exemption left in Diff itself (the carry-across now happens on the roster replace, see
+    // SeriesService.MatchSeriesCoreAsync).
     [TestMethod]
-    public void Diff_PreviouslyIgnoredEntry_StillProducesNoChange()
+    public void Diff_UnmatchedEntry_ProducesNoChangeRegardlessOfIgnoreStatus()
     {
         var roster = new List<SeriesRefreshRosterEntry>
         {
@@ -214,63 +214,7 @@ public class SeriesRefreshDifferTests
             Owned(1, null, "The Final Empire"),
         };
 
-        var changes = Diff(
-            roster,
-            owned,
-            includeOmnibus: false,
-            previouslyIgnored: new List<SeriesRosterMatcher.BookKey>
-            {
-                SeriesRosterMatcher.BookKey.From("3.5", "Secret History"),
-            });
-
-        Assert.AreEqual(0, changes.Count);
-    }
-
-    // The exemption uses the same same-book rule the roster replace carries the ignore flags
-    // across with: an ignored entry the source has since renumbered (3.5 -> 4) is recognisably
-    // the same book and must not start nagging again.
-    [TestMethod]
-    public void Diff_IgnoredEntryRenumberedByTheSource_IsStillNotReportedMissing()
-    {
-        var roster = new List<SeriesRefreshRosterEntry>
-        {
-            Roster("Secret History", "4"),
-        };
-        var owned = new List<SeriesOwnedKey>();
-
-        var changes = Diff(
-            roster,
-            owned,
-            includeOmnibus: false,
-            previouslyIgnored: new List<SeriesRosterMatcher.BookKey>
-            {
-                SeriesRosterMatcher.BookKey.From("3.5", "Secret History"),
-            });
-
-        Assert.AreEqual(0, changes.Count);
-    }
-
-    // An owned entry is unaffected by the previously-ignored exemption - it was never missing.
-    [TestMethod]
-    public void Diff_PreviouslyIgnoredEntryThatIsNowOwned_ProducesNoChange()
-    {
-        var roster = new List<SeriesRefreshRosterEntry>
-        {
-            Roster("Secret History", "3.5"),
-        };
-        var owned = new List<SeriesOwnedKey>
-        {
-            Owned(7, "3.5", "Secret History"),
-        };
-
-        var changes = Diff(
-            roster,
-            owned,
-            includeOmnibus: false,
-            previouslyIgnored: new List<SeriesRosterMatcher.BookKey>
-            {
-                SeriesRosterMatcher.BookKey.From("3.5", "Secret History"),
-            });
+        var changes = Diff(roster, owned, includeOmnibus: false);
 
         Assert.AreEqual(0, changes.Count);
     }

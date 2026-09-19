@@ -822,17 +822,7 @@ public class SeriesService : ISeriesService
         var changes = SeriesRefreshDiffer.Diff(
             ToRosterEntries(roster.Books),
             ownedKeys,
-            includeOmnibusEditions: row.IncludeOmnibusEditions,
-            // The entries the user has already ignored are deliberately NOT part of the review:
-            // they are excluded from the visible series on the detail page, so re-reporting them
-            // as missing here would contradict that handling and re-litigate the same decision on
-            // every refresh. The same-book rule the roster replace uses to carry the flags across
-            // is what exempts them here, so a source-renumbered (but recognisably the same) entry
-            // stays quiet too.
-            previouslyIgnored: (row.ExpectedBooks ?? new List<SeriesExpectedBook>())
-                .Where(p => p.IsIgnored)
-                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
-                .ToList());
+            includeOmnibusEditions: row.IncludeOmnibusEditions);
 
         await MatchSeriesCoreAsync(
             seriesName, row.MatchedSourceName!, row.MatchedSourceId!,
@@ -1065,23 +1055,7 @@ public class SeriesService : ISeriesService
         var remaining = SeriesRefreshDiffer.Diff(
             pending.Roster,
             freshOwnedKeys,
-            includeOmnibusEditions,
-            // Same exemption the refresh applies: an entry the user has already ignored must not
-            // re-enter the pending review here either, or it would come back the moment the
-            // apply recomputes the snapshot. The authoritative flags live on the stored roster
-            // under the effective name, where the refresh carried them (and adoption has since
-            // moved them, if it succeeded).
-            // Read through the bounded variant, like every other roster read on the reconciliation
-            // paths: this one fetched the whole roster unbounded to pick the ignored entries off
-            // it. The overflow flag is deliberately ignored rather than thrown on - an
-            // over-cap roster here costs at most a re-reported ignored entry, and failing the
-            // apply's recompute after the books are already rewritten would be worse than that.
-            previouslyIgnored: ((await _seriesRepository.GetByNameWithExpectedBooksBoundedAsync(
-                        effectiveSeriesName, SeriesReconciliationProvider.MaxReconciliationRosterEntries))
-                    .Series?.ExpectedBooks ?? new List<SeriesExpectedBook>())
-                .Where(p => p.IsIgnored)
-                .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
-                .ToList()).ToList();
+            includeOmnibusEditions).ToList();
 
         // The pending row is always removed from the ORIGINAL name on this path: a fully adopted
         // series has no books under it anymore, and a non-adopted series either resolved all its

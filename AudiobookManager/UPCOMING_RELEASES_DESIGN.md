@@ -28,8 +28,10 @@ IsUpcoming(releaseDate, year, today) =>
 
 A precise `ReleaseDate` (nullable `DateOnly`, new on both roster models) is preferred whenever the
 source has reported one; existing rows (matched before this change) have it `null` and fall back
-to the `Year` heuristic until their series/author is refreshed again - either by a user action or
-by the existing periodic worker, no forced backfill migration.
+to the `Year` heuristic until their series/author is refreshed again - no forced backfill
+migration. That refresh only happens on a manual "Refresh Online" (or bulk refresh-all) action
+today: `UpcomingReleasesWorker`'s periodic tick only runs the legacy `UpcomingRelease` scrape (see
+below), not a roster refresh, so it does not backfill `ReleaseDate` on its own.
 
 Both reconciliations expose `Missing` and `Upcoming` as separate lists (`SeriesReconciliation`,
 `AuthorReconciliation`), and the series/author detail DTOs (`SeriesDetailDto.UpcomingBooks`,

@@ -14,9 +14,8 @@ namespace AudiobookManager.Services;
 /// roster/reconciliation's Missing/Upcoming sections (see <c>SeriesReconciliation</c>), so a
 /// refresh no longer re-surfaces it as a "pending change" to review. The enum member is kept only
 /// so a <c>PendingSeriesRefresh</c> row written before this change still deserializes; new rows
-/// never carry it, and <paramref name="previouslyIgnored"/> is accordingly unused by this method
-/// now (kept for signature/API stability - the ignore carry-across it fed still happens on the
-/// roster replace itself, see <c>SeriesService.MatchSeriesCoreAsync</c>).</item>
+/// never carry it. The ignore carry-across for missing entries still happens, but on the roster
+/// replace itself (see <c>SeriesService.MatchSeriesCoreAsync</c>), not here.</item>
 /// <item><see cref="SeriesRefreshChangeType.PartUpdate"/> - an owned book that matches a roster
 /// entry with a position, whose stored part agrees with none of its matched entries. The source
 /// renumbered the book (a book stored as part "01" that the source now positions at "02").</item>
@@ -45,17 +44,14 @@ internal static class SeriesRefreshDiffer
 {
     /// <summary>
     /// Computes the explicit changes between <paramref name="roster"/> and the series' owned
-    /// books. <paramref name="previouslyIgnored"/> is the set of roster entries (as book keys)
-    /// the user has already ignored in the stored roster; any fresh entry that is recognisably
-    /// the same book as one of them is not reported missing. The ordering is presentation order
-    /// within each kind: missing books and part updates by the roster's own position order
-    /// (blanks last, mirroring the detail page), removals by the part being removed.
+    /// books. The ordering is presentation order within each kind: part updates by the roster's
+    /// own position order (blanks last, mirroring the detail page), removals by the part being
+    /// removed.
     /// </summary>
     public static IReadOnlyList<SeriesRefreshChange> Diff(
         IReadOnlyList<SeriesRefreshRosterEntry> roster,
         IReadOnlyList<SeriesOwnedKey> ownedKeys,
-        bool includeOmnibusEditions,
-        IReadOnlyList<SeriesRosterMatcher.BookKey>? previouslyIgnored = null)
+        bool includeOmnibusEditions)
     {
         var visible = roster
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
