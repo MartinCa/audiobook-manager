@@ -100,7 +100,14 @@ export function SeriesRefreshPendingDialog({
   if (lastSeededKey !== seededKey) {
     setLastSeededKey(seededKey);
     if (pending) {
-      setSelected(new Set(pending.changes.map(changeKey)));
+      // A legacy PendingSeriesRefresh snapshot can still contain MissingBook entries (the enum
+      // member is kept only so those old rows still deserialize - see UPCOMING_RELEASES_DESIGN.md).
+      // They render nowhere any more and carry no audiobookId, so they can never actually be
+      // applied; seeding them into the selection would inflate "Apply N" with a count that has
+      // no visible row behind it.
+      setSelected(
+        new Set(pending.changes.filter((c) => c.changeType !== "MissingBook").map(changeKey)),
+      );
       setAdoptName(false);
     }
   }

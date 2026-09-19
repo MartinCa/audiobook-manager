@@ -81,11 +81,16 @@ export function UpcomingReleasesList({
 
   // A "Roster" row carries no stable id (roster ids are not stable across a refresh - see the
   // design doc), so the key has to be built from whatever does identify it uniquely on the page:
-  // its source scope (author or series+position) plus its title.
-  const releaseKey = (release: UpcomingRelease): string =>
+  // its source scope (author or series+position) plus its title. Title isn't guaranteed unique
+  // within one roster (two entries could legitimately share a normalized title in the same
+  // author/series scope), so the index within this render's page is appended as a tie-breaker -
+  // stable within one fetch, which is all a React key needs. This is a display-key-only fix: the
+  // dismiss-by-title backend lookup still addresses by title alone (an accepted, low-likelihood
+  // limitation - see the review this line came from).
+  const releaseKey = (release: UpcomingRelease, index: number): string =>
     release.source === "Legacy"
       ? `legacy-${release.id}`
-      : `roster-${release.authorId ?? ""}-${release.seriesName ?? ""}-${release.seriesPosition ?? ""}-${release.title}`;
+      : `roster-${release.authorId ?? ""}-${release.seriesName ?? ""}-${release.seriesPosition ?? ""}-${release.title}-${index}`;
 
   if (query.isLoading) {
     return (
@@ -118,9 +123,9 @@ export function UpcomingReleasesList({
   return (
     <div className="space-y-2">
       <div className="border-border divide-y rounded-md border">
-        {releases.map((release) => (
+        {releases.map((release, index) => (
           <div
-            key={releaseKey(release)}
+            key={releaseKey(release, index)}
             className="hover:bg-muted/50 flex items-start gap-3 p-3 transition-colors"
           >
             {release.imageUrl ? (
