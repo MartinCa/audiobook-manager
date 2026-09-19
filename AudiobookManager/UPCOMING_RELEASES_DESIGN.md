@@ -87,6 +87,14 @@ duplicate, since it is the one that carries a working "remove" action (see below
 deduplicated set is sorted by effective release date (`UpcomingReleaseItem.SortDate`: the precise
 `ReleaseDate` when known, else January 1st of `Year`, else last) and paged in memory.
 
+The dedup key set is built from each followed series'/author's roster entries classified
+`Upcoming` **and** `Ignored` - not `Upcoming` alone. If only `Upcoming` entries suppressed the
+legacy duplicate, dismissing a roster-derived "upcoming" entry (which moves it from `Upcoming` to
+`Ignored`) would immediately resurrect the same book as a fresh "Legacy" row, since nothing would
+suppress it any more. Consulting `Ignored` too keeps a dismissed roster entry suppressing its
+legacy duplicate permanently, the same way dismissing it makes it disappear from the roster's own
+view - an ignored entry never contributes a visible item, only a dedup key.
+
 Each returned `UpcomingReleaseItem`/`UpcomingReleaseDto` carries a `Source` discriminator
 (`"Legacy"` or `"Roster"`) telling the client which removal call applies:
 
@@ -105,13 +113,20 @@ Each returned `UpcomingReleaseItem`/`UpcomingReleaseDto` carries a `Source` disc
   `SeriesExpectedBookDto` gained `ReleaseDate` (nullable `DateOnly`, ISO date on the wire).
   `SeriesOverviewDto` gained `UpcomingBookCount` (int).
 - `AuthorDetailDto` (`GET api/Browse/authors/{authorId}`) gained `LastRefreshedAt` (nullable
-  `DateTime`), `MissingBooks` and `UpcomingBooks` (`List<AuthorExpectedBookDto>` - `Id`, `Title`,
-  `Year`, `SourceUrl`, `IsIgnored`, `ReleaseDate`).
+  `DateTime`), `MissingBooks`, `UpcomingBooks` and `IgnoredBooks` (`List<AuthorExpectedBookDto>` -
+  `Id`, `Title`, `Year`, `SourceUrl`, `IsIgnored`, `ReleaseDate`). Authors now have the same
+  ignore/unignore parity series have: `POST api/Browse/authors/{authorId}/expected-books/ignore`
+  and `.../unignore` (body `{Title}`), addressed by title like the series pair is addressed by
+  position/title.
 - New: `POST api/Browse/authors/{authorId}/refresh` -> `AuthorRefreshResultDto {Success,
-  LastRefreshedAt}` and `POST api/Browse/authors/refresh-all` -> `AuthorRefreshAllResultDto
-  {Processed, Succeeded, Failed}`. Both are synchronous (no SignalR progress stream, unlike
-  `SeriesController`'s refresh-all) - an author refresh has no pending-review fan-out to report
-  progress on.
+  LastRefreshedAt}`. `POST api/Browse/authors/refresh-all` is now fire-and-forget (mirroring
+  `SeriesController`'s refresh-all rather than the single-author refresh): it returns immediately
+  once accepted and the client polls `GET api/operations/author-roster-refresh-all/status`, since
+  the synchronous form could run for minutes at the source's rate limit and would commonly hit a
+  reverse proxy's or browser's request timeout. Both the single-author refresh and the sweep take
+  the same static concurrency gate (`BrowseController._refreshLock`, mirroring
+  `SeriesController._refreshLock`), so they - and two concurrent calls to either - can never race
+  each other into the same author's roster; a busy gate returns `409`.
 - `GET api/UpcomingReleases` items are now `UpcomingReleaseDto {Source, Id?, Title, ReleaseDate?,
   Year?, AuthorId?, AuthorName?, SeriesId?, SeriesName?, SeriesPosition?, SourceName, SourceUrl?,
   ImageUrl?}` - `Id` and `ReleaseDate` are now nullable (a roster-derived row has neither a stable

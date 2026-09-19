@@ -38,6 +38,12 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
 
         var expected = person?.ExpectedBooks ?? new List<AuthorExpectedBook>();
         var active = expected.Where(e => !e.IsIgnored).ToList();
+        var ignored = expected
+            .Where(e => e.IsIgnored)
+            .Select(ToExpectedInfo)
+            .OrderBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Id)
+            .ToList();
 
         var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetStandaloneOwnedKeysByAuthorAsync(
             personId, MaxReconciliationOwnedKeys);
@@ -67,7 +73,7 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
             .ThenBy(e => e.Id)
             .ToList();
 
-        return new AuthorReconciliation(missing, upcoming, ExpectedBookCount: active.Count, OwnedCount: ownedKeys.Count);
+        return new AuthorReconciliation(missing, upcoming, ignored, ExpectedBookCount: active.Count, OwnedCount: ownedKeys.Count);
     }
 
     private static AuthorExpectedBookInfo ToExpectedInfo(AuthorExpectedBook book) => new()

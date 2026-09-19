@@ -97,7 +97,11 @@ public interface IUpcomingReleaseService
     /// Refreshes the standalone-books roster of every matched author, synchronously, continuing
     /// past a per-author failure (mirrors <see cref="RefreshUpcomingReleasesAsync"/>'s
     /// resilience) but stopping early if the source's daily request budget runs out. Returns how
-    /// many authors were processed and how many succeeded.
+    /// many authors were processed, how many succeeded, and - mirroring
+    /// <see cref="ISeriesService.RefreshAllSeriesAsync"/>'s shape - a <c>StopReason</c> that lets
+    /// the caller distinguish "stopped early because the daily request budget ran out" or "no
+    /// author-capable scraper is configured" from an unremarkable "nothing to do" (no matched
+    /// authors), both of which would otherwise return the same all-zero tuple.
     /// </summary>
-    Task<(int Processed, int Succeeded, int Failed)> RefreshAllAuthorRostersAsync();
+    Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllAuthorRostersAsync();
 }

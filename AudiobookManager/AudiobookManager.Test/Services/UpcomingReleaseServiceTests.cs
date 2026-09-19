@@ -256,6 +256,7 @@ public class UpcomingReleaseServiceTests
                 {
                     new() { Id = 2, Title = "Standalone Novella", Year = 2031, ReleaseDate = new DateOnly(2031, 2, 1) },
                 },
+                Ignored: new List<AuthorExpectedBookInfo>(),
                 ExpectedBookCount: 1,
                 OwnedCount: 0));
 
@@ -320,5 +321,189 @@ public class UpcomingReleaseServiceTests
         await _service.DismissAuthorRosterUpcomingAsync(7, "Standalone Novella");
 
         _personRepository.Verify(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Standalone Novella", true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_UnknownAuthor_ThrowsKeyNotFound()
+    {
+        _personRepository.Setup(r => r.GetByIdAsync(42)).ReturnsAsync((Person?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => _service.RefreshAuthorRosterAsync(42));
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_UnmatchedAuthor_ThrowsKeyNotFound()
+    {
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson"));
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => _service.RefreshAuthorRosterAsync(7));
+
+        _scraper.Verify(s => s.GetAuthorBooks(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_NoAuthorCapableScraper_ThrowsArgumentException()
+    {
+        var scraperNoAuthorLookup = new Mock<IScraper>();
+        scraperNoAuthorLookup.Setup(s => s.SourceName).Returns("Goodreads");
+        scraperNoAuthorLookup.Setup(s => s.SupportsAuthorLookup).Returns(false);
+        var service = new UpcomingReleaseService(
+            _personRepository.Object, _seriesRepository.Object, _authorFollowRepository.Object,
+            _seriesFollowRepository.Object, _upcomingReleaseRepository.Object,
+            _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
+            _seriesReconciliationCache.Object, new[] { scraperNoAuthorLookup.Object },
+            Mock.Of<ILogger<UpcomingReleaseService>>());
+        _personRepository.Setup(r => r.GetByIdAsync(7))
+            .ReturnsAsync(new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" });
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.RefreshAuthorRosterAsync(7));
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_HappyPath_ReplacesRosterAndStampsLastRefreshedAt()
+    {
+        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(author);
+        _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(7, It.IsAny<int>()))
+            .ReturnsAsync(((Person?)null, false));
+
+        var standalone = new AuthorBookResult("1", "Elantris") { HasSeries = false, Year = 2005 };
+        var partOfSeries = new AuthorBookResult("2", "Mistborn Book 1") { HasSeries = true, Year = 2006 };
+        _scraper.Setup(s => s.GetAuthorBooks("123"))
+            .ReturnsAsync((IList<AuthorBookResult>)new List<AuthorBookResult> { standalone, partOfSeries });
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        // The series-linked book is dropped - a series' books are already rostered through that
+        // series' own roster (AudiobookManager/UPCOMING_RELEASES_DESIGN.md).
+        _personRepository.Verify(r => r.ReplaceAuthorExpectedBooksAsync(7, It.Is<List<AuthorExpectedBook>>(
+            books => books.Count == 1 && books[0].Title == "Elantris" && books[0].Year == 2005)), Times.Once);
+        _personRepository.Verify(r => r.SetLastRefreshedAtAsync(7, It.IsAny<DateTime>()), Times.Once);
+    }
+
+    // The author roster has no position to match on (unlike a series' roster), so a re-refresh
+    // carries an ignore decision across by normalized (trimmed, lower-invariant) title rather
+    // than by row id, which is not stable across the delete/re-insert.
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_CarriesIgnoreDecisionAcrossByNormalizedTitle()
+    {
+        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(author);
+        _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(7, It.IsAny<int>()))
+            .ReturnsAsync((new Person(7, "Brandon Sanderson")
+            {
+                ExpectedBooks = new List<AuthorExpectedBook>
+                {
+                    new() { Title = "  ELANTRIS  ", IsIgnored = true },
+                    new() { Title = "Warbreaker", IsIgnored = false },
+                },
+            }, false));
+
+        var elantris = new AuthorBookResult("1", "Elantris") { HasSeries = false, Year = 2005 };
+        var warbreaker = new AuthorBookResult("2", "Warbreaker") { HasSeries = false, Year = 2009 };
+        _scraper.Setup(s => s.GetAuthorBooks("123"))
+            .ReturnsAsync((IList<AuthorBookResult>)new List<AuthorBookResult> { elantris, warbreaker });
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _personRepository.Verify(r => r.ReplaceAuthorExpectedBooksAsync(7, It.Is<List<AuthorExpectedBook>>(books =>
+            books.Single(b => b.Title == "Elantris").IsIgnored
+            && !books.Single(b => b.Title == "Warbreaker").IsIgnored)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthorRostersAsync_NoAuthorCapableScraper_ReturnsEarlyWithStopReason()
+    {
+        var scraperNoAuthorLookup = new Mock<IScraper>();
+        scraperNoAuthorLookup.Setup(s => s.SourceName).Returns("Goodreads");
+        scraperNoAuthorLookup.Setup(s => s.SupportsAuthorLookup).Returns(false);
+        var service = new UpcomingReleaseService(
+            _personRepository.Object, _seriesRepository.Object, _authorFollowRepository.Object,
+            _seriesFollowRepository.Object, _upcomingReleaseRepository.Object,
+            _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
+            _seriesReconciliationCache.Object, new[] { scraperNoAuthorLookup.Object },
+            Mock.Of<ILogger<UpcomingReleaseService>>());
+
+        var (processed, succeeded, failed, stopReason) = await service.RefreshAllAuthorRostersAsync();
+
+        Assert.AreEqual(0, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNotNull(stopReason);
+        _personRepository.Verify(r => r.GetMatchedAuthorsAsync(), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthorRostersAsync_NoMatchedAuthors_ReturnsZerosWithNoStopReason()
+    {
+        _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person>());
+
+        var (processed, succeeded, failed, stopReason) = await _service.RefreshAllAuthorRostersAsync();
+
+        // Distinguishes "budget exhausted"/"no scraper" from an unremarkable "nothing to do":
+        // both would otherwise return the same all-zero tuple.
+        Assert.AreEqual(0, processed);
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNull(stopReason);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthorRostersAsync_ProcessesEveryMatchedAuthor()
+    {
+        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
+        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
+        _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .ReturnsAsync(((Person?)null, false));
+        _scraper.Setup(s => s.GetAuthorBooks("1")).ReturnsAsync((IList<AuthorBookResult>)new List<AuthorBookResult>());
+        _scraper.Setup(s => s.GetAuthorBooks("2")).ReturnsAsync((IList<AuthorBookResult>)new List<AuthorBookResult>());
+
+        var (processed, succeeded, failed, stopReason) = await _service.RefreshAllAuthorRostersAsync();
+
+        Assert.AreEqual(2, processed);
+        Assert.AreEqual(2, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNull(stopReason);
+        _personRepository.Verify(r => r.SetLastRefreshedAtAsync(1, It.IsAny<DateTime>()), Times.Once);
+        _personRepository.Verify(r => r.SetLastRefreshedAtAsync(2, It.IsAny<DateTime>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthorRostersAsync_DailyLimitExceeded_StopsEarlyWithStopReason()
+    {
+        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
+        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
+        _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .ReturnsAsync(((Person?)null, false));
+        _scraper.Setup(s => s.GetAuthorBooks("1")).ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
+
+        var (processed, succeeded, failed, stopReason) = await _service.RefreshAllAuthorRostersAsync();
+
+        Assert.AreEqual(0, processed, "the author that hit the daily limit does not count as processed");
+        Assert.AreEqual(0, succeeded);
+        Assert.AreEqual(0, failed);
+        Assert.IsNotNull(stopReason);
+        _scraper.Verify(s => s.GetAuthorBooks("2"), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAllAuthorRostersAsync_OneAuthorFailing_DoesNotStopTheRestAndHasNoStopReason()
+    {
+        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
+        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
+        _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .ReturnsAsync(((Person?)null, false));
+        _scraper.Setup(s => s.GetAuthorBooks("1")).ThrowsAsync(new Exception("boom"));
+        _scraper.Setup(s => s.GetAuthorBooks("2")).ReturnsAsync((IList<AuthorBookResult>)new List<AuthorBookResult>());
+
+        var (processed, succeeded, failed, stopReason) = await _service.RefreshAllAuthorRostersAsync();
+
+        Assert.AreEqual(2, processed);
+        Assert.AreEqual(1, succeeded);
+        Assert.AreEqual(1, failed);
+        Assert.IsNull(stopReason);
     }
 }
