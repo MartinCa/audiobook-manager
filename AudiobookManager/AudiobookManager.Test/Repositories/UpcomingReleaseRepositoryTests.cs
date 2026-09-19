@@ -59,7 +59,8 @@ public class UpcomingReleaseRepositoryTests
         string? seriesPosition = null,
         string sourceBookId = "999",
         string? sourceUrl = null,
-        string? imageUrl = null) => new()
+        string? imageUrl = null,
+        DateTime? discoveredAt = null) => new()
     {
         Title = title,
         ReleaseDate = releaseDate ?? new DateOnly(2030, 1, 1),
@@ -70,7 +71,7 @@ public class UpcomingReleaseRepositoryTests
         SourceBookId = sourceBookId,
         SourceUrl = sourceUrl,
         ImageUrl = imageUrl,
-        DiscoveredAt = DateTime.UtcNow,
+        DiscoveredAt = discoveredAt ?? DateTime.UtcNow,
     };
 
     [TestMethod]
@@ -161,12 +162,15 @@ public class UpcomingReleaseRepositoryTests
     [TestMethod]
     public async Task UpsertAsync_NeverUpdatesDiscoveredAt()
     {
-        await _repository.UpsertAsync(MakeRelease());
-        var firstDiscoveredAt = (await _db.UpcomingReleases.AsNoTracking().SingleAsync()).DiscoveredAt;
+        var firstDiscoveredAt = new DateTime(2029, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _repository.UpsertAsync(MakeRelease(discoveredAt: firstDiscoveredAt));
 
-        // No delay needed: ApplyRefresh never touches DiscoveredAt, so the assertion holds
-        // regardless of how much time elapses between the two upserts.
-        await _repository.UpsertAsync(MakeRelease(title: "Updated Title"));
+        // The polled release carries a distinct DiscoveredAt (rather than both calls stamping
+        // DateTime.UtcNow within the same tick) so the assertion below can only pass if
+        // ApplyRefresh genuinely leaves the stored value alone - not just because both calls
+        // happened to capture the same timestamp.
+        var polledDiscoveredAt = new DateTime(2030, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _repository.UpsertAsync(MakeRelease(title: "Updated Title", discoveredAt: polledDiscoveredAt));
 
         var stored = await _db.UpcomingReleases.AsNoTracking().SingleAsync();
         Assert.AreEqual(firstDiscoveredAt, stored.DiscoveredAt);

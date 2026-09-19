@@ -123,7 +123,9 @@ public class UpcomingReleasesWorkerTests
         var worker = MakeWorker(checkEnabled: false);
 
         await worker.StartAsync(CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        // Disabled means ExecuteAsync returns immediately (no timer, no sweep) - await that
+        // completion directly rather than a fixed delay, so the assertion isn't a timing window.
+        await worker.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
         await worker.StopAsync(CancellationToken.None);
 
         _statusRegistry.Verify(r => r.SetRunning(It.IsAny<string>()), Times.Never);
@@ -139,10 +141,23 @@ public class UpcomingReleasesWorkerTests
         RefreshGate.Wait(0);
         try
         {
+            // Observable signal for the skip itself (RunOnceAsync's Wait(0) failing and logging),
+            // rather than a fixed delay - the worker never publishes status or completes on its
+            // own here (the timer interval is 24h), so there is nothing else to await.
+            var skipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _logger
+                .Setup(l => l.Log(
+                    LogLevel.Information,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+                .Callback(() => skipped.TrySetResult());
+
             var worker = MakeWorker();
 
             await worker.StartAsync(CancellationToken.None);
-            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            await skipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await worker.StopAsync(CancellationToken.None);
 
             _statusRegistry.Verify(r => r.SetRunning(It.IsAny<string>()), Times.Never);

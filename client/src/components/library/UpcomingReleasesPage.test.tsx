@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { UpcomingReleasesPage } from "./UpcomingReleasesPage";
 import { operationsApi, upcomingReleasesApi } from "@/services/api";
 import { notifications } from "@/lib/notifications";
+import { createQueryClient } from "@/lib/query";
 import type * as ApiModule from "@/services/api";
 import type { UpcomingRelease } from "@/types/UpcomingRelease";
 
@@ -52,7 +53,10 @@ function release(overrides: Partial<UpcomingRelease> = {}): UpcomingRelease {
 }
 
 function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Mirrors the app's real QueryClient (including its 30s staleTime) rather than a fresh
+  // QueryClient with defaults - the latter's staleTime: 0 would hide the fetchQuery-returns-a-
+  // stale-cached-value bug this file regression-tests below.
+  const queryClient = createQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <UpcomingReleasesPage />

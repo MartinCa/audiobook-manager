@@ -67,10 +67,14 @@ export function UpcomingReleasesPage() {
       // so the running -> not-running transition the effect above watches for may never fire -
       // every poll would see isRunning: false and there is nothing to transition from. Await the
       // status refetch directly and, if it already reports not-running, treat that as completion
-      // ourselves rather than relying solely on the transition check.
+      // ourselves rather than relying solely on the transition check. staleTime: 0 is required
+      // here - the app's default 30s staleTime would otherwise let fetchQuery return the
+      // pre-refresh cached value with no network call at all, firing a false "finished" the
+      // instant the sweep starts.
       const result = await queryClient.fetchQuery({
         queryKey: queryKeys.upcomingReleasesRefreshStatus(),
         queryFn: () => operationsApi.getStatus(OperationKeys.upcomingReleasesRefresh),
+        staleTime: 0,
       });
       if (!result.isRunning) {
         notifications.success("Checked followed authors and series for new releases");
