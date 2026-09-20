@@ -1,4 +1,4 @@
-import { CalendarDays, X } from "lucide-react";
+import { CalendarDays, ChevronDown, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   activeChips,
   toIntFilterValue,
@@ -64,6 +70,55 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                     <SelectItem value="false">{field.falseLabel}</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            );
+          }
+
+          if (field.type === "multiselect") {
+            const selected = Array.isArray(values[field.key])
+              ? (values[field.key] as string[])
+              : [];
+            const toggle = (option: string) => {
+              const next = selected.includes(option)
+                ? selected.filter((o) => o !== option)
+                : [...selected, option];
+              onChange({ ...values, [field.key]: next.length > 0 ? next : undefined });
+            };
+
+            return (
+              <div key={field.key} className="space-y-1">
+                <label className="text-muted-foreground text-xs font-semibold uppercase">
+                  {field.label}
+                </label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-40 justify-between font-normal"
+                      >
+                        <span className="truncate">
+                          {selected.length > 0 ? selected.join(", ") : "Any"}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="start">
+                    {field.options.map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option}
+                        checked={selected.includes(option)}
+                        onCheckedChange={() => toggle(option)}
+                        closeOnClick={false}
+                      >
+                        {option}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             );
           }

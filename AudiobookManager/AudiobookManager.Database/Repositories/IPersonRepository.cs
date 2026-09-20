@@ -94,10 +94,10 @@ public interface IPersonRepository
     Task<Person?> GetByIdAsync(long id);
 
     /// <summary>
-    /// Sets or clears (when <paramref name="sourceId"/> is null) this person's Hardcover author
-    /// match. Throws <see cref="KeyNotFoundException"/> when no person with this id exists.
+    /// Sets or clears (when <paramref name="sourceId"/> is null) this person's author match.
+    /// Throws <see cref="KeyNotFoundException"/> when no person with this id exists.
     /// </summary>
-    Task SetHardcoverMatchAsync(long personId, string? sourceId, string? sourceName, string? sourceUrl);
+    Task SetAuthorMatchAsync(long personId, string? matchedSourceName, string? sourceId, string? sourceUrl);
 
     /// <summary>
     /// The tracked person row plus its standalone-books roster, bounded to

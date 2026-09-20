@@ -12,4 +12,7 @@ public interface IGenreRepository
     /// the input collapse to the same instance).
     /// </summary>
     Task<Dictionary<string, Genre>> GetOrCreateGenres(IEnumerable<string> names);
+
+    /// <summary>Every distinct genre name in the library, sorted for the book-list genre filter's dropdown.</summary>
+    Task<List<string>> GetAllGenreNamesAsync();
 }

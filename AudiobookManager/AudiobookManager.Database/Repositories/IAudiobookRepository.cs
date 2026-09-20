@@ -7,8 +7,11 @@ public interface IAudiobookRepository
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
     Task<HashSet<string>> GetAllFilePathsAsync(StringComparer? comparer = null);
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
-    Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset);
+    Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null);
     Task<int> CountAsync();
+
+    /// <summary>Every distinct non-empty <see cref="Audiobook.Language"/> value in the library, sorted for the book-list language filter's dropdown.</summary>
+    Task<List<string>> GetAllLanguagesAsync();
 
     /// <summary>
     /// One page of a series' owned books plus the full total, for the series detail's owned
@@ -90,7 +93,8 @@ public interface IAudiobookRepository
     /// query they force alongside Authors.
     /// </summary>
     Task<(List<Audiobook> Items, int Total)> SearchAsync(
-        string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true);
+        string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true,
+        BookSummaryFilter? filter = null);
     Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookMarked, Search, X, RefreshCw, Loader2, Layers, Sparkles } from "lucide-react";
@@ -14,7 +14,7 @@ import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
 import { SeriesListEntry } from "./SeriesListEntry";
-import { seriesApi } from "@/services/api";
+import { browseApi, seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -25,7 +25,7 @@ import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
 import type { SeriesListFilters } from "@/types/EntityFilters";
 
-const FILTER_FIELDS: FilterFieldDef[] = [
+const BASE_FILTER_FIELDS: FilterFieldDef[] = [
   {
     type: "tristate",
     key: "followed",
@@ -86,10 +86,32 @@ export function SeriesOverviewPage() {
   const filters: SeriesListFilters = filterSearch;
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
+
+  // The source options come from whichever scrapers are actually registered - see
+  // BrowseController.GetFilterOptions - not a hardcoded list.
+  const filterOptionsQuery = useQuery({
+    queryKey: queryKeys.browseFilterOptions(),
+    queryFn: () => browseApi.getFilterOptions(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const FILTER_FIELDS: FilterFieldDef[] = useMemo(
+    () => [
+      ...BASE_FILTER_FIELDS,
+      {
+        type: "multiselect",
+        key: "sources",
+        label: "Matched source",
+        options: filterOptionsQuery.data?.sources ?? [],
+      },
+    ],
+    [filterOptionsQuery.data],
+  );
+
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
   // expanded so the list isn't filtered with no visible explanation.
   const [filtersExpanded, setFiltersExpanded] = useState(
-    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
+    () => countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 || (filters.sources?.length ?? 0) > 0,
   );
   // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
   // page at a time and the pager clamps it; a filter change drops back to page 0.

@@ -13,6 +13,9 @@ vi.mock("@/services/api", () => ({
   operationsApi: {
     getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
   },
+  browseApi: {
+    getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
+  },
   seriesApi: {
     getSeriesPage: vi.fn(),
     getSeriesCounts: vi.fn(),

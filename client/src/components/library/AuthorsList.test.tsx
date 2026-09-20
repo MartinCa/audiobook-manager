@@ -11,6 +11,7 @@ import { queryKeys } from "@/lib/queryKeys";
 vi.mock("@/services/api", () => ({
   browseApi: {
     getAuthorPage: vi.fn(),
+    getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
   },
 }));
 

@@ -13,7 +13,8 @@ import type {
   ConsistencyResolveResult,
 } from "@/types/ConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
-import type { AuthorListFilters, SeriesListFilters } from "@/types/EntityFilters";
+import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
+import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
 import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { LanguageOptions } from "@/types/Language";
@@ -169,15 +170,21 @@ export const bulkEditApi = {
 
 // Browse & Search
 export const browseApi = {
-  getAudiobooks: (limit = 20, offset = 0) =>
+  getAudiobooks: (limit = 20, offset = 0, filters: BookListFilters = {}) =>
     api.get<PaginatedResult<ManagedAudiobook>>("/browse/audiobooks", {
-      query: { limit, offset },
+      query: { limit, offset, ...filters },
     }),
 
-  searchAudiobooks: (q: string, limit = 20, offset = 0) =>
+  searchAudiobooks: (q: string, limit = 20, offset = 0, filters: BookListFilters = {}) =>
     api.get<PaginatedResult<ManagedAudiobook>>("/browse/audiobooks/search", {
-      query: { q, limit, offset },
+      query: { q, limit, offset, ...filters },
     }),
+
+  // Whichever scrapers are actually registered (see AudiobookManager.Scraping.DependencyInjection)
+  // plus genres/languages actually present in the library - so the book/author/series source
+  // filter dropdowns, and the book list's genre/language filters, never offer a value this
+  // deployment/library cannot produce.
+  getFilterOptions: () => api.get<BrowseFilterOptions>("/browse/filter-options"),
 
   searchLibrary: (q: string, limit = TYPEAHEAD_LIMIT) =>
     api.get<LibrarySearchResult>("/browse/library-search", {

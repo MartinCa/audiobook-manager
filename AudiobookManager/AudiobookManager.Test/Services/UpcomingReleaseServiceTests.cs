@@ -84,7 +84,7 @@ public class UpcomingReleaseServiceTests
             () => _service.MatchAuthorAsync(42, "123", "Hardcover", null));
 
         _personRepository.Verify(
-            r => r.SetHardcoverMatchAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+            r => r.SetAuthorMatchAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
             Times.Never);
     }
 
@@ -96,13 +96,13 @@ public class UpcomingReleaseServiceTests
         await _service.MatchAuthorAsync(7, "123", "Hardcover", "https://hardcover.app/authors/123");
 
         _personRepository.Verify(
-            r => r.SetHardcoverMatchAsync(7, "123", "Hardcover", "https://hardcover.app/authors/123"), Times.Once);
+            r => r.SetAuthorMatchAsync(7, "Hardcover", "123", "https://hardcover.app/authors/123"), Times.Once);
     }
 
     [TestMethod]
     public async Task RefreshUpcomingReleasesAsync_UpsertsOneRowPerAuthorRelease()
     {
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
 
@@ -119,7 +119,7 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshUpcomingReleasesAsync_AttachesMatchingLocalSeriesFromAuthorRelease()
     {
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
 
@@ -147,7 +147,7 @@ public class UpcomingReleaseServiceTests
         // No local series is matched to this exact (source name, source id) pair - a
         // same-named-but-differently-matched (or entirely unmatched) local series must never be
         // linked by name alone.
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
 
@@ -169,8 +169,8 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshUpcomingReleasesAsync_StopsAfterDailyLimitExceeded()
     {
-        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
-        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        var author1 = new Person(1, "Author One") { MatchedSourceId = "1" };
+        var author2 = new Person(2, "Author Two") { MatchedSourceId = "2" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync())
             .ReturnsAsync(new List<Person> { author1, author2 });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
@@ -185,8 +185,8 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshUpcomingReleasesAsync_OneAuthorFailing_DoesNotStopTheRest()
     {
-        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
-        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        var author1 = new Person(1, "Author One") { MatchedSourceId = "1" };
+        var author2 = new Person(2, "Author Two") { MatchedSourceId = "2" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync())
             .ReturnsAsync(new List<Person> { author1, author2 });
         _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
@@ -247,7 +247,7 @@ public class UpcomingReleaseServiceTests
                     new() { Id = 1, Title = "Book 15", Position = "15", Year = 2031, ReleaseDate = new DateOnly(2031, 1, 1) },
                 }));
 
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "42" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "42" };
         _authorFollowRepository.Setup(r => r.GetFollowedMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author });
         _authorReconciliationProvider.Setup(p => p.GetReconciliationAsync(7)).ReturnsAsync(
             new AuthorReconciliation(
@@ -354,7 +354,7 @@ public class UpcomingReleaseServiceTests
             _seriesReconciliationCache.Object, new[] { scraperNoAuthorLookup.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
         _personRepository.Setup(r => r.GetByIdAsync(7))
-            .ReturnsAsync(new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" });
+            .ReturnsAsync(new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" });
 
         await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.RefreshAuthorRosterAsync(7));
     }
@@ -362,7 +362,7 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshAuthorRosterAsync_HappyPath_ReplacesRosterAndStampsLastRefreshedAt()
     {
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" };
         _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(author);
         _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(7, It.IsAny<int>()))
             .ReturnsAsync(((Person?)null, false));
@@ -387,7 +387,7 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshAuthorRosterAsync_CarriesIgnoreDecisionAcrossByNormalizedTitle()
     {
-        var author = new Person(7, "Brandon Sanderson") { HardcoverAuthorId = "123" };
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" };
         _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(author);
         _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(7, It.IsAny<int>()))
             .ReturnsAsync((new Person(7, "Brandon Sanderson")
@@ -451,8 +451,8 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshAllAuthorRostersAsync_ProcessesEveryMatchedAuthor()
     {
-        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
-        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        var author1 = new Person(1, "Author One") { MatchedSourceId = "1" };
+        var author2 = new Person(2, "Author Two") { MatchedSourceId = "2" };
         _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
         _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
             .ReturnsAsync(((Person?)null, false));
@@ -472,8 +472,8 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshAllAuthorRostersAsync_DailyLimitExceeded_StopsEarlyWithStopReason()
     {
-        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
-        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        var author1 = new Person(1, "Author One") { MatchedSourceId = "1" };
+        var author2 = new Person(2, "Author Two") { MatchedSourceId = "2" };
         _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
         _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
             .ReturnsAsync(((Person?)null, false));
@@ -491,8 +491,8 @@ public class UpcomingReleaseServiceTests
     [TestMethod]
     public async Task RefreshAllAuthorRostersAsync_OneAuthorFailing_DoesNotStopTheRestAndHasNoStopReason()
     {
-        var author1 = new Person(1, "Author One") { HardcoverAuthorId = "1" };
-        var author2 = new Person(2, "Author Two") { HardcoverAuthorId = "2" };
+        var author1 = new Person(1, "Author One") { MatchedSourceId = "1" };
+        var author2 = new Person(2, "Author Two") { MatchedSourceId = "2" };
         _personRepository.Setup(r => r.GetMatchedAuthorsAsync()).ReturnsAsync(new List<Person> { author1, author2 });
         _personRepository.Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(It.IsAny<long>(), It.IsAny<int>()))
             .ReturnsAsync(((Person?)null, false));

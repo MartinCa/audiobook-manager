@@ -87,7 +87,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _ = await _personRepository.GetByIdAsync(personId)
             ?? throw new KeyNotFoundException($"Author {personId} not found");
 
-        await _personRepository.SetHardcoverMatchAsync(personId, sourceId, sourceName, sourceUrl);
+        await _personRepository.SetAuthorMatchAsync(personId, sourceName, sourceId, sourceUrl);
     }
 
     public async Task UnmatchAuthorAsync(long personId)
@@ -95,7 +95,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _ = await _personRepository.GetByIdAsync(personId)
             ?? throw new KeyNotFoundException($"Author {personId} not found");
 
-        await _personRepository.SetHardcoverMatchAsync(personId, null, null, null);
+        await _personRepository.SetAuthorMatchAsync(personId, null, null, null);
     }
 
     public Task<bool> IsSeriesFollowedAsync(long seriesId) => _seriesFollowRepository.IsFollowedAsync(seriesId);
@@ -247,7 +247,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         {
             var person = await _personRepository.GetByIdAsync(personId.Value);
             if (person is not null && await _authorFollowRepository.IsFollowedAsync(person.Id)
-                && !string.IsNullOrEmpty(person.HardcoverAuthorId))
+                && !string.IsNullOrEmpty(person.MatchedSourceId))
             {
                 var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(person.Id);
                 foreach (var entry in reconciliation.Upcoming)
@@ -338,7 +338,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
 
     private async Task RefreshAuthorAsync(IScraper scraper, Person author)
     {
-        var releases = await scraper.GetAuthorUpcomingReleases(author.HardcoverAuthorId!);
+        var releases = await scraper.GetAuthorUpcomingReleases(author.MatchedSourceId!);
         foreach (var release in releases)
         {
             long? seriesId = null;
@@ -374,7 +374,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         var person = await _personRepository.GetByIdAsync(personId)
             ?? throw new KeyNotFoundException($"Author {personId} not found");
 
-        if (string.IsNullOrEmpty(person.HardcoverAuthorId))
+        if (string.IsNullOrEmpty(person.MatchedSourceId))
         {
             throw new KeyNotFoundException($"Author {personId} is not matched to a metadata source, so it cannot be refreshed.");
         }
@@ -451,7 +451,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     /// </summary>
     private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
     {
-        var books = await scraper.GetAuthorBooks(person.HardcoverAuthorId!);
+        var books = await scraper.GetAuthorBooks(person.MatchedSourceId!);
         var standalone = books.Where(b => !b.HasSeries).ToList();
 
         var (existing, _) = await _personRepository.GetByIdWithExpectedBooksBoundedAsync(

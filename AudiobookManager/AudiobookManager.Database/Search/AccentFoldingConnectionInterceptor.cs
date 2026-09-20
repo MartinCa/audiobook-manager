@@ -12,8 +12,10 @@ namespace AudiobookManager.Database.Search;
 /// supported hook: it fires right as a (possibly pooled/reused) connection is about to open, so
 /// the functions are always registered before any query can run against it.
 ///
-/// Registers both the accent-folding function and the series-part equivalence function (see
-/// <see cref="SeriesPartEquivalence"/>), which a query translator references the same way.
+/// Registers the accent-folding function, the series-part equivalence function (see
+/// <see cref="SeriesPartEquivalence"/>) and the metadata-source resolver function (see
+/// <see cref="MetadataSourceResolution"/>), which a query translator or migration references the
+/// same way.
 /// </summary>
 public sealed class AccentFoldingConnectionInterceptor : DbConnectionInterceptor
 {
@@ -21,6 +23,7 @@ public sealed class AccentFoldingConnectionInterceptor : DbConnectionInterceptor
     {
         AccentFolding.Register((SqliteConnection)connection);
         SeriesPartEquivalence.Register((SqliteConnection)connection);
+        MetadataSourceResolution.Register((SqliteConnection)connection);
         return result;
     }
 
@@ -28,6 +31,7 @@ public sealed class AccentFoldingConnectionInterceptor : DbConnectionInterceptor
     {
         AccentFolding.Register((SqliteConnection)connection);
         SeriesPartEquivalence.Register((SqliteConnection)connection);
+        MetadataSourceResolution.Register((SqliteConnection)connection);
         return ValueTask.FromResult(result);
     }
 }

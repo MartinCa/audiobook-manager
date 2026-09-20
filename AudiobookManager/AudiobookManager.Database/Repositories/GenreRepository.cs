@@ -91,4 +91,11 @@ public class GenreRepository : IGenreRepository
 
         return result;
     }
+
+    public async Task<List<string>> GetAllGenreNamesAsync()
+    {
+        var names = await _db.Genres.AsNoTracking().Select(g => g.Name).ToListAsync();
+        names.Sort(StringComparer.InvariantCulture);
+        return names;
+    }
 }

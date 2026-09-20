@@ -2,6 +2,7 @@ using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.RateLimiting;
+using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -26,9 +27,11 @@ public class BrowseController : ControllerBase
 
     private readonly IAudiobookRepository _audiobookRepo;
     private readonly IPersonRepository _personRepo;
+    private readonly IGenreRepository _genreRepo;
     private readonly ISeriesService _seriesService;
     private readonly IUpcomingReleaseService _upcomingReleaseService;
     private readonly IAuthorReconciliationProvider _authorReconciliation;
+    private readonly IEnumerable<IScraper> _scrapers;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -37,9 +40,11 @@ public class BrowseController : ControllerBase
     public BrowseController(
         IAudiobookRepository audiobookRepo,
         IPersonRepository personRepo,
+        IGenreRepository genreRepo,
         ISeriesService seriesService,
         IUpcomingReleaseService upcomingReleaseService,
         IAuthorReconciliationProvider authorReconciliation,
+        IEnumerable<IScraper> scrapers,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         IHostApplicationLifetime appLifetime,
@@ -47,19 +52,50 @@ public class BrowseController : ControllerBase
     {
         _audiobookRepo = audiobookRepo;
         _personRepo = personRepo;
+        _genreRepo = genreRepo;
         _seriesService = seriesService;
         _upcomingReleaseService = upcomingReleaseService;
         _authorReconciliation = authorReconciliation;
+        _scrapers = scrapers;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _appLifetime = appLifetime;
         _logger = logger;
     }
 
-    [HttpGet("audiobooks")]
-    public async Task<PaginatedResult<AudiobookSummaryDto>> GetAudiobooks(int limit = 20, int offset = 0)
+    /// <summary>
+    /// The metadata source names available to filter by (whichever scrapers are actually
+    /// registered - see AudiobookManager.Scraping.DependencyInjection - not a hardcoded list), so
+    /// the book/author/series source filter dropdowns never offer a source this deployment cannot
+    /// produce, plus the synthetic "Unsupported" bucket every one of those filters also offers.
+    /// </summary>
+    [HttpGet("filter-options")]
+    public async Task<BrowseFilterOptionsDto> GetFilterOptions()
     {
-        var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset);
+        var sources = _scrapers
+            .Select(s => s.SourceName)
+            .Distinct()
+            .OrderBy(s => s, StringComparer.InvariantCulture)
+            .Append(BookSummaryFilter.UnsupportedSource)
+            .ToList();
+
+        var genres = await _genreRepo.GetAllGenreNamesAsync();
+        var languages = await _audiobookRepo.GetAllLanguagesAsync();
+
+        return new BrowseFilterOptionsDto(sources, genres, languages);
+    }
+
+    [HttpGet("audiobooks")]
+    public async Task<PaginatedResult<AudiobookSummaryDto>> GetAudiobooks(
+        int limit = 20, int offset = 0,
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? genres = null,
+        [FromQuery] List<string>? languages = null,
+        [FromQuery] int? minDurationInSeconds = null,
+        [FromQuery] int? maxDurationInSeconds = null)
+    {
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+        var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
     }
@@ -105,14 +141,22 @@ public class BrowseController : ControllerBase
     }
 
     [HttpGet("audiobooks/search")]
-    public async Task<PaginatedResult<AudiobookSummaryDto>> SearchAudiobooks([FromQuery] string q, int limit = 20, int offset = 0)
+    public async Task<PaginatedResult<AudiobookSummaryDto>> SearchAudiobooks(
+        [FromQuery] string q, int limit = 20, int offset = 0,
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? genres = null,
+        [FromQuery] List<string>? languages = null,
+        [FromQuery] int? minDurationInSeconds = null,
+        [FromQuery] int? maxDurationInSeconds = null)
     {
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetAudiobooks(limit, offset);
+            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         }
 
-        var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset);
+        var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
     }
@@ -195,7 +239,8 @@ public class BrowseController : ControllerBase
         [FromQuery] bool? matched = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? sources = null)
     {
         var clampError = ValidateSearchPaging(limit, offset);
         if (clampError != null)
@@ -220,7 +265,7 @@ public class BrowseController : ControllerBase
 
         var filter = new AuthorSummaryFilter(
             followed, minBookCount, maxBookCount, hasMissingBooks, hasUpcomingBooks, matched,
-            refreshedAfter, refreshedBefore, neverRefreshed);
+            refreshedAfter, refreshedBefore, neverRefreshed, sources);
 
         // HasMissingBooks/HasUpcomingBooks depend on the fuzzy roster reconciliation, which this
         // controller already holds a provider for (the author detail page's missing-books
@@ -500,7 +545,7 @@ public class BrowseController : ControllerBase
         // AuthorSummaryRow projection - fetched separately since every other author endpoint on
         // this controller intentionally stays on the cheap summary projection.
         var person = await _personRepo.GetByIdAsync(authorId);
-        return new AuthorMatchStatusDto(person?.HardcoverAuthorId, person?.HardcoverAuthorName, person?.HardcoverAuthorUrl);
+        return new AuthorMatchStatusDto(person?.MatchedSourceId, person?.MatchedSourceName, person?.MatchedSourceUrl);
     }
 
     [HttpGet("authors/{authorId}/hardcover-match-candidates")]

@@ -17,12 +17,21 @@ public record AuthorSummaryFilter(
     bool? Matched = null,
     DateTime? RefreshedAfter = null,
     DateTime? RefreshedBefore = null,
-    bool? NeverRefreshed = null)
+    bool? NeverRefreshed = null,
+    IReadOnlyCollection<string>? Sources = null)
 {
+    /// <summary>
+    /// Synthetic <see cref="Sources"/> value for an unmatched author - there is no source-capable
+    /// scraper an unmatched author's MatchedSourceName could ever equal, so this sentinel is
+    /// handled separately from real source names wherever <see cref="Sources"/> is evaluated.
+    /// </summary>
+    public const string UnsupportedSource = "Unsupported";
+
     public bool IsEmpty =>
         Followed is null && MinBookCount is null && MaxBookCount is null &&
         HasMissingBooks is null && HasUpcomingBooks is null && Matched is null &&
-        RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null;
+        RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null &&
+        (Sources is null || Sources.Count == 0);
 
     public bool NeedsReconciliation => HasMissingBooks is not null || HasUpcomingBooks is not null;
 }

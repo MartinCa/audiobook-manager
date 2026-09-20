@@ -115,14 +115,31 @@ public class AudiobookRepository : IAudiobookRepository
         return (items, total);
     }
 
-    public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset)
+    public async Task<List<string>> GetAllLanguagesAsync()
+    {
+        var languages = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Language != null && a.Language != "")
+            .Select(a => a.Language!)
+            .Distinct()
+            .ToListAsync();
+
+        languages.Sort(StringComparer.InvariantCulture);
+        return languages;
+    }
+
+    public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null)
     {
         var query = _db.Audiobooks
             .AsNoTracking()
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
-            .AsSplitQuery()
+            .AsSplitQuery();
+
+        query = ApplyBookSummaryFilter(query, filter);
+
+        query = query
             // BookName is not unique, so it cannot order a page on its own: rows sharing a
             // title have an undefined relative order, which lets the same book appear on two
             // pages (and another be skipped) - and with AsSplitQuery the Skip/Take runs in each
@@ -135,6 +152,50 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
+    /// Shared narrowing for <see cref="GetAllAsync"/>/<see cref="SearchAsync"/> - every field on
+    /// <see cref="BookSummaryFilter"/> is independent, see its doc.
+    /// </summary>
+    private static IQueryable<Audiobook> ApplyBookSummaryFilter(IQueryable<Audiobook> query, BookSummaryFilter? filter)
+    {
+        if (filter is null || filter.IsEmpty)
+        {
+            return query;
+        }
+
+        if (filter.Sources is { Count: > 0 } sources)
+        {
+            var wantsUnsupported = sources.Contains(BookSummaryFilter.UnsupportedSource);
+            var realSources = sources.Where(s => s != BookSummaryFilter.UnsupportedSource).ToList();
+
+            query = query.Where(a =>
+                (realSources.Count > 0 && a.MatchedSourceName != null && realSources.Contains(a.MatchedSourceName))
+                || (wantsUnsupported && (a.MatchedSourceName == null || a.MatchedSourceName == "")));
+        }
+
+        if (filter.Genres is { Count: > 0 } genres)
+        {
+            query = query.Where(a => a.Genres.Any(g => genres.Contains(g.Name)));
+        }
+
+        if (filter.Languages is { Count: > 0 } languages)
+        {
+            query = query.Where(a => a.Language != null && languages.Contains(a.Language));
+        }
+
+        if (filter.MinDurationInSeconds is not null)
+        {
+            query = query.Where(a => a.DurationInSeconds != null && a.DurationInSeconds >= filter.MinDurationInSeconds);
+        }
+
+        if (filter.MaxDurationInSeconds is not null)
+        {
+            query = query.Where(a => a.DurationInSeconds != null && a.DurationInSeconds <= filter.MaxDurationInSeconds);
+        }
+
+        return query;
+    }
+
+    /// <summary>
     /// <paramref name="includeTotal"/> false makes <c>Total</c> a sentinel <c>0</c>, not a real
     /// count - only meaningful for a caller that never reads it (the type-ahead path below).
     /// <paramref name="includeNarratorsAndGenres"/> false skips those two Includes/the resulting
@@ -142,7 +203,8 @@ public class AudiobookRepository : IAudiobookRepository
     /// <c>a.Authors</c> from the result.
     /// </summary>
     public async Task<(List<Audiobook> Items, int Total)> SearchAsync(
-        string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true)
+        string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true,
+        BookSummaryFilter? filter = null)
     {
         // Fold the query so an unaccented search (e.g. "Rene") still matches an accented value
         // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
@@ -178,7 +240,11 @@ public class AudiobookRepository : IAudiobookRepository
                 EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
                 a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
                 EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
-            )
+            );
+
+        dbQuery = ApplyBookSummaryFilter(dbQuery, filter);
+
+        dbQuery = dbQuery
             // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
             // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
             // matches and re-ranked those - so searching "harry" in a library holding "Alex
@@ -703,6 +769,30 @@ public class AudiobookRepository : IAudiobookRepository
                 wantMatched ? matchedCatalog.Contains(a.Series!) : !matchedCatalog.Contains(a.Series!));
         }
 
+        // "Unsupported" (SeriesOverviewFilter.UnsupportedSource) covers both a catalog row with no
+        // MatchedSourceName and a series value with no catalog row at all - !matchedAnyNames.Contains
+        // is true for either, mirroring how the `matched` filter above treats "no catalog row" as
+        // unmatched.
+        var wantsUnsupportedSeriesSource = filter?.Sources?.Contains(SeriesOverviewFilter.UnsupportedSource) == true;
+        var realSeriesSources = filter?.Sources?.Where(s => s != SeriesOverviewFilter.UnsupportedSource).ToList()
+            ?? new List<string>();
+
+        if (filter?.Sources is { Count: > 0 })
+        {
+            var sourceMatchedNames = _db.Series
+                .AsNoTracking()
+                .Where(s => s.MatchedSourceName != null && realSeriesSources.Contains(s.MatchedSourceName))
+                .Select(s => s.Name);
+            var matchedAnyNames = _db.Series
+                .AsNoTracking()
+                .Where(s => s.MatchedSourceName != null && s.MatchedSourceName != "")
+                .Select(s => s.Name);
+
+            booksQuery = booksQuery.Where(a =>
+                (realSeriesSources.Count > 0 && sourceMatchedNames.Contains(a.Series!))
+                || (wantsUnsupportedSeriesSource && !matchedAnyNames.Contains(a.Series!)));
+        }
+
         if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
         {
             // Owned count is evaluated over every book of the series regardless of the other
@@ -764,6 +854,13 @@ public class AudiobookRepository : IAudiobookRepository
                     && s.MatchedSourceId != null && s.MatchedSourceId != "")
                 : catalogQuery.Where(s => s.MatchedSourceName == null || s.MatchedSourceName == ""
                     || s.MatchedSourceId == null || s.MatchedSourceId == "");
+        }
+
+        if (filter?.Sources is { Count: > 0 })
+        {
+            catalogQuery = catalogQuery.Where(s =>
+                (realSeriesSources.Count > 0 && s.MatchedSourceName != null && realSeriesSources.Contains(s.MatchedSourceName))
+                || (wantsUnsupportedSeriesSource && (s.MatchedSourceName == null || s.MatchedSourceName == "")));
         }
 
         if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
