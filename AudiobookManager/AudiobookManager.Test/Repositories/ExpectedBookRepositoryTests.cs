@@ -187,6 +187,81 @@ public class ExpectedBookRepositoryTests
         }
     }
 
+    // Regression guard (review finding, high): a lost insert race detaches only the failed parent
+    // `created` and re-applies the poll onto the winner - but SyncAuthorLinks staged this poll's
+    // author links onto `created` BEFORE the insert, when the parent's id was still the default
+    // 0. The review's finding is that those staged children stay tracked and the loser's second
+    // SaveChangesAsync then re-inserts them pointing at the never-inserted parent id, either
+    // throwing on the foreign key or leaving orphaned link rows. The fix detaches every child
+    // staged onto the failed parent explicitly, so the loser can never write them regardless of
+    // how the persistence context handles the parent detach.
+    //
+    // NOTE (verified empirically against the unfixed code): in the current EF/SQLite version the
+    // parent's own detach already cascade-detaches its Added dependents (the child link is gone
+    // from the change tracker the moment `created` is detached), so this environment cannot make
+    // the dangling-row failure reproduce - the second SaveChanges was observed clean, with no
+    // orphan rows and no exception. That makes this test an invariant guard, not a red-on-old-
+    // code regression test: it pins the required end state (one row, exactly its own links, no
+    // orphaned expected_book_authors rows, no Added link tracked on any context) and would go
+    // red if an EF behavior change ever let the staged dependents survive the parent detach.
+    // The explicit detach in the repository is the belt that does not rely on that cascade.
+    [TestMethod]
+    public async Task UpsertAsync_LostInsertRace_DetachesTheStagedAuthorLinksWithTheFailedParent()
+    {
+        var personId = await SeedPersonAsync();
+        var contexts = new List<DatabaseContext>();
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+            // Every context's connection is opened (and its per-connection PRAGMAs applied) BEFORE
+            // the race starts, so all racers read the empty table at the same time instead of
+            // straggling in after the winner already committed - with every racer missing the row,
+            // exactly one insert wins and every other racer deterministically takes the
+            // unique-violation loser path this test is about.
+            var racers = new List<ExpectedBookRepository>();
+            for (var i = 0; i < 8; i++)
+            {
+                var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+                contexts.Add(context);
+                await context.ExpectedBooks.CountAsync();
+                racers.Add(new ExpectedBookRepository(context));
+            }
+
+            var calls = racers.Select(repository => Task.Run(() => repository.UpsertAsync(
+                MakeUpsert(authors: new[] { new ExpectedBookAuthorLink(personId, "Brandon Sanderson") }))))
+                .ToList();
+            await Task.WhenAll(calls);
+
+            var stored = await _db.ExpectedBooks.AsNoTracking().Include(b => b.AuthorLinks).ToListAsync();
+            Assert.AreEqual(1, stored.Count, "every racer must converge on one row, never an exception");
+            var winner = stored.Single();
+            Assert.AreEqual(1, winner.AuthorLinks.Count, "the winning row carries exactly its own author links");
+            Assert.IsTrue(winner.Id != default, "the winner row must have a real identity");
+
+            var links = await _db.ExpectedBookAuthors.AsNoTracking().ToListAsync();
+            Assert.AreEqual(1, links.Count,
+                "a loser's staged author links must not survive as orphaned expected_book_authors rows");
+            var survivingLink = links.Single();
+            Assert.IsTrue(winner.Id == survivingLink.ExpectedBookId,
+                "the surviving link points at the real winner row, never the never-inserted id 0");
+
+            foreach (var context in contexts)
+            {
+                Assert.IsFalse(
+                    context.ChangeTracker.Entries<ExpectedBookAuthor>().Any(e => e.State == EntityState.Added),
+                    "no context may be left tracking Added author-link entries after the race");
+            }
+        }
+        finally
+        {
+            foreach (var context in contexts)
+            {
+                context.Dispose();
+            }
+        }
+    }
+
     [TestMethod]
     public async Task UpsertManyAsync_ReturnsOneStoredIdPerInput_AndRefreshesInPlaceOnARedo()
     {
@@ -1010,6 +1085,79 @@ public class ExpectedBookRepositoryTests
             "the catalog link must survive: the poll's identity is the same source series the linked series is matched to");
         Assert.AreEqual(series.MatchedSourceId, stored.SourceSeriesId,
             "the poll's source-series fields are still authoritative");
+    }
+
+    // Regression guard (review finding, high - the cross-source hole in the same guard): the
+    // series-link guard must only compare ids in the SAME source namespace. A series matched to
+    // source B carries a B-scoped MatchedSourceId; an author-shaped poll from source A whose
+    // A-scoped SourceSeriesId resolves to no locally-matched series (the series is B-matched, so
+    // GetByMatchedSourceIdAsync("A", ...) misses it) carries SeriesId null with an A-scoped
+    // SourceSeriesId. Comparing those two ids is comparing apples to oranges - the OLD guard did
+    // exactly that, never matched, and cleared the existing link on every author refresh, only
+    // for the series' next refresh to re-link it: the exact oscillation the guard exists to
+    // prevent. When the poll's source differs from the linked series' matched source (or the
+    // linked series is unmatched), the poll cannot prove the book left the series, and the
+    // series' own refresh under its source stays authoritative - the link survives. The poll's
+    // source-series fields are recorded either way (that is what "the source reports" means),
+    // but the catalog link is not cleared.
+    [TestMethod]
+    public async Task UpsertAsync_UnresolvedCrossSourceSeriesIdentity_DoesNotClearALinkToADifferentlyMatchedSeries()
+    {
+        var personId = await SeedPersonAsync();
+        // The linked catalog series is matched to Goodreads (source B); its ids are B-scoped.
+        var series = new Series
+        {
+            Name = "The Stormlight Archive",
+            MatchedSourceName = "Goodreads",
+            MatchedSourceId = "gr-series-1",
+            MatchedSeriesName = "The Stormlight Archive",
+        };
+        _db.Series.Add(series);
+        await _db.SaveChangesAsync();
+
+        var now = DateTime.UtcNow;
+        _db.ExpectedBooks.Add(new ExpectedBook
+        {
+            SourceName = "Goodreads",
+            SourceBookId = "gr-9",
+            Title = "The Way of Kings",
+            SeriesId = series.Id,
+            SourceSeriesId = "gr-series-1",
+            SourceSeriesName = "The Stormlight Archive",
+            SeriesPosition = "1",
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
+            AuthorLinks = new List<ExpectedBookAuthor>
+            {
+                new() { PersonId = personId, AuthorName = "Brandon Sanderson" },
+            },
+        });
+        await _db.SaveChangesAsync();
+
+        // The same book is reported by an author-shaped poll from Hardcover (source A): the
+        // author is matched to A, its bibliography reports the book inside an A-scoped series id
+        // that resolves to no locally-matched series (the linked series is B-matched), so the
+        // poll carries SeriesId null with an A-scoped SourceSeriesId.
+        await _repository.UpsertAsync(new ExpectedBookUpsert(
+            "Hardcover",
+            "hc-9",
+            "The Way of Kings",
+            2010,
+            null,
+            null,
+            null,
+            null,
+            "hc-series-9",
+            "The Stormlight Archive",
+            "1",
+            null,
+            new List<ExpectedBookAuthorLink> { new(personId, "Brandon Sanderson") }));
+
+        var stored = await _db.ExpectedBooks.AsNoTracking().SingleAsync();
+        Assert.AreEqual(series.Id, stored.SeriesId,
+            "a poll whose source differs from the linked series' matched source cannot prove the book left the series - the link survives");
+        Assert.AreEqual("hc-series-9", stored.SourceSeriesId,
+            "the poll's source-series fields are recorded, only the catalog link is guarded");
     }
 
     // The ignore-path roster read is bounded to maxBooks + 1 rows like the sibling reads, and

@@ -6,12 +6,15 @@ public interface IPersonRepository
     Task<Person> GetOrCreatePerson(string name);
 
     /// <summary>
-    /// The tracked person row whose name equals <paramref name="name"/> verbatim (names are
-    /// unique), or null when no such person exists. Read-only - never creates a row - and exact-
-    /// match only: it resolves a source-reported author name to an existing library person
-    /// without inventing one from scrape data.
+    /// The tracked person rows for the names in <paramref name="names"/>, resolved in one batched
+    /// <c>WHERE name IN (...)</c> query - the batch equivalent of the single-name lookup, for
+    /// resolving a whole roster's distinct source author names without one round trip per name.
+    /// Names that have no <see cref="Person"/> row are simply absent from the result map.
+    /// Read-only - never creates a row. Exact-match only, and deliberately NOT accent-folded:
+    /// <c>persons.name</c> is unique (the unique index), so each name either resolves to its one
+    /// row or is absent, and the caller is matching the source's exact spelling.
     /// </summary>
-    Task<Person?> GetByNameAsync(string name);
+    Task<Dictionary<string, Person>> GetByNamesAsync(IReadOnlyCollection<string> names);
 
     /// <summary>
     /// Batch equivalent of <see cref="GetOrCreatePerson"/>: resolves every distinct name in

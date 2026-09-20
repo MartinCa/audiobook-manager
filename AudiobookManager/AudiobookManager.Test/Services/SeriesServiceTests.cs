@@ -38,8 +38,8 @@ public class SeriesServiceTests
         _personRepository = new Mock<IPersonRepository>();
         // An unknown source author name resolves to no Person row - the roster link stays name-only.
         _personRepository
-            .Setup(r => r.GetByNameAsync(It.IsAny<string>()))
-            .ReturnsAsync((string _) => null);
+            .Setup(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, Database.Models.Person>(StringComparer.Ordinal));
         _expectedBookRepository = new Mock<IExpectedBookRepository>();
         // The shared default: one kept book id per upserted roster entry, so the service's
         // unlink keep-list matches the roster it just stored. Tests that assert on the upsert
@@ -1632,11 +1632,16 @@ public class SeriesServiceTests
         _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn"))
             .ReturnsAsync(new List<string>());
         _personRepository
-            .Setup(r => r.GetByNameAsync("Brandon Sanderson"))
-            .ReturnsAsync(known);
-        _personRepository
-            .Setup(r => r.GetByNameAsync("Unknown Source Spelling"))
-            .ReturnsAsync((Database.Models.Person?)null);
+            .Setup(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync((IReadOnlyCollection<string> names) =>
+            {
+                var resolved = new Dictionary<string, Database.Models.Person>(StringComparer.Ordinal);
+                if (names.Contains("Brandon Sanderson"))
+                {
+                    resolved["Brandon Sanderson"] = known;
+                }
+                return resolved;
+            });
 
         List<ExpectedBookUpsert>? stored = null;
         _expectedBookRepository
@@ -1668,6 +1673,7 @@ public class SeriesServiceTests
         Assert.IsNull(authors.Single(a => a.AuthorName == "Unknown Source Spelling").PersonId,
             "an unresolvable source name stays a name-only link - never a created Person row");
         _personRepository.Verify(r => r.GetOrCreatePerson(It.IsAny<string>()), Times.Never);
+        _personRepository.Verify(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()), Times.Once);
     }
 
     [TestMethod]

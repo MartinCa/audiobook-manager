@@ -165,4 +165,58 @@ public class PersonRepositoryTests
         Assert.AreEqual(1, total);
         Assert.AreEqual("Keep Author", items.Single().Name);
     }
+
+    // The batched roster-author resolution (SeriesService.MatchSeriesCoreAsync): one call resolves
+    // a whole set of source author spellings against the library's Person rows. Exact-match on the
+    // unique name - a name with no Person row is absent from the result, never a created row.
+    [TestMethod]
+    public async Task GetByNamesAsync_ResolvesExistingNamesAndOmitsUnknownOnes()
+    {
+        var existing = Enumerable.Range(0, 20)
+            .Select(i => new Person(default, $"Author {i:D2}"))
+            .ToList();
+        _db.Persons.AddRange(existing);
+        await _db.SaveChangesAsync();
+
+        var resolved = await _repository.GetByNamesAsync(
+            existing.Select(p => p.Name).Concat(new[] { "Author 99", "Missing Author" }).ToList());
+
+        Assert.AreEqual(20, resolved.Count, "only names that exist resolve; unknown names are simply absent");
+        foreach (var person in existing)
+        {
+            Assert.AreEqual(person.Id, resolved[person.Name].Id, "each name resolves to its one unique Person row");
+        }
+        Assert.IsFalse(resolved.ContainsKey("Author 99"));
+        Assert.IsFalse(resolved.ContainsKey("Missing Author"));
+    }
+
+    [TestMethod]
+    public async Task GetByNamesAsync_EmptyNameSet_ReturnsAnEmptyMap()
+    {
+        var resolved = await _repository.GetByNamesAsync(new List<string>());
+
+        Assert.AreEqual(0, resolved.Count, "no names in, no rows out - and no query against an empty IN clause");
+    }
+
+    // The batched lookup is chunked at the codebase's shared in-clause size, so a pathological
+    // name set never becomes one over-limit IN (...) query - and every name still resolves.
+    [TestMethod]
+    public async Task GetByNamesAsync_MoreNamesThanTheInClauseChunkSize_ResolvesEveryOne()
+    {
+        var nameCount = ExpectedBookRepository.MaxInClauseIdsPerQuery * 2 + 20;
+        var existing = Enumerable.Range(0, nameCount)
+            .Select(i => new Person(default, $"Author {i:D4}"))
+            .ToList();
+        _db.Persons.AddRange(existing);
+        await _db.SaveChangesAsync();
+
+        var resolved = await _repository.GetByNamesAsync(
+            existing.Select(p => p.Name).Concat(new[] { "No Such Author" }).ToList());
+
+        Assert.AreEqual(nameCount, resolved.Count, "every stored name resolves across the chunk boundary, the unknown one stays absent");
+        foreach (var person in existing)
+        {
+            Assert.AreEqual(person.Id, resolved[person.Name].Id);
+        }
+    }
 }

@@ -215,7 +215,19 @@ public class ExpectedBookRepository : IExpectedBookRepository
             // bibliography refresh and a series roster refresh can report it around the same
             // time). Adopt the winner's row and re-apply this poll's data - the identical
             // read-then-insert adoption pattern as UpcomingReleaseRepository.UpsertAsync.
+            // Unlike those single-entity graphs, the failed parent's author links were already
+            // staged onto this context (SyncAuthorLinks ran before the insert, fixed up to
+            // `created`). A detach of the parent that left them tracked would make the second
+            // SaveChanges below re-insert them pointing at the never-inserted parent's id (0) -
+            // either throwing on the foreign key or leaving orphaned link rows behind. The
+            // current EF version cascade-detaches Added dependents when their Added parent is
+            // detached, but the explicit detach below guarantees every child reachable from the
+            // failed parent leaves the context with it instead of relying on that behavior.
+            var stagedLinks = created.AuthorLinks.ToList();
             _db.Entry(created).State = EntityState.Detached;
+            ChangeTrackerDetach.DetachTracked(
+                _db.ChangeTracker.Entries<ExpectedBookAuthor>(),
+                link => stagedLinks.Contains(link));
 
             if (string.IsNullOrEmpty(upsert.SourceBookId))
             {
@@ -391,24 +403,38 @@ public class ExpectedBookRepository : IExpectedBookRepository
     ///
     /// One guard on the series identity: a poll whose identity did not resolve to a local series
     /// (<see cref="ExpectedBookUpsert.SeriesId"/> null) does not clear an existing catalog link
-    /// whose series is matched to the poll's own <see cref="ExpectedBookUpsert.SourceSeriesId"/>.
-    /// The unresolved id is an artifact of THIS poll's resolution - the author-shaped refresh
-    /// resolves source series by (source name, source series id), so a feed that reports the id
-    /// under a different source name misses a series that is genuinely matched to that id - not
-    /// evidence the book left the series. Without the guard the link would oscillate: this poll
-    /// clears it, the series' next refresh re-links it.
+    /// unless it PROVABLY names a different series in the SAME source namespace. The poll's
+    /// <see cref="ExpectedBookUpsert.SourceSeriesId"/> is only comparable to the linked series'
+    /// <c>MatchedSourceId</c> when that series is matched to the poll's own source: a series
+    /// matched to a different source (or unmatched) makes the two ids incomparable, so the failed
+    /// resolution is an artifact of THIS poll's lookup (the author-shaped refresh resolves source
+    /// series by (source name, source series id), and a feed that reports the id under a
+    /// different source name misses a series genuinely matched to that id), not evidence the book
+    /// left the series. Without the guard the link would oscillate: this poll clears it, the
+    /// series' next refresh re-links it. A same-source, genuinely-different id IS proof the book
+    /// moved to another series within that source, and clears.
     /// </summary>
     private async Task ApplyRefreshAsync(ExpectedBook existing, ExpectedBookUpsert upsert, DateTime now)
     {
         var seriesId = upsert.SeriesId;
         if (seriesId is null && !string.IsNullOrEmpty(upsert.SourceSeriesId) && existing.SeriesId is not null)
         {
-            var matchedSourceId = await _db.Series
+            // Load the linked catalog series' match identity - only now, and only the two columns
+            // the guard compares, so the common paths (a resolved SeriesId, or an unlinked row)
+            // never pay for it.
+            var linked = await _db.Series
                 .AsNoTracking()
                 .Where(s => s.Id == existing.SeriesId)
-                .Select(s => s.MatchedSourceId)
+                .Select(s => new { MatchedSourceName = s.MatchedSourceName, MatchedSourceId = s.MatchedSourceId })
                 .FirstOrDefaultAsync();
-            if (string.Equals(matchedSourceId, upsert.SourceSeriesId, StringComparison.Ordinal))
+
+            var sameSource = linked is not null
+                && !string.IsNullOrEmpty(linked.MatchedSourceName)
+                && linked.MatchedSourceId is not null
+                && string.Equals(linked.MatchedSourceName, upsert.SourceName, StringComparison.Ordinal);
+            var provablyDifferent = sameSource
+                && !string.Equals(linked!.MatchedSourceId, upsert.SourceSeriesId, StringComparison.Ordinal);
+            if (!provablyDifferent)
             {
                 seriesId = existing.SeriesId;
             }

@@ -18,8 +18,30 @@ public class PersonRepository : IPersonRepository
         _db = db;
     }
 
-    public Task<Person?> GetByNameAsync(string name) =>
-        _db.Persons.FirstOrDefaultAsync(p => p.Name == name);
+    public async Task<Dictionary<string, Person>> GetByNamesAsync(IReadOnlyCollection<string> names)
+    {
+        var result = new Dictionary<string, Person>(StringComparer.Ordinal);
+        if (names.Count == 0)
+        {
+            return result;
+        }
+
+        // One IN clause per chunk, at the codebase's shared in-clause size (see
+        // ExpectedBookRepository.MaxInClauseIdsPerQuery): a roster's distinct author names are a
+        // handful, but the method must not let a pathological set build a single over-limit query.
+        // Accent folding is deliberately not applied - the caller passes the source's exact
+        // spelling and persons.name is unique, so an exact-match IN is the whole lookup.
+        foreach (var chunk in names.ToList().Chunk(ExpectedBookRepository.MaxInClauseIdsPerQuery))
+        {
+            var rows = await _db.Persons.Where(p => chunk.Contains(p.Name)).ToListAsync();
+            foreach (var person in rows)
+            {
+                result[person.Name] = person;
+            }
+        }
+
+        return result;
+    }
 
     public async Task<Person> GetOrCreatePerson(string name)
     {

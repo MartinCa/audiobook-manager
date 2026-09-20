@@ -538,16 +538,14 @@ public class SeriesService : ISeriesService
 
         // The roster entries' author names are source spellings. They are resolved against the
         // library's existing Person rows so an author-linked book can be found by both scopes -
-        // but never created from scrape data: an unknown name stays a name-only link.
+        // but never created from scrape data: an unknown name stays a name-only link. Resolved in
+        // one batched call - this runs under the process-wide write gate, and the old per-name
+        // loop was one DB round trip per distinct contributor of the roster.
         var rosterAuthorNames = roster.Books
             .SelectMany(b => b.Authors)
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        var personsByName = new Dictionary<string, Database.Models.Person?>();
-        foreach (var name in rosterAuthorNames)
-        {
-            personsByName[name] = await _personRepository.GetByNameAsync(name);
-        }
+        var personsByName = await _personRepository.GetByNamesAsync(rosterAuthorNames);
 
         // The full roster is always stored, compilations included - IncludeOmnibusEditions only
         // controls what SeriesService treats as visible when reading it back, so toggling it
@@ -568,7 +566,7 @@ public class SeriesService : ISeriesService
             SeriesPosition: b.Position,
             // Series-shaped: the source's compilation flag is authoritative for the row.
             IsCompilation: b.IsCompilation,
-            Authors: b.Authors.Select(name => new ExpectedBookAuthorLink(personsByName[name]?.Id, name)).ToList()))
+            Authors: b.Authors.Select(name => new ExpectedBookAuthorLink(personsByName.GetValueOrDefault(name)?.Id, name)).ToList()))
             .ToList();
 
         var ids = await _expectedBookRepository.UpsertManyAsync(upserts);
