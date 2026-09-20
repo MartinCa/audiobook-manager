@@ -148,7 +148,10 @@ export function LibrarySettingsPage() {
                 <Select
                   value={currentPunctuation ?? undefined}
                   onValueChange={(v) => setPunctuationValue(v)}
-                  items={INITIALS_PUNCTUATION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  items={INITIALS_PUNCTUATION_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
                   disabled={mutation.isPending}
                 >
                   <SelectTrigger className="w-full sm:w-72">
@@ -163,8 +166,8 @@ export function LibrarySettingsPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-muted-foreground text-xs">
-                  Decides whether author initials carry a trailing period (J. R. R. Tolkien) or
-                  not (J R R Tolkien).
+                  Decides whether author initials carry a trailing period (J. R. R. Tolkien) or not
+                  (J R R Tolkien).
                 </p>
               </div>
             </div>
