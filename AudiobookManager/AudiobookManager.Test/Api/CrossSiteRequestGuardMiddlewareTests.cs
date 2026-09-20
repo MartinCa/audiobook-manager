@@ -50,7 +50,7 @@ public class CrossSiteRequestGuardMiddlewareTests
     [DataRow("DELETE")]
     public async Task StateChangingApiRequest_WithoutHeader_IsRefused(string method)
     {
-        var (statusCode, reachedNext, _) = await InvokeAsync(method, "/api/consistency/check", withHeader: false);
+        var (statusCode, reachedNext, _) = await InvokeAsync(method, "/api/library/scan", withHeader: false);
 
         Assert.AreEqual(StatusCodes.Status403Forbidden, statusCode);
         Assert.IsFalse(reachedNext, "The request must not reach the endpoint.");
@@ -63,7 +63,7 @@ public class CrossSiteRequestGuardMiddlewareTests
     [DataRow("DELETE")]
     public async Task StateChangingApiRequest_WithHeader_IsAllowed(string method)
     {
-        var (_, reachedNext, _) = await InvokeAsync(method, "/api/consistency/check", withHeader: true);
+        var (_, reachedNext, _) = await InvokeAsync(method, "/api/library/scan", withHeader: true);
 
         Assert.IsTrue(reachedNext);
     }

@@ -5,10 +5,14 @@ using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
+using AudiobookManager.Settings;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -16,24 +20,58 @@ namespace AudiobookManager.Test.Controllers;
 [TestClass]
 public class LibraryControllerTests
 {
+    private Mock<IHubContext<OrganizeHub, IOrganize>> _hubContext = null!;
+    private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
+    private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<IDiscoveredAudiobookRepository> _discoveredRepo = null!;
     private Mock<ILibraryScanService> _libraryScanService = null!;
+    private Mock<ILogger<LibraryController>> _logger = null!;
+    private string _libraryPath = null!;
     private LibraryController _controller = null!;
 
     [TestInitialize]
     public void Setup()
     {
+        _hubContext = new Mock<IHubContext<OrganizeHub, IOrganize>>();
+        _serviceScopeFactory = new Mock<IServiceScopeFactory>();
+        _statusRegistry = new Mock<IOperationStatusRegistry>();
         _discoveredRepo = new Mock<IDiscoveredAudiobookRepository>();
         _libraryScanService = new Mock<ILibraryScanService>();
+        _logger = new Mock<ILogger<LibraryController>>();
+
+        // A real directory: StartLibraryScan refuses outright when the configured library path
+        // is not there, so the default fixture has to look like a mounted library.
+        _libraryPath = Path.Combine(Path.GetTempPath(), $"abm-library-ctl-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_libraryPath);
 
         _controller = new LibraryController(
-            new Mock<IHubContext<OrganizeHub, IOrganize>>().Object,
-            new Mock<IServiceScopeFactory>().Object,
-            new Mock<IOperationStatusRegistry>().Object,
+            _hubContext.Object,
+            _serviceScopeFactory.Object,
+            _statusRegistry.Object,
             _discoveredRepo.Object,
             _libraryScanService.Object,
             Mock.Of<IHostApplicationLifetime>(),
-            new Mock<ILogger<LibraryController>>().Object);
+            Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = _libraryPath }),
+            _logger.Object);
+    }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        if (Directory.Exists(_libraryPath))
+        {
+            Directory.Delete(_libraryPath, recursive: true);
+        }
+    }
+
+    private void SetupScope(ILibraryScanOrchestrator orchestrator)
+    {
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryScanOrchestrator)))
+            .Returns(orchestrator);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
     }
 
     private static DiscoveredAudiobook MakeWellTagged(string fullPath) => new(
@@ -227,5 +265,213 @@ public class LibraryControllerTests
         Assert.AreEqual(0, result.WellTaggedTotal);
         _discoveredRepo.Verify(r => r.CountWellTaggedAsync(), Times.Never);
     }
+
+    #region Combined scan
+
+    [TestMethod]
+    public void StartLibraryScan_LibraryDirectoryMissing_Returns409WithActionableDetail()
+    {
+        // BackgroundOperationRunner is fire-and-forget, so an exception thrown inside the work
+        // reaches the client as zeroed completion events - which reads as "your library is
+        // fine". Refusing here is what makes a missing mount legible.
+        var controller = new LibraryController(
+            _hubContext.Object,
+            _serviceScopeFactory.Object,
+            _statusRegistry.Object,
+            _discoveredRepo.Object,
+            _libraryScanService.Object,
+            Mock.Of<IHostApplicationLifetime>(),
+            Options.Create(new AudiobookManagerSettings
+            {
+                AudiobookLibraryPath = Path.Combine(Path.GetTempPath(), $"abm-not-mounted-{Guid.NewGuid():N}")
+            }),
+            _logger.Object);
+
+        var result = (ObjectResult)controller.StartLibraryScan();
+        var problem = (ProblemDetails)result.Value!;
+
+        Assert.AreEqual(StatusCodes.Status409Conflict, result.StatusCode);
+        // The message has to travel in `detail`: the client reads ApiError.message from there,
+        // and it must agree with the orchestrator's own refusal (they share the wording via
+        // LibraryAvailability so a legible refusal up front is the same text as the guard).
+        StringAssert.Contains(problem.Detail, "is not available");
+        StringAssert.Contains(problem.Detail, "volume mount");
+        _serviceScopeFactory.Verify(f => f.CreateScope(), Times.Never);
+    }
+
+    // The combined run is the library scan now: resolving the orchestrator from a fresh scope
+    // (never the controller's request scope), progress through both event families, and two
+    // completion events - one per half of the operation.
+    [TestMethod]
+    public async Task StartLibraryScan_InvokesTheOrchestrator_AndReportsBothProgressAndCompletion()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var orchestrator = new Mock<ILibraryScanOrchestrator>();
+        orchestrator.Setup(o => o.RunCombinedScanAsync(
+                It.IsAny<Func<string, int, int, Task>>(),
+                It.IsAny<Func<string, int, int, int, Task>>(),
+                It.IsAny<Func<int, int, int, Task>?>()))
+            .ReturnsAsync((Func<string, int, int, Task> discovery,
+                Func<string, int, int, int, Task> consistency,
+                Func<int, int, int, Task>? discoveryCompleted) =>
+            {
+                discovery("Discovered: book.m4b", 1, 1).GetAwaiter().GetResult();
+                // The real orchestrator reports the scan's completion as soon as discovery
+                // finishes, before the consistency half runs.
+                if (discoveryCompleted != null)
+                {
+                    discoveryCompleted(1, 1, 0).GetAwaiter().GetResult();
+                }
+                consistency("Checked: A Book", 1, 1, 3).GetAwaiter().GetResult();
+                return new CombinedScanResult(1, 1, 0, 1, 3);
+            });
+        SetupScope(orchestrator.Object);
+
+        var result = _controller.StartLibraryScan();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(LibraryController));
+
+        orchestrator.Verify(o => o.RunCombinedScanAsync(
+            It.IsAny<Func<string, int, int, Task>>(),
+            It.IsAny<Func<string, int, int, int, Task>>(),
+            It.IsAny<Func<int, int, int, Task>?>()), Times.Once);
+        clientProxy.Verify(c => c.LibraryScanProgress(It.Is<LibraryScanProgress>(p =>
+            p.Message == "Discovered: book.m4b" && p.FilesScanned == 1 && p.TotalFiles == 1)), Times.Once);
+        clientProxy.Verify(c => c.LibraryScanComplete(It.Is<LibraryScanComplete>(r =>
+            r.TotalFilesScanned == 1 && r.NewFilesDiscovered == 1 && r.AlreadyTracked == 0)), Times.Once);
+        clientProxy.Verify(c => c.ConsistencyCheckProgress(It.Is<ConsistencyCheckProgress>(p =>
+            p.Message == "Checked: A Book" && p.BooksChecked == 1 && p.TotalBooks == 1
+                && p.IssuesFound == 3 && p.Scope == ConsistencyCheckScope.Library)), Times.Once);
+        clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
+            r.TotalBooksChecked == 1 && r.TotalIssuesFound == 3 && r.Scope == ConsistencyCheckScope.Library)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartLibraryScan_SecondRunWhileTheFirstIsHeld_Returns409()
+    {
+        // The scan gate is process-static. The first run's work blocks on a completion signal
+        // rather than Delay(Infinite): a forever-held gate would poison every scan/check test
+        // ordered after this one in the run.
+        var workMayFinish = new TaskCompletionSource();
+        var orchestrator = new Mock<ILibraryScanOrchestrator>();
+        orchestrator.Setup(o => o.RunCombinedScanAsync(
+                It.IsAny<Func<string, int, int, Task>>(),
+                It.IsAny<Func<string, int, int, int, Task>>(),
+                It.IsAny<Func<int, int, int, Task>?>()))
+            .Returns(async () =>
+            {
+                await workMayFinish.Task;
+                return new CombinedScanResult(0, 0, 0, 0, 0);
+            });
+        SetupScope(orchestrator.Object);
+
+        var first = _controller.StartLibraryScan();
+        try
+        {
+            Assert.IsInstanceOfType<OkResult>(first);
+
+            var second = (ObjectResult)_controller.StartLibraryScan();
+            Assert.AreEqual(StatusCodes.Status409Conflict, second.StatusCode);
+            orchestrator.Verify(o => o.RunCombinedScanAsync(
+                It.IsAny<Func<string, int, int, Task>>(),
+                It.IsAny<Func<string, int, int, int, Task>>(),
+                It.IsAny<Func<int, int, int, Task>?>()), Times.Once);
+        }
+        finally
+        {
+            // Let the first operation finish so the gate is free again for later tests, and wait
+            // on the real release rather than a fixed sleep (the gate is process-static). Run in
+            // finally so a failed assertion above can't leak the shared gate into later tests.
+            workMayFinish.SetResult();
+            await OperationGate.WaitUntilReleasedAsync(typeof(LibraryController));
+        }
+    }
+
+    [TestMethod]
+    public async Task StartLibraryScan_Error_EmitsBothZeroedCompletionEvents()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var orchestrator = new Mock<ILibraryScanOrchestrator>();
+        orchestrator.Setup(o => o.RunCombinedScanAsync(
+                It.IsAny<Func<string, int, int, Task>>(),
+                It.IsAny<Func<string, int, int, int, Task>>(),
+                It.IsAny<Func<int, int, int, Task>?>()))
+            .ThrowsAsync(new Exception("boom"));
+        SetupScope(orchestrator.Object);
+
+        var result = _controller.StartLibraryScan();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(LibraryController));
+
+        // A failure in one half must not leave the client waiting on the other: both families
+        // complete, zeroed, so neither progress bar is left spinning.
+        clientProxy.Verify(c => c.LibraryScanComplete(It.Is<LibraryScanComplete>(r =>
+            r.TotalFilesScanned == 0 && r.NewFilesDiscovered == 0 && r.AlreadyTracked == 0)), Times.Once);
+        clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
+            r.TotalBooksChecked == 0 && r.TotalIssuesFound == 0 && r.Scope == ConsistencyCheckScope.Library)), Times.Once);
+    }
+
+    // Regression: the scan completion used to fire only after the whole combined run returned,
+    // so if discovery committed rows and then the consistency half threw, the runner's error path
+    // sent LibraryScanComplete(0,0,0) - telling the user "0 new files" for rows that were
+    // committed and are visible on the Discovered page. The completion now fires at the end of
+    // discovery; on error it must not be clobbered by the zeroed send.
+    [TestMethod]
+    public async Task StartLibraryScan_ErrorAfterDiscovery_KeepsTheRealScanCompletionAndZeroesOnlyConsistency()
+    {
+        var clientProxy = new Mock<IOrganize>();
+        var clients = new Mock<IHubClients<IOrganize>>();
+        clients.Setup(c => c.All).Returns(clientProxy.Object);
+        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+
+        var orchestrator = new Mock<ILibraryScanOrchestrator>();
+        orchestrator.Setup(o => o.RunCombinedScanAsync(
+                It.IsAny<Func<string, int, int, Task>>(),
+                It.IsAny<Func<string, int, int, int, Task>>(),
+                It.IsAny<Func<int, int, int, Task>?>()))
+            .Returns(async (Func<string, int, int, Task> discovery,
+                Func<string, int, int, int, Task> consistency,
+                Func<int, int, int, Task>? discoveryCompleted) =>
+            {
+                discovery("Discovered: new.m4b", 1, 1).GetAwaiter().GetResult();
+                if (discoveryCompleted != null)
+                {
+                    discoveryCompleted(1, 1, 0).GetAwaiter().GetResult();
+                }
+                throw new Exception("consistency boom");
+            });
+        SetupScope(orchestrator.Object);
+
+        var result = _controller.StartLibraryScan();
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await OperationGate.WaitUntilReleasedAsync(typeof(LibraryController));
+
+        // The scan completion reported the real counts and was sent exactly once - the error
+        // path must not overwrite it with a zeroed one.
+        clientProxy.Verify(c => c.LibraryScanComplete(It.Is<LibraryScanComplete>(r =>
+            r.TotalFilesScanned == 1 && r.NewFilesDiscovered == 1 && r.AlreadyTracked == 0)), Times.Once);
+        clientProxy.Verify(c => c.LibraryScanComplete(It.Is<LibraryScanComplete>(r =>
+            r.TotalFilesScanned == 0 && r.NewFilesDiscovered == 0 && r.AlreadyTracked == 0)), Times.Never);
+        // The consistency half never reported its own completion, so zeroed-on-error stands (the
+        // pre-existing behavior for the event that never fired).
+        clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
+            r.TotalBooksChecked == 0 && r.TotalIssuesFound == 0 && r.Scope == ConsistencyCheckScope.Library)), Times.Once);
+    }
+
+    #endregion
 
 }

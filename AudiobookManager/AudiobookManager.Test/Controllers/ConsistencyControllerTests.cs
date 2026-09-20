@@ -1,3 +1,4 @@
+using System.Reflection;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -39,8 +40,8 @@ public class ConsistencyControllerTests
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _logger = new Mock<ILogger<ConsistencyController>>();
 
-        // A real directory: StartConsistencyCheck refuses outright when the configured library
-        // path is not there, so the default fixture has to look like a mounted library.
+        // A real directory: the check-selected endpoint refuses outright when the configured
+        // library path is not there, so the default fixture has to look like a mounted library.
         _libraryPath = Path.Combine(Path.GetTempPath(), $"abm-consistency-ctl-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_libraryPath);
 
@@ -538,48 +539,17 @@ public class ConsistencyControllerTests
 
     #region Library availability
 
-    [TestMethod]
-    public void StartConsistencyCheck_LibraryDirectoryMissing_Returns409WithActionableDetail()
-    {
-        // BackgroundOperationRunner is fire-and-forget, so an exception thrown inside the work
-        // reaches the client as ConsistencyCheckComplete(0, 0) - which reads as "your library is
-        // fine". Refusing here is what makes it legible.
-        var controller = new ConsistencyController(
-            _hubContext.Object,
-            _serviceScopeFactory.Object,
-            _statusRegistry.Object,
-            _issueRepository.Object,
-            _orphanDirectoryRepository.Object,
-            Mock.Of<IHostApplicationLifetime>(),
-            Options.Create(new AudiobookManagerSettings
-            {
-                AudiobookLibraryPath = Path.Combine(Path.GetTempPath(), $"abm-not-mounted-{Guid.NewGuid():N}")
-            }),
-            _logger.Object);
-
-        var result = (ObjectResult)controller.StartConsistencyCheck();
-        var problem = (ProblemDetails)result.Value!;
-
-        Assert.AreEqual(StatusCodes.Status409Conflict, result.StatusCode);
-        // The message has to travel in `detail`: the client reads ApiError.message from there.
-        StringAssert.Contains(problem.Detail, "is not available");
-        StringAssert.Contains(problem.Detail, "volume mount");
-    }
-
-    [TestMethod]
-    public void StartConsistencyCheck_LibraryDirectoryPresent_StartsTheRun()
-    {
-        var result = _controller.StartConsistencyCheck();
-
-        Assert.IsInstanceOfType<OkResult>(result);
-    }
+    // The full-library check moved into the combined library scan (LibraryController), which
+    // owns the synchronous refusal; check-selected keeps its own, for the same reason: a missing
+    // library is the one refusal a user must see synchronously, not as a zeroed completion event.
 
     #endregion
 
     #region Bulk check-selected
 
     // The selected-books check is fire-and-forget through the same BackgroundOperationRunner as
-    // the full check, sharing its lock and its progress/complete events.
+    // the full check, sharing the combined scan-and-consistency gate and the progress/complete
+    // events.
 
     [TestMethod]
     public void StartSelectedConsistencyCheck_EmptyIds_IsA400_NothingStarts()
@@ -665,37 +635,61 @@ public class ConsistencyControllerTests
 
     #endregion
 
-    #region Full-library check event scope
+    #region Shared scan-and-consistency gate
+
+    // A full-library consistency check is now the second half of the combined library scan, so
+    // they must share one gate: check-selected rewrites the same issue rows and reads the same
+    // files, so it must refuse while a combined scan is running instead of starting alongside it.
 
     [TestMethod]
-    public async Task StartConsistencyCheck_Valid_BroadcastsProgressAndCompleteWithLibraryScope()
+    public void CheckSelected_WhileTheCombinedScanGateIsHeld_Returns409()
     {
-        var clientProxy = new Mock<IOrganize>();
-        var clients = new Mock<IHubClients<IOrganize>>();
-        clients.Setup(c => c.All).Returns(clientProxy.Object);
-        _hubContext.Setup(h => h.Clients).Returns(clients.Object);
+        // Hold the exact semaphore both controllers alias. This is what a running combined scan
+        // does for its whole duration; using the shared object (rather than a private copy of the
+        // lock) is what makes the refusal proof of the sharing.
+        var gate = BackgroundOperationGates.LibraryScanAndConsistency;
+        Assert.IsTrue(gate.Wait(0), "the gate must be free before the test can claim it");
 
-        var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.RunConsistencyCheck(
-                It.IsAny<Func<string, int, int, int, Task>>()))
-            .ReturnsAsync((Func<string, int, int, int, Task> progressAction) =>
-            {
-                progressAction("Checking library", 2, 5, 4).GetAwaiter().GetResult();
-                return (2, 4);
-            });
-        SetupScope(mockConsistencyService.Object);
+        try
+        {
+            var result = _controller.StartSelectedConsistencyCheck(
+                new BulkSelectionDto { AudiobookIds = new List<long> { 1 } });
 
-        var result = _controller.StartConsistencyCheck();
-
-        Assert.IsInstanceOfType<OkResult>(result);
-
-        await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
-
-        clientProxy.Verify(c => c.ConsistencyCheckProgress(It.Is<ConsistencyCheckProgress>(p =>
-            p.Message == "Checking library" && p.Scope == ConsistencyCheckScope.Library)), Times.Once);
-        clientProxy.Verify(c => c.ConsistencyCheckComplete(It.Is<ConsistencyCheckComplete>(r =>
-            r.TotalBooksChecked == 2 && r.TotalIssuesFound == 4 && r.Scope == ConsistencyCheckScope.Library)), Times.Once);
+            Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)result).StatusCode);
+            _serviceScopeFactory.Verify(f => f.CreateScope(), Times.Never);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
+
+    [TestMethod]
+    public void ConsistencyControllersShareTheSameSemaphoreInstanceAsTheScanGate()
+    {
+        // The sharing is structural: both controllers alias BackgroundOperationGates (not a
+        // semaphore of their own), or a scan and a consistency run could both be in flight.
+        var checkLock = typeof(ConsistencyController)
+            .GetFields(BindingFlags.NonPublic | BindingFlags.Static)
+            .Where(f => f.Name == "_checkLock")
+            .Select(f => (SemaphoreSlim)f.GetValue(null)!)
+            .Single();
+        var scanLock = typeof(LibraryController)
+            .GetFields(BindingFlags.NonPublic | BindingFlags.Static)
+            .Where(f => f.Name == "_scanLock")
+            .Select(f => (SemaphoreSlim)f.GetValue(null)!)
+            .Single();
+
+        Assert.AreSame(BackgroundOperationGates.LibraryScanAndConsistency, checkLock);
+        Assert.AreSame(BackgroundOperationGates.LibraryScanAndConsistency, scanLock);
+    }
+
+    #endregion
+
+    #region Full-library check event shape
+
+    // The full-library check's progress/complete events are now produced by the combined library
+    // scan (see LibraryControllerTests), but their shape lives with the event classes.
 
     [TestMethod]
     public void ConsistencyCheckEvents_OldConstructorShapeDefaultsToLibraryScope()

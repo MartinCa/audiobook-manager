@@ -46,7 +46,7 @@ describe("api request headers", () => {
   it("sends X-Requested-With on a POST with no body", async () => {
     const fetchSpy = mockFetch();
 
-    await api.post("/consistency/check");
+    await api.post("/library/scan");
 
     const headers = headersOf(fetchSpy);
     expect(headers.get(EXPECTED_REQUESTED_WITH_HEADER)).toBe(EXPECTED_REQUESTED_WITH_VALUE);

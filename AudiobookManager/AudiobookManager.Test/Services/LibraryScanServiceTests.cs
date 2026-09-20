@@ -15,7 +15,6 @@ namespace AudiobookManager.Test.Services;
 [TestClass]
 public class LibraryScanServiceTests
 {
-    private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IDiscoveredAudiobookRepository> _discoveredAudiobookRepository = null!;
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
@@ -26,7 +25,6 @@ public class LibraryScanServiceTests
     [TestInitialize]
     public void Setup()
     {
-        _audiobookRepository = new Mock<IAudiobookRepository>();
         _discoveredAudiobookRepository = new Mock<IDiscoveredAudiobookRepository>();
         _tagHandler = new Mock<IAudiobookTagHandler>();
         _audiobookService = new Mock<IAudiobookService>();
@@ -38,11 +36,9 @@ public class LibraryScanServiceTests
         var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = _libraryPath });
 
         _discoveredAudiobookRepository.Setup(r => r.ClearAllAsync()).Returns(Task.CompletedTask);
-        _audiobookRepository.Setup(r => r.GetAllFilePathsAsync(It.IsAny<StringComparer>())).ReturnsAsync(new HashSet<string>());
 
         _service = new LibraryScanService(
             settings,
-            _audiobookRepository.Object,
             _discoveredAudiobookRepository.Object,
             _tagHandler.Object,
             _audiobookService.Object,
@@ -65,8 +61,17 @@ public class LibraryScanServiceTests
             2020,
             new DomainAudiobookFileInfo(filePath, Path.GetFileName(filePath), 1000));
 
+    /// <summary>
+    /// The scan no longer walks the library itself - the orchestrator does that once and hands
+    /// the results in - so tests build the same input with the same walker the orchestrator uses.
+    /// </summary>
+    private IReadOnlyList<DomainAudiobookFileInfo> SupportedFilesInLibrary() =>
+        new LibraryTreeWalker().Walk(_libraryPath, AudiobookTagHandler.IsSupported).SupportedFiles;
+
+    private static IReadOnlyCollection<string> EmptyKnownPaths() => new List<string>();
+
     [TestMethod]
-    public async Task ScanLibrary_NewFile_IsInsertedAsDiscoveredAndCounted()
+    public async Task ScanFilesAsync_NewFile_IsInsertedAsDiscoveredAndCounted()
     {
         var filePath = Path.Combine(_libraryPath, "new-book.m4b");
         await File.WriteAllTextAsync(filePath, "fake audio");
@@ -80,7 +85,7 @@ public class LibraryScanServiceTests
             return Task.CompletedTask;
         };
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary(progressAction);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), progressAction);
 
         Assert.AreEqual(1, totalFiles);
         Assert.AreEqual(1, newFiles);
@@ -98,25 +103,12 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_ClearsPreviouslyDiscoveredEntriesBeforeScanning()
-    {
-        var filePath = Path.Combine(_libraryPath, "book.m4b");
-        await File.WriteAllTextAsync(filePath, "fake audio");
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(MakeParsedAudiobook(filePath));
-
-        await _service.ScanLibrary((_, __, ___) => Task.CompletedTask);
-
-        _discoveredAudiobookRepository.Verify(r => r.ClearAllAsync(), Times.Once);
-    }
-
-    [TestMethod]
-    public async Task ScanLibrary_AlreadyTrackedFile_IsSkippedAndReportedAsTracked()
+    public async Task ScanFilesAsync_AlreadyTrackedFile_IsSkippedAndReportedAsTracked()
     {
         var filePath = Path.Combine(_libraryPath, "known-book.m4b");
         await File.WriteAllTextAsync(filePath, "fake audio");
 
-        _audiobookRepository.Setup(r => r.GetAllFilePathsAsync(It.IsAny<StringComparer>()))
-            .ReturnsAsync(new HashSet<string> { filePath });
+        var knownPaths = new HashSet<string> { filePath };
 
         var progressCalls = new List<(string message, int scanned, int total)>();
         Func<string, int, int, Task> progressAction = (msg, scanned, total) =>
@@ -125,7 +117,7 @@ public class LibraryScanServiceTests
             return Task.CompletedTask;
         };
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary(progressAction);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), knownPaths, progressAction);
 
         Assert.AreEqual(1, totalFiles);
         Assert.AreEqual(0, newFiles);
@@ -139,19 +131,18 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_MixOfNewAndTrackedFiles_ReportsCorrectTotals()
+    public async Task ScanFilesAsync_MixOfNewAndTrackedFiles_ReportsCorrectTotals()
     {
         var trackedFile = Path.Combine(_libraryPath, "tracked.m4b");
         var newFile = Path.Combine(_libraryPath, "new.m4b");
         await File.WriteAllTextAsync(trackedFile, "fake audio");
         await File.WriteAllTextAsync(newFile, "fake audio");
 
-        _audiobookRepository.Setup(r => r.GetAllFilePathsAsync(It.IsAny<StringComparer>()))
-            .ReturnsAsync(new HashSet<string> { trackedFile });
+        var knownPaths = new HashSet<string> { trackedFile };
         _tagHandler.Setup(t => t.ParseAudiobook(It.Is<FileInfo>(f => f.FullName == newFile), It.IsAny<bool>()))
             .Returns(MakeParsedAudiobook(newFile));
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary((_, __, ___) => Task.CompletedTask);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), knownPaths, (_, __, ___) => Task.CompletedTask);
 
         Assert.AreEqual(2, totalFiles);
         Assert.AreEqual(1, newFiles);
@@ -159,11 +150,11 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_NonAudioFile_IsIgnoredEntirely()
+    public async Task ScanFilesAsync_NonAudioFile_IsIgnoredEntirely()
     {
         await File.WriteAllTextAsync(Path.Combine(_libraryPath, "notes.txt"), "not audio");
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary((_, __, ___) => Task.CompletedTask);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), (_, __, ___) => Task.CompletedTask);
 
         Assert.AreEqual(0, totalFiles);
         Assert.AreEqual(0, newFiles);
@@ -171,7 +162,7 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_ParseFailure_IsHandledGracefullyAndCountedAsNotNew()
+    public async Task ScanFilesAsync_ParseFailure_IsHandledGracefullyAndCountedAsNotNew()
     {
         var filePath = Path.Combine(_libraryPath, "corrupt.m4b");
         await File.WriteAllTextAsync(filePath, "fake audio");
@@ -186,7 +177,7 @@ public class LibraryScanServiceTests
             return Task.CompletedTask;
         };
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary(progressAction);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), progressAction);
 
         Assert.AreEqual(1, totalFiles);
         Assert.AreEqual(0, newFiles);
@@ -198,7 +189,7 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_MultipleFiles_ReportsFinalProgressAgainstFixedTotal()
+    public async Task ScanFilesAsync_MultipleFiles_ReportsFinalProgressAgainstFixedTotal()
     {
         var file1 = Path.Combine(_libraryPath, "a.m4b");
         var file2 = Path.Combine(_libraryPath, "b.m4b");
@@ -215,7 +206,7 @@ public class LibraryScanServiceTests
             return Task.CompletedTask;
         };
 
-        await _service.ScanLibrary(progressAction);
+        await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), progressAction);
 
         // Progress is broadcast every 25 files plus once at the end, so a two-file scan reports
         // exactly once - at completion, against the fixed total.
@@ -229,7 +220,7 @@ public class LibraryScanServiceTests
     // thousands the client throttles away unseen. Fails against the unbatched code, which
     // reported 60 times here.
     [TestMethod]
-    public async Task ScanLibrary_ManyFiles_DoesNotBroadcastProgressPerFile()
+    public async Task ScanFilesAsync_ManyFiles_DoesNotBroadcastProgressPerFile()
     {
         const int fileCount = 60;
         for (var i = 0; i < fileCount; i++)
@@ -247,7 +238,7 @@ public class LibraryScanServiceTests
             return Task.CompletedTask;
         };
 
-        var (totalFiles, newFiles, _) = await _service.ScanLibrary(progressAction);
+        var (totalFiles, newFiles, _) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), progressAction);
 
         Assert.AreEqual(fileCount, totalFiles);
         Assert.AreEqual(fileCount, newFiles);
@@ -261,7 +252,7 @@ public class LibraryScanServiceTests
     // audiobook at <the current file>" - blaming a file that parsed fine - and `pending` was
     // never cleared, so every subsequent batch retried the same rows and threw again.
     [TestMethod]
-    public async Task ScanLibrary_BatchInsertFails_KeepsScanningAndDoesNotRetryTheFailedRows()
+    public async Task ScanFilesAsync_BatchInsertFails_KeepsScanningAndDoesNotRetryTheFailedRows()
     {
         const int fileCount = 30;
         for (var i = 0; i < fileCount; i++)
@@ -278,7 +269,7 @@ public class LibraryScanServiceTests
             .Callback((IEnumerable<DiscoveredAudiobook> batch) => attemptedBatches.Add(batch.Count()))
             .ThrowsAsync(new InvalidOperationException("database is locked"));
 
-        var (totalFiles, _, _) = await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+        var (totalFiles, _, _) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), (_, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(fileCount, totalFiles, "the scan completes rather than aborting");
         // Exactly one attempt: the rows are dropped after it fails, not retried forever.
@@ -289,7 +280,7 @@ public class LibraryScanServiceTests
     // meant a first scan of a large library ran a transaction per book. Fails against the
     // unbatched code, which never called InsertRangeAsync at all.
     [TestMethod]
-    public async Task ScanLibrary_ManyFiles_InsertsInBatchesRatherThanOneTransactionPerFile()
+    public async Task ScanFilesAsync_ManyFiles_InsertsInBatchesRatherThanOneTransactionPerFile()
     {
         const int fileCount = 60;
         for (var i = 0; i < fileCount; i++)
@@ -306,7 +297,7 @@ public class LibraryScanServiceTests
             .Callback((IEnumerable<DiscoveredAudiobook> batch) => batchSizes.Add(batch.Count()))
             .Returns(Task.CompletedTask);
 
-        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+        await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), (_, _, _) => Task.CompletedTask);
 
         _discoveredAudiobookRepository.Verify(r => r.InsertAsync(It.IsAny<DiscoveredAudiobook>()), Times.Never);
         Assert.AreEqual(fileCount, batchSizes.Sum());
@@ -441,7 +432,7 @@ public class LibraryScanServiceTests
 
     // The other half of the same round trip: the scan has to record the tag in the first place.
     [TestMethod]
-    public async Task ScanLibrary_RecordsTheLanguageTagOnTheDiscoveredRow()
+    public async Task ScanFilesAsync_RecordsTheLanguageTagOnTheDiscoveredRow()
     {
         var filePath = Path.Combine(_libraryPath, "with-language.m4b");
         await File.WriteAllTextAsync(filePath, "fake audio");
@@ -456,7 +447,7 @@ public class LibraryScanServiceTests
             .Callback((IEnumerable<DiscoveredAudiobook> batch) => inserted.AddRange(batch))
             .Returns(Task.CompletedTask);
 
-        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+        await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), (_, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, inserted.Count);
         Assert.AreEqual("German", inserted[0].Language);
@@ -621,40 +612,22 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_RequestsTheKnownPathSetWithTheOsAwarePathComparer()
-    {
-        // Regression: the known-path set was built with the default (always case-sensitive)
-        // comparer, so on Windows/macOS a tracked book whose stored path differed only in case
-        // was re-reported as newly discovered on every scan - and could then be imported twice.
-        var filePath = Path.Combine(_libraryPath, "book.m4b");
-        await File.WriteAllTextAsync(filePath, "fake audio");
-
-        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
-            .Returns(MakeParsedAudiobook(filePath));
-
-        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
-
-        _audiobookRepository.Verify(
-            r => r.GetAllFilePathsAsync(AudiobookFileHandler.PathComparer),
-            Times.Once);
-    }
-
-    [TestMethod]
-    public async Task ScanLibrary_TrackedFileDifferingOnlyInCase_IsSkippedOnCaseInsensitiveFileSystems()
+    public async Task ScanFilesAsync_TrackedFileDifferingOnlyInCase_IsSkippedOnCaseInsensitiveFileSystems()
     {
         var filePath = Path.Combine(_libraryPath, "Known-Book.m4b");
         await File.WriteAllTextAsync(filePath, "fake audio");
 
-        // The DB records the same file under a different case, as it would after a rename.
+        // The DB records the same file under a different case, as it would after a rename. The
+        // orchestrator derives the known-path set with AudiobookFileHandler.PathComparer (the
+        // OS-aware comparer this used to request via GetAllFilePathsAsync); exercise the same set
+        // shape here.
         var storedPath = Path.Combine(_libraryPath, "known-book.m4b");
-        _audiobookRepository.Setup(r => r.GetAllFilePathsAsync(It.IsAny<StringComparer>()))
-            .ReturnsAsync((StringComparer? comparer) =>
-                new HashSet<string>(new[] { storedPath }, comparer ?? StringComparer.Ordinal));
+        var knownPaths = new HashSet<string>(new[] { storedPath }, AudiobookFileHandler.PathComparer);
 
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns(MakeParsedAudiobook(filePath));
 
-        var (totalFiles, newFiles, trackedFiles) = await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+        var (totalFiles, newFiles, trackedFiles) = await _service.ScanFilesAsync(SupportedFilesInLibrary(), knownPaths, (_, _, _) => Task.CompletedTask);
 
         Assert.AreEqual(1, totalFiles);
 
@@ -665,7 +638,7 @@ public class LibraryScanServiceTests
     }
 
     [TestMethod]
-    public async Task ScanLibrary_ParsesWithoutCoverData()
+    public async Task ScanFilesAsync_ParsesWithoutCoverData()
     {
         // The discovered row stores no cover, so base64-encoding a multi-megabyte picture per
         // file during a full library scan is pure waste.
@@ -675,7 +648,7 @@ public class LibraryScanServiceTests
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns(MakeParsedAudiobook(filePath));
 
-        await _service.ScanLibrary((_, _, _) => Task.CompletedTask);
+        await _service.ScanFilesAsync(SupportedFilesInLibrary(), EmptyKnownPaths(), (_, _, _) => Task.CompletedTask);
 
         _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), false), Times.Once);
         _tagHandler.Verify(t => t.ParseAudiobook(It.IsAny<FileInfo>(), true), Times.Never);

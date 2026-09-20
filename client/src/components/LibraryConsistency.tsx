@@ -4,7 +4,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ShieldAlert,
-  Play,
+  Scan,
   CheckCircle2,
   AlertTriangle,
   FolderX,
@@ -34,6 +34,7 @@ import { consistencyApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { useStartLibraryScan } from "@/hooks/useStartLibraryScan";
 import { handleApiError } from "@/lib/api";
 import {
   getIssueTypeLabel,
@@ -187,29 +188,29 @@ export function LibraryConsistency() {
     },
   );
 
-  // Recover from a missed check (started elsewhere, or events missed while disconnected) on
+  // Recover from a missed scan (started elsewhere, or events missed while disconnected) on
   // mount and after a SignalR reconnect, rather than looking idle while one is still running.
-  const invalidateConsistencyCheck = useOperationResync(
-    OperationKeys.consistencyCheck,
-    (status) => {
-      if (status.isRunning) {
-        setChecking(true);
-        setCheckProgress(
-          (prev) =>
-            prev ?? {
-              message: "Resuming check...",
-              booksChecked: status.processed,
-              totalBooks: status.total,
-              issuesFound: 0,
-              scope: "library",
-            },
-        );
-      } else {
-        setChecking(false);
-        setCheckProgress(null);
-      }
-    },
-  );
+  // The combined scan runs under the library-scan operation key, so this page resyncs on that
+  // same key as the Discovered Audiobooks page - there is no consistency-check operation to
+  // poll anymore.
+  const invalidateConsistencyCheck = useOperationResync(OperationKeys.libraryScan, (status) => {
+    if (status.isRunning) {
+      setChecking(true);
+      setCheckProgress(
+        (prev) =>
+          prev ?? {
+            message: "Resuming check...",
+            booksChecked: status.processed,
+            totalBooks: status.total,
+            issuesFound: 0,
+            scope: "library",
+          },
+      );
+    } else {
+      setChecking(false);
+      setCheckProgress(null);
+    }
+  });
 
   useSignalREvent<ProgressPayload>(SignalREvents.ConsistencyCheckProgress, (data) => {
     if (data.scope !== "library") return;
@@ -246,14 +247,20 @@ export function LibraryConsistency() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
   });
 
-  const handleStartCheck = async () => {
+  // The combined "Scan Library" run is triggered through the same shared hook as the Discovered
+  // Audiobooks page (POST /api/library/scan discovers files AND runs the consistency check), so
+  // the two pages cannot drift: same endpoint, same toasts. The failure path re-throws after the
+  // hook's error toast so the optimistic busy state set here is unwound, keeping the button from
+  // sticking on "Scanning Library..." when the server refused the start (e.g. 409 while another
+  // run is in progress).
+  const { startScan: startLibraryScan, isStarting } = useStartLibraryScan();
+
+  const handleStartScan = async () => {
     setChecking(true);
     setCheckCompleteResult(null);
     try {
-      await consistencyApi.startCheck();
-      notifications.success("Consistency check started in background");
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
+      await startLibraryScan();
+    } catch {
       setChecking(false);
     }
   };
@@ -426,12 +433,12 @@ export function LibraryConsistency() {
         <Button
           variant="default"
           onClick={() => {
-            void handleStartCheck();
+            void handleStartScan();
           }}
-          disabled={checking}
+          disabled={checking || isStarting}
         >
-          <Play className={`mr-2 h-4 w-4 ${checking ? "animate-spin" : ""}`} />
-          {checking ? "Running Check..." : "Run Consistency Check"}
+          <Scan className={`mr-2 h-4 w-4 ${checking || isStarting ? "animate-spin" : ""}`} />
+          {checking ? "Scanning Library..." : "Scan Library"}
         </Button>
       </div>
 
@@ -441,18 +448,25 @@ export function LibraryConsistency() {
           Library Consistency
         </h1>
         <p className="text-muted-foreground text-sm">
-          Verifies that every book in the library has the correct file path, sidecar metadata files
-          (desc.txt, reader.txt), and a cover image, and detects leftover orphaned folders.
+          Scan Library discovers new audiobook files in the library directory and then verifies that
+          every book in the library has the correct file path, sidecar metadata files (desc.txt,
+          reader.txt), and a cover image, and detects leftover orphaned folders.
         </p>
       </div>
 
-      {checking && checkProgress && (
-        <OperationProgressBar
-          processed={checkProgress.booksChecked}
-          total={checkProgress.totalBooks}
-          label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
-        />
-      )}
+      {checking &&
+        (checkProgress ? (
+          <OperationProgressBar
+            processed={checkProgress.booksChecked}
+            total={checkProgress.totalBooks}
+            label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
+          />
+        ) : (
+          <div className="text-muted-foreground flex items-center gap-2 text-xs">
+            <Loader2 className="text-primary h-4 w-4 animate-spin" />
+            <span>Discovering new files...</span>
+          </div>
+        ))}
 
       {bulkResolving && resolveProgress && (
         <OperationProgressBar

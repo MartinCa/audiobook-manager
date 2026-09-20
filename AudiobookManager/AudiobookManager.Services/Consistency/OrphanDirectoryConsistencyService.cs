@@ -28,14 +28,23 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
 
     public Task ClearAllAsync() => _orphanDirectoryRepository.ClearAllAsync();
 
-    public async Task<int> ScanAsync(Func<string, int, int, int, Task> progressAction, int totalBooks, int issuesFound)
+    public async Task<int> ScanAsync(
+        Func<string, int, int, int, Task> progressAction,
+        int totalBooks,
+        int issuesFound,
+        IReadOnlyList<LibraryDirectory> directories)
     {
         if (!Directory.Exists(_settings.AudiobookLibraryPath))
         {
             return issuesFound;
         }
 
-        // A single recursive enumeration, walked deepest-first.
+        // A single directory walk, sorted deepest-first.
+        //
+        // The walk itself happened once, up front in the combined scan, and every directory
+        // carries the facts this sweep would otherwise have to re-enumerate per directory:
+        // whether it directly holds a supported file, its immediate children, and whether any
+        // child is a link. One walk, one stat per file, for both the scan and this sweep.
         //
         // Checking only leaf directories (which this used to do) meant a deleted series was
         // cleaned up one level per run: the check flagged "Author/Series/Book", resolving it
@@ -47,13 +56,16 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         // rather than by re-walking the subtree, so every file in the library is stat'ed once for
         // the whole sweep. Asking Directory.EnumerateFiles(dir, "*", AllDirectories) per directory
         // would re-walk each file once per ancestor level.
-        // DirectoryWalk rather than SearchOption.AllDirectories: that option deliberately includes
-        // reparse points, and a symlink pointing back at an ancestor makes the enumeration itself
-        // never terminate. Symlinked media directories are ordinary on a NAS library assembled
-        // from several shares.
-        var allDirectories = DirectoryWalk
-            .EnumerateDirectoriesRecursively(_settings.AudiobookLibraryPath)
-            .OrderByDescending(directory => directory.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
+        //
+        // These directory facts are a snapshot from the walk's point in time, which ran before the
+        // per-book consistency loop. A file copied into the library during that window is not in
+        // this walk, so its directory can be reported as an orphan until the next run. That is
+        // staleness, not data loss: resolving re-enumerates the directory from disk and refuses to
+        // delete anything but this app's own sidecars (see DeleteOrphanDirectoryFromDisk), so a
+        // just-arrived book is preserved and the next check reports the directory correctly.
+        var allDirectories = directories
+            .OrderByDescending(directory => directory.Path.Count(
+                c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
             .ToList();
 
         // Directories that must not be reclaimed - because they hold audio, or because something
@@ -65,8 +77,6 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
 
         foreach (var directory in allDirectories)
         {
-            var subdirectories = Directory.EnumerateDirectories(directory).ToList();
-
             // Three separate reasons to keep a directory, and only the first is about audio: it
             // holds a supported file, a child of it is already being kept, or a child is a symlink.
             //
@@ -75,20 +85,20 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
             // answer would otherwise read as "no audio under there", which is the one reading that
             // ends in a recursive delete of a folder whose contents were never examined.
             var mustKeepDirectory =
-                Directory.EnumerateFiles(directory).Any(file => AudiobookTagHandler.IsSupported(new FileInfo(file)))
-                || subdirectories.Any(mustKeep.Contains)
-                || subdirectories.Any(DirectoryWalk.IsLink);
+                directory.HasSupportedAudioFile
+                || directory.Subdirectories.Any(mustKeep.Contains)
+                || directory.HasLinkSubdirectory;
 
             if (mustKeepDirectory)
             {
-                mustKeep.Add(directory);
+                mustKeep.Add(directory.Path);
                 continue;
             }
 
             // Nothing under here is audio, so the whole subtree is reclaimable. Report only this
             // directory: deleting it removes the children anyway, and listing both would make the
             // user resolve the same folder twice.
-            foreach (var subdirectory in subdirectories)
+            foreach (var subdirectory in directory.Subdirectories)
             {
                 if (orphansByPath.Remove(subdirectory, out var superseded))
                 {
@@ -99,11 +109,11 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
 
             var orphan = new OrphanDirectory
             {
-                DirectoryPath = directory,
+                DirectoryPath = directory.Path,
                 DetectedAt = DateTime.UtcNow
             };
             orphans.Add(orphan);
-            orphansByPath[directory] = orphan;
+            orphansByPath[directory.Path] = orphan;
             issuesFound++;
         }
 

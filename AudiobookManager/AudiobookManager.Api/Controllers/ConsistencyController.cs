@@ -14,10 +14,13 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class ConsistencyController : ControllerBase
 {
-    private static readonly SemaphoreSlim _checkLock = new(1, 1);
+    // A full-library consistency check is the second half of the combined library scan (one
+    // background operation), so the check endpoint must exclude and be excluded by the scan:
+    // both rewrite the same issue/orphan tables and read the same files. check-selected shares
+    // the same gate for the same reason, on its way to becoming part of the combined run.
+    private static readonly SemaphoreSlim _checkLock = BackgroundOperationGates.LibraryScanAndConsistency;
     private static readonly SemaphoreSlim _resolveLock = new(1, 1);
 
-    public const string OperationKey = "consistency-check";
     public const string ResolveOperationKey = "consistency-resolve";
     public const string CheckSelectedOperationKey = "consistency-check-selected";
 
@@ -50,61 +53,13 @@ public class ConsistencyController : ControllerBase
         _logger = logger;
     }
 
-    [HttpPost("check")]
-    public IActionResult StartConsistencyCheck()
-    {
-        // Asked here, before the operation is handed to BackgroundOperationRunner, because that
-        // path is fire-and-forget: an exception thrown inside the work is logged and reported to
-        // the client as ConsistencyCheckComplete(0, 0), which reads as "your library is fine" -
-        // the opposite of what a missing library means. LibraryConsistencyService re-checks this
-        // itself and is the actual guard; this is what makes the refusal legible.
-        if (!SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
-        {
-            _logger.LogWarning(
-                "Refused consistency check: library directory '{LibraryPath}' is not available",
-                _settings.AudiobookLibraryPath);
-
-            return this.ConflictingState(
-                $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
-                + "would look missing. This is normally a volume mount - check it is mounted and readable "
-                + "by the user this application runs as, then run the check again.",
-                "Library unavailable");
-        }
-
-        return BackgroundOperationRunner.Start(
-            _checkLock,
-            _serviceScopeFactory,
-            _logger,
-            _statusRegistry,
-            OperationKey,
-            async sp =>
-            {
-                var consistencyService = sp.GetRequiredService<ILibraryConsistencyService>();
-
-                Task ProgressAction(string message, int booksChecked, int totalBooks, int issuesFound)
-                {
-                    _statusRegistry.SetProgress(OperationKey, booksChecked, totalBooks);
-                    return _organizeHub.Clients.All.ConsistencyCheckProgress(
-                        new ConsistencyCheckProgress(message, booksChecked, totalBooks, issuesFound, ConsistencyCheckScope.Library));
-                }
-
-                var (booksChecked, issuesFound) = await consistencyService.RunConsistencyCheck(ProgressAction);
-
-                await _organizeHub.Clients.All.ConsistencyCheckComplete(
-                    new ConsistencyCheckComplete(booksChecked, issuesFound, ConsistencyCheckScope.Library));
-            },
-            () => _organizeHub.Clients.All.ConsistencyCheckComplete(
-                new ConsistencyCheckComplete(0, 0, ConsistencyCheckScope.Library)),
-            _appLifetime.ApplicationStopping);
-    }
-
     /// <summary>
     /// Re-checks only the explicitly selected books, reusing the full check's progress/complete
-    /// events so the client has one consistency-check surface to render. Shares the full check's
-    /// <c>_checkLock</c> on purpose (they rewrite the same issue rows and read the same files), and
-    /// applies the same library-availability refusal, for the same reason
-    /// <see cref="StartConsistencyCheck"/> does: a missing library is the one refusal a user must
-    /// see synchronously, not as a zeroed completion event.
+    /// events so the client has one consistency-check surface to render. Shares the combined
+    /// scan-and-consistency gate on purpose (they rewrite the same issue rows and read the same
+    /// files), and applies the same library-availability refusal, for the same reason the library
+    /// scan does: a missing library is the one refusal a user must see synchronously, not as a
+    /// zeroed completion event.
     /// </summary>
     [HttpPost("check-selected")]
     public IActionResult StartSelectedConsistencyCheck([FromBody] BulkSelectionDto? dto)
@@ -122,9 +77,7 @@ public class ConsistencyController : ControllerBase
                 _settings.AudiobookLibraryPath);
 
             return this.ConflictingState(
-                $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book "
-                + "would look missing. This is normally a volume mount - check it is mounted and readable "
-                + "by the user this application runs as, then run the check again.",
+                LibraryAvailability.UnavailableMessage(_settings),
                 "Library unavailable");
         }
 

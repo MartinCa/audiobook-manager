@@ -3,11 +3,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LibraryConsistency } from "./LibraryConsistency";
 import { SignalRContext } from "@/context/SignalRContext";
-import { SignalREvents } from "@/constants/signalrEvents";
+import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { PAGE_SIZE } from "@/constants/paging";
 import type * as ApiModule from "@/services/api";
-import { consistencyApi } from "@/services/api";
+import { consistencyApi, libraryApi, operationsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { ApiError } from "@/lib/api";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { notifications } from "@/lib/notifications";
 
@@ -95,18 +96,74 @@ const tagMismatchPayload = (field: string, value: string) => JSON.stringify([{ f
 describe("LibraryConsistency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The mount-time resync polls the operation registry for the library-scan (and resolve) keys.
+    // Stub it idle here so every test starts with the page idle: vitest keeps a spy's
+    // implementation across tests in a file (clearAllMocks only clears call history), so without
+    // this a test that leaves a busy getStatus stub would poison every later test's mount resync.
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+    });
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
   });
 
-  it("renders run check button and consistency header", async () => {
+  it("renders the Scan Library trigger button and consistency header", async () => {
     mockPagedIssues([]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
 
     renderWithProviders(<LibraryConsistency />);
-    expect(await screen.findByText("Run Consistency Check")).toBeInTheDocument();
+    expect(await screen.findByText("Scan Library")).toBeInTheDocument();
     expect(screen.getByText("Library Consistency")).toBeInTheDocument();
+  });
+
+  it("starts the combined library scan through the shared trigger and toasts its result", async () => {
+    mockPagedIssues([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(libraryApi, "startScan").mockResolvedValue(undefined);
+
+    renderWithProviders(<LibraryConsistency />);
+
+    const scanButton = await screen.findByRole("button", { name: "Scan Library" });
+    fireEvent.click(scanButton);
+
+    await waitFor(() => {
+      expect(libraryApi.startScan).toHaveBeenCalledTimes(1);
+    });
+    // Through the (often long) discovery phase there is no ConsistencyCheckProgress yet, so the
+    // page shows a placeholder rather than an empty gap under the spinning button.
+    expect(await screen.findByText("Discovering new files...")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Library scan started in background");
+    });
+  });
+
+  it("surfaces the problem-detail message and unwinds the busy state when a scan start is refused", async () => {
+    mockPagedIssues([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(libraryApi, "startScan").mockRejectedValue(
+      new ApiError(409, {
+        title: "Library unavailable",
+        status: 409,
+        detail:
+          "The library directory '/media/audiobooks' is not available, so every book would look missing.",
+      }),
+    );
+
+    renderWithProviders(<LibraryConsistency />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Scan Library" }));
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith(
+        "The library directory '/media/audiobooks' is not available, so every book would look missing.",
+      );
+    });
+    // The optimistic busy state is unwound, so the button is back to a usable state - no events
+    // will ever arrive to clear a stale "Scanning Library..." on a refused start.
+    expect(screen.getByRole("button", { name: "Scan Library" })).toBeEnabled();
   });
 
   it("shows info toast when orphan directory resolution retains directory because it is not empty", async () => {
@@ -542,6 +599,76 @@ describe("LibraryConsistency", () => {
     expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeEnabled();
   });
 
+  // The combined scan runs under the library-scan operation key - the page must resync on that
+  // same key the Discovered Audiobooks page polls, not a (now deleted) consistency-check one.
+  it("recovers an in-flight combined scan through the library-scan operation key", async () => {
+    mockPagedIssues([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(operationsApi, "getStatus").mockResolvedValue({
+      isRunning: true,
+      processed: 40,
+      total: 100,
+    });
+
+    renderWithProviders(<LibraryConsistency />);
+
+    await waitFor(() => {
+      expect(operationsApi.getStatus).toHaveBeenCalledWith(OperationKeys.libraryScan);
+    });
+    // The restored busy state disables the trigger and shows the resuming progress bar; no
+    // completion event was seen, so no toast and no result banner.
+    expect(await screen.findByText("Scanning Library...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scanning Library..." })).toBeDisabled();
+    expect(await screen.findByText("Resuming check... (0 issues found)")).toBeInTheDocument();
+    expect(screen.queryByText(/Check complete:/)).not.toBeInTheDocument();
+    expect(notifications.success).not.toHaveBeenCalled();
+  });
+
+  // The combined run still emits ConsistencyCheckProgress/Complete with scope "library" for this
+  // page (after the discovery phase), so the page keeps driving its progress UI off them.
+  it("shows progress and toasts completion for library-scope consistency events", async () => {
+    mockPagedIssues([]);
+    vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    vi.spyOn(libraryApi, "startScan").mockResolvedValue(undefined);
+
+    renderWithProviders(<LibraryConsistency />);
+    await screen.findByRole("button", { name: "Scan Library" });
+
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+
+    handlerFor(SignalREvents.ConsistencyCheckProgress)({
+      message: "Checking consistency",
+      booksChecked: 30,
+      totalBooks: 100,
+      issuesFound: 3,
+      scope: "library",
+    } as never);
+
+    expect(await screen.findByText("Checking consistency (3 issues found)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scanning Library..." })).toBeDisabled();
+
+    handlerFor(SignalREvents.ConsistencyCheckComplete)({
+      totalBooksChecked: 100,
+      totalIssuesFound: 3,
+      scope: "library",
+    } as never);
+
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith(
+        "Check complete: 100 books checked, 3 issues found",
+      );
+    });
+    expect(screen.queryByText(/Checking consistency/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan Library" })).toBeEnabled();
+    expect(
+      screen.getByText("Check complete: 100 books checked, 3 issues found."),
+    ).toBeInTheDocument();
+  });
+
   // The selection bar's re-check (consistency-check-selected) broadcasts the same
   // ConsistencyCheckProgress/Complete events as the full library check. The full-check page must
   // ignore the selected-scope events, or a live few-books re-check would spin up the full check's
@@ -551,7 +678,7 @@ describe("LibraryConsistency", () => {
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
 
     renderWithProviders(<LibraryConsistency />);
-    expect(await screen.findByText("Run Consistency Check")).toBeInTheDocument();
+    expect(await screen.findByText("Scan Library")).toBeInTheDocument();
 
     const handlerFor = (event: string) => {
       const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
@@ -568,8 +695,8 @@ describe("LibraryConsistency", () => {
     } as never);
 
     // The selected run must not drive the full page: no progress state, button stays idle.
-    expect(screen.queryByRole("button", { name: "Running Check..." })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run Consistency Check" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Scanning Library..." })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan Library" })).toBeEnabled();
     expect(
       screen.queryByText("Re-checking selected books (1 issues found)"),
     ).not.toBeInTheDocument();

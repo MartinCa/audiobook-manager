@@ -314,8 +314,6 @@ export const libraryApi = {
 
 // Consistency
 export const consistencyApi = {
-  startCheck: () => api.post<void>("/consistency/check"),
-
   // Paged server-side. The unpaged version of this returned every issue with every field
   // inline, and ExpectedValue/ActualValue hold whole metadata.opf documents and whole
   // description bodies - megabytes of JSON to render fifty rows.

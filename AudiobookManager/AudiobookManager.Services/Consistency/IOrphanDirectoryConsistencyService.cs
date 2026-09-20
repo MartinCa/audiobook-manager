@@ -18,11 +18,18 @@ public interface IOrphanDirectoryConsistencyService
     Task ClearAllAsync();
 
     /// <summary>
-    /// Re-walks the whole library for orphaned directories, inserting the findings and reporting
-    /// one final progress update. Returns <paramref name="issuesFound"/> plus whatever this sweep
-    /// found, for the caller to fold into its own running total.
+    /// Sorts the caller-supplied library directory walk deepest-first and finds the reclaimable
+    /// folders, inserting the findings and reporting one final progress update. Returns
+    /// <paramref name="issuesFound"/> plus whatever this sweep found, for the caller to fold into
+    /// its own running total. The walk itself is done once by the combined scan's
+    /// <see cref="AudiobookManager.FileManager.LibraryTreeWalker"/> and handed in, so the sweep
+    /// does not re-walk the library.
     /// </summary>
-    Task<int> ScanAsync(Func<string, int, int, int, Task> progressAction, int totalBooks, int issuesFound);
+    Task<int> ScanAsync(
+        Func<string, int, int, int, Task> progressAction,
+        int totalBooks,
+        int issuesFound,
+        IReadOnlyList<AudiobookManager.FileManager.LibraryDirectory> directories);
 
     Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId);
 

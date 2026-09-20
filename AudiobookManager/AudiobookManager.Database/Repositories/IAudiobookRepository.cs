@@ -5,7 +5,6 @@ namespace AudiobookManager.Database.Repositories;
 public interface IAudiobookRepository
 {
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
-    Task<HashSet<string>> GetAllFilePathsAsync(StringComparer? comparer = null);
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
     Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null);
     Task<int> CountAsync();

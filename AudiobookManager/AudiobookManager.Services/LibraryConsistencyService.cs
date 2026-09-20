@@ -75,7 +75,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         }
     }
 
-    public async Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction)
+    public async Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(
+        Func<string, int, int, int, Task> progressAction,
+        ConsistencyCheckInput input)
     {
         _logger.LogInformation("Starting library consistency check");
 
@@ -85,7 +87,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // MissingMediaFile, which the bulk resolve then turns into deleting every record. Refusing
         // here also protects the previous run's findings, which the clears below would otherwise
         // have destroyed on the way to producing that.
-        EnsureLibraryAvailable();
+        LibraryAvailability.EnsureUsable(_settings);
 
         // Both tables are cleared up front, before any work starts: if detection or an insert
         // fails partway through the loop below, the issue and orphan-directory lists must not be
@@ -94,7 +96,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await _issueRepository.ClearAllAsync();
         await _orphanDirectoryConsistencyService.ClearAllAsync();
 
-        var audiobooks = await _audiobookRepository.GetAllWithIncludesAsync();
+        // The caller loaded the graph once (so the scan's known-path derivation and this check
+        // share it); the check reuses that load rather than repeating it.
+        var audiobooks = input.Audiobooks;
         var totalBooks = audiobooks.Count;
         var booksChecked = 0;
         var issuesFound = 0;
@@ -158,7 +162,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         }
         issuesFound += partMismatchIssues.Count;
 
-        issuesFound = await _orphanDirectoryConsistencyService.ScanAsync(progressAction, totalBooks, issuesFound);
+        issuesFound = await _orphanDirectoryConsistencyService.ScanAsync(
+            progressAction, totalBooks, issuesFound, input.Directories);
 
         _logger.LogInformation("Consistency check complete. Books: {Total}, Issues: {Issues}", totalBooks, issuesFound);
 
@@ -420,25 +425,6 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     }
 
     /// <summary>
-    /// Refuses to proceed when the configured library directory is not there. Startup validation
-    /// (<see cref="SettingsValidation.EnsureRequiredPathsAreUsable"/>) answers this once; a mount
-    /// can disappear afterwards, and every caller whose behaviour on a missing library is
-    /// destructive has to ask again at the point of use.
-    /// </summary>
-    private void EnsureLibraryAvailable()
-    {
-        if (SettingsValidation.IsDirectoryUsable(_settings.AudiobookLibraryPath))
-        {
-            return;
-        }
-
-        throw new LibraryUnavailableException(
-            $"The library directory '{_settings.AudiobookLibraryPath}' is not available, so every book would "
-            + "look missing. This is normally a volume mount - check it is mounted and readable by the user "
-            + "this application runs as, then run the check again.");
-    }
-
-    /// <summary>
     /// Refuses a library-wide "resolve every MissingMediaFile" when the missing files account for
     /// an implausible share of the library.
     ///
@@ -451,7 +437,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// </summary>
     private async Task EnsureMissingMediaFileSweepIsPlausibleAsync(int missingBookCount)
     {
-        EnsureLibraryAvailable();
+        LibraryAvailability.EnsureUsable(_settings);
 
         if (missingBookCount == 0)
         {

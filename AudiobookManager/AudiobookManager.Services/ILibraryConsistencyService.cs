@@ -4,7 +4,16 @@ namespace AudiobookManager.Services;
 
 public interface ILibraryConsistencyService
 {
-    Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(Func<string, int, int, int, Task> progressAction);
+    /// <summary>
+    /// Runs the full-library consistency check against inputs the caller already loaded: the
+    /// tracked audiobook graph (<see cref="ConsistencyCheckInput.Audiobooks"/>) and the library
+    /// directory walk the orphan sweep used to do for itself
+    /// (<see cref="ConsistencyCheckInput.Directories"/>). Backed by
+    /// <see cref="ILibraryScanOrchestrator"/>'s single graph load / single walk.
+    /// </summary>
+    Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(
+        Func<string, int, int, int, Task> progressAction,
+        ConsistencyCheckInput input);
     Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId);
 
     /// <summary>
