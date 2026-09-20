@@ -244,6 +244,26 @@ describe("ExpectedBookList", () => {
     expect(onPageChange).toHaveBeenCalledWith(0);
   });
 
+  // Regression for the review finding: the ignored total is the SECTION's own true total (the
+  // caller now passes the per-classification ignored count), and the loaded page is already
+  // pre-split to that classification - so the overflow note must be sized from that section
+  // total, never a scope-wide combined count the section's rows cannot reach.
+  it("sizes the overflow note from the caller's per-section ignored total, not a combined count", () => {
+    renderList({
+      section: "missing",
+      items: [row({ id: 1 })],
+      // The server pre-split this section's page: every loaded row classifies as Missing.
+      ignoredItems: Array.from({ length: 10 }, (_, i) =>
+        row({ id: 300 + i, title: `Ignored ${i}`, isIgnored: true, year: 2000 }),
+      ),
+      ignoredTotal: 18,
+      showIgnored: true,
+    });
+
+    expect(screen.getByText("and 8 more ignored books...")).toBeInTheDocument();
+    expect(screen.queryByText(/and 28 more ignored books/)).not.toBeInTheDocument();
+  });
+
   it("keeps the static overflow note when no pager is wired (author detail)", () => {
     renderList({
       items: [row({ id: 1 })],

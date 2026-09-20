@@ -140,8 +140,37 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
             return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false);
         }
 
+        // ONE batched read serves every rostered author's owned keys instead of one query per
+        // author - hundreds of matched authors used to mean that many sequential round trips per
+        // page load of the authors list (the N+1 the pre-PR batched call avoided). The bound is
+        // the largest total that still guarantees every requested author's keys below it are
+        // COMPLETE: person count times the per-author cap plus one. Under it, the per-author cap
+        // checked in the loop below is exact (an author past MaxReconciliationOwnedKeys is skipped
+        // exactly like the detail view refuses it); an overflow means the flat bound cut some
+        // author's keys mid-list, so a prefix cannot be trusted for ANY author and the filter is
+        // refused rather than classifying from a short list.
+        var groups = refs.GroupBy(r => r.PersonId).ToList();
+        // Authors past the roster cap are skipped below before classification, so their owned
+        // keys would only spend the batched read's budget on a row the loop ignores.
+        var personIdsForOwnedKeys = groups
+            .Where(g => g.Count() <= MaxReconciliationRosterEntries)
+            .Select(g => g.Key)
+            .ToList();
+        var totalKeyCap = (int)Math.Min(
+            (long)personIdsForOwnedKeys.Count * (MaxReconciliationOwnedKeys + 1),
+            int.MaxValue);
+        var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetOwnedKeysByAuthorsAsync(
+            personIdsForOwnedKeys, totalKeyCap);
+        if (ownedOverflow)
+        {
+            return new AuthorBulkReconciliationResult(new HashSet<long>(), new HashSet<long>(), Refused: true);
+        }
+
+        var ownedKeysByAuthor = ownedKeys
+            .GroupBy(k => k.PersonId)
+            .ToDictionary(g => g.Key, g => g.Select(k => k.Key).ToList());
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        foreach (var group in refs.GroupBy(r => r.PersonId))
+        foreach (var group in groups)
         {
             // Same matching and Missing-vs-Upcoming classification (SeriesRosterMatcher +
             // ExpectedBookClassifier) as GetReconciliationAsync, just batched across every author
@@ -158,16 +187,14 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
                 continue;
             }
 
-            var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetOwnedKeysByAuthorAsync(
-                group.Key, MaxReconciliationOwnedKeys);
-            if (ownedOverflow)
+            var authorKeys = ownedKeysByAuthor.GetValueOrDefault(group.Key, new List<SeriesOwnedKey>());
+            if (authorKeys.Count > MaxReconciliationOwnedKeys)
             {
                 continue;
             }
 
-            var ownedIndex = new AuthorOwnedIndex(ownedKeys);
-            var bookRefs = group.ToList();
-            foreach (var bookRef in bookRefs)
+            var ownedIndex = new AuthorOwnedIndex(authorKeys);
+            foreach (var bookRef in entries)
             {
                 if (IsOwned(MatchKey.From(bookRef), ownedIndex))
                 {

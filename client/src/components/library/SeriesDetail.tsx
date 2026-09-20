@@ -153,16 +153,19 @@ export function SeriesDetail() {
 
   // Each section pages server-side: a matched series with a large roster (or a book-heavy
   // series) used to send every owned and expected book over the wire and into the DOM at once.
-  // Each section has its own page state so paging one doesn't disturb the others.
+  // Each section has its own page state so paging one doesn't disturb the others - including the
+  // two ignored sub-lists, which page their own classification independently (the review finding:
+  // the shared ignored cursor used to advance BOTH sections' pagers at once).
   const [ownedPage, setOwnedPage] = useState(0);
   const [missingPage, setMissingPage] = useState(0);
-  const [ignoredPage, setIgnoredPage] = useState(0);
+  const [ignoredMissingPage, setIgnoredMissingPage] = useState(0);
+  const [ignoredUpcomingPage, setIgnoredUpcomingPage] = useState(0);
   const [partMismatchPage, setPartMismatchPage] = useState(0);
   const [upcomingPage, setUpcomingPage] = useState(0);
   const [fixingMismatchId, setFixingMismatchId] = useState<number | null>(null);
 
   // One combined detail query instead of three: the endpoint already computes every section on
-  // each call and accepts all three page cursors, so separate queries made every section change
+  // each call and accepts all the page cursors, so separate queries made every section change
   // issue an extra backend call whose other sections (computed with default paging) were thrown
   // away. keepPreviousData keeps the other sections' items rendered while one section pages.
   const seriesDetailQuery = useQuery({
@@ -171,9 +174,10 @@ export function SeriesDetail() {
       authorId,
       ownedPage,
       missingPage,
-      ignoredPage,
+      ignoredMissingPage,
       partMismatchPage,
       upcomingPage,
+      ignoredUpcomingPage,
     ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
@@ -181,8 +185,10 @@ export function SeriesDetail() {
         ownedPageSize: PAGE_SIZE,
         missingPage,
         missingPageSize: PAGE_SIZE,
-        ignoredPage,
-        ignoredPageSize: PAGE_SIZE,
+        ignoredMissingPage,
+        ignoredMissingPageSize: PAGE_SIZE,
+        ignoredUpcomingPage,
+        ignoredUpcomingPageSize: PAGE_SIZE,
         partMismatchPage,
         partMismatchPageSize: PAGE_SIZE,
         upcomingPage,
@@ -212,7 +218,11 @@ export function SeriesDetail() {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
-  const ignoredSection = seriesDetailQuery.data?.ignoredBooks ?? {
+  const ignoredMissingSection = seriesDetailQuery.data?.ignoredMissingBooks ?? {
+    items: [] as SeriesExpectedBook[],
+    totalCount: 0,
+  };
+  const ignoredUpcomingSection = seriesDetailQuery.data?.ignoredUpcomingBooks ?? {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
@@ -226,7 +236,14 @@ export function SeriesDetail() {
   };
   const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
   const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
-  const ignoredPageCount = Math.max(1, Math.ceil(ignoredSection.totalCount / PAGE_SIZE));
+  const ignoredMissingPageCount = Math.max(
+    1,
+    Math.ceil(ignoredMissingSection.totalCount / PAGE_SIZE),
+  );
+  const ignoredUpcomingPageCount = Math.max(
+    1,
+    Math.ceil(ignoredUpcomingSection.totalCount / PAGE_SIZE),
+  );
   const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / PAGE_SIZE));
   const upcomingPageCount = Math.max(1, Math.ceil(upcomingSection.totalCount / PAGE_SIZE));
 
@@ -234,7 +251,8 @@ export function SeriesDetail() {
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
-  const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
+  const currentIgnoredMissingPage = Math.min(ignoredMissingPage, ignoredMissingPageCount - 1);
+  const currentIgnoredUpcomingPage = Math.min(ignoredUpcomingPage, ignoredUpcomingPageCount - 1);
   const currentPartMismatchPage = Math.min(partMismatchPage, partMismatchPageCount - 1);
   const currentUpcomingPage = Math.min(upcomingPage, upcomingPageCount - 1);
 
@@ -243,7 +261,8 @@ export function SeriesDetail() {
   // fetch - not just the display - lands on a valid page.
   useClampedPage(ownedPage, ownedPageCount, setOwnedPage);
   useClampedPage(missingPage, missingPageCount, setMissingPage);
-  useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
+  useClampedPage(ignoredMissingPage, ignoredMissingPageCount, setIgnoredMissingPage);
+  useClampedPage(ignoredUpcomingPage, ignoredUpcomingPageCount, setIgnoredUpcomingPage);
   useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
   useClampedPage(upcomingPage, upcomingPageCount, setUpcomingPage);
 
@@ -375,8 +394,11 @@ export function SeriesDetail() {
       } else {
         await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
         notifications.success(`Unignored "${book.title || "book"}"`);
-        // Unignoring moves a book out of the ignored list; same drop for the ignored section.
-        setIgnoredPage(0);
+        // Unignoring moves a book out of the ignored list - but which classification it came from
+        // depends on the book's release date, so drop both ignored sections' cursors back to 0
+        // (an already-in-range cursor is a no-op for the clamped refetch).
+        setIgnoredMissingPage(0);
+        setIgnoredUpcomingPage(0);
       }
       void queryClient.invalidateQueries({
         queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
@@ -594,9 +616,14 @@ export function SeriesDetail() {
   const ownedBooks = ownedSection.items as SeriesOwnedBook[];
   const ownedManagedBooks = ownedBooks.map(toManagedBook);
   const missingBooks = missingSection.items as SeriesExpectedBook[];
-  const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
+  const ignoredMissingBooks = ignoredMissingSection.items as SeriesExpectedBook[];
+  const ignoredUpcomingBooks = ignoredUpcomingSection.items as SeriesExpectedBook[];
   const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
   const upcomingBooks = upcomingSection.items as SeriesExpectedBook[];
+
+  // The two classification lists partition the scope's ignored rows, so their totals sum to the
+  // combined count the "show ignored" toggle label describes.
+  const ignoredTotal = ignoredMissingSection.totalCount + ignoredUpcomingSection.totalCount;
 
   return (
     <div className="space-y-6">
@@ -726,7 +753,7 @@ export function SeriesDetail() {
         )}
       </div>
 
-      {overview.isMatched && ignoredSection.totalCount > 0 && (
+      {overview.isMatched && ignoredTotal > 0 && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <Checkbox
             id="show-ignored-books"
@@ -737,7 +764,7 @@ export function SeriesDetail() {
             htmlFor="show-ignored-books"
             className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
           >
-            Show ignored books ({ignoredSection.totalCount})
+            Show ignored books ({ignoredTotal})
           </label>
         </div>
       )}
@@ -762,12 +789,12 @@ export function SeriesDetail() {
           <ExpectedBookList
             section="missing"
             items={missingBooks}
-            ignoredItems={ignoredBooks}
-            ignoredTotal={ignoredSection.totalCount}
+            ignoredItems={ignoredMissingBooks}
+            ignoredTotal={ignoredMissingSection.totalCount}
             ignoredPager={{
-              currentPage: currentIgnoredPage,
-              pageCount: ignoredPageCount,
-              onPageChange: setIgnoredPage,
+              currentPage: currentIgnoredMissingPage,
+              pageCount: ignoredMissingPageCount,
+              onPageChange: setIgnoredMissingPage,
             }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}
@@ -798,12 +825,12 @@ export function SeriesDetail() {
           <ExpectedBookList
             section="upcoming"
             items={upcomingBooks}
-            ignoredItems={ignoredBooks}
-            ignoredTotal={ignoredSection.totalCount}
+            ignoredItems={ignoredUpcomingBooks}
+            ignoredTotal={ignoredUpcomingSection.totalCount}
             ignoredPager={{
-              currentPage: currentIgnoredPage,
-              pageCount: ignoredPageCount,
-              onPageChange: setIgnoredPage,
+              currentPage: currentIgnoredUpcomingPage,
+              pageCount: ignoredUpcomingPageCount,
+              onPageChange: setIgnoredUpcomingPage,
             }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}

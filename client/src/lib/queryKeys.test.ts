@@ -6,7 +6,7 @@ describe("queryKeys", () => {
     it("keeps every narrower variant a literal prefix of the detail key, in order", () => {
       const seriesName = "Some Series";
       const authorId = 7;
-      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4);
+      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4, 5);
 
       expect(queryKeys.seriesDetail.bySeries(seriesName)).toEqual(detail.slice(0, 2));
       expect(queryKeys.seriesDetail.byAuthor(seriesName, authorId)).toEqual(detail.slice(0, 3));
@@ -21,7 +21,8 @@ describe("queryKeys", () => {
       const authorId = 3;
       const ownedPage = 2;
       const missingPage = 0;
-      const ignoredPage = 1;
+      const ignoredMissingPage = 1;
+      const ignoredUpcomingPage = 1;
       const partMismatchPage = 0;
 
       const upcomingPage = 0;
@@ -31,9 +32,10 @@ describe("queryKeys", () => {
         authorId,
         ownedPage,
         missingPage,
-        ignoredPage,
+        ignoredMissingPage,
         partMismatchPage,
         upcomingPage,
+        ignoredUpcomingPage,
       );
       const invalidationKey = queryKeys.seriesDetail.byAuthor(seriesName, authorId);
 

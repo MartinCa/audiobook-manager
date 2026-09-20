@@ -825,7 +825,9 @@ public class UpcomingReleaseServiceTests
             ExpectedBookCount: 1,
             OwnedCount: 0,
             Authors: new List<string>(),
-            Upcoming: upcoming);
+            Upcoming: upcoming,
+            IgnoredMissing: new List<SeriesExpectedBookInfo>(),
+            IgnoredUpcoming: new List<SeriesExpectedBookInfo>());
 
     private static AuthorReconciliation AuthorReconciliationWith(
         List<AuthorExpectedBookInfo> upcoming, List<AuthorExpectedBookInfo>? ignored = null) =>

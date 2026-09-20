@@ -181,8 +181,10 @@ public class SeriesController : ControllerBase
         [FromQuery] int ownedPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int missingPage = 0,
         [FromQuery] int missingPageSize = PagingLimits.DefaultPageSize,
-        [FromQuery] int ignoredPage = 0,
-        [FromQuery] int ignoredPageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] int ignoredMissingPage = 0,
+        [FromQuery] int ignoredMissingPageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] int ignoredUpcomingPage = 0,
+        [FromQuery] int ignoredUpcomingPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int partMismatchPage = 0,
         [FromQuery] int partMismatchPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int upcomingPage = 0,
@@ -192,7 +194,8 @@ public class SeriesController : ControllerBase
         {
             ValidatePageSelection(ownedPage, ownedPageSize, "owned books"),
             ValidatePageSelection(missingPage, missingPageSize, "missing books"),
-            ValidatePageSelection(ignoredPage, ignoredPageSize, "ignored books"),
+            ValidatePageSelection(ignoredMissingPage, ignoredMissingPageSize, "ignored books"),
+            ValidatePageSelection(ignoredUpcomingPage, ignoredUpcomingPageSize, "ignored books"),
             ValidatePageSelection(partMismatchPage, partMismatchPageSize, "part mismatches"),
             ValidatePageSelection(upcomingPage, upcomingPageSize, "upcoming books"),
         })
@@ -207,7 +210,8 @@ public class SeriesController : ControllerBase
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,
             missingSkip: (int)((long)missingPage * missingPageSize), missingTake: missingPageSize,
-            ignoredSkip: (int)((long)ignoredPage * ignoredPageSize), ignoredTake: ignoredPageSize,
+            ignoredMissingSkip: (int)((long)ignoredMissingPage * ignoredMissingPageSize), ignoredMissingTake: ignoredMissingPageSize,
+            ignoredUpcomingSkip: (int)((long)ignoredUpcomingPage * ignoredUpcomingPageSize), ignoredUpcomingTake: ignoredUpcomingPageSize,
             partMismatchSkip: (int)((long)partMismatchPage * partMismatchPageSize), partMismatchTake: partMismatchPageSize,
             upcomingSkip: (int)((long)upcomingPage * upcomingPageSize), upcomingTake: upcomingPageSize);
         if (detail is null)
@@ -220,7 +224,8 @@ public class SeriesController : ControllerBase
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
                 b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
-            new SeriesExpectedBookPageDto(detail.IgnoredBooks.Select(ToDto).ToList(), detail.IgnoredBookTotal),
+            new SeriesExpectedBookPageDto(detail.IgnoredMissingBooks.Select(ToDto).ToList(), detail.IgnoredMissingBookTotal),
+            new SeriesExpectedBookPageDto(detail.IgnoredUpcomingBooks.Select(ToDto).ToList(), detail.IgnoredUpcomingBookTotal),
             new SeriesPartMismatchPageDto(detail.PartMismatches.Select(ToMismatchDto).ToList(), detail.PartMismatchTotal),
             new SeriesExpectedBookPageDto(detail.UpcomingBooks.Select(ToDto).ToList(), detail.UpcomingBookTotal));
     }

@@ -265,7 +265,9 @@ public class SeriesControllerTests
     {
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -279,8 +281,16 @@ public class SeriesControllerTests
                     new SeriesExpectedBookInfo { Id = 10, Title = "Missing Book", Position = "4", SourceName = "Hardcover", SourceBookId = "444" }
                 },
                 MissingBookTotal = 7,
-                IgnoredBooks = new List<SeriesExpectedBookInfo>(),
-                IgnoredBookTotal = 2,
+                IgnoredMissingBooks = new List<SeriesExpectedBookInfo>
+                {
+                    new SeriesExpectedBookInfo { Id = 11, Title = "Dismissed Past Book", Position = "4", SourceName = "Hardcover", SourceBookId = "445" }
+                },
+                IgnoredMissingBookTotal = 2,
+                IgnoredUpcomingBooks = new List<SeriesExpectedBookInfo>
+                {
+                    new SeriesExpectedBookInfo { Id = 12, Title = "Dismissed Future Book", Position = "5", SourceName = "Hardcover", SourceBookId = "446" }
+                },
+                IgnoredUpcomingBookTotal = 3,
                 PartMismatches = new List<SeriesPartMismatch>
                 {
                     new SeriesPartMismatch { AudiobookId = 1, BookName = "The Final Empire", StoredPart = "7", ExpectedPart = "1", RosterTitle = "The Final Empire" }
@@ -297,8 +307,10 @@ public class SeriesControllerTests
         Assert.AreEqual(3, dto.OwnedBooks.TotalCount);
         Assert.AreEqual(1, dto.MissingBooks.Items.Count);
         Assert.AreEqual(7, dto.MissingBooks.TotalCount);
-        Assert.AreEqual(0, dto.IgnoredBooks.Items.Count);
-        Assert.AreEqual(2, dto.IgnoredBooks.TotalCount);
+        Assert.AreEqual(1, dto.IgnoredMissingBooks.Items.Count);
+        Assert.AreEqual(2, dto.IgnoredMissingBooks.TotalCount);
+        Assert.AreEqual(1, dto.IgnoredUpcomingBooks.Items.Count);
+        Assert.AreEqual(3, dto.IgnoredUpcomingBooks.TotalCount);
         Assert.AreEqual("Missing Book", dto.MissingBooks.Items[0].Title);
         Assert.AreEqual("Hardcover", dto.MissingBooks.Items[0].SourceName,
             "the roster entry's source identity is exposed so the missing section can address it by source");
@@ -322,7 +334,9 @@ public class SeriesControllerTests
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _seriesService.Verify(
             s => s.GetSeriesDetailPageAsync(
-                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -335,7 +349,9 @@ public class SeriesControllerTests
         const string coverPath = "/library/Brandon Sanderson/Mistborn/2006 - The Final Empire/cover.jpg";
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50, ignoredSkip: 0, ignoredTake: 50, partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
             .ReturnsAsync(new SeriesDetailPage
             {
                 Overview = MakeOverview(),
@@ -346,8 +362,10 @@ public class SeriesControllerTests
                 OwnedBookTotal = 3,
                 MissingBooks = new List<SeriesExpectedBookInfo>(),
                 MissingBookTotal = 0,
-                IgnoredBooks = new List<SeriesExpectedBookInfo>(),
-                IgnoredBookTotal = 0
+                IgnoredMissingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredMissingBookTotal = 0,
+                IgnoredUpcomingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredUpcomingBookTotal = 0
             });
 
         var result = await _controller.GetSeriesDetail("Mistborn");
@@ -362,7 +380,9 @@ public class SeriesControllerTests
     {
         _seriesService
             .Setup(s => s.GetSeriesDetailPageAsync(
-                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync((SeriesDetailPage?)null);
 
         var result = await _controller.GetSeriesDetail("Unknown");
@@ -378,7 +398,9 @@ public class SeriesControllerTests
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _seriesService.Verify(
             s => s.GetSeriesDetailPageAsync(
-                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 

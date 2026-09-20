@@ -255,10 +255,7 @@ public class SeriesRepository : ISeriesRepository
 
         // ExecuteUpdateAsync bypasses the change tracker - a tracked stale copy would overwrite
         // the flag back on the next SaveChanges (see ExpectedBookRepository.SetIgnoredAsync).
-        foreach (var entry in _db.ChangeTracker.Entries<ExpectedBook>().Where(e => e.Entity.Id == book.Id).ToList())
-        {
-            entry.State = EntityState.Detached;
-        }
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == book.Id);
     }
 
     /// <summary>
@@ -398,10 +395,7 @@ public class SeriesRepository : ISeriesRepository
             // ExecuteDeleteAsync bypasses the change tracker: the row this call inserted is still
             // tracked here, and a deleted rowid SQLite may hand to a later insert must never
             // resolve back to it inside this request-scoped context.
-            foreach (var entry in _db.ChangeTracker.Entries<Series>().Where(e => e.Entity.Id == id).ToList())
-            {
-                entry.State = EntityState.Detached;
-            }
+            ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<Series>(), s => s.Id == id);
         }
 
         return deletedRows > 0;
@@ -466,10 +460,7 @@ public class SeriesRepository : ISeriesRepository
 
         if (deletedRows > 0)
         {
-            foreach (var entry in _db.ChangeTracker.Entries<Series>().Where(e => e.Entity.Id == row.Id).ToList())
-            {
-                entry.State = EntityState.Detached;
-            }
+            ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<Series>(), s => s.Id == row.Id);
         }
 
         return deletedRows > 0;

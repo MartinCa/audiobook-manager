@@ -65,12 +65,14 @@ function makeDetail(
   missingItems: SeriesExpectedBook[],
   missingTotal: number,
   ownedItems: SeriesOwnedBook[] = [defaultOwned],
-  ignoredTotal = 0,
+  ignoredMissingTotal = 0,
+  ignoredUpcomingTotal = 0,
   partMismatchItems: SeriesPartMismatch[] = [],
   partMismatchTotal = 0,
   upcomingItems: SeriesExpectedBook[] = [],
   upcomingTotal = 0,
-  ignoredItems: SeriesExpectedBook[] = [],
+  ignoredMissingItems: SeriesExpectedBook[] = [],
+  ignoredUpcomingItems: SeriesExpectedBook[] = [],
 ): SeriesDetail {
   return {
     overview: {
@@ -86,7 +88,7 @@ function makeDetail(
       lastRefreshedAt: "2026-01-01T00:00:00Z",
       expectedBookCount: missingTotal,
       missingBookCount: missingTotal,
-      ignoredBookCount: ignoredTotal,
+      ignoredBookCount: ignoredMissingTotal + ignoredUpcomingTotal,
       includeOmnibusEditions: false,
       upcomingBookCount: upcomingTotal,
       isFollowed: false,
@@ -99,9 +101,13 @@ function makeDetail(
       items: missingItems,
       totalCount: missingTotal,
     },
-    ignoredBooks: {
-      items: ignoredItems,
-      totalCount: ignoredTotal,
+    ignoredMissingBooks: {
+      items: ignoredMissingItems,
+      totalCount: ignoredMissingTotal,
+    },
+    ignoredUpcomingBooks: {
+      items: ignoredUpcomingItems,
+      totalCount: ignoredUpcomingTotal,
     },
     partMismatches: {
       items: partMismatchItems,
@@ -328,8 +334,10 @@ describe("SeriesDetail", () => {
       ownedPageSize: 50,
       missingPage: 0,
       missingPageSize: 50,
-      ignoredPage: 0,
-      ignoredPageSize: 50,
+      ignoredMissingPage: 0,
+      ignoredMissingPageSize: 50,
+      ignoredUpcomingPage: 0,
+      ignoredUpcomingPageSize: 50,
       partMismatchPage: 0,
       partMismatchPageSize: 50,
       upcomingPage: 0,
@@ -500,7 +508,7 @@ describe("SeriesDetail", () => {
 
   it("renders the Part Mismatches section with stored and expected parts", async () => {
     vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
-      makeDetail([], 0, [], 0, [partMismatch(10, "The Final Empire", "1", "7")], 1),
+      makeDetail([], 0, [], 0, 0, [partMismatch(10, "The Final Empire", "1", "7")], 1),
     );
 
     renderWithProviders();
@@ -527,7 +535,7 @@ describe("SeriesDetail", () => {
       Promise.resolve(
         fixed
           ? makeDetail([], 0)
-          : makeDetail([], 0, [], 0, [partMismatch(42, "Alloy of Law", "4", "9")], 1),
+          : makeDetail([], 0, [], 0, 0, [partMismatch(42, "Alloy of Law", "4", "9")], 1),
       ),
     );
 
@@ -576,8 +584,10 @@ describe("SeriesDetail", () => {
       ownedPageSize: 50,
       missingPage: 0,
       missingPageSize: 50,
-      ignoredPage: 0,
-      ignoredPageSize: 50,
+      ignoredMissingPage: 0,
+      ignoredMissingPageSize: 50,
+      ignoredUpcomingPage: 0,
+      ignoredUpcomingPageSize: 50,
       partMismatchPage: 0,
       partMismatchPageSize: 50,
       upcomingPage: 0,
@@ -631,6 +641,7 @@ describe("SeriesDetail", () => {
         0,
         [defaultOwned],
         0,
+        0,
         [],
         0,
         [upcomingBook(30, "The Lost Metal", "2026-11-01")],
@@ -653,7 +664,7 @@ describe("SeriesDetail", () => {
 
   it("ignores an upcoming book through the same expected-books/ignore endpoint as Missing Books", async () => {
     vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
-      makeDetail([], 0, [defaultOwned], 0, [], 0, [upcomingBook(30, "The Lost Metal")], 1),
+      makeDetail([], 0, [defaultOwned], 0, 0, [], 0, [upcomingBook(30, "The Lost Metal")], 1),
     );
     const ignore = vi.spyOn(seriesApi, "ignoreExpectedBook").mockResolvedValue(undefined);
 
@@ -672,7 +683,7 @@ describe("SeriesDetail", () => {
   // renders them faded inside the section they classify to, behind the "show ignored" toggle.
   it("shows ignored books faded in the series sections and unignores through the shared list", async () => {
     const detail = makeDetail([missingBook(20, "The Alloy of Law", "4")], 1);
-    detail.ignoredBooks = {
+    detail.ignoredMissingBooks = {
       items: [
         {
           id: 30,
@@ -710,13 +721,12 @@ describe("SeriesDetail", () => {
     });
   });
 
-  // Regression for the review finding: with the dedicated Ignored Books section gone, the
-  // ignored entries render inside the shared list - but the endpoint pages them, so a series
-  // with more ignored entries than one page used to show only the first 50 plus a static
-  // "...and N more..." note with no way to reach the rest (unreachable and un-ignorable). The
-  // shared list must page the ignored view through the same SectionPager as every other section.
-  it("pages the ignored view through the shared list's pager", async () => {
-    function ignoredPageItems(from: number, count: number): SeriesExpectedBook[] {
+  // Regression for the review finding: the ignored sub-views' pager was scope-wide - both sections
+  // shared one server page, one combined total and one cursor, so each pager claimed the combined
+  // count and paging one section moved the other. The server now slices each classification
+  // independently: each section's pager shows ITS OWN true total, and its own cursor advances.
+  it("pages each section's ignored view independently with its own total", async () => {
+    function missingIgnoredPageItems(from: number, count: number): SeriesExpectedBook[] {
       return Array.from({ length: count }, (_, i) => ({
         id: 200 + from + i,
         title: `Ignored ${String(from + i + 1).padStart(2, "0")}`,
@@ -726,57 +736,87 @@ describe("SeriesDetail", () => {
         isIgnored: true,
       }));
     }
+    function upcomingIgnoredPageItems(from: number, count: number): SeriesExpectedBook[] {
+      return Array.from({ length: count }, (_, i) => ({
+        id: 500 + from + i,
+        title: `Upcoming Ignored ${String(from + i + 1).padStart(2, "0")}`,
+        position: null,
+        year: null,
+        releaseDate: "2031-05-05",
+        sourceUrl: null,
+        isIgnored: true,
+      }));
+    }
     const getSeriesDetail = vi
       .spyOn(seriesApi, "getSeriesDetail")
       .mockImplementation((_name, params) =>
         Promise.resolve(
-          params?.ignoredPage === 1
-            ? makeDetail(
-                [missingBook(20, "The Alloy of Law", "4")],
-                1,
-                [defaultOwned],
-                60,
-                [],
-                0,
-                [],
-                0,
-                ignoredPageItems(50, 10),
-              )
-            : makeDetail(
-                [missingBook(20, "The Alloy of Law", "4")],
-                1,
-                [defaultOwned],
-                60,
-                [],
-                0,
-                [],
-                0,
-                ignoredPageItems(0, 50),
-              ),
+          makeDetail(
+            [missingBook(20, "The Alloy of Law", "4")],
+            1,
+            [defaultOwned],
+            60, // ignoredMissingTotal: page 0 holds 50, page 1 holds 10 more.
+            60, // ignoredUpcomingTotal: same shape, independent cursor.
+            [],
+            0,
+            [],
+            0,
+            params?.ignoredMissingPage === 1
+              ? missingIgnoredPageItems(50, 10)
+              : missingIgnoredPageItems(0, 50),
+            params?.ignoredUpcomingPage === 1
+              ? upcomingIgnoredPageItems(50, 10)
+              : upcomingIgnoredPageItems(0, 50),
+          ),
         ),
       );
 
     renderWithProviders();
 
-    // Expand Missing Books (where the past-dated ignored rows classify) and turn the toggle on.
+    // Expand both sections and turn the (scope-wide) show-ignored toggle on.
     await screen.findByText(/Missing Books \(1\)/);
     fireEvent.click(screen.getByRole("button", { name: /Missing Books \(1\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming Books \(0\)/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
 
-    // Page 0 renders its 50 ignored rows with a live pager - not the dead-end static note.
-    expect(await screen.findByText(/Ignored 01/)).toBeInTheDocument();
-    expect(screen.queryByText(/more ignored books\.\.\./)).not.toBeInTheDocument();
-    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+    // Each section renders its own classification's rows...
+    expect(await screen.findByText(/^Ignored 01$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Upcoming Ignored 01$/)).toBeInTheDocument();
+    // ...and its own pager with ITS OWN total - 60 each, never the combined 120, which is what
+    // the both-sections-share-one-total bug showed under every pager.
+    expect(screen.getAllByText("Showing 1–50 of 60")).toHaveLength(2);
+    expect(screen.queryByText(/Showing 1–120/)).not.toBeInTheDocument();
 
-    screen.getByRole("button", { name: "Next" }).click();
+    // Paging the MISSING section's ignored pager advances only its cursor: the refetch carries
+    // ignoredMissingPage=1 while ignoredUpcomingPage stays 0.
+    const nextButtons = screen.getAllByRole("button", { name: "Next" });
+    expect(nextButtons).toHaveLength(2);
+    nextButtons[0]!.click();
 
     await waitFor(() => {
-      expect(getSeriesDetail.mock.calls.at(-1)![1]?.ignoredPage).toBe(1);
+      const last = getSeriesDetail.mock.calls.at(-1)!;
+      expect(last[1]?.ignoredMissingPage).toBe(1);
+      expect(last[1]?.ignoredUpcomingPage).toBe(0);
     });
-    // The second ignored page's rows are reachable - and therefore un-ignorable - now.
-    expect(await screen.findByText(/Ignored 51/)).toBeInTheDocument();
-    expect(screen.getByText(/Ignored 60/)).toBeInTheDocument();
-    expect(screen.getByText("Showing 51–60 of 60")).toBeInTheDocument();
+    expect(await screen.findByText(/^Ignored 51$/)).toBeInTheDocument();
+    // The upcoming section's page must not move when the missing section pages.
+    await waitFor(() => {
+      expect(screen.getByText(/^Upcoming Ignored 01$/)).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Showing 51–60 of 60")).toHaveLength(1);
+    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+
+    // Now the UPCOMING section's pager (still on page 0, the second "Next" in DOM order).
+    screen.getAllByRole("button", { name: "Next" })[1]!.click();
+
+    await waitFor(() => {
+      const last = getSeriesDetail.mock.calls.at(-1)!;
+      expect(last[1]?.ignoredMissingPage).toBe(1);
+      expect(last[1]?.ignoredUpcomingPage).toBe(1);
+    });
+    expect(await screen.findByText(/^Upcoming Ignored 51$/)).toBeInTheDocument();
+    // Both sections are now on their second ignored page - two independent pagers, two totals.
+    expect(screen.getAllByText("Showing 51–60 of 60")).toHaveLength(2);
   });
 
   // --- Series mapping patterns (owned by this series, managed in the Management section) ---

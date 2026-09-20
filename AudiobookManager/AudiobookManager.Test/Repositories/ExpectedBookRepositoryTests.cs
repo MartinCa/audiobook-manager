@@ -347,6 +347,158 @@ public class ExpectedBookRepositoryTests
         Assert.AreEqual("hc-1000", stored.Single(b => b.SourceBookId == "hc-1000").SourceBookId);
     }
 
+    // Regression guard for the review finding: re-matching a SERIES from source A to source B must
+    // not orphan-source-A rows. The skip is not (series-name + title) - that never goes across
+    // sources - but the same natural key the same-source legacy path uses, over rows whose whole
+    // identity lives under the other source. Adoption supersedes the old source identity and keeps
+    // the user's dismiss decision on the single surviving row.
+    [TestMethod]
+    public async Task UpsertAsync_CrossSourceSeriesRematch_AdoptsTheRowAndPreservesIgnored()
+    {
+        var series = await SeedSeriesAsync();
+
+        var now = DateTime.UtcNow;
+        _db.ExpectedBooks.Add(new ExpectedBook
+        {
+            SourceName = "Hardcover",
+            SourceBookId = "hc-9",
+            Title = "The Way of Kings",
+            Year = 2009,
+            SeriesId = series.Id,
+            SourceSeriesId = "hc-series-1",
+            SourceSeriesName = "The Stormlight Archive",
+            SeriesPosition = "1",
+            IsIgnored = true,
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
+        });
+        await _db.SaveChangesAsync();
+
+        // The user re-matched the series to Goodreads; the same book now arrives under the new
+        // source's identity, with a different source-series id.
+        await _repository.UpsertAsync(new ExpectedBookUpsert(
+            "Goodreads",
+            "gr-1",
+            "The Way of Kings",
+            2010,
+            null,
+            null,
+            null,
+            series.Id,
+            "gr-series-1",
+            "The Stormlight Archive",
+            "1",
+            false,
+            new List<ExpectedBookAuthorLink>()));
+
+        var stored = await _db.ExpectedBooks.AsNoTracking().ToListAsync();
+        Assert.AreEqual(1, stored.Count, "the re-matched book must adopt the source-A row, not insert a parallel row");
+        var row = stored.Single();
+        Assert.AreEqual("Goodreads", row.SourceName, "the row's source identity is superseded by the new source");
+        Assert.AreEqual("gr-1", row.SourceBookId, "the row's book id is superseded by the new source's id");
+        Assert.IsTrue(row.IsIgnored, "the dismiss decision must survive the source switch");
+        Assert.AreEqual(series.Id, row.SeriesId, "the adoption keeps the same catalog series link");
+        Assert.AreEqual(2010, row.Year, "the adopted row must be refreshed from the poll");
+    }
+
+    // Regression guard for the same review finding on the author scope: re-matching an AUTHOR
+    // from source A to source B must adopt the source-A row by person link + title and preserve
+    // its ignore flag, instead of inserting a fresh un-ignored row and letting the old one orphan.
+    [TestMethod]
+    public async Task UpsertAsync_CrossSourceAuthorRematch_AdoptsTheRowAndPreservesIgnored()
+    {
+        var personId = await SeedPersonAsync();
+
+        var now = DateTime.UtcNow;
+        _db.ExpectedBooks.Add(new ExpectedBook
+        {
+            SourceName = "Hardcover",
+            SourceBookId = "hc-9",
+            Title = "The Way of Kings",
+            Year = 2009,
+            IsIgnored = true,
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
+            AuthorLinks = new List<ExpectedBookAuthor>
+            {
+                new() { PersonId = personId, AuthorName = "Brandon Sanderson" },
+            },
+        });
+        await _db.SaveChangesAsync();
+
+        await _repository.UpsertAsync(new ExpectedBookUpsert(
+            "Goodreads",
+            "gr-1",
+            "The Way of Kings",
+            2010,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new List<ExpectedBookAuthorLink> { new(personId, "Brandon Sanderson") }));
+
+        var stored = await _db.ExpectedBooks.AsNoTracking().Include(b => b.AuthorLinks).ToListAsync();
+        Assert.AreEqual(1, stored.Count, "the re-matched book must adopt the source-A row, not insert a parallel row");
+        var row = stored.Single();
+        Assert.AreEqual("Goodreads", row.SourceName);
+        Assert.AreEqual("gr-1", row.SourceBookId);
+        Assert.IsTrue(row.IsIgnored, "the dismiss decision must survive the source switch");
+        Assert.AreEqual(personId, row.AuthorLinks.Single().PersonId, "the adoption keeps the same author link");
+    }
+
+    // Cross-source adoption must stay conservative: never guess on title alone across sources.
+    // Two unrelated books that happen to share a title and are reported by different sources -
+    // with no shared series link and no shared person link - are different books and must not be
+    // merged, or one source's row (and its dismiss decision) would be stolen by the other book.
+    [TestMethod]
+    public async Task UpsertAsync_CrossSourceUnrelatedSameTitledBooks_AreNotMerged()
+    {
+        var hardcoverAuthor = await SeedPersonAsync("Hardcover Author");
+        var goodreadsAuthor = await SeedPersonAsync("Goodreads Author");
+
+        var now = DateTime.UtcNow;
+        _db.ExpectedBooks.Add(new ExpectedBook
+        {
+            SourceName = "Hardcover",
+            SourceBookId = "hc-9",
+            Title = "The Way of Kings",
+            Year = 2009,
+            IsIgnored = true,
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
+            AuthorLinks = new List<ExpectedBookAuthor>
+            {
+                new() { PersonId = hardcoverAuthor, AuthorName = "Hardcover Author" },
+            },
+        });
+        await _db.SaveChangesAsync();
+
+        await _repository.UpsertAsync(new ExpectedBookUpsert(
+            "Goodreads",
+            "gr-1",
+            "The Way of Kings",
+            2010,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new List<ExpectedBookAuthorLink> { new(goodreadsAuthor, "Goodreads Author") }));
+
+        var stored = await _db.ExpectedBooks.AsNoTracking().ToListAsync();
+        Assert.AreEqual(2, stored.Count,
+            "no shared series or person link means the same-titled books from different sources stay separate rows");
+        Assert.AreEqual(1, stored.Count(b => b.SourceName == "Hardcover" && b.SourceBookId == "hc-9"));
+        Assert.AreEqual(1, stored.Count(b => b.SourceName == "Goodreads" && b.SourceBookId == "gr-1"));
+    }
+
     // Regression guard: ImageUrl is the one refreshed field that is legitimately nullable per
     // poll (a transiently-missing cached_image) - same rule as
     // UpcomingReleaseRepository.ApplyRefresh.

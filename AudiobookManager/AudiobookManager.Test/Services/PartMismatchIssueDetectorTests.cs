@@ -32,7 +32,9 @@ public class PartMismatchIssueDetectorTests
             ExpectedBookCount: 0,
             OwnedCount: 0,
             Authors: new List<string>(),
-            Upcoming: new List<SeriesExpectedBookInfo>());
+            Upcoming: new List<SeriesExpectedBookInfo>(),
+            IgnoredMissing: new List<SeriesExpectedBookInfo>(),
+            IgnoredUpcoming: new List<SeriesExpectedBookInfo>());
 
     private static SeriesPartMismatch MakeMismatch(long audiobookId, string expectedPart = "2", string? storedPart = "") =>
         new()

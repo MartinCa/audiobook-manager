@@ -119,4 +119,64 @@ public class AudiobookRepositoryAuthorOwnedKeysTests
         Assert.AreEqual(0, keys.Count);
         Assert.IsFalse(overflow);
     }
+
+    // The batched bulk-filter read that removed the N+1: ONE query must serve every rostered
+    // author's owned keys, grouped by person id with the same series/part/title context the
+    // single-author read carries, and never include a book of an author nobody asked about - the
+    // backend of GetBulkMissingOrUpcomingAuthorIdsAsync, so any author whose owned key could be
+    // lost from this grouping risks a wrongly-flagged book.
+    [TestMethod]
+    public async Task GetOwnedKeysByAuthorsAsync_ReturnsEveryRequestedAuthorsKeysGroupedInOneQuery()
+    {
+        await SeedBookAsync("Elantris", series: null, seriesPart: null, _author);
+        await SeedBookAsync("The Way of Kings", series: "The Stormlight Archive", seriesPart: "1", _author);
+        await SeedBookAsync("The Eye of the World", series: null, seriesPart: null, _otherAuthor);
+        await SeedBookAsync("Alanna", series: null, seriesPart: null, new Person(default, "Tamora Pierce"));
+
+        var (keys, overflow) = await _repository.GetOwnedKeysByAuthorsAsync(
+            new List<long> { _author.Id, _otherAuthor.Id }, 100);
+
+        Assert.IsFalse(overflow);
+        var byAuthor = keys.GroupBy(k => k.PersonId).ToDictionary(g => g.Key, g => g.ToList());
+        Assert.AreEqual(2, byAuthor[_author.Id].Count, "both of the author's books - series and standalone");
+        Assert.AreEqual(1, byAuthor[_otherAuthor.Id].Count);
+        Assert.AreEqual(2, byAuthor.Count, "a person nobody requested must not appear");
+        var seriesKey = byAuthor[_author.Id].Single(k => k.Key.BookName == "The Way of Kings").Key;
+        Assert.AreEqual("1", seriesKey.SeriesPart);
+        Assert.AreEqual("The Stormlight Archive", seriesKey.Series);
+    }
+
+    [TestMethod]
+    public async Task GetOwnedKeysByAuthorsAsync_MoreRowsThanTheTotalCap_ReportsOverflow()
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            await SeedBookAsync($"Book {i}", series: null, seriesPart: null, _author);
+        }
+
+        var (keys, overflow) = await _repository.GetOwnedKeysByAuthorsAsync(
+            new List<long> { _author.Id }, 2);
+
+        Assert.IsTrue(overflow, "a total past the cap must be reported, never silently truncated");
+        Assert.AreEqual(3, keys.Count, "the cap + 1 probe row comes back so the caller can detect the breach");
+    }
+
+    [TestMethod]
+    public async Task GetOwnedKeysByAuthorsAsync_UnknownPersons_ReturnsEmpty()
+    {
+        var (keys, overflow) = await _repository.GetOwnedKeysByAuthorsAsync(
+            new List<long> { 999, 1000 }, 100);
+
+        Assert.AreEqual(0, keys.Count);
+        Assert.IsFalse(overflow);
+    }
+
+    [TestMethod]
+    public async Task GetOwnedKeysByAuthorsAsync_EmptyPersonList_ReturnsEmptyWithoutQuerying()
+    {
+        var (keys, overflow) = await _repository.GetOwnedKeysByAuthorsAsync(new List<long>(), 100);
+
+        Assert.AreEqual(0, keys.Count);
+        Assert.IsFalse(overflow);
+    }
 }

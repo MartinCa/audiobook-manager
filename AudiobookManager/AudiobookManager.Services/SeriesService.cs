@@ -190,7 +190,8 @@ public class SeriesService : ISeriesService
         string seriesName,
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
-        int ignoredSkip, int ignoredTake,
+        int ignoredMissingSkip, int ignoredMissingTake,
+        int ignoredUpcomingSkip, int ignoredUpcomingTake,
         int partMismatchSkip, int partMismatchTake,
         int upcomingSkip = 0, int upcomingTake = int.MaxValue)
     {
@@ -229,8 +230,13 @@ public class SeriesService : ISeriesService
             MissingBookTotal = reconciliation.Missing.Count,
             UpcomingBooks = reconciliation.Upcoming.Skip(upcomingSkip).Take(upcomingTake).ToList(),
             UpcomingBookTotal = reconciliation.Upcoming.Count,
-            IgnoredBooks = reconciliation.Ignored.Skip(ignoredSkip).Take(ignoredTake).ToList(),
-            IgnoredBookTotal = reconciliation.Ignored.Count,
+            // The reconciliation already split the ignored rows by the same classifier (and the
+            // same "today") it used for Missing/Upcoming, so each section's ignored sub-list pages
+            // with its own cursor and reports its own true total - never the combined count.
+            IgnoredMissingBooks = reconciliation.IgnoredMissing.Skip(ignoredMissingSkip).Take(ignoredMissingTake).ToList(),
+            IgnoredMissingBookTotal = reconciliation.IgnoredMissing.Count,
+            IgnoredUpcomingBooks = reconciliation.IgnoredUpcoming.Skip(ignoredUpcomingSkip).Take(ignoredUpcomingTake).ToList(),
+            IgnoredUpcomingBookTotal = reconciliation.IgnoredUpcoming.Count,
             PartMismatches = reconciliation.PartMismatches.Skip(partMismatchSkip).Take(partMismatchTake).ToList(),
             PartMismatchTotal = reconciliation.PartMismatchCount,
         };

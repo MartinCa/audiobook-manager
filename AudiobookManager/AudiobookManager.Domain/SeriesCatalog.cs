@@ -51,8 +51,17 @@ public class SeriesDetailPage
     public int MissingBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> UpcomingBooks { get; set; } = new();
     public int UpcomingBookTotal { get; set; }
-    public List<SeriesExpectedBookInfo> IgnoredBooks { get; set; } = new();
-    public int IgnoredBookTotal { get; set; }
+
+    /// <summary>
+    /// The dismissed roster entries split by the same Missing-vs-Upcoming classification the
+    /// active entries are: the detail page renders ignored rows inside the section they classify
+    /// to, and each section pages ITS classification's ignored rows with its own cursor, so the
+    /// combined list is never sent (and each section's total reflects only its own rows).
+    /// </summary>
+    public List<SeriesExpectedBookInfo> IgnoredMissingBooks { get; set; } = new();
+    public int IgnoredMissingBookTotal { get; set; }
+    public List<SeriesExpectedBookInfo> IgnoredUpcomingBooks { get; set; } = new();
+    public int IgnoredUpcomingBookTotal { get; set; }
     public List<SeriesPartMismatch> PartMismatches { get; set; } = new();
     public int PartMismatchTotal { get; set; }
 }

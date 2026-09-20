@@ -538,8 +538,10 @@ export const seriesApi = {
       ownedPageSize?: number;
       missingPage?: number;
       missingPageSize?: number;
-      ignoredPage?: number;
-      ignoredPageSize?: number;
+      ignoredMissingPage?: number;
+      ignoredMissingPageSize?: number;
+      ignoredUpcomingPage?: number;
+      ignoredUpcomingPageSize?: number;
       partMismatchPage?: number;
       partMismatchPageSize?: number;
       upcomingPage?: number;

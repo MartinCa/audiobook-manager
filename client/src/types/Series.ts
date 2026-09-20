@@ -78,7 +78,8 @@ export interface SeriesDetail {
   overview: SeriesOverview;
   ownedBooks: SeriesOwnedBookPage;
   missingBooks: SeriesExpectedBookPage;
-  ignoredBooks: SeriesExpectedBookPage;
+  ignoredMissingBooks: SeriesExpectedBookPage;
+  ignoredUpcomingBooks: SeriesExpectedBookPage;
   partMismatches: SeriesPartMismatchPage;
   upcomingBooks: SeriesExpectedBookPage;
 }

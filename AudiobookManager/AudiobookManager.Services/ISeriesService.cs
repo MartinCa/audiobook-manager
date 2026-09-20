@@ -47,7 +47,8 @@ public interface ISeriesService
         string seriesName,
         int ownedSkip, int ownedTake,
         int missingSkip, int missingTake,
-        int ignoredSkip, int ignoredTake,
+        int ignoredMissingSkip, int ignoredMissingTake,
+        int ignoredUpcomingSkip, int ignoredUpcomingTake,
         int partMismatchSkip, int partMismatchTake,
         int upcomingSkip = 0, int upcomingTake = int.MaxValue);
 

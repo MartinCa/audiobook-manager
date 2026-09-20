@@ -92,9 +92,10 @@ export const queryKeys = {
       authorId: number | undefined,
       ownedPage: number,
       missingPage: number,
-      ignoredPage: number,
+      ignoredMissingPage: number,
       partMismatchPage: number,
       upcomingPage: number,
+      ignoredUpcomingPage: number,
     ) =>
       [
         "seriesDetail",
@@ -102,9 +103,10 @@ export const queryKeys = {
         authorId,
         ownedPage,
         missingPage,
-        ignoredPage,
+        ignoredMissingPage,
         partMismatchPage,
         upcomingPage,
+        ignoredUpcomingPage,
       ] as const,
   },
 

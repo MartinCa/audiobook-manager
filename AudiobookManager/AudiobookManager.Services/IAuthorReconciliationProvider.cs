@@ -29,11 +29,14 @@ public interface IAuthorReconciliationProvider
     /// filter's bulk counterpart of <see cref="GetReconciliationAsync"/>. One whole-library
     /// computation rather than one reconciliation per author: the unified roster is read through a
     /// single bounded query (<see cref="AuthorReconciliationProvider.MaxBulkReconciliationRefs"/>
-    /// refs plus an overflow flag), and each author's slice is then clamped to the same
-    /// per-author caps the detail view enforces. A library past the global cap cannot be
-    /// classified safely - the result reports <see cref="AuthorBulkReconciliationResult.Refused"/>
-    /// and the caller skips the affected filter rather than silently truncating a growing table.
-    /// Only runs when the authors list actually asks for one of these two filters.
+    /// refs plus an overflow flag) and every rostered author's owned keys through one batched,
+    /// bounded join query (<see cref="AudiobookManager.Database.Repositories.IAudiobookRepository.GetOwnedKeysByAuthorsAsync"/>);
+    /// each author's slice is then clamped to the same per-author caps the detail view enforces.
+    /// A library past the global ref cap - or a total owned-key set past the batched read's bound,
+    /// which the flat bound may have truncated mid-author - cannot be classified safely: the result
+    /// reports <see cref="AuthorBulkReconciliationResult.Refused"/> and the caller skips the
+    /// affected filter rather than silently truncating a growing table. Only runs when the
+    /// authors list actually asks for one of these two filters.
     /// </summary>
     Task<AuthorBulkReconciliationResult> GetBulkMissingOrUpcomingAuthorIdsAsync();
 }

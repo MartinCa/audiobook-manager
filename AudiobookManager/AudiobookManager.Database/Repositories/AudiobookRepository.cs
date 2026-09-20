@@ -428,6 +428,42 @@ public class AudiobookRepository : IAudiobookRepository
             .ToList(), rows.Count > maxKeys);
     }
 
+    /// <summary>
+    /// The batched counterpart of <see cref="GetOwnedKeysByAuthorAsync"/> for the bulk authors-list
+    /// filter: every owned book of every person in <paramref name="personIds"/>, reduced to an
+    /// <see cref="AuthorOwnedKey"/> (person id + the same series/part/title/id key), fetched in ONE
+    /// SQL query - a join through the authors many-to-many via <c>SelectMany</c> - ordered by
+    /// <see cref="AuthorOwnedKey.PersonId"/> then audiobook id so the per-author grouping is total
+    /// and stable. Bounded like every owned-key read: at most <paramref name="maxTotalKeys"/> + 1
+    /// rows, with the overflow flag telling the caller whether the total was breached. Below the
+    /// bound every requested person's key set is complete (its count is that person's exact owned
+    /// count); past it the caller must not trust the prefix - the flat bound can cut an author's
+    /// keys mid-list, so a partial result is a misclassification risk, not a shorter list to use.
+    /// </summary>
+    public async Task<(List<AuthorOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorsAsync(
+        IReadOnlyList<long> personIds, int maxTotalKeys)
+    {
+        if (personIds.Count == 0)
+        {
+            return (new List<AuthorOwnedKey>(), false);
+        }
+
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Authors.Any(p => personIds.Contains(p.Id)))
+            .SelectMany(
+                a => a.Authors.Where(p => personIds.Contains(p.Id)),
+                (a, p) => new { PersonId = p.Id, AudiobookId = a.Id, Series = a.Series, SeriesPart = a.SeriesPart, BookName = a.BookName })
+            .OrderBy(r => r.PersonId)
+            .ThenBy(r => r.AudiobookId)
+            .Take(maxTotalKeys + 1)
+            .ToListAsync();
+
+        return (rows
+            .Select(r => new AuthorOwnedKey(r.PersonId, r.AudiobookId, r.SeriesPart, r.BookName, r.Series))
+            .ToList(), rows.Count > maxTotalKeys);
+    }
+
     /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
     public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
         long authorId, int limit, int offset)

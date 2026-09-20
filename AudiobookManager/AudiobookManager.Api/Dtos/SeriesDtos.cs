@@ -50,7 +50,8 @@ public record SeriesDetailDto(
     SeriesOverviewDto Overview,
     SeriesOwnedBookPageDto OwnedBooks,
     SeriesExpectedBookPageDto MissingBooks,
-    SeriesExpectedBookPageDto IgnoredBooks,
+    SeriesExpectedBookPageDto IgnoredMissingBooks,
+    SeriesExpectedBookPageDto IgnoredUpcomingBooks,
     SeriesPartMismatchPageDto PartMismatches,
     SeriesExpectedBookPageDto? UpcomingBooks = null
 );

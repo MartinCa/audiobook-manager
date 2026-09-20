@@ -11,6 +11,10 @@ namespace AudiobookManager.Services;
 ///
 /// The counts are stored alongside the lists (not derived by the service) so the overview
 /// badge and the section totals can never disagree with the sections they summarize.
+/// <see cref="IgnoredMissing"/> and <see cref="IgnoredUpcoming"/> are the same dismissed rows
+/// <see cref="Ignored"/> holds, split by the SAME <see cref="ExpectedBookClassifier.IsUpcoming"/>
+/// decision (and the same <c>today</c>) the active Missing/Upcoming classification uses, so the
+/// detail page can serve each section's ignored rows with a per-section pager and true total.
 /// </summary>
 public sealed record SeriesReconciliation(
     IReadOnlyList<SeriesExpectedBookInfo> Missing,
@@ -21,11 +25,17 @@ public sealed record SeriesReconciliation(
     IReadOnlyList<string> Authors,
     // A roster entry no owned book matches, split from Missing by whether it is released yet -
     // see AudiobookManager.Domain.ExpectedBookClassifier.
-    IReadOnlyList<SeriesExpectedBookInfo> Upcoming)
+    IReadOnlyList<SeriesExpectedBookInfo> Upcoming,
+    // The dismissed rows partitioned by the same classifier, for the detail page's per-section
+    // ignored pagers - see the record doc.
+    IReadOnlyList<SeriesExpectedBookInfo> IgnoredMissing,
+    IReadOnlyList<SeriesExpectedBookInfo> IgnoredUpcoming)
 {
     public int MissingBookCount => Missing.Count;
     public int UpcomingBookCount => Upcoming.Count;
     public int IgnoredBookCount => Ignored.Count;
+    public int IgnoredMissingBookCount => IgnoredMissing.Count;
+    public int IgnoredUpcomingBookCount => IgnoredUpcoming.Count;
     public int PartMismatchCount => PartMismatches.Count;
 }
 

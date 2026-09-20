@@ -148,24 +148,34 @@ public class ExpectedBookRepository : IExpectedBookRepository
             existing = await FindBySourceKeyAsync(upsert.SourceName, upsert.SourceBookId);
         }
 
-        // Rows copied from the legacy roster tables carry a synthetic source id
-        // ('legacy-author:'/ 'legacy-series:' + the legacy row id - see the migration's hand-edited
-        // copy) or no id at all (an id-less poll). Absent an exact id match, locate the legacy row
-        // this polled book corresponds to and adopt it in place instead of inserting a parallel row.
+        // Absent an exact id match, locate the adoptable row this polled book corresponds to and
+        // adopt it in place instead of inserting a parallel row. Two families adopt: rows copied
+        // from the legacy roster tables (a synthetic 'legacy-author:'/'legacy-series:' id - see
+        // the migration's hand-edited copy - or no id at all from an id-less poll), and rows whose
+        // whole identity lives under a DIFFERENT source name (a series/author the user re-matched
+        // from source A to source B): the natural-key match (same series link + title, or same
+        // person link + title) is the evidence the two reports describe the same real-world book,
+        // so the row's old source identity is superseded rather than the row being orphaned and a
+        // fresh un-ignored copy inserted under the new source.
         if (existing is null)
         {
-            existing = await FindLegacyMatchAsync(upsert);
+            existing = await FindAdoptableMatchAsync(upsert);
         }
 
         if (existing is not null)
         {
-            // Overwrite only a placeholder identity (synthetic or absent) with the polled book's
-            // real source id - never a stored id a refresh has already adopted. A real stored id
-            // means the row's identity is settled; overwriting it here would re-key a row another
-            // book's natural key already matched.
-            if ((existing.SourceBookId is null || ExpectedBook.IsLegacySyntheticSourceBookId(existing.SourceBookId))
-                && !string.IsNullOrEmpty(upsert.SourceBookId))
+            // Overwrite a placeholder identity (synthetic or absent) with the polled book's real
+            // source id, and - for a cross-source adoption - set BOTH SourceName and SourceBookId
+            // from the poll: the row's old source identity is superseded, because the natural-key
+            // match says this is the same real-world book under the new source. Never overwrite a
+            // real id of the SAME source - the exact (source_name, source_book_id) lookup already
+            // handles that identity, and the same-source natural key must not re-key a settled row.
+            if (!string.IsNullOrEmpty(upsert.SourceBookId)
+                && (!string.Equals(existing.SourceName, upsert.SourceName, StringComparison.Ordinal)
+                    || existing.SourceBookId is null
+                    || ExpectedBook.IsLegacySyntheticSourceBookId(existing.SourceBookId)))
             {
+                existing.SourceName = upsert.SourceName;
                 existing.SourceBookId = upsert.SourceBookId;
             }
 
@@ -247,18 +257,28 @@ public class ExpectedBookRepository : IExpectedBookRepository
             .FirstOrDefaultAsync(b => b.SourceName == sourceName && b.SourceBookId == sourceBookId);
 
     /// <summary>
-    /// Locates a legacy row - one whose <see cref="ExpectedBook.SourceBookId"/> is a synthetic
-    /// <c>legacy-</c> id (the legacy-roster copy) or is still null (an id-less poll) - whose
-    /// natural key matches the polled book, or null. Series natural key: same catalog series
-    /// (<see cref="ExpectedBook.SeriesId"/> or <see cref="ExpectedBook.SourceSeriesId"/>) plus the
-    /// same normalized title, and - when both sides carry one - the same
-    /// <see cref="ExpectedBook.SeriesPosition"/>. Author natural key: linked to one of the
+    /// Locates the stored row this polled book corresponds to and that may therefore be adopted
+    /// in place, or null. Two families of rows are adoptable, each matched by the same natural
+    /// key:
+    ///
+    /// <list type="bullet">
+    /// <item><b>Legacy rows</b> - a row whose <see cref="ExpectedBook.SourceBookId"/> is a
+    /// synthetic <c>legacy-</c> id (the legacy-roster copy) or is still null (an id-less poll).
+    /// These are the one-time migration-copy rows a first refresh adopts onto real source ids.</item>
+    /// <item><b>Cross-source rows</b> - a row stored under a DIFFERENT
+    /// <see cref="ExpectedBook.SourceName"/> with any real source id. A user can re-match a
+    /// series or author from source A to source B; source B's polls then report the same
+    /// real-world books under a new identity, and without this the source-A rows would be
+    /// orphaned and deleted while fresh unrecognised copies (losing every dismiss/
+    /// <see cref="ExpectedBook.IsIgnored"/> decision) were inserted.</item>
+    /// </list>
+    ///
+    /// The natural key never guesses on title alone: a series match requires the same catalog
+    /// series (<see cref="ExpectedBook.SeriesId"/> or <see cref="ExpectedBook.SourceSeriesId"/>)
+    /// plus the same normalized title, and - when both sides carry one - the same
+    /// <see cref="ExpectedBook.SeriesPosition"/>; an author match requires a link to one of the
     /// polled book's resolved <see cref="ExpectedBookAuthor.PersonId"/>s plus the same normalized
-    /// title. Only rows that can be meaningfully tied to the polled book are considered; when no
-    /// series or person key is available the method deliberately refuses to guess. A row whose
-    /// <see cref="ExpectedBook.SourceBookId"/> is a real source id is never adopted here - the
-    /// exact (source_name, source_book_id) lookup already handles real identities, and a real id
-    /// must not be overwritten by an unrelated book's natural key.
+    /// title. No series key and no shared person link means no adoption.
     ///
     /// When the poll carries a source-series identity the series branch runs first; if it finds
     /// no candidate, the method still falls through to the author branch. A pre-migration
@@ -269,7 +289,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
     /// author link is pruned, and the orphaned copy - and the user's ignore decision with it -
     /// is deleted, resurrecting the dismissed book as a fresh un-ignored row.
     /// </summary>
-    private async Task<ExpectedBook?> FindLegacyMatchAsync(ExpectedBookUpsert upsert)
+    private async Task<ExpectedBook?> FindAdoptableMatchAsync(ExpectedBookUpsert upsert)
     {
         IQueryable<ExpectedBook> legacyQuery = _db.ExpectedBooks
             .Include(b => b.AuthorLinks)
@@ -280,15 +300,40 @@ public class ExpectedBookRepository : IExpectedBookRepository
                 || b.SourceBookId.StartsWith(ExpectedBook.LegacyAuthorSyntheticPrefix)
                 || b.SourceBookId.StartsWith(ExpectedBook.LegacySeriesSyntheticPrefix));
 
+        var legacyMatch = await FindNaturalKeyMatchAsync(upsert, legacyQuery);
+        if (legacyMatch is not null)
+        {
+            return legacyMatch;
+        }
+
+        // Cross-source: any row stored under a different source name is a candidate, whatever its
+        // real source id. The row's old identity is superseded on adoption (see UpsertAsync), so
+        // the same real-world book is never split across two sources. Requires a polled real
+        // source id: there is nothing to re-key a row to without one, so a null-id poll cannot
+        // supersede another source's identity.
+        if (string.IsNullOrEmpty(upsert.SourceBookId))
+        {
+            return null;
+        }
+
+        return await FindNaturalKeyMatchAsync(
+            upsert,
+            _db.ExpectedBooks
+                .Include(b => b.AuthorLinks)
+                .Where(b => b.SourceName != upsert.SourceName));
+    }
+
+    private async Task<ExpectedBook?> FindNaturalKeyMatchAsync(ExpectedBookUpsert upsert, IQueryable<ExpectedBook> candidateQuery)
+    {
         if (upsert.SeriesId is not null || !string.IsNullOrEmpty(upsert.SourceSeriesId))
         {
             var seriesId = upsert.SeriesId;
             var sourceSeriesId = upsert.SourceSeriesId;
             IQueryable<ExpectedBook> seriesQuery = seriesId is not null && !string.IsNullOrEmpty(sourceSeriesId)
-                ? legacyQuery.Where(b => b.SeriesId == seriesId || b.SourceSeriesId == sourceSeriesId)
+                ? candidateQuery.Where(b => b.SeriesId == seriesId || b.SourceSeriesId == sourceSeriesId)
                 : seriesId is not null
-                    ? legacyQuery.Where(b => b.SeriesId == seriesId)
-                    : legacyQuery.Where(b => b.SourceSeriesId == sourceSeriesId);
+                    ? candidateQuery.Where(b => b.SeriesId == seriesId)
+                    : candidateQuery.Where(b => b.SourceSeriesId == sourceSeriesId);
 
             var title = upsert.Title;
             var position = upsert.SeriesPosition;
@@ -311,7 +356,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
         }
 
         var authorTitle = upsert.Title;
-        var candidatesByAuthor = await legacyQuery
+        var candidatesByAuthor = await candidateQuery
             .Where(b => b.AuthorLinks.Any(l => l.PersonId != null && personIds.Contains(l.PersonId)))
             .OrderBy(b => b.Id)
             .ToListAsync();
@@ -463,7 +508,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
         await _db.ExpectedBookAuthors.Where(l => linkIds.Contains(l.Id)).ExecuteDeleteAsync();
 
         // Set-based delete bypasses the change tracker - see DeleteOrphanExpectedBooksAsync.
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBookAuthor>(), l => linkIds.Contains(l.Id));
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBookAuthor>(), l => linkIds.Contains(l.Id));
     }
 
     public async Task UnlinkSeriesBooksAsync(long seriesId, IReadOnlyList<long> keepBookIds)
@@ -506,7 +551,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
 
         // ExecuteUpdateAsync bypasses the change tracker; drop stale tracked rows (see delete
         // note below).
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => bookIds.Contains(b.Id));
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => bookIds.Contains(b.Id));
     }
 
     public async Task DeleteOrphanExpectedBooksAsync()
@@ -530,8 +575,8 @@ public class ExpectedBookRepository : IExpectedBookRepository
         // Series.ExpectedBooks only includes series-linked rows (orphans have SeriesId = null),
         // and an orphan author link is removed with its book. Cascade rules remove the book's
         // remaining author links with it.
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => orphanIds.Contains(b.Id));
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBookAuthor>(), l => orphanIds.Contains(l.ExpectedBookId));
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => orphanIds.Contains(b.Id));
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBookAuthor>(), l => orphanIds.Contains(l.ExpectedBookId));
     }
 
     public async Task SetIgnoredAsync(long expectedBookId, bool ignored)
@@ -540,7 +585,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
             .Where(b => b.Id == expectedBookId)
             .ExecuteUpdateAsync(b => b.SetProperty(x => x.IsIgnored, ignored));
 
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == expectedBookId);
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == expectedBookId);
     }
 
     /// <inheritdoc cref="IExpectedBookRepository.SetIgnoredByIdAsync"/>
@@ -587,7 +632,7 @@ public class ExpectedBookRepository : IExpectedBookRepository
 
         // ExecuteUpdateAsync bypasses the change tracker - a tracked stale copy would overwrite
         // the flag back on the next SaveChanges; see SetIgnoredAsync.
-        DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == book.Id);
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == book.Id);
 
         // The series the caller's cache invalidation needs: a shared row's series view changes
         // with its ignore flag, so the service must drop that series' cached reconciliation.
@@ -606,15 +651,6 @@ public class ExpectedBookRepository : IExpectedBookRepository
             .AsNoTracking()
             .Include(b => b.AuthorLinks)
             .FirstOrDefaultAsync(b => b.SourceName == sourceName && b.SourceBookId == sourceBookId);
-
-    private static void DetachTracked<TEntity>(IEnumerable<EntityEntry<TEntity>> entries, Func<TEntity, bool> predicate)
-        where TEntity : class
-    {
-        foreach (var entry in entries.Where(e => predicate(e.Entity)).ToList())
-        {
-            entry.State = EntityState.Detached;
-        }
-    }
 
     private static bool TitlesEqual(string? a, string? b) =>
         string.Equals(FoldedTitleKey(a), FoldedTitleKey(b), StringComparison.Ordinal);

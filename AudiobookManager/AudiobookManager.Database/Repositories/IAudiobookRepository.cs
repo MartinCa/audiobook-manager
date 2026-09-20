@@ -131,6 +131,20 @@ public interface IAudiobookRepository
     /// </summary>
     Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorAsync(long authorId, int maxKeys);
 
+    /// <summary>
+    /// The batched counterpart of <see cref="GetOwnedKeysByAuthorAsync"/> for the bulk authors-list
+    /// filter: every owned book of every person in <paramref name="personIds"/>, reduced to an
+    /// <see cref="AuthorOwnedKey"/> (person id + the same series/part/title/id key), fetched in
+    /// ONE SQL query (a join through the authors many-to-many) ordered by person id then audiobook
+    /// id - a total order, so the per-author grouping is stable. Bounded like every owned-key
+    /// read: at most <paramref name="maxTotalKeys"/> + 1 rows, with the overflow flag telling the
+    /// caller whether the total was breached. Below the bound every requested person's key set is
+    /// complete; past it the flat bound can cut an author's keys mid-list, so the caller must
+    /// treat the result as untrustworthy rather than classify from a short prefix.
+    /// </summary>
+    Task<(List<AuthorOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorsAsync(
+        IReadOnlyList<long> personIds, int maxTotalKeys);
+
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
 
     /// <summary>

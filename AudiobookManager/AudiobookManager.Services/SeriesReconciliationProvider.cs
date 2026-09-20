@@ -116,6 +116,16 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
             .ThenBy(e => e.Id)
             .ToList();
 
+        // The dismissed rows keep the SAME today/classifier as the active split above, so the
+        // detail page's per-section ignored sub-lists can never disagree with the Missing/Upcoming
+        // sections they render inside of.
+        var ignoredMissing = ignored
+            .Where(i => !ExpectedBookClassifier.IsUpcoming(i.ReleaseDate, i.Year, today))
+            .ToList();
+        var ignoredUpcoming = ignored
+            .Where(i => ExpectedBookClassifier.IsUpcoming(i.ReleaseDate, i.Year, today))
+            .ToList();
+
         // Owned books that matched a roster entry but carry no part - or a part the roster does
         // not assign to that entry - are not missing (the book is there), they are mislabeled.
         // A mismatch needs a roster-assigned position to fix against: an entry with no position
@@ -192,7 +202,9 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
             ExpectedBookCount: active.Count,
             OwnedCount: ownedKeys.Count,
             authors,
-            upcoming);
+            upcoming,
+            ignoredMissing,
+            ignoredUpcoming);
     }
 
     internal static SeriesExpectedBookInfo ToExpectedInfo(ExpectedBook book) => new()

@@ -2986,8 +2986,10 @@ export interface paths {
                     ownedPageSize?: number;
                     missingPage?: number;
                     missingPageSize?: number;
-                    ignoredPage?: number;
-                    ignoredPageSize?: number;
+                    ignoredMissingPage?: number;
+                    ignoredMissingPageSize?: number;
+                    ignoredUpcomingPage?: number;
+                    ignoredUpcomingPageSize?: number;
                     partMismatchPage?: number;
                     partMismatchPageSize?: number;
                     upcomingPage?: number;
@@ -5261,7 +5263,8 @@ export interface components {
             overview?: components["schemas"]["SeriesOverviewDto"];
             ownedBooks?: components["schemas"]["SeriesOwnedBookPageDto"];
             missingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
-            ignoredBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            ignoredMissingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            ignoredUpcomingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
             partMismatches?: components["schemas"]["SeriesPartMismatchPageDto"];
             upcomingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
         };

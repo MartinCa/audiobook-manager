@@ -136,10 +136,12 @@ public class SeriesServiceTests
         string seriesName,
         int ownedSkip = 0, int ownedTake = 100,
         int missingSkip = 0, int missingTake = 100,
-        int ignoredSkip = 0, int ignoredTake = 100,
+        int ignoredMissingSkip = 0, int ignoredMissingTake = 100,
+        int ignoredUpcomingSkip = 0, int ignoredUpcomingTake = 100,
         int partMismatchSkip = 0, int partMismatchTake = 100) =>
         MakeService().GetSeriesDetailPageAsync(
-            seriesName, ownedSkip, ownedTake, missingSkip, missingTake, ignoredSkip, ignoredTake,
+            seriesName, ownedSkip, ownedTake, missingSkip, missingTake,
+            ignoredMissingSkip, ignoredMissingTake, ignoredUpcomingSkip, ignoredUpcomingTake,
             partMismatchSkip, partMismatchTake);
 
     // Regression test: a roster entry with no position must still be matched on title against
@@ -207,8 +209,10 @@ public class SeriesServiceTests
         Assert.AreEqual(2, page.OwnedBooks.Count);
         Assert.AreEqual(1, page.MissingBooks.Count);
         Assert.AreEqual("The Hero of Ages", page.MissingBooks[0].Title);
-        Assert.AreEqual(1, page.IgnoredBooks.Count);
-        Assert.AreEqual("Secret History", page.IgnoredBooks[0].Title);
+        Assert.AreEqual(1, page.IgnoredMissingBooks.Count);
+        Assert.AreEqual("Secret History", page.IgnoredMissingBooks[0].Title);
+        Assert.AreEqual(0, page.IgnoredUpcomingBooks.Count,
+            "the yearless dismissed entry classifies as Missing, so the Upcoming ignored list is empty");
         Assert.AreEqual(1, page.Overview.MissingBookCount);
         Assert.AreEqual(3, page.Overview.ExpectedBookCount);
         Assert.IsTrue(page.Overview.IsMatched);
@@ -400,12 +404,22 @@ public class SeriesServiceTests
         Assert.AreEqual(23, seen.Distinct().Count(), "no missing book may appear on two pages");
     }
 
+    // Regression for the review finding: the two ignored sub-lists page INDEPENDENTLY - each
+    // section's cursor slices only its own classification's rows and reports only its own total.
+    // Both lists together cover every dismissed entry (the classifier partitions them), and the
+    // split comes from the same "today"/classifier the active Missing/Upcoming sections use.
     [TestMethod]
-    public async Task GetSeriesDetailPageAsync_PagesTheIgnoredSection_NoBookSkippedOrRepeated()
+    public async Task GetSeriesDetailPageAsync_PagesEachIgnoredClassificationSeparately_NoBookSkippedOrRepeatedOrMisclassified()
     {
         var roster = Enumerable.Range(1, 23)
             .Select(i => MakeExpected(i, $"Ignored Book {i:00}", (i % 7).ToString(), ignored: true))
             .ToList();
+        // 7 of the 23 classify as Upcoming by year; the rest are Missing.
+        for (var i = 0; i < 7; i++)
+        {
+            roster[i * 3].Year = DateTime.UtcNow.Year + 1;
+            roster[i * 3].ReleaseDate = null;
+        }
         var catalogRow = new Series
         {
             Id = 1,
@@ -417,15 +431,29 @@ public class SeriesServiceTests
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
 
-        var seen = new List<string>();
+        var seenMissing = new List<string>();
+        var seenUpcoming = new List<string>();
         for (var skip = 0; skip < 23; skip += 10)
         {
-            var page = await GetDetailPageAsync("Mistborn", ignoredSkip: skip, ignoredTake: 10);
-            seen.AddRange(page!.IgnoredBooks.Select(b => b.Title));
+            // Same page size for both sections, independent cursors - exactly what SeriesDetail
+            // passes for the two ignored pagers.
+            var page = await GetDetailPageAsync(
+                "Mistborn",
+                ignoredMissingSkip: skip, ignoredMissingTake: 10,
+                ignoredUpcomingSkip: skip, ignoredUpcomingTake: 10);
+            Assert.IsNotNull(page);
+            Assert.AreEqual(16, page!.IgnoredMissingBookTotal, "the missing total is only the missing-classified rows");
+            Assert.AreEqual(7, page.IgnoredUpcomingBookTotal, "the upcoming total is only the upcoming-classified rows");
+            seenMissing.AddRange(page.IgnoredMissingBooks.Select(b => b.Title));
+            seenUpcoming.AddRange(page.IgnoredUpcomingBooks.Select(b => b.Title));
         }
 
-        Assert.AreEqual(23, seen.Count, "no ignored book may be dropped by paging");
-        Assert.AreEqual(23, seen.Distinct().Count(), "no ignored book may appear on two pages");
+        Assert.AreEqual(16, seenMissing.Count, "no missing-classified ignored book may be dropped or repeated by paging");
+        Assert.AreEqual(16, seenMissing.Distinct().Count());
+        Assert.AreEqual(7, seenUpcoming.Count, "no upcoming-classified ignored book may be dropped or repeated by paging");
+        Assert.AreEqual(7, seenUpcoming.Distinct().Count());
+        seenMissing.AddRange(seenUpcoming);
+        Assert.AreEqual(23, seenMissing.Count, "the two classifications partition the dismissed roster");
     }
 
     // The point of the reconciliation cache: many paged requests against one series must not each
@@ -451,7 +479,7 @@ public class SeriesServiceTests
         var service = MakeService();
         for (var skip = 0; skip < 55; skip += 10)
         {
-            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10, 0, 10);
+            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10, 0, 10, 0, 10);
             Assert.AreEqual(Math.Min(10, 55 - skip), page!.MissingBooks.Count);
             Assert.AreEqual(55, page.MissingBookTotal, "the total is the full reconciled roster each time, not the slice");
         }
@@ -482,16 +510,16 @@ public class SeriesServiceTests
             .Returns(Task.CompletedTask);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(0, after.MissingBookTotal, "the ignored entry must leave the missing section");
-        Assert.AreEqual(1, after.IgnoredBookTotal, "the ignored entry must appear under ignored");
+        Assert.AreEqual(1, after.IgnoredMissingBookTotal, "the ignored entry must appear under the missing-classified ignored list");
     }
 
     // Same wiring proof for the omnibus toggle: flipping visibility through the service must
@@ -526,13 +554,13 @@ public class SeriesServiceTests
             .ReturnsAsync(catalogRow);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(2, after.MissingBookTotal, "the toggle must invalidate the cache so the detail refills");
     }
@@ -773,7 +801,7 @@ public class SeriesServiceTests
         Assert.IsNotNull(page);
         Assert.AreEqual(0, page.PartMismatchTotal, "the book matches only an ignored entry");
         Assert.AreEqual(0, page.MissingBookTotal);
-        Assert.AreEqual(1, page.IgnoredBookTotal);
+        Assert.AreEqual(1, page.IgnoredMissingBookTotal, "the yearless ignored entry classifies as Missing, not Upcoming");
     }
 
     // A compilation entry that is hidden by the omnibus setting must not surface its book's part,
