@@ -17,11 +17,16 @@ import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
-import type { InitialsSpacing } from "@/types/LibrarySettings";
+import type { InitialsPunctuation, InitialsSpacing } from "@/types/LibrarySettings";
 
 const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
   { value: "Spaced", label: "Spaced (J. K. Rowling)" },
   { value: "Unspaced", label: "Unspaced (J.K. Rowling)" },
+];
+
+const INITIALS_PUNCTUATION_OPTIONS: { value: InitialsPunctuation; label: string }[] = [
+  { value: "Dotted", label: "Dotted (J. R. R. Tolkien)" },
+  { value: "Undotted", label: "Undotted (J R R Tolkien)" },
 ];
 
 /**
@@ -31,6 +36,7 @@ const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
 export function LibrarySettingsPage() {
   const queryClient = useQueryClient();
   const [value, setValue] = useState<InitialsSpacing | null>(null);
+  const [punctuationValue, setPunctuationValue] = useState<InitialsPunctuation | null>(null);
   const [upcomingReleasesEnabled, setUpcomingReleasesEnabled] = useState<boolean | null>(null);
   const [upcomingReleasesCronSchedule, setUpcomingReleasesCronSchedule] = useState<string | null>(
     null,
@@ -44,6 +50,7 @@ export function LibrarySettingsPage() {
   const mutation = useMutation({
     mutationFn: (settings: {
       initialsSpacing: InitialsSpacing;
+      initialsPunctuation: InitialsPunctuation;
       upcomingReleasesEnabled: boolean;
       upcomingReleasesCronSchedule: string;
     }) => settingsApi.updateLibrarySettings(settings),
@@ -61,17 +68,19 @@ export function LibrarySettingsPage() {
   });
 
   const current = value ?? data?.initialsSpacing ?? null;
+  const currentPunctuation = punctuationValue ?? data?.initialsPunctuation ?? null;
   const currentUpcomingReleasesEnabled =
     upcomingReleasesEnabled ?? data?.upcomingReleasesEnabled ?? true;
   const currentCronSchedule =
     upcomingReleasesCronSchedule ?? data?.upcomingReleasesCronSchedule ?? "";
 
   const handleSave = () => {
-    if (!current) {
+    if (!current || !currentPunctuation) {
       return;
     }
     mutation.mutate({
       initialsSpacing: current,
+      initialsPunctuation: currentPunctuation,
       upcomingReleasesEnabled: currentUpcomingReleasesEnabled,
       upcomingReleasesCronSchedule: currentCronSchedule,
     });
@@ -97,8 +106,8 @@ export function LibrarySettingsPage() {
             Library
           </CardTitle>
           <CardDescription>
-            Choose how initials in person names are spaced. The consistency check reports authors
-            and narrators whose stored name does not follow this convention.
+            Choose how initials in person names are spaced and punctuated. The consistency check
+            reports authors and narrators whose stored name does not follow this convention.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -131,6 +140,34 @@ export function LibrarySettingsPage() {
                 <p className="text-muted-foreground text-xs">
                   When new books are organized, this setting decides whether author initials are
                   written with a space between them (J. K. Rowling) or without (J.K. Rowling).
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="mb-1 block text-xs font-medium">Initials punctuation</label>
+                <Select
+                  value={currentPunctuation ?? undefined}
+                  onValueChange={(v) => setPunctuationValue(v)}
+                  items={INITIALS_PUNCTUATION_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  disabled={mutation.isPending}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder="Select initials punctuation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INITIALS_PUNCTUATION_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">
+                  Decides whether author initials carry a trailing period (J. R. R. Tolkien) or not
+                  (J R R Tolkien).
                 </p>
               </div>
             </div>
@@ -190,7 +227,10 @@ export function LibrarySettingsPage() {
       </Card>
 
       <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={mutation.isPending || !current || isLoading}>
+        <Button
+          onClick={handleSave}
+          disabled={mutation.isPending || !current || !currentPunctuation || isLoading}
+        >
           {mutation.isPending ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
           ) : (

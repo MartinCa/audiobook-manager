@@ -10,6 +10,7 @@ public interface ILibrarySettingsRepository
     /// <summary>Updates the settings row (creating it if missing) and returns the saved row.</summary>
     Task<LibrarySettings> UpdateAsync(
         InitialsSpacing initialsSpacing,
+        InitialsPunctuation initialsPunctuation,
         int metadataRefreshDelayMs,
         bool upcomingReleasesEnabled,
         string upcomingReleasesCronSchedule);

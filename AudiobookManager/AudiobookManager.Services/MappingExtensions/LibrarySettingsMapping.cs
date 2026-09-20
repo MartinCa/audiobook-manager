@@ -8,6 +8,7 @@ public static class LibrarySettingsMapping
         new()
         {
             InitialsSpacing = ToDomain(dbModel.InitialsSpacing),
+            InitialsPunctuation = ToDomain(dbModel.InitialsPunctuation),
             MetadataRefreshDelayMs = dbModel.MetadataRefreshDelayMs,
             UpcomingReleasesEnabled = dbModel.UpcomingReleasesEnabled,
             UpcomingReleasesCronSchedule = dbModel.UpcomingReleasesCronSchedule,
@@ -25,5 +26,19 @@ public static class LibrarySettingsMapping
         Database.Models.InitialsSpacing.Spaced => Domain.InitialsSpacing.Spaced,
         Database.Models.InitialsSpacing.Unspaced => Domain.InitialsSpacing.Unspaced,
         _ => throw new ArgumentOutOfRangeException(nameof(db), db, "Unknown initials spacing"),
+    };
+
+    public static Database.Models.InitialsPunctuation ToDb(this Domain.InitialsPunctuation domain) => domain switch
+    {
+        Domain.InitialsPunctuation.Dotted => Database.Models.InitialsPunctuation.Dotted,
+        Domain.InitialsPunctuation.Undotted => Database.Models.InitialsPunctuation.Undotted,
+        _ => throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown initials punctuation"),
+    };
+
+    public static Domain.InitialsPunctuation ToDomain(this Database.Models.InitialsPunctuation db) => db switch
+    {
+        Database.Models.InitialsPunctuation.Dotted => Domain.InitialsPunctuation.Dotted,
+        Database.Models.InitialsPunctuation.Undotted => Domain.InitialsPunctuation.Undotted,
+        _ => throw new ArgumentOutOfRangeException(nameof(db), db, "Unknown initials punctuation"),
     };
 }

@@ -22,6 +22,7 @@ public class SettingsService : ISettingsService
     {
         var dbSettings = await _librarySettingsRepository.UpdateAsync(
             settings.InitialsSpacing.ToDb(),
+            settings.InitialsPunctuation.ToDb(),
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
             settings.UpcomingReleasesCronSchedule);

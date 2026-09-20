@@ -144,7 +144,10 @@ public class LibraryConsistencyServiceTests
             .ReturnsAsync(new Database.Models.LibrarySettings(
                 Database.Models.LibrarySettings.SingletonId, Database.Models.InitialsSpacing.Unspaced));
         _initialsSpacingIssueDetector
-            .Setup(d => d.Detect(It.IsAny<IReadOnlyList<Database.Models.Audiobook>>(), It.IsAny<Domain.InitialsSpacing>()))
+            .Setup(d => d.Detect(
+                It.IsAny<IReadOnlyList<Database.Models.Audiobook>>(),
+                It.IsAny<Domain.InitialsSpacing>(),
+                It.IsAny<Domain.InitialsPunctuation>()))
             .Returns(new List<ConsistencyIssue>());
         _partMismatchIssueDetector
             .Setup(d => d.DetectLibraryWideAsync())

@@ -5,6 +5,7 @@ using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using DomainInitialsSpacing = AudiobookManager.Domain.InitialsSpacing;
+using DomainInitialsPunctuation = AudiobookManager.Domain.InitialsPunctuation;
 
 namespace AudiobookManager.Test.Controllers;
 
@@ -122,11 +123,68 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", null, 1000, null, null));
 
         Assert.IsNotNull(result);
         service.Verify(s => s.UpdateLibrarySettings(
             It.Is<Domain.LibrarySettings>(v => v.InitialsSpacing == DomainInitialsSpacing.Spaced)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_ParsesThePunctuationEnumNameCaseInsensitively()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings());
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("spaced", "undotted", 1000, null, null));
+
+        Assert.IsNotNull(result);
+        service.Verify(s => s.UpdateLibrarySettings(
+            It.Is<Domain.LibrarySettings>(v => v.InitialsPunctuation == DomainInitialsPunctuation.Undotted)),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OmittedPunctuation_KeepsTheStoredValue()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings { InitialsPunctuation = DomainInitialsPunctuation.Undotted });
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null));
+
+        service.Verify(s => s.UpdateLibrarySettings(
+            It.Is<Domain.LibrarySettings>(v => v.InitialsPunctuation == DomainInitialsPunctuation.Undotted)),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_UnknownPunctuationValue_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", "Periodic", 1000, null, null));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'Periodic' is not a known initials punctuation. Use one of: Dotted, Undotted.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
     }
 
     [TestMethod]
@@ -135,12 +193,47 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", null, 1000, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
             400,
             "'WidelySpaced' is not a known initials spacing. Use one of: Spaced, Unspaced.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    // Regression guard (PR review): Enum.TryParse alone accepts an out-of-range numeric string
+    // ("7" parses to the undefined value (InitialsSpacing)7), which used to sail past this
+    // validation and throw an unhandled ArgumentOutOfRangeException (500) in
+    // LibrarySettingsMapping.ToDb() instead of returning a 400 here - and never call the service.
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OutOfRangeNumericValue_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("7", null, 1000, null, null));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'7' is not a known initials spacing. Use one of: Spaced, Unspaced.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OutOfRangeNumericPunctuationValue_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", "7", 1000, null, null));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'7' is not a known initials punctuation. Use one of: Dotted, Undotted.");
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
     }
 
@@ -150,7 +243,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, null, 1000, null, null));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
@@ -164,7 +257,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("Spaced", 1000, true, "not a cron expression"));
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, true, "not a cron expression"));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
@@ -181,7 +274,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("Spaced", 1000, false, "0 4 * * *"));
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, false, "0 4 * * *"));
 
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
         var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
@@ -209,7 +302,7 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null));
 
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
         var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);

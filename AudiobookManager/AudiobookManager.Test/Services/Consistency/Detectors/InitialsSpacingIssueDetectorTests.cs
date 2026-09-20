@@ -3,6 +3,7 @@ using AudiobookManager.Services;
 using DbPerson = AudiobookManager.Database.Models.Person;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
 using DomainInitialsSpacing = AudiobookManager.Domain.InitialsSpacing;
+using DomainInitialsPunctuation = AudiobookManager.Domain.InitialsPunctuation;
 
 namespace AudiobookManager.Test.Services.Consistency.Detectors;
 
@@ -39,7 +40,7 @@ public class InitialsSpacingIssueDetectorTests
         };
 
         var issues = new InitialsSpacingIssueDetector()
-            .Detect(books, DomainInitialsSpacing.Unspaced)
+            .Detect(books, DomainInitialsSpacing.Unspaced, DomainInitialsPunctuation.Dotted)
             .ToList();
 
         Assert.AreEqual(1, issues.Count, "one issue per distinct person value, not per book");
@@ -58,7 +59,7 @@ public class InitialsSpacingIssueDetectorTests
         var books = new List<DbAudiobook> { Book(7, "The Hobbit", "J.R.R. Tolkien") };
 
         var issue = new InitialsSpacingIssueDetector()
-            .Detect(books, DomainInitialsSpacing.Spaced)
+            .Detect(books, DomainInitialsSpacing.Spaced, DomainInitialsPunctuation.Dotted)
             .Single();
 
         Assert.AreEqual("J.R.R. Tolkien", issue.ActualValue);
@@ -74,7 +75,7 @@ public class InitialsSpacingIssueDetectorTests
         };
 
         var issue = new InitialsSpacingIssueDetector()
-            .Detect(books, DomainInitialsSpacing.Unspaced)
+            .Detect(books, DomainInitialsSpacing.Unspaced, DomainInitialsPunctuation.Dotted)
             .Single();
 
         Assert.AreEqual("S. A. Chakraborty", issue.ActualValue);
@@ -89,7 +90,7 @@ public class InitialsSpacingIssueDetectorTests
         book.Narrators = new List<Person> { new(default, "A. B. Author") };
 
         var issue = new InitialsSpacingIssueDetector()
-            .Detect(new[] { book }, DomainInitialsSpacing.Unspaced)
+            .Detect(new[] { book }, DomainInitialsSpacing.Unspaced, DomainInitialsPunctuation.Dotted)
             .Single();
 
         StringAssert.Contains(issue.Description, "1 book");
@@ -104,8 +105,21 @@ public class InitialsSpacingIssueDetectorTests
             Book(2, "Book 2", "Brandon Sanderson")
         };
 
-        var issues = new InitialsSpacingIssueDetector().Detect(books, DomainInitialsSpacing.Unspaced).ToList();
+        var issues = new InitialsSpacingIssueDetector().Detect(books, DomainInitialsSpacing.Unspaced, DomainInitialsPunctuation.Dotted).ToList();
         Assert.AreEqual(0, issues.Count);
+    }
+
+    [TestMethod]
+    public void Detect_FlagsPunctuationMismatchIndependentlyOfSpacing()
+    {
+        var books = new List<DbAudiobook> { Book(20, "The Hobbit", "J. R. R. Tolkien") };
+
+        var issue = new InitialsSpacingIssueDetector()
+            .Detect(books, DomainInitialsSpacing.Spaced, DomainInitialsPunctuation.Undotted)
+            .Single();
+
+        Assert.AreEqual("J. R. R. Tolkien", issue.ActualValue);
+        Assert.AreEqual("J R R Tolkien", issue.ExpectedValue);
     }
 
     [TestMethod]
@@ -118,7 +132,7 @@ public class InitialsSpacingIssueDetectorTests
             Book(3, "C", "A. A. Milne")
         };
 
-        var issues = new InitialsSpacingIssueDetector().Detect(books, DomainInitialsSpacing.Unspaced).ToList();
+        var issues = new InitialsSpacingIssueDetector().Detect(books, DomainInitialsSpacing.Unspaced, DomainInitialsPunctuation.Dotted).ToList();
 
         CollectionAssert.AreEqual(
             new[] { "A. A. Milne", "G. R. R. Martin", "J. K. Rowling" },
