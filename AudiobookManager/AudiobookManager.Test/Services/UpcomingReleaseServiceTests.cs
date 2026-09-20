@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using SeriesExpectedBookInfo = AudiobookManager.Domain.SeriesExpectedBookInfo;
 using SeriesPartMismatch = AudiobookManager.Domain.SeriesPartMismatch;
@@ -502,6 +503,30 @@ public class UpcomingReleaseServiceTests
         _expectedBookRepository.Verify(r => r.PruneAuthorLinksAsync(7, It.Is<IReadOnlyList<long>>(keep => keep.Count == 0)), Times.Once);
         _expectedBookRepository.Verify(r => r.DeleteOrphanExpectedBooksAsync(), Times.Once);
         _personRepository.Verify(r => r.SetLastRefreshedAtAsync(7, It.IsAny<DateTime>()), Times.Once);
+    }
+
+    // Regression for the review finding (high, data loss): a scraper that cannot RESOLVE the
+    // author (unparseable source id, or a null/undefined authors_by_pk - deleted/merged
+    // upstream or a transient empty response) must surface as a thrown error, never as the
+    // empty bibliography that prunes this author's whole unified roster - ignore history
+    // included - and orphans the books. The exception propagating out of the refresh is what
+    // leaves the roster untouched; nothing is upserted, pruned, orphan-deleted or stamped.
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_ScraperCannotResolveAuthor_LeavesTheRosterUntouchedAndThrows()
+    {
+        await SetupRefreshableAuthorAsync();
+        _scraper.Setup(s => s.GetAuthorBooks("123"))
+            .ThrowsAsync(new AuthorNotFoundException("Hardcover returned no author for source id \"123\""));
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => _service.RefreshAuthorRosterAsync(7));
+
+        _expectedBookRepository.Verify(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()), Times.Never,
+            "a failed fetch must not upsert anything");
+        _expectedBookRepository.Verify(r => r.PruneAuthorLinksAsync(It.IsAny<long>(), It.IsAny<IReadOnlyList<long>>()), Times.Never,
+            "a failed fetch must never prune, even to an empty keep-list");
+        _expectedBookRepository.Verify(r => r.DeleteOrphanExpectedBooksAsync(), Times.Never);
+        _personRepository.Verify(r => r.SetLastRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime>()), Times.Never,
+            "a failed fetch must not stamp the author as freshly refetched");
     }
 
     // Ignore decisions survive a re-refresh through the unified row's identity, not a separate

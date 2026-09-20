@@ -17,10 +17,20 @@ interface ExpectedBookListProps {
    *  `showIgnored` is on and the row classifies as this section. */
   ignoredItems: ExpectedBookRow[];
   /** Total ignored entries in the scope - drives the overflow note when the loaded ignored page
-   *  does not carry all of them. */
+   *  does not carry all of them (and the pager's total when one is wired). */
   ignoredTotal: number;
   /** Whether dismissed entries render faded within this list (one scope-level toggle). */
   showIgnored: boolean;
+  /** Optional pager for the ignored sub-list (same props shape as SectionPager, minus
+   *  totalCount, which is always ignoredTotal). Rendered in place of the static
+   *  "...and N more ignored books..." note when the scope's ignored section pages server-side
+   *  (SeriesDetail) and the loaded page does not carry every entry; the author detail passes no
+   *  pager because its endpoint returns the full in-memory ignored list. */
+  ignoredPager?: {
+    currentPage: number;
+    pageCount: number;
+    onPageChange: (page: number) => void;
+  };
   /** id of the row currently busy with an ignore/unignore call, or null. */
   busyBookId: number | null;
   /** Shown when there is nothing to render in this section. */
@@ -44,6 +54,7 @@ export function ExpectedBookList({
   ignoredItems,
   ignoredTotal,
   showIgnored,
+  ignoredPager,
   busyBookId,
   emptyMessage,
   onIgnore,
@@ -61,7 +72,11 @@ export function ExpectedBookList({
     return <p className="text-muted-foreground text-xs">{emptyMessage}</p>;
   }
 
-  const staleIgnoredCount = showIgnored ? ignoredTotal - ignoredItems.length : 0;
+  const paged = showIgnored && ignoredPager && ignoredPager.pageCount > 1;
+  // The static overflow note only stands in for a pager: once the ignored section pages (a
+  // pager is wired), the pager is how a user reaches the rest, so a redundant count note over
+  // the same entries would just repeat what the pager's total already says.
+  const staleIgnoredCount = showIgnored && !paged ? ignoredTotal - ignoredItems.length : 0;
 
   return (
     <div className="space-y-2">
@@ -80,6 +95,14 @@ export function ExpectedBookList({
         <p className="text-muted-foreground text-xs">
           and {staleIgnoredCount} more ignored book{staleIgnoredCount === 1 ? "" : "s"}...
         </p>
+      )}
+      {paged && (
+        <SectionPager
+          currentPage={ignoredPager.currentPage}
+          pageCount={ignoredPager.pageCount}
+          totalCount={ignoredTotal}
+          onPageChange={ignoredPager.onPageChange}
+        />
       )}
     </div>
   );

@@ -554,6 +554,43 @@ public class ExpectedBookRepositoryTests
         Assert.IsFalse(remaining.Contains(standaloneId), "the unlinked, series-less book must be deleted");
     }
 
+    // Regression guard for the review finding: a keep-list larger than MaxInClauseIdsPerQuery
+    // used to become ONE unchunked NOT IN clause. The keep lookups are chunked now - this test
+    // drives a 1,200+-id keep-list through the method, asserting the resulting prune still keeps
+    // exactly the listed books' links (and drops the rest), which is what the chunked
+    // merge-then-filter must produce.
+    [TestMethod]
+    public async Task PruneAuthorLinksAsync_KeepListLargerThanTheChunkSize_KeepsOnlyTheListedLinks()
+    {
+        var personId = await SeedPersonAsync();
+        var keptIds = new List<long>();
+        var prunedIds = new List<long>();
+        for (var i = 0; i < 3; i++)
+        {
+            keptIds.Add(await InsertBookRowAsync($"Keep {i}", personId: personId));
+        }
+        for (var i = 0; i < 10; i++)
+        {
+            prunedIds.Add(await InsertBookRowAsync($"Prune {i}", personId: personId));
+        }
+
+        // 1,200 ids starting at 1000 cannot collide with the row ids the seeds just consumed,
+        // so only the three real kept ids are meaningful members; the list still crosses the
+        // 500-id chunk size (three chunks).
+        var keepBookIds = Enumerable.Range(1000, 1200).Select(i => (long)i).ToList();
+        keepBookIds.AddRange(keptIds);
+
+        await _repository.PruneAuthorLinksAsync(personId, keepBookIds);
+
+        var remainingBookIds = await _db.ExpectedBookAuthors.AsNoTracking()
+            .Where(l => l.PersonId == personId)
+            .OrderBy(l => l.ExpectedBookId)
+            .Select(l => l.ExpectedBookId)
+            .ToListAsync();
+        Assert.AreSequenceEqual(keptIds, remainingBookIds,
+            "only the keep-listed books' links survive the prune, in id order");
+    }
+
     [TestMethod]
     public async Task UnlinkSeriesBooksAsync_KeepsAuthorLinkedRowsAndKeepsTheSourceSeriesFields()
     {
@@ -582,6 +619,53 @@ public class ExpectedBookRepositoryTests
         Assert.AreEqual("The Stormlight Archive", linklessRow.SourceSeriesName,
             "the source-series fields record what the source reported and are kept");
         Assert.IsNotNull(kept.Single(b => b.Id == authorLinked).SeriesId);
+    }
+
+    // Regression guard for the review finding: same unchunked-IN hazard as
+    // PruneAuthorLinksAsync, on the update side - a keep-list crossing the chunk size must leave
+    // exactly the listed books linked and clear the rest, with the lookup chunked so no single
+    // query carries the whole list.
+    [TestMethod]
+    public async Task UnlinkSeriesBooksAsync_KeepListLargerThanTheChunkSize_KeepsOnlyTheListedBooksLinked()
+    {
+        var series = await SeedSeriesAsync();
+        var keptIds = new List<long>();
+        var unlinkedIds = new List<long>();
+        for (var i = 0; i < 3; i++)
+        {
+            keptIds.Add(await InsertBookRowAsync($"Keep {i}"));
+        }
+        for (var i = 0; i < 10; i++)
+        {
+            unlinkedIds.Add(await InsertBookRowAsync($"Unlink {i}"));
+        }
+        foreach (var id in keptIds.Concat(unlinkedIds))
+        {
+            _db.ExpectedBooks.Find(id)!.SeriesId = series.Id;
+            _db.ExpectedBooks.Find(id)!.SourceSeriesId = series.MatchedSourceId;
+            _db.ExpectedBooks.Find(id)!.SourceSeriesName = "The Stormlight Archive";
+        }
+        await _db.SaveChangesAsync();
+
+        // 1,200 filler ids (starting beyond any row id) plus the three real kept ids: three
+        // chunks through the keep lookups.
+        var keepBookIds = Enumerable.Range(1000, 1200).Select(i => (long)i).ToList();
+        keepBookIds.AddRange(keptIds);
+
+        await _repository.UnlinkSeriesBooksAsync(series.Id, keepBookIds);
+
+        var linkedIds = await _db.ExpectedBooks.AsNoTracking()
+            .Where(b => b.SeriesId == series.Id)
+            .OrderBy(b => b.Id)
+            .Select(b => b.Id)
+            .ToListAsync();
+        Assert.AreSequenceEqual(keptIds, linkedIds,
+            "only the keep-listed books stay linked to the series, in id order");
+        foreach (var id in unlinkedIds)
+        {
+            Assert.IsNull(_db.ExpectedBooks.AsNoTracking().Single(b => b.Id == id).SeriesId,
+                "a book outside the keep-list must lose its series link");
+        }
     }
 
     [TestMethod]

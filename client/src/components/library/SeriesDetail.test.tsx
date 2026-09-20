@@ -70,6 +70,7 @@ function makeDetail(
   partMismatchTotal = 0,
   upcomingItems: SeriesExpectedBook[] = [],
   upcomingTotal = 0,
+  ignoredItems: SeriesExpectedBook[] = [],
 ): SeriesDetail {
   return {
     overview: {
@@ -99,7 +100,7 @@ function makeDetail(
       totalCount: missingTotal,
     },
     ignoredBooks: {
-      items: [],
+      items: ignoredItems,
       totalCount: ignoredTotal,
     },
     partMismatches: {
@@ -707,6 +708,75 @@ describe("SeriesDetail", () => {
     await waitFor(() => {
       expect(unignore).toHaveBeenCalledWith("Mistborn", "5", "The Lost Metal");
     });
+  });
+
+  // Regression for the review finding: with the dedicated Ignored Books section gone, the
+  // ignored entries render inside the shared list - but the endpoint pages them, so a series
+  // with more ignored entries than one page used to show only the first 50 plus a static
+  // "...and N more..." note with no way to reach the rest (unreachable and un-ignorable). The
+  // shared list must page the ignored view through the same SectionPager as every other section.
+  it("pages the ignored view through the shared list's pager", async () => {
+    function ignoredPageItems(from: number, count: number): SeriesExpectedBook[] {
+      return Array.from({ length: count }, (_, i) => ({
+        id: 200 + from + i,
+        title: `Ignored ${String(from + i + 1).padStart(2, "0")}`,
+        position: null,
+        year: 2000,
+        sourceUrl: null,
+        isIgnored: true,
+      }));
+    }
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockImplementation((_name, params) =>
+        Promise.resolve(
+          params?.ignoredPage === 1
+            ? makeDetail(
+                [missingBook(20, "The Alloy of Law", "4")],
+                1,
+                [defaultOwned],
+                60,
+                [],
+                0,
+                [],
+                0,
+                ignoredPageItems(50, 10),
+              )
+            : makeDetail(
+                [missingBook(20, "The Alloy of Law", "4")],
+                1,
+                [defaultOwned],
+                60,
+                [],
+                0,
+                [],
+                0,
+                ignoredPageItems(0, 50),
+              ),
+        ),
+      );
+
+    renderWithProviders();
+
+    // Expand Missing Books (where the past-dated ignored rows classify) and turn the toggle on.
+    await screen.findByText(/Missing Books \(1\)/);
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(1\)/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+
+    // Page 0 renders its 50 ignored rows with a live pager - not the dead-end static note.
+    expect(await screen.findByText(/Ignored 01/)).toBeInTheDocument();
+    expect(screen.queryByText(/more ignored books\.\.\./)).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Next" }).click();
+
+    await waitFor(() => {
+      expect(getSeriesDetail.mock.calls.at(-1)![1]?.ignoredPage).toBe(1);
+    });
+    // The second ignored page's rows are reachable - and therefore un-ignorable - now.
+    expect(await screen.findByText(/Ignored 51/)).toBeInTheDocument();
+    expect(screen.getByText(/Ignored 60/)).toBeInTheDocument();
+    expect(screen.getByText("Showing 51–60 of 60")).toBeInTheDocument();
   });
 
   // --- Series mapping patterns (owned by this series, managed in the Management section) ---

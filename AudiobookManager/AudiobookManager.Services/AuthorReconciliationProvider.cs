@@ -288,14 +288,18 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
     private static List<AuthorMissingSeriesInfo> ComputeMissingSeries(
         List<ExpectedBook> active, AuthorOwnedIndex ownedIndex)
     {
+        // Materialized ONCE: GroupBy is lazy, so `groups` is an Iterable of groupings - counting
+        // it (twice below) or iterating it again would each re-run the whole grouping pipeline
+        // over `active`. The list is what the cap check and the loop both read from.
         var groups = active
             .Where(e => !string.IsNullOrEmpty(e.SourceSeriesId))
-            .GroupBy(e => new SeriesGroupKey(e.SourceName, e.SourceSeriesId!));
+            .GroupBy(e => new SeriesGroupKey(e.SourceName, e.SourceSeriesId!))
+            .ToList();
 
-        if (groups.Count() > MaxAuthorSeriesGroups)
+        if (groups.Count > MaxAuthorSeriesGroups)
         {
             throw new InvalidOperationException(
-                $"Author has {groups.Count()} distinct source series, exceeding the {MaxAuthorSeriesGroups} the detail view reports.");
+                $"Author has {groups.Count} distinct source series, exceeding the {MaxAuthorSeriesGroups} the detail view reports.");
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);

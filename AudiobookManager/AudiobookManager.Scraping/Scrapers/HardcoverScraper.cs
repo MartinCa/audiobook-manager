@@ -1005,15 +1005,35 @@ public class HardcoverScraper : IScraper
     {
         if (!int.TryParse(authorSourceId, out var id))
         {
+            // An unparseable id is a caller problem, not an empty bibliography: the caller
+            // refreshes its roster on this result, and an empty fetch would prune the whole
+            // stored roster. Make the failure explicit so the caller aborts instead.
             _logger.LogWarning("Could not parse a numeric Hardcover author id from {AuthorSourceId}", authorSourceId);
-            return new List<AuthorBookResult>();
+            throw new AuthorNotFoundException(
+                $"Could not parse \"{authorSourceId}\" as a numeric Hardcover author id.");
         }
 
         var responseElement = await ExecuteGraphqlQuery(_authorAllBooksQuery, new { id });
-        var authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+
+        // A missing "authors_by_pk" key (a malformed/empty envelope) folds into the same "no
+        // such author" failure as an explicit null - never a raw KeyNotFoundException that the
+        // roster refresh would treat as an unspecified error.
+        JsonElement authorElement;
+        try
+        {
+            authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+        }
+        catch (KeyNotFoundException)
+        {
+            throw new AuthorNotFoundException(
+                $"Hardcover returned no author for source id \"{authorSourceId}\" - the author may have been deleted or merged on the source side, or the source responded with an empty result.");
+        }
         if (authorElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            return new List<AuthorBookResult>();
+            // The source resolves no such author (deleted/merged upstream, or a transient empty
+            // response) - same explicit-failure rule as the unparseable id above.
+            throw new AuthorNotFoundException(
+                $"Hardcover returned no author for source id \"{authorSourceId}\" - the author may have been deleted or merged on the source side, or the source responded with an empty result.");
         }
 
         var results = new List<AuthorBookResult>();

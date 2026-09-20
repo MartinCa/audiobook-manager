@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
@@ -454,6 +455,13 @@ public class BrowseController : ControllerBase
         {
             return this.InvalidRequest(ex.Message);
         }
+        catch (AuthorNotFoundException ex)
+        {
+            // The source could not resolve the author (deleted/merged upstream, or an empty
+            // transient response) - a caller-side problem with what was matched, not a server
+            // failure, and the roster was deliberately left untouched.
+            return this.InvalidRequest(ex.Message);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing roster for author {AuthorId}", authorId);
@@ -704,6 +712,13 @@ public class BrowseController : ControllerBase
         }
         catch (HardcoverDailyLimitExceededException ex)
         {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (AuthorNotFoundException ex)
+        {
+            // The source could not resolve the freshly-matched author - a caller-side problem
+            // with the id they just supplied, not a server failure; the match stays stored and
+            // the roster stays untouched (see RefreshAuthor's identical mapping).
             return this.InvalidRequest(ex.Message);
         }
         catch (Exception ex)

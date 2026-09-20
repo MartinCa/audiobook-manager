@@ -430,13 +430,31 @@ public class ExpectedBookRepository : IExpectedBookRepository
 
     public async Task PruneAuthorLinksAsync(long personId, IReadOnlyList<long> keepBookIds)
     {
-        var links = _db.ExpectedBookAuthors.Where(l => l.PersonId == personId);
-        if (keepBookIds.Count > 0)
+        var allLinkIds = await _db.ExpectedBookAuthors
+            .Where(l => l.PersonId == personId)
+            .Select(l => l.Id)
+            .ToListAsync();
+        if (allLinkIds.Count == 0)
         {
-            links = links.Where(l => !keepBookIds.Contains(l.ExpectedBookId));
+            return;
         }
 
-        var linkIds = await links.Select(l => l.Id).ToListAsync();
+        // The keep-list is a caller-supplied set of expected-book ids that can exceed SQLite's
+        // compiled-variable limit by orders of magnitude (a roster refresh hands over the whole
+        // fetched bibliography), so the keep-match lookup is chunked like every other id-list
+        // read in this class: each chunk's matching link ids are merged into one set, and every
+        // link NOT in it is this author's to remove. Never one IN clause over the whole list.
+        var keepLinkIds = new HashSet<long>();
+        foreach (var chunk in keepBookIds.ToList().Chunk(MaxInClauseIdsPerQuery))
+        {
+            var matching = await _db.ExpectedBookAuthors
+                .Where(l => l.PersonId == personId && chunk.Contains(l.ExpectedBookId))
+                .Select(l => l.Id)
+                .ToListAsync();
+            keepLinkIds.UnionWith(matching);
+        }
+
+        var linkIds = allLinkIds.Where(id => !keepLinkIds.Contains(id)).ToList();
         if (linkIds.Count == 0)
         {
             return;
@@ -450,13 +468,28 @@ public class ExpectedBookRepository : IExpectedBookRepository
 
     public async Task UnlinkSeriesBooksAsync(long seriesId, IReadOnlyList<long> keepBookIds)
     {
-        var toUnlink = _db.ExpectedBooks.Where(b => b.SeriesId == seriesId);
-        if (keepBookIds.Count > 0)
+        var allBookIds = await _db.ExpectedBooks
+            .Where(b => b.SeriesId == seriesId)
+            .Select(b => b.Id)
+            .ToListAsync();
+        if (allBookIds.Count == 0)
         {
-            toUnlink = toUnlink.Where(b => !keepBookIds.Contains(b.Id));
+            return;
         }
 
-        var bookIds = await toUnlink.Select(b => b.Id).ToListAsync();
+        // Same chunking rule as PruneAuthorLinksAsync: a keep-list larger than the chunk size
+        // must not become one oversized IN clause heading for the update statement below.
+        var keepBookIdSet = new HashSet<long>();
+        foreach (var chunk in keepBookIds.ToList().Chunk(MaxInClauseIdsPerQuery))
+        {
+            var matching = await _db.ExpectedBooks
+                .Where(b => b.SeriesId == seriesId && chunk.Contains(b.Id))
+                .Select(b => b.Id)
+                .ToListAsync();
+            keepBookIdSet.UnionWith(matching);
+        }
+
+        var bookIds = allBookIds.Where(id => !keepBookIdSet.Contains(id)).ToList();
         if (bookIds.Count == 0)
         {
             return;

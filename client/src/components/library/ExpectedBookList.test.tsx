@@ -24,6 +24,7 @@ function renderList({
   ignoredItems = [],
   ignoredTotal,
   showIgnored = false,
+  ignoredPager,
   ...rest
 }: {
   section?: "missing" | "upcoming";
@@ -31,6 +32,11 @@ function renderList({
   ignoredItems?: ExpectedBookRow[];
   ignoredTotal?: number;
   showIgnored?: boolean;
+  ignoredPager?: {
+    currentPage: number;
+    pageCount: number;
+    onPageChange: (page: number) => void;
+  };
   busyBookId?: number | null;
   emptyMessage?: string;
   onIgnore?: (book: ExpectedBookRow) => void;
@@ -44,6 +50,7 @@ function renderList({
       ignoredItems={ignoredItems}
       ignoredTotal={ignoredTotal ?? ignoredItems.length}
       showIgnored={showIgnored}
+      ignoredPager={ignoredPager}
       busyBookId={rest.busyBookId ?? null}
       emptyMessage={rest.emptyMessage ?? "Nothing here."}
       onIgnore={rest.onIgnore ?? vi.fn()}
@@ -194,6 +201,59 @@ describe("ExpectedBookList", () => {
     });
 
     expect(screen.getByText("and 1 more ignored book...")).toBeInTheDocument();
+  });
+
+  // Regression for the review finding: with the ignored section paging server-side (SeriesDetail),
+  // the pager is how the user reaches the remaining ignored entries. It must render in place of
+  // the static overflow note - the note would otherwise claim those entries exist while the UI
+  // offers no way to reach them.
+  it("renders the ignored pager in place of the static overflow note when one is wired", () => {
+    const onPageChange = vi.fn();
+    renderList({
+      items: [row({ id: 1 })],
+      ignoredItems: Array.from({ length: 50 }, (_, i) =>
+        row({ id: 200 + i, title: `Ignored ${i}`, isIgnored: true, year: 2000 }),
+      ),
+      ignoredTotal: 60,
+      showIgnored: true,
+      ignoredPager: { currentPage: 0, pageCount: 2, onPageChange },
+    });
+
+    expect(screen.queryByText(/more ignored books\.\.\./)).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(onPageChange).toHaveBeenCalledWith(1);
+  });
+
+  it("pages back through the ignored pager from a later page", () => {
+    const onPageChange = vi.fn();
+    renderList({
+      items: [row({ id: 1 })],
+      ignoredItems: Array.from({ length: 10 }, (_, i) =>
+        row({ id: 250 + i, title: `Ignored ${50 + i}`, isIgnored: true, year: 2000 }),
+      ),
+      ignoredTotal: 60,
+      showIgnored: true,
+      ignoredPager: { currentPage: 1, pageCount: 2, onPageChange },
+    });
+
+    expect(screen.getByText("Showing 51–60 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(onPageChange).toHaveBeenCalledWith(0);
+  });
+
+  it("keeps the static overflow note when no pager is wired (author detail)", () => {
+    renderList({
+      items: [row({ id: 1 })],
+      ignoredItems: [],
+      ignoredTotal: 3,
+      showIgnored: true,
+    });
+
+    expect(screen.getByText("and 3 more ignored books...")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
   });
 });
 

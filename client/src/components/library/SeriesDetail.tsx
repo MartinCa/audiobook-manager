@@ -234,6 +234,7 @@ export function SeriesDetail() {
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
+  const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
   const currentPartMismatchPage = Math.min(partMismatchPage, partMismatchPageCount - 1);
   const currentUpcomingPage = Math.min(upcomingPage, upcomingPageCount - 1);
 
@@ -763,6 +764,11 @@ export function SeriesDetail() {
             items={missingBooks}
             ignoredItems={ignoredBooks}
             ignoredTotal={ignoredSection.totalCount}
+            ignoredPager={{
+              currentPage: currentIgnoredPage,
+              pageCount: ignoredPageCount,
+              onPageChange: setIgnoredPage,
+            }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}
             emptyMessage="No missing books detected in this series."
@@ -794,6 +800,11 @@ export function SeriesDetail() {
             items={upcomingBooks}
             ignoredItems={ignoredBooks}
             ignoredTotal={ignoredSection.totalCount}
+            ignoredPager={{
+              currentPage: currentIgnoredPage,
+              pageCount: ignoredPageCount,
+              onPageChange: setIgnoredPage,
+            }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}
             emptyMessage="No upcoming books detected in this series."

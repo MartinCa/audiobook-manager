@@ -3,6 +3,7 @@ using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
@@ -824,6 +825,26 @@ public class BrowseControllerTests
         _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(It.IsAny<long>()), Times.Never);
     }
 
+    // Regression (review finding): the match-triggered refresh can fail because the source cannot
+    // resolve the id the user JUST supplied - same AuthorNotFoundException mapping as the
+    // explicit refresh, and the match stays stored (the periodic sweep picks the roster up once
+    // the source resolves the author again).
+    [TestMethod]
+    public async Task MatchAuthor_ScraperCannotResolveAuthor_ReturnsInvalidRequest()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.RefreshAuthorRosterAsync(7))
+            .ThrowsAsync(new AuthorNotFoundException("Could not parse \"nope\" as a numeric Hardcover author id."));
+
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("nope", "Hardcover", null));
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest,
+            "Could not parse \"nope\" as a numeric Hardcover author id.");
+        _upcomingReleaseService.Verify(
+            s => s.MatchAuthorAsync(7, "nope", "Hardcover", null), Times.Once,
+            "the match is stored BEFORE the refresh is attempted");
+    }
+
     [TestMethod]
     public async Task UnmatchAuthor_DelegatesToTheService()
     {
@@ -841,6 +862,24 @@ public class BrowseControllerTests
         var result = await _controller.UnmatchAuthor(999);
 
         Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    // Regression (review finding): the refresh may fail because the source cannot RESOLVE the
+    // author (unparseable id or null authors_by_pk - deleted/merged upstream or a transient
+    // response). That is a caller-side problem with what was matched, not a server failure, and
+    // the roster was deliberately left untouched - it must surface as a 4xx problem+json like
+    // the other known refresh failures, never a 500.
+    [TestMethod]
+    public async Task RefreshAuthor_ScraperCannotResolveAuthor_ReturnsInvalidRequest()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.RefreshAuthorRosterAsync(7))
+            .ThrowsAsync(new AuthorNotFoundException("Hardcover returned no author for source id \"123\""));
+
+        var result = await _controller.RefreshAuthor(7);
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest,
+            "Hardcover returned no author for source id \"123\"");
     }
 
     [TestMethod]

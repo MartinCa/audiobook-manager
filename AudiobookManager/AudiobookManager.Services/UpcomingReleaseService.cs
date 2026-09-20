@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
@@ -681,6 +682,12 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     /// statements - see <see cref="IExpectedBookWriteGate"/>), which is safe here too: the
     /// dismissal resolves the row and writes its flag in one update, so the prune's set-based
     /// deletes serialize with it in SQLite instead of racing a tracked read-modify-write.
+    ///
+    /// An <see cref="AuthorNotFoundException"/> from the fetch propagates uncaught (as it does
+    /// from <see cref="RefreshAllAuthorRostersAsync"/>'s failure tally and out of
+    /// <c>RefreshAuthorRosterAsync</c> to the controller's 4xx mapping): the scrape failing to
+    /// resolve the author is NOT an empty bibliography, and this method must abort before the
+    /// upsert/prune so the stored roster - ignore history included - is left untouched.
     /// </summary>
     private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
     {

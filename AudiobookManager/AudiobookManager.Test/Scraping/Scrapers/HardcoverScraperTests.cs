@@ -1201,6 +1201,52 @@ public class HardcoverScraperTests
         StringAssert.Contains(query, "name");
     }
 
+    // Regression guards for the roster data-loss finding: an id that fails int.TryParse (and a
+    // null/undefined authors_by_pk - author deleted/merged upstream or a transient response)
+    // must THROW, never return an empty list. The caller refreshes its stored roster on the
+    // result, and an empty fetch would prune the author's whole unified roster, ignore history
+    // included - an empty-but-failed bibliography must be distinguishable from a genuinely empty
+    // one (the latter still returns an empty list, see the service-level test).
+    [TestMethod]
+    public async Task GetAuthorBooks_UnparseableAuthorId_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("{ }", out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("not-a-number"));
+
+        Assert.AreEqual(0, handler.CapturedRequestBodies.Count,
+            "no GraphQL query is sent for an id that cannot parse into the source's numeric id");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBooks_NullAuthorsByPk_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("""
+            {
+              "data": {
+                "authors_by_pk": null
+              }
+            }
+            """, out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("123"));
+
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count, "the query is sent, then the missing author is detected");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBooks_UndefinedAuthorsByPk_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("""
+            {
+              "data": {
+              }
+            }
+            """, out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("123"));
+    }
+
     // ---------- GetSeriesBooks() source book id + author credits ----------
 
     // Two entries at position 2 (the English original and a translated edition) prove the
