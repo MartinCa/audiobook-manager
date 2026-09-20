@@ -60,17 +60,28 @@ public class LibraryScanOrchestrator : ILibraryScanOrchestrator
 
         await _discoveredAudiobookRepository.ClearAllAsync();
 
-        // The tracked graph is loaded once and serves both halves: it derives the scan's
-        // known-path set, and it is exactly what the consistency check detects against.
-        var audiobooks = await _audiobookRepository.GetAllWithIncludesAsync();
+        // The tracked graph load and the directory walk are independent - the graph is only read
+        // once both finish (to derive the known-path set), and the walk only produces the scan's
+        // file list - so overlap them: the walk's synchronous filesystem I/O runs on the thread
+        // pool while the DB round-trip is in flight, instead of being added to it. The graph is
+        // loaded once and serves both halves: it derives the scan's known-path set, and it is
+        // exactly what the consistency check detects against.
+        var graphTask = _audiobookRepository.GetAllWithIncludesAsync();
+        var walkTask = Task.Run(() =>
+            _treeWalker.Walk(_settings.AudiobookLibraryPath, AudiobookTagHandler.IsSupported));
+
+        // WhenAll observes both tasks even if one faults, so a failure cannot leave the other's
+        // exception unobserved.
+        await Task.WhenAll(graphTask, walkTask);
+
+        var audiobooks = await graphTask;
+        var walk = await walkTask;
 
         // Paths must be matched the way the file system matches them: a case-only difference is
         // the same file on Windows/macOS, and treating it as new would re-discover (and let the
         // user re-import) a book that is already tracked. Preserves the comparer the scan's
         // former GetAllFilePathsAsync load had.
         var knownPaths = audiobooks.Select(a => a.FileInfoFullPath).ToHashSet(AudiobookFileHandler.PathComparer);
-
-        var walk = _treeWalker.Walk(_settings.AudiobookLibraryPath, AudiobookTagHandler.IsSupported);
 
         var (totalFiles, newFiles, trackedFiles) =
             await _scanService.ScanFilesAsync(walk.SupportedFiles, knownPaths, discoveryProgress);
