@@ -202,6 +202,41 @@ public class SettingsControllerTests
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
     }
 
+    // Regression guard (PR review): Enum.TryParse alone accepts an out-of-range numeric string
+    // ("7" parses to the undefined value (InitialsSpacing)7), which used to sail past this
+    // validation and throw an unhandled ArgumentOutOfRangeException (500) in
+    // LibrarySettingsMapping.ToDb() instead of returning a 400 here - and never call the service.
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OutOfRangeNumericValue_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("7", null, 1000, null, null));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'7' is not a known initials spacing. Use one of: Spaced, Unspaced.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OutOfRangeNumericPunctuationValue_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", "7", 1000, null, null));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'7' is not a known initials punctuation. Use one of: Dotted, Undotted.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
     [TestMethod]
     public async Task UpdateLibrarySettings_MissingValue_ReturnsProblemDetails()
     {

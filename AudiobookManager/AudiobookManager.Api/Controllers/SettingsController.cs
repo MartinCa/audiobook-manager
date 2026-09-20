@@ -79,7 +79,8 @@ public class SettingsController : ControllerBase
     public async Task<ActionResult<LibrarySettingsDto>> UpdateLibrarySettings([FromBody] UpdateLibrarySettingsDto dto)
     {
         if (dto?.InitialsSpacing is null ||
-            !Enum.TryParse<InitialsSpacing>(dto.InitialsSpacing, ignoreCase: true, out var parsed))
+            !Enum.TryParse<InitialsSpacing>(dto.InitialsSpacing, ignoreCase: true, out var parsed) ||
+            !Enum.IsDefined(parsed))
         {
             return this.InvalidRequest(
                 $"'{dto?.InitialsSpacing}' is not a known initials spacing. Use one of: " +
@@ -96,7 +97,8 @@ public class SettingsController : ControllerBase
         {
             parsedPunctuation = current.InitialsPunctuation;
         }
-        else if (!Enum.TryParse(dto.InitialsPunctuation, ignoreCase: true, out parsedPunctuation))
+        else if (!Enum.TryParse(dto.InitialsPunctuation, ignoreCase: true, out parsedPunctuation) ||
+            !Enum.IsDefined(parsedPunctuation))
         {
             return this.InvalidRequest(
                 $"'{dto.InitialsPunctuation}' is not a known initials punctuation. Use one of: " +
