@@ -15,6 +15,17 @@ namespace AudiobookManager.Domain;
 /// trailing period. The space between the last initial and the following word is always a single
 /// space, whatever either setting is: "J.R.Tolkien" and "J R Tolkien" (no space before the
 /// surname) are never canonical forms.
+///
+/// Deliberately conservative about recognizing an UNDOTTED initial in already-stored text: a dot
+/// is a strong, unambiguous signal ("J." can only be an initial), but a bare uppercase token is
+/// not - "III" (a Roman-numeral suffix), "JOHN"/"SMITH" (an all-caps stored name) and a sentence-
+/// initial "A"/"I" are all indistinguishable from genuine undotted initials by spelling alone. An
+/// earlier version of this canonicalizer treated *any* all-uppercase token as initials and
+/// rewrote "John Smith III" to "John Smith I.I.I." and "JOHN SMITH" to one fused initials run -
+/// see <see cref="IsBareSingleLetterToken"/> for the fix. The tradeoff is a real one: a name
+/// already stored as bare undotted initials with no neighboring initial ("H Rider Haggard", or a
+/// concatenated run like "JRR Tolkien") is not detected as such and is left alone rather than
+/// reformatted - a missed rewrite is an acceptable cost, a corrupted name is not.
 /// </summary>
 public static class InitialsSpacingFormatter
 {
@@ -24,17 +35,19 @@ public static class InitialsSpacingFormatter
     /// </summary>
     public static string Format(string name, InitialsSpacing spacing, InitialsPunctuation punctuation)
     {
-        // Runs of adjacent single-letter initials, e.g. ["J", "K"] from "J. K. Rowling", "J K
-        // Rowling", or parsed out of a single concatenated token like "J.K." or "JK".
+        var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var isInitial = ClassifyInitialTokens(tokens);
+
+        // Runs of adjacent single-letter initials, e.g. ["J", "K"] from "J. K. Rowling" or "J K
+        // Rowling", or parsed out of a single dotted token like "J.K.".
         var initialsRun = new List<string>();
         var result = new StringBuilder();
-        var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        foreach (var token in tokens)
+        for (var i = 0; i < tokens.Length; i++)
         {
-            if (IsInitialToken(token))
+            if (isInitial[i])
             {
-                initialsRun.AddRange(SplitInitialToken(token));
+                initialsRun.AddRange(SplitInitialToken(tokens[i]));
             }
             else
             {
@@ -43,7 +56,7 @@ public static class InitialsSpacingFormatter
                 {
                     result.Append(' ');
                 }
-                result.Append(token);
+                result.Append(tokens[i]);
             }
         }
 
@@ -59,39 +72,77 @@ public static class InitialsSpacingFormatter
         string.Equals(Format(name, spacing, punctuation), name, StringComparison.Ordinal);
 
     /// <summary>
-    /// An initial token is either a chain of single letters each followed by a period, with no
-    /// spaces ("J.", "K.", "J.K.", "J.R.R."), or a bare chain of single uppercase letters with no
-    /// periods ("J", "JK", "JRR"). Multi-letter dotless words ("Rowling", "St.", "Jr.") are not
-    /// initials: "St." is S-t-dot (two letters before the dot) and fails the dotted single-letter
-    /// rule, and "Rowling" fails the undotted all-uppercase rule.
-    ///
-    /// The undotted rule is a heuristic shared with the rest of this canonicalizer: an all-
-    /// uppercase word that happens to be a real surname or initialism (e.g. "NG") is
-    /// indistinguishable from a run of undotted initials without more context, and is treated as
-    /// initials here, same as the existing tradeoff for the dotted form.
+    /// Decides, per token, whether it is part of an initials run. A dotted token ("J.", "J.K.")
+    /// is always certain - the dot is unambiguous. A bare single uppercase letter ("J") is only
+    /// promoted to an initial when it sits in a maximal run of consecutive dotted-or-bare-single
+    /// tokens that either contains a dotted token or has at least two members - i.e. a lone bare
+    /// letter next to ordinary words ("A Tale of Two Cities") is left as a word, but "J K Rowling"
+    /// (a run of two bare letters) and "H. Rider Haggard" (a run of one dotted letter) both
+    /// qualify. A multi-letter bare token ("JOHN", "III", "JRR") is never treated as concatenated
+    /// initials - see the class doc comment for why that used to corrupt real names.
     /// </summary>
-    private static bool IsInitialToken(string token)
+    private static bool[] ClassifyInitialTokens(string[] tokens)
     {
-        if (token.Length == 0)
+        var isDotted = new bool[tokens.Length];
+        var isBareSingle = new bool[tokens.Length];
+        for (var i = 0; i < tokens.Length; i++)
         {
-            return false;
+            isDotted[i] = IsDottedInitialToken(tokens[i]);
+            isBareSingle[i] = !isDotted[i] && IsBareSingleLetterToken(tokens[i]);
         }
 
-        if (token[^1] == '.')
+        var isInitial = new bool[tokens.Length];
+        var start = 0;
+        while (start < tokens.Length)
         {
-            return token.Length >= 2
-                && token
-                    .Chunk(2)
-                    .All(pair => pair.Length == 2 && char.IsLetter(pair[0]) && pair[1] == '.');
+            if (!isDotted[start] && !isBareSingle[start])
+            {
+                start++;
+                continue;
+            }
+
+            var end = start;
+            var containsDotted = false;
+            while (end < tokens.Length && (isDotted[end] || isBareSingle[end]))
+            {
+                containsDotted |= isDotted[end];
+                end++;
+            }
+
+            if (containsDotted || end - start >= 2)
+            {
+                for (var k = start; k < end; k++)
+                {
+                    isInitial[k] = true;
+                }
+            }
+
+            start = end;
         }
 
-        return token.All(char.IsUpper);
+        return isInitial;
     }
 
     /// <summary>
-    /// "J.K." -> ["J", "K"]; "JK" -> ["J", "K"]. The bare letters, with any period stripped -
+    /// A chain of single letters each followed by a period, with no spaces: "J.", "J.K.", "J.R.R.".
+    /// Multi-letter dotless words ("Rowling", "St.", "Jr.") are not initials: "St." is S-t-dot (two
+    /// letters before the dot) and fails the single-letter rule.
+    /// </summary>
+    private static bool IsDottedInitialToken(string token) =>
+        token.Length >= 2
+        && token[^1] == '.'
+        && token
+            .Chunk(2)
+            .All(pair => pair.Length == 2 && char.IsLetter(pair[0]) && pair[1] == '.');
+
+    /// <summary>A single bare uppercase letter with no period: "J".</summary>
+    private static bool IsBareSingleLetterToken(string token) =>
+        token.Length == 1 && char.IsUpper(token[0]);
+
+    /// <summary>
+    /// "J.K." -> ["J", "K"]; "J" -> ["J"]. The bare letters, with any period stripped -
     /// <see cref="FlushInitialsRun"/> re-applies punctuation per the configured setting. Only
-    /// called on tokens <see cref="IsInitialToken"/> accepts.
+    /// called on tokens <see cref="ClassifyInitialTokens"/> marked as initials.
     /// </summary>
     private static IEnumerable<string> SplitInitialToken(string token)
     {
@@ -104,10 +155,7 @@ public static class InitialsSpacingFormatter
         }
         else
         {
-            foreach (var c in token)
-            {
-                yield return c.ToString();
-            }
+            yield return token;
         }
     }
 
