@@ -13,9 +13,10 @@ import { LibraryViewTabs } from "./library/LibraryViewTabs";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
-import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { languageLabel } from "@/helpers/languages";
 import { Route } from "@/routes/library/index";
 import type { BookListFilters } from "@/types/EntityFilters";
 
@@ -43,8 +44,25 @@ export function BookLibrary() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const FILTER_FIELDS: FilterFieldDef[] = useMemo(
-    () => [
+  // Language filter options are the raw stored values (ISO codes, or an unrecognized verbatim
+  // value - see AGENTS.md's "Language is a managed value" section), so they're mapped through the
+  // same display-name lookup every other language UI in the app uses rather than shown as raw
+  // codes. The filter's own value stays the raw code; only the label changes.
+  const languagesQuery = useQuery({
+    queryKey: queryKeys.languages(),
+    queryFn: () => settingsApi.getLanguages(),
+  });
+
+  const FILTER_FIELDS: FilterFieldDef[] = useMemo(() => {
+    const languageOptions = filterOptionsQuery.data?.languages ?? [];
+    const languageLabels = Object.fromEntries(
+      languageOptions.map((code) => [
+        code,
+        languageLabel(code, languagesQuery.data?.languages ?? []),
+      ]),
+    );
+
+    return [
       {
         type: "multiselect",
         key: "sources",
@@ -61,7 +79,8 @@ export function BookLibrary() {
         type: "multiselect",
         key: "languages",
         label: "Language",
-        options: filterOptionsQuery.data?.languages ?? [],
+        options: languageOptions,
+        optionLabels: languageLabels,
       },
       {
         type: "numberRange",
@@ -69,9 +88,8 @@ export function BookLibrary() {
         minKey: "minDurationInSeconds",
         maxKey: "maxDurationInSeconds",
       },
-    ],
-    [filterOptionsQuery.data],
-  );
+    ];
+  }, [filterOptionsQuery.data, languagesQuery.data]);
 
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
   // expanded so the list isn't filtered with no visible explanation.

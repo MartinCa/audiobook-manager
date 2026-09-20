@@ -14,7 +14,18 @@ export type FilterFieldDef =
       neverKey?: string;
       neverLabel?: string;
     }
-  | { type: "multiselect"; key: string; label: string; options: string[] };
+  | {
+      type: "multiselect";
+      key: string;
+      label: string;
+      options: string[];
+      /**
+       * Display text per option value, for a field whose stored value isn't itself human-readable
+       * (e.g. a language filter storing ISO codes) - falls back to the raw value when absent or
+       * when a specific option has no entry.
+       */
+      optionLabels?: Record<string, string>;
+    };
 
 /** Loosely typed so callers can pass their own (SeriesListFilters/AuthorListFilters/BookListFilters) shape. */
 export type FilterValueMap = Record<string, boolean | number | string | string[] | undefined>;
@@ -71,9 +82,10 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
     } else if (field.type === "multiselect") {
       const selected = values[field.key];
       if (Array.isArray(selected) && selected.length > 0) {
+        const displayed = selected.map((v) => field.optionLabels?.[v] ?? v);
         chips.push({
           key: field.key,
-          label: `${field.label}: ${selected.join(", ")}`,
+          label: `${field.label}: ${displayed.join(", ")}`,
           clear: () => ({ ...values, [field.key]: undefined }),
         });
       }

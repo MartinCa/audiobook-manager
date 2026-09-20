@@ -15,7 +15,10 @@ public static class MetadataSourceResolution
 {
     public const string SqlFunctionName = "resolve_metadata_source";
 
-    private static readonly (string SourceName, string Domain)[] KnownSources =
+    // Internal (rather than private) so MetadataSourceResolutionScraperParityTests can assert
+    // this table actually agrees with every registered IScraper's real SupportsUrl domain,
+    // rather than only ever comparing itself to itself.
+    internal static readonly (string SourceName, string Domain)[] KnownSources =
     {
         ("Audible", "audible.com"),
         ("Goodreads", "goodreads.com"),

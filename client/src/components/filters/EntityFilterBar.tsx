@@ -100,7 +100,9 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                         className="h-8 w-40 justify-between font-normal"
                       >
                         <span className="truncate">
-                          {selected.length > 0 ? selected.join(", ") : "Any"}
+                          {selected.length > 0
+                            ? selected.map((v) => field.optionLabels?.[v] ?? v).join(", ")
+                            : "Any"}
                         </span>
                         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
                       </Button>
@@ -114,7 +116,7 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                         onCheckedChange={() => toggle(option)}
                         closeOnClick={false}
                       >
-                        {option}
+                        {field.optionLabels?.[option] ?? option}
                       </DropdownMenuCheckboxItem>
                     ))}
                   </DropdownMenuContent>

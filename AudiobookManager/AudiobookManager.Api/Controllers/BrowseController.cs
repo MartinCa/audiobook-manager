@@ -149,13 +149,12 @@ public class BrowseController : ControllerBase
         [FromQuery] int? minDurationInSeconds = null,
         [FromQuery] int? maxDurationInSeconds = null)
     {
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
-
         if (string.IsNullOrWhiteSpace(q))
         {
             return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         }
 
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);

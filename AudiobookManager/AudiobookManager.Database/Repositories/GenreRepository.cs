@@ -92,9 +92,27 @@ public class GenreRepository : IGenreRepository
         return result;
     }
 
+    /// <summary>
+    /// Bound like every other list endpoint (see AGENTS.md's "list endpoints must be bounded"
+    /// invariant) - genres are a growing, scraped free-text table, so an unbounded read here would
+    /// widen with the library. Ranked by how many books actually carry each genre, descending,
+    /// before the cap - so a capped result keeps the genres a filter dropdown is actually useful
+    /// for, rather than an arbitrary alphabetic prefix that could all be one-off scraped values.
+    /// </summary>
+    public const int MaxGenreNames = 500;
+
     public async Task<List<string>> GetAllGenreNamesAsync()
     {
-        var names = await _db.Genres.AsNoTracking().Select(g => g.Name).ToListAsync();
+        var names = await _db.Genres
+            .AsNoTracking()
+            .OrderByDescending(g => g.Books.Count)
+            .ThenBy(g => g.Name)
+            .Take(MaxGenreNames)
+            .Select(g => g.Name)
+            .ToListAsync();
+
+        // Presentation order is alphabetical (a dropdown, not a ranking) - the book-count order
+        // above only decided which names survived the cap.
         names.Sort(StringComparer.InvariantCulture);
         return names;
     }
