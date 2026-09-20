@@ -205,6 +205,14 @@ public class HardcoverScraper : IScraper
                 release_date
                 compilation
                 users_count
+                cached_image
+                contributions {
+                  contribution
+                  author {
+                    id
+                    name
+                  }
+                }
               }
             }
           }
@@ -230,6 +238,14 @@ public class HardcoverScraper : IScraper
                 release_date
                 compilation
                 users_count
+                cached_image
+                contributions {
+                  contribution
+                  author {
+                    id
+                    name
+                  }
+                }
               }
             }
           }
@@ -582,6 +598,35 @@ public class HardcoverScraper : IScraper
         var bookId = GetScalarOrNull(bookElement, "id");
         var slug = bookElement.GetPropertyValueOrNull("slug");
 
+        // Writing credits only - the same Narrator role filter the author bibliography and
+        // upcoming-releases paths apply, so a series refresh attributes each book to the same
+        // authors an author-side refresh would.
+        var authors = new List<string>();
+        if (bookElement.TryGetProperty("contributions", out var contributionsElement) &&
+            contributionsElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var contribution in contributionsElement.EnumerateArray())
+            {
+                var role = contribution.GetPropertyValueOrNull("contribution");
+                if (string.Equals(role, "Narrator", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!contribution.TryGetProperty("author", out var authorElement) ||
+                    authorElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var authorName = authorElement.GetPropertyValueOrNull("name");
+                if (!string.IsNullOrEmpty(authorName))
+                {
+                    authors.Add(authorName);
+                }
+            }
+        }
+
         int? year = null;
         DateOnly? parsedReleaseDate = null;
         var releaseDate = bookElement.GetPropertyValueOrNull("release_date");
@@ -619,11 +664,14 @@ public class HardcoverScraper : IScraper
 
         var book = new SeriesExpectedBookResult(title)
         {
+            SourceBookId = bookId,
             Position = position,
             Year = year,
             ReleaseDate = parsedReleaseDate,
             SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            ImageUrl = ParseCachedImage(bookElement),
             IsCompilation = linkIsCompilation || bookIsCompilation,
+            Authors = authors,
         };
 
         // Users_count is the book's popularity on Hardcover - the per-position dedupe keeps the
@@ -918,8 +966,8 @@ public class HardcoverScraper : IScraper
     }
 
     // Same canonical_id/is_partial_book filter as the upcoming-releases query above, but no
-    // release_date lower bound - this backs the author's full standalone-books roster, which
-    // needs the whole bibliography (missing AND upcoming), not just what's still ahead.
+    // release_date lower bound - this backs the author's full bibliography roster, which needs
+    // the whole bibliography (missing AND upcoming), not just what's still ahead.
     // `limit: 300` is a defensive cap: a single author's own SearchAuthors "books_count" is
     // shown to the user before matching, so a hard limit far past any real bibliography just
     // guards against the same pathological-source case every other bounded scrape query does.
@@ -939,9 +987,12 @@ public class HardcoverScraper : IScraper
                 title
                 slug
                 release_date
+                cached_image
                 book_series {
+                  position
                   series {
                     id
+                    name
                   }
                 }
               }
@@ -954,15 +1005,35 @@ public class HardcoverScraper : IScraper
     {
         if (!int.TryParse(authorSourceId, out var id))
         {
+            // An unparseable id is a caller problem, not an empty bibliography: the caller
+            // refreshes its roster on this result, and an empty fetch would prune the whole
+            // stored roster. Make the failure explicit so the caller aborts instead.
             _logger.LogWarning("Could not parse a numeric Hardcover author id from {AuthorSourceId}", authorSourceId);
-            return new List<AuthorBookResult>();
+            throw new AuthorNotFoundException(
+                $"Could not parse \"{authorSourceId}\" as a numeric Hardcover author id.");
         }
 
         var responseElement = await ExecuteGraphqlQuery(_authorAllBooksQuery, new { id });
-        var authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+
+        // A missing "authors_by_pk" key (a malformed/empty envelope) folds into the same "no
+        // such author" failure as an explicit null - never a raw KeyNotFoundException that the
+        // roster refresh would treat as an unspecified error.
+        JsonElement authorElement;
+        try
+        {
+            authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+        }
+        catch (KeyNotFoundException)
+        {
+            throw new AuthorNotFoundException(
+                $"Hardcover returned no author for source id \"{authorSourceId}\" - the author may have been deleted or merged on the source side, or the source responded with an empty result.");
+        }
         if (authorElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
-            return new List<AuthorBookResult>();
+            // The source resolves no such author (deleted/merged upstream, or a transient empty
+            // response) - same explicit-failure rule as the unparseable id above.
+            throw new AuthorNotFoundException(
+                $"Hardcover returned no author for source id \"{authorSourceId}\" - the author may have been deleted or merged on the source side, or the source responded with an empty result.");
         }
 
         var results = new List<AuthorBookResult>();
@@ -1038,16 +1109,39 @@ public class HardcoverScraper : IScraper
         var slug = bookElement.GetPropertyValueOrNull("slug");
         var identifier = slug ?? bookId;
 
-        var hasSeries = bookElement.TryGetProperty("book_series", out var bookSeriesElement) &&
+        string? seriesSourceId = null;
+        string? seriesName = null;
+        string? seriesPosition = null;
+        // A book can front multiple series, and the author feed has no single "position" of its
+        // own, so the first entry (the source's featured one) stands in for the book's series
+        // placement - the same first-entry handling as ParseUpcomingBook.
+        if (bookElement.TryGetProperty("book_series", out var bookSeriesElement) &&
             bookSeriesElement.ValueKind == JsonValueKind.Array &&
-            bookSeriesElement.GetArrayLength() > 0;
+            bookSeriesElement.GetArrayLength() > 0)
+        {
+            var first = bookSeriesElement.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == JsonValueKind.Object &&
+                first.TryGetProperty("series", out var seriesElement) &&
+                seriesElement.ValueKind == JsonValueKind.Object)
+            {
+                seriesName = seriesElement.GetPropertyValueOrNull("name");
+                seriesSourceId = GetScalarOrNull(seriesElement, "id");
+                if (first.TryGetProperty("position", out var positionElement))
+                {
+                    seriesPosition = FormatSeriesPosition(positionElement);
+                }
+            }
+        }
 
         return new AuthorBookResult(bookId, title)
         {
             Year = year,
             ReleaseDate = releaseDate,
             SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
-            HasSeries = hasSeries,
+            ImageUrl = ParseCachedImage(bookElement),
+            SeriesSourceId = seriesSourceId,
+            SeriesName = seriesName,
+            SeriesPosition = seriesPosition,
         };
     }
 

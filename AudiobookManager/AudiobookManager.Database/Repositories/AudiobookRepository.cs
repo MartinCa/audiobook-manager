@@ -365,7 +365,9 @@ public class AudiobookRepository : IAudiobookRepository
     /// stored part differs from its roster entry's position can be reported (and later fixed).
     /// That reconciliation is cached per series, so this runs only when the cache needs
     /// refilling, and carries nothing the fuzzy matcher does not read - no authors, no entity
-    /// graph.
+    /// graph. Each key carries the series value it was queried under (always the same for the
+    /// rows, but an owned key that knows its own series is also usable by the author
+    /// reconciliation's series-scoped matching).
     ///
     /// The fetch is bounded to <paramref name="maxKeys"/> + 1 rows and returns whether that bound
     /// was breached, so a pathological owned set is detected without ever materializing (or
@@ -383,7 +385,9 @@ public class AudiobookRepository : IAudiobookRepository
             .Select(a => new { a.Id, a.SeriesPart, a.BookName })
             .ToListAsync();
 
-        return (rows.Select(r => new SeriesOwnedKey(r.Id, r.SeriesPart, r.BookName)).ToList(), rows.Count > maxKeys);
+        return (rows
+            .Select(r => new SeriesOwnedKey(r.Id, r.SeriesPart, r.BookName, seriesName))
+            .ToList(), rows.Count > maxKeys);
     }
 
     /// <summary>
@@ -400,26 +404,64 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
-    /// Every standalone (no-series) owned book of one author reduced to (part, book name, id)
-    /// keys - the author-roster counterpart of <see cref="GetSeriesOwnedKeysAsync"/>. SeriesPart
-    /// is always null in the returned keys; a standalone book carries no series position, so the
-    /// author reconciliation matches purely on title, the same way the series matcher treats a
-    /// positionless roster entry. Bounded the same way: at most
-    /// <paramref name="maxKeys"/> + 1 rows, with the overflow flag telling the caller whether the
-    /// cap was breached.
+    /// Every owned book of one author reduced to (series value, series part, book name, id)
+    /// keys - the author reconciliation's owned-book input. Spans the author's whole catalogue,
+    /// series books included: a series-linked expected entry must be matched against the owned
+    /// books of the same local series, and an unmatched source-series entry is best-effort
+    /// matched by position/title over everything the author owns. Bounded the same way as
+    /// <see cref="GetSeriesOwnedKeysAsync"/>: at most <paramref name="maxKeys"/> + 1 rows, with
+    /// the overflow flag telling the caller whether the cap was breached.
     /// </summary>
-    public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetStandaloneOwnedKeysByAuthorAsync(
+    public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorAsync(
         long authorId, int maxKeys)
     {
         var rows = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId))
+            .Where(a => a.Authors.Any(p => p.Id == authorId))
             .OrderBy(a => a.Id)
             .Take(maxKeys + 1)
-            .Select(a => new { a.Id, a.BookName })
+            .Select(a => new { a.Id, a.Series, a.SeriesPart, a.BookName })
             .ToListAsync();
 
-        return (rows.Select(r => new SeriesOwnedKey(r.Id, null, r.BookName)).ToList(), rows.Count > maxKeys);
+        return (rows
+            .Select(r => new SeriesOwnedKey(r.Id, r.SeriesPart, r.BookName, r.Series))
+            .ToList(), rows.Count > maxKeys);
+    }
+
+    /// <summary>
+    /// The batched counterpart of <see cref="GetOwnedKeysByAuthorAsync"/> for the bulk authors-list
+    /// filter: every owned book of every person in <paramref name="personIds"/>, reduced to an
+    /// <see cref="AuthorOwnedKey"/> (person id + the same series/part/title/id key), fetched in ONE
+    /// SQL query - a join through the authors many-to-many via <c>SelectMany</c> - ordered by
+    /// <see cref="AuthorOwnedKey.PersonId"/> then audiobook id so the per-author grouping is total
+    /// and stable. Bounded like every owned-key read: at most <paramref name="maxTotalKeys"/> + 1
+    /// rows, with the overflow flag telling the caller whether the total was breached. Below the
+    /// bound every requested person's key set is complete (its count is that person's exact owned
+    /// count); past it the caller must not trust the prefix - the flat bound can cut an author's
+    /// keys mid-list, so a partial result is a misclassification risk, not a shorter list to use.
+    /// </summary>
+    public async Task<(List<AuthorOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorsAsync(
+        IReadOnlyList<long> personIds, int maxTotalKeys)
+    {
+        if (personIds.Count == 0)
+        {
+            return (new List<AuthorOwnedKey>(), false);
+        }
+
+        var rows = await _db.Audiobooks
+            .AsNoTracking()
+            .Where(a => a.Authors.Any(p => personIds.Contains(p.Id)))
+            .SelectMany(
+                a => a.Authors.Where(p => personIds.Contains(p.Id)),
+                (a, p) => new { PersonId = p.Id, AudiobookId = a.Id, Series = a.Series, SeriesPart = a.SeriesPart, BookName = a.BookName })
+            .OrderBy(r => r.PersonId)
+            .ThenBy(r => r.AudiobookId)
+            .Take(maxTotalKeys + 1)
+            .ToListAsync();
+
+        return (rows
+            .Select(r => new AuthorOwnedKey(r.PersonId, r.AudiobookId, r.SeriesPart, r.BookName, r.Series))
+            .ToList(), rows.Count > maxTotalKeys);
     }
 
     /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
@@ -894,25 +936,6 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
 
         return (items, total);
-    }
-
-    /// <inheritdoc cref="IAudiobookRepository.GetStandaloneOwnedTitlesByAuthorsAsync"/>
-    public async Task<Dictionary<long, List<string>>> GetStandaloneOwnedTitlesByAuthorsAsync(IReadOnlyCollection<long> authorIds)
-    {
-        if (authorIds.Count == 0)
-        {
-            return new Dictionary<long, List<string>>();
-        }
-
-        var rows = await _db.Audiobooks
-            .AsNoTracking()
-            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => authorIds.Contains(p.Id)))
-            .SelectMany(a => a.Authors.Where(p => authorIds.Contains(p.Id)), (a, p) => new { AuthorId = p.Id, a.BookName })
-            .ToListAsync();
-
-        return rows
-            .GroupBy(r => r.AuthorId)
-            .ToDictionary(g => g.Key, g => g.Select(r => r.BookName).ToList());
     }
 
     public async Task<(int Total, int Matched)> GetSeriesValueCountsAsync()

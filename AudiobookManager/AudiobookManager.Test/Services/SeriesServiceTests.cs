@@ -19,6 +19,8 @@ public class SeriesServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<IPersonRepository> _personRepository = null!;
+    private Mock<IExpectedBookRepository> _expectedBookRepository = null!;
     private Mock<ISeriesFollowRepository> _seriesFollowRepository = null!;
     private Mock<ISeriesMappingRepository> _seriesMappingRepository = null!;
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
@@ -33,6 +35,25 @@ public class SeriesServiceTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _seriesRepository = new Mock<ISeriesRepository>();
+        _personRepository = new Mock<IPersonRepository>();
+        // An unknown source author name resolves to no Person row - the roster link stays name-only.
+        _personRepository
+            .Setup(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, Database.Models.Person>(StringComparer.Ordinal));
+        _expectedBookRepository = new Mock<IExpectedBookRepository>();
+        // The shared default: one kept book id per upserted roster entry, so the service's
+        // unlink keep-list matches the roster it just stored. Tests that assert on the upsert
+        // payload or the unlink call override this on top.
+        _expectedBookRepository
+            .Setup(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()))
+            .ReturnsAsync((IReadOnlyList<ExpectedBookUpsert> upserts) =>
+                upserts.Select((u, i) => (long)(i + 1)).ToList());
+        _expectedBookRepository
+            .Setup(r => r.UnlinkSeriesBooksAsync(It.IsAny<long>(), It.IsAny<IReadOnlyList<long>>()))
+            .Returns(Task.CompletedTask);
+        _expectedBookRepository
+            .Setup(r => r.DeleteOrphanExpectedBooksAsync())
+            .Returns(Task.CompletedTask);
         _seriesFollowRepository = new Mock<ISeriesFollowRepository>();
         _seriesFollowRepository
             .Setup(r => r.GetFollowedSeriesNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
@@ -50,6 +71,8 @@ public class SeriesServiceTests
         new(
             _audiobookRepository.Object,
             _seriesRepository.Object,
+            _personRepository.Object,
+            _expectedBookRepository.Object,
             _seriesFollowRepository.Object,
             _seriesMappingRepository.Object,
             _pendingSeriesRefreshRepository.Object,
@@ -66,8 +89,8 @@ public class SeriesServiceTests
             scrapers,
             _logger.Object);
 
-    private static SeriesExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
-        new() { Id = id, SeriesId = 1, Title = title, Position = position, IsIgnored = ignored };
+    private static ExpectedBook MakeExpected(long id, string title, string? position, bool ignored = false) =>
+        new() { Id = id, SeriesId = 1, Title = title, SeriesPosition = position, IsIgnored = ignored };
 
     private static SeriesGroupingBook MakeGrouping(string series, string? part, string bookName, string? author = "Brandon Sanderson") =>
         new(series, part, bookName, author is null ? new List<string>() : new List<string> { author });
@@ -113,10 +136,12 @@ public class SeriesServiceTests
         string seriesName,
         int ownedSkip = 0, int ownedTake = 100,
         int missingSkip = 0, int missingTake = 100,
-        int ignoredSkip = 0, int ignoredTake = 100,
+        int ignoredMissingSkip = 0, int ignoredMissingTake = 100,
+        int ignoredUpcomingSkip = 0, int ignoredUpcomingTake = 100,
         int partMismatchSkip = 0, int partMismatchTake = 100) =>
         MakeService().GetSeriesDetailPageAsync(
-            seriesName, ownedSkip, ownedTake, missingSkip, missingTake, ignoredSkip, ignoredTake,
+            seriesName, ownedSkip, ownedTake, missingSkip, missingTake,
+            ignoredMissingSkip, ignoredMissingTake, ignoredUpcomingSkip, ignoredUpcomingTake,
             partMismatchSkip, partMismatchTake);
 
     // Regression test: a roster entry with no position must still be matched on title against
@@ -132,7 +157,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 // The source lists it without a position at all.
                 MakeExpected(10, "The Final Empire", null),
@@ -166,7 +191,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(10, "The Final Empire", "1"),
                 MakeExpected(11, "The Well of Ascension", "2"),
@@ -184,8 +209,10 @@ public class SeriesServiceTests
         Assert.AreEqual(2, page.OwnedBooks.Count);
         Assert.AreEqual(1, page.MissingBooks.Count);
         Assert.AreEqual("The Hero of Ages", page.MissingBooks[0].Title);
-        Assert.AreEqual(1, page.IgnoredBooks.Count);
-        Assert.AreEqual("Secret History", page.IgnoredBooks[0].Title);
+        Assert.AreEqual(1, page.IgnoredMissingBooks.Count);
+        Assert.AreEqual("Secret History", page.IgnoredMissingBooks[0].Title);
+        Assert.AreEqual(0, page.IgnoredUpcomingBooks.Count,
+            "the yearless dismissed entry classifies as Missing, so the Upcoming ignored list is empty");
         Assert.AreEqual(1, page.Overview.MissingBookCount);
         Assert.AreEqual(3, page.Overview.ExpectedBookCount);
         Assert.IsTrue(page.Overview.IsMatched);
@@ -201,7 +228,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(10, "The Hero Of Ages.", "3"),
             }
@@ -226,7 +253,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "2.5", "An Entirely Unrelated Story") }, catalogRow);
@@ -247,7 +274,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(10, "Secret History", "2.5") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "2.5", "Secret History (Unabridged)") }, catalogRow);
@@ -268,7 +295,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(10, "The Hero of Ages", "3") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(10, "The Hero of Ages", "3") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook> { MakeGrouping("Mistborn", "7", "The Hero of Ages") }, catalogRow);
@@ -283,13 +310,13 @@ public class SeriesServiceTests
     public async Task IgnoreExpectedBookAsync_AddressesTheRowByItsNaturalKey()
     {
         _seriesRepository
-            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true))
+            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .Returns(Task.CompletedTask);
 
         await MakeService().IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
 
         _seriesRepository.Verify(
-            r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true), Times.Once);
+            r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, SeriesReconciliationProvider.MaxReconciliationRosterEntries), Times.Once);
     }
 
     [TestMethod]
@@ -377,12 +404,22 @@ public class SeriesServiceTests
         Assert.AreEqual(23, seen.Distinct().Count(), "no missing book may appear on two pages");
     }
 
+    // Regression for the review finding: the two ignored sub-lists page INDEPENDENTLY - each
+    // section's cursor slices only its own classification's rows and reports only its own total.
+    // Both lists together cover every dismissed entry (the classifier partitions them), and the
+    // split comes from the same "today"/classifier the active Missing/Upcoming sections use.
     [TestMethod]
-    public async Task GetSeriesDetailPageAsync_PagesTheIgnoredSection_NoBookSkippedOrRepeated()
+    public async Task GetSeriesDetailPageAsync_PagesEachIgnoredClassificationSeparately_NoBookSkippedOrRepeatedOrMisclassified()
     {
         var roster = Enumerable.Range(1, 23)
             .Select(i => MakeExpected(i, $"Ignored Book {i:00}", (i % 7).ToString(), ignored: true))
             .ToList();
+        // 7 of the 23 classify as Upcoming by year; the rest are Missing.
+        for (var i = 0; i < 7; i++)
+        {
+            roster[i * 3].Year = DateTime.UtcNow.Year + 1;
+            roster[i * 3].ReleaseDate = null;
+        }
         var catalogRow = new Series
         {
             Id = 1,
@@ -394,15 +431,29 @@ public class SeriesServiceTests
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
 
-        var seen = new List<string>();
+        var seenMissing = new List<string>();
+        var seenUpcoming = new List<string>();
         for (var skip = 0; skip < 23; skip += 10)
         {
-            var page = await GetDetailPageAsync("Mistborn", ignoredSkip: skip, ignoredTake: 10);
-            seen.AddRange(page!.IgnoredBooks.Select(b => b.Title));
+            // Same page size for both sections, independent cursors - exactly what SeriesDetail
+            // passes for the two ignored pagers.
+            var page = await GetDetailPageAsync(
+                "Mistborn",
+                ignoredMissingSkip: skip, ignoredMissingTake: 10,
+                ignoredUpcomingSkip: skip, ignoredUpcomingTake: 10);
+            Assert.IsNotNull(page);
+            Assert.AreEqual(16, page!.IgnoredMissingBookTotal, "the missing total is only the missing-classified rows");
+            Assert.AreEqual(7, page.IgnoredUpcomingBookTotal, "the upcoming total is only the upcoming-classified rows");
+            seenMissing.AddRange(page.IgnoredMissingBooks.Select(b => b.Title));
+            seenUpcoming.AddRange(page.IgnoredUpcomingBooks.Select(b => b.Title));
         }
 
-        Assert.AreEqual(23, seen.Count, "no ignored book may be dropped by paging");
-        Assert.AreEqual(23, seen.Distinct().Count(), "no ignored book may appear on two pages");
+        Assert.AreEqual(16, seenMissing.Count, "no missing-classified ignored book may be dropped or repeated by paging");
+        Assert.AreEqual(16, seenMissing.Distinct().Count());
+        Assert.AreEqual(7, seenUpcoming.Count, "no upcoming-classified ignored book may be dropped or repeated by paging");
+        Assert.AreEqual(7, seenUpcoming.Distinct().Count());
+        seenMissing.AddRange(seenUpcoming);
+        Assert.AreEqual(23, seenMissing.Count, "the two classifications partition the dismissed roster");
     }
 
     // The point of the reconciliation cache: many paged requests against one series must not each
@@ -428,7 +479,7 @@ public class SeriesServiceTests
         var service = MakeService();
         for (var skip = 0; skip < 55; skip += 10)
         {
-            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10, 0, 10);
+            var page = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, skip, 10, 0, 10, 0, 10, 0, 10);
             Assert.AreEqual(Math.Min(10, 55 - skip), page!.MissingBooks.Count);
             Assert.AreEqual(55, page.MissingBookTotal, "the total is the full reconciled roster each time, not the slice");
         }
@@ -450,25 +501,25 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "Secret History", "3.5") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(1, "Secret History", "3.5") },
         };
         StubSeries("Mistborn", new List<SeriesGroupingBook>(), catalogRow);
         _seriesRepository
-            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true))
+            .Setup(r => r.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, SeriesReconciliationProvider.MaxReconciliationRosterEntries))
             .Callback(() => catalogRow.ExpectedBooks.Single().IsIgnored = true)
             .Returns(Task.CompletedTask);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.IgnoreExpectedBookAsync("Mistborn", "3.5", "Secret History", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Mistborn", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(0, after.MissingBookTotal, "the ignored entry must leave the missing section");
-        Assert.AreEqual(1, after.IgnoredBookTotal, "the ignored entry must appear under ignored");
+        Assert.AreEqual(1, after.IgnoredMissingBookTotal, "the ignored entry must appear under the missing-classified ignored list");
     }
 
     // Same wiring proof for the omnibus toggle: flipping visibility through the service must
@@ -484,14 +535,14 @@ public class SeriesServiceTests
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "99",
             IncludeOmnibusEditions = false,
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "The Thursday Murder Club", "1"),
                 new()
                 {
                     Id = 2,
                     Title = "The Thursday Murder Club / The Man Who Died Twice",
-                    Position = "1",
+                    SeriesPosition = "1",
                     IsCompilation = true,
                 },
             },
@@ -503,13 +554,13 @@ public class SeriesServiceTests
             .ReturnsAsync(catalogRow);
 
         var service = MakeService();
-        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
+        var before = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(before);
         Assert.AreEqual(1, before.MissingBookTotal);
 
         await service.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true);
 
-        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100);
+        var after = await service.GetSeriesDetailPageAsync("Thursday Murder Club", 0, 100, 0, 100, 0, 100, 0, 100, 0, 100);
         Assert.IsNotNull(after);
         Assert.AreEqual(2, after.MissingBookTotal, "the toggle must invalidate the cache so the detail refills");
     }
@@ -551,7 +602,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
         _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(catalogRow);
         _audiobookRepository
@@ -587,7 +638,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", null) },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(1, "The Final Empire", null) },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>
@@ -614,7 +665,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", "1") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(1, "The Final Empire", "1") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>
@@ -647,7 +698,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Well of Ascension", "2") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(1, "The Well of Ascension", "2") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>
@@ -676,7 +727,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook> { MakeExpected(1, "The Final Empire", "2") },
+            ExpectedBooks = new List<ExpectedBook> { MakeExpected(1, "The Final Empire", "2") },
         };
 
         StubSeries("Mistborn", new List<SeriesGroupingBook>
@@ -702,7 +753,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "The Final Empire", "1"),
                 MakeExpected(2, "The Hero of Ages", "3"),
@@ -734,7 +785,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "Secret History", "3.5", ignored: true),
             },
@@ -750,7 +801,7 @@ public class SeriesServiceTests
         Assert.IsNotNull(page);
         Assert.AreEqual(0, page.PartMismatchTotal, "the book matches only an ignored entry");
         Assert.AreEqual(0, page.MissingBookTotal);
-        Assert.AreEqual(1, page.IgnoredBookTotal);
+        Assert.AreEqual(1, page.IgnoredMissingBookTotal, "the yearless ignored entry classifies as Missing, not Upcoming");
     }
 
     // A compilation entry that is hidden by the omnibus setting must not surface its book's part,
@@ -765,13 +816,13 @@ public class SeriesServiceTests
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "99",
             IncludeOmnibusEditions = false,
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 new()
                 {
                     Id = 2,
                     Title = "The Thursday Murder Club / The Man Who Died Twice",
-                    Position = "1",
+                    SeriesPosition = "1",
                     IsCompilation = true,
                 },
             },
@@ -845,7 +896,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "The Final Empire", "1"),
                 MakeExpected(2, "The Final Empire", "2"),
@@ -877,7 +928,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "The Final Empire", "1"),
                 MakeExpected(2, "The Final Empire", "2"),
@@ -996,7 +1047,7 @@ public class SeriesServiceTests
                 {
                     Id = 1,
                     Name = "Missing Series",
-                    ExpectedBooks = new List<SeriesExpectedBook>
+                    ExpectedBooks = new List<ExpectedBook>
                     {
                         MakeExpected(1, "Book One", "1"),
                         MakeExpected(2, "Book Two", "2"),
@@ -1053,7 +1104,7 @@ public class SeriesServiceTests
                     Name = "Mistborn",
                     MatchedSourceName = "Hardcover",
                     MatchedSourceId = "42",
-                    ExpectedBooks = new List<SeriesExpectedBook>
+                    ExpectedBooks = new List<ExpectedBook>
                     {
                         MakeExpected(10, "The Final Empire", "1"),
                         MakeExpected(11, "The Hero of Ages", "3"),
@@ -1160,13 +1211,13 @@ public class SeriesServiceTests
     }
 
     [TestMethod]
-    public async Task MatchSeriesAsync_StoresRosterAndPreservesIgnoreFlags()
+    public async Task MatchSeriesAsync_UpsertsTheRosterOnTheUnifiedTable_AndUnlinksRowsNoLongerOnIt()
     {
         var existing = new Series
         {
             Id = 1,
             Name = "Mistborn",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(13, "Secret History", "3.5", ignored: true),
             }
@@ -1182,11 +1233,12 @@ public class SeriesServiceTests
         _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn"))
             .ReturnsAsync(new List<string>());
 
-        List<SeriesExpectedBook>? stored = null;
-        _seriesRepository
-            .Setup(r => r.ReplaceExpectedBooksAsync(1, It.IsAny<List<SeriesExpectedBook>>()))
-            .Callback((long _, List<SeriesExpectedBook> books) => stored = books)
-            .Returns(Task.CompletedTask);
+        List<ExpectedBookUpsert>? stored = null;
+        _expectedBookRepository
+            .Setup(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()))
+            .Callback((IReadOnlyList<ExpectedBookUpsert> upserts) => stored = upserts.ToList())
+            .ReturnsAsync((IReadOnlyList<ExpectedBookUpsert> upserts) =>
+                upserts.Select((u, i) => (long)(i + 1)).ToList());
 
         var roster = new SeriesSearchResult("42", "Mistborn")
         {
@@ -1203,8 +1255,26 @@ public class SeriesServiceTests
 
         Assert.IsNotNull(stored);
         Assert.AreEqual(2, stored.Count);
-        Assert.IsFalse(stored.Single(b => b.Title == "The Final Empire").IsIgnored);
-        Assert.IsTrue(stored.Single(b => b.Title == "Secret History").IsIgnored);
+        Assert.AreSequenceEqual(
+            new List<string> { "The Final Empire", "Secret History" },
+            stored.Select(b => b.Title).ToList());
+        Assert.AreSequenceEqual(
+            new List<string> { "1", "3.5" },
+            stored.Select(b => b.SeriesPosition).ToList());
+        // Every roster entry is attributed to the catalog series and the source's own ids.
+        Assert.IsTrue(stored.All(b => b.SeriesId == 1));
+        Assert.IsTrue(stored.All(b => b.SourceName == "Hardcover"));
+        Assert.IsTrue(stored.All(b => b.SourceSeriesId == "42"));
+        Assert.IsTrue(stored.All(b => b.SourceSeriesName == "Mistborn"));
+        Assert.IsTrue(stored.All(b => b.ImageUrl is null), "a series query carries no cover image");
+
+        // The kept ids are the upserted roster's, so a book the source no longer reports is
+        // the one unlinked - and the orphans that unlink produces are then deleted.
+        _expectedBookRepository.Verify(
+            r => r.UnlinkSeriesBooksAsync(1, new List<long> { 1, 2 }), Times.Once);
+        _expectedBookRepository.Verify(r => r.DeleteOrphanExpectedBooksAsync(), Times.Once);
+        _expectedBookRepository.Verify(r => r.SetIgnoredAsync(It.IsAny<long>(), It.IsAny<bool>()), Times.Never,
+            "ignore decisions are the repository's in-place refresh's job, never reset here");
 
         _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.Is<Series>(s =>
             s.MatchedSourceName == "Hardcover" &&
@@ -1226,11 +1296,12 @@ public class SeriesServiceTests
         _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Thursday Murder Club"))
             .ReturnsAsync(new List<string>());
 
-        List<SeriesExpectedBook>? stored = null;
-        _seriesRepository
-            .Setup(r => r.ReplaceExpectedBooksAsync(1, It.IsAny<List<SeriesExpectedBook>>()))
-            .Callback((long _, List<SeriesExpectedBook> books) => stored = books)
-            .Returns(Task.CompletedTask);
+        List<ExpectedBookUpsert>? stored = null;
+        _expectedBookRepository
+            .Setup(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()))
+            .Callback((IReadOnlyList<ExpectedBookUpsert> upserts) => stored = upserts.ToList())
+            .ReturnsAsync((IReadOnlyList<ExpectedBookUpsert> upserts) =>
+                upserts.Select((u, i) => (long)(i + 1)).ToList());
 
         var roster = new SeriesSearchResult("99", "Thursday Murder Club")
         {
@@ -1265,14 +1336,14 @@ public class SeriesServiceTests
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "99",
             IncludeOmnibusEditions = false,
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "The Thursday Murder Club", "1"),
                 new()
                 {
                     Id = 2,
                     Title = "The Thursday Murder Club / The Man Who Died Twice",
-                    Position = "1",
+                    SeriesPosition = "1",
                     IsCompilation = true,
                 },
             },
@@ -1309,7 +1380,7 @@ public class SeriesServiceTests
             Name = "Thursday Murder Club",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "99",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Thursday Murder Club")).ReturnsAsync(existing);
@@ -1330,7 +1401,10 @@ public class SeriesServiceTests
         Assert.IsTrue(overview.IncludeOmnibusEditions);
         _seriesRepository.Verify(r => r.SetIncludeOmnibusEditionsAsync("Thursday Murder Club", true), Times.Once);
         _seriesRepository.Verify(r => r.UpsertSeriesAsync(It.IsAny<Series>()), Times.Never);
-        _seriesRepository.Verify(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()), Times.Never);
+        _expectedBookRepository.Verify(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()), Times.Never,
+            "a display-only toggle must not re-store the roster");
+        _expectedBookRepository.Verify(r => r.UnlinkSeriesBooksAsync(It.IsAny<long>(), It.IsAny<IReadOnlyList<long>>()), Times.Never);
+        _expectedBookRepository.Verify(r => r.DeleteOrphanExpectedBooksAsync(), Times.Never);
     }
 
     [TestMethod]
@@ -1345,8 +1419,6 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>())).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
 
         // Only "Mistborn" has a same-named candidate; the other series' only candidate scores far too low.
         var scraper = new FakeSeriesScraper(
@@ -1410,8 +1482,6 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync(It.IsAny<string>())).ReturnsAsync((Series?)null);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series s) => { s.Id = 1; return s; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
 
         var scraper = new Mock<IScraper>();
         scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
@@ -1442,8 +1512,10 @@ public class SeriesServiceTests
     // Regression test: RefreshManyAsync read the series row to check it was matched, then
     // MatchSeriesCoreAsync immediately read the very same row again to carry the ignore flags
     // across - so refreshing N series cost 2N reads, each pulling a full roster. The refresh
-    // path now passes the row (and the fetched roster) straight through, so the series row is
-    // read exactly once either way. Fails against the pre-fix service, which reads it twice.
+    // path now reads the row once, for its matched-source identity only: MatchSeriesCoreAsync
+    // receives the already-fetched roster (no second source hit) and needs no previously-stored
+    // roster, because UpsertAsync preserves the user's ignore decisions in place. Fails against
+    // the pre-fix service, which reads the row twice.
     [TestMethod]
     public async Task RefreshSeriesAsync_ReadsTheSeriesRowOnce()
     {
@@ -1453,14 +1525,12 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
@@ -1476,19 +1546,19 @@ public class SeriesServiceTests
 
         Assert.IsTrue(result.Success);
         Assert.IsFalse(result.HasChanges);
-        // Exactly one catalog read, and it is the roster-inclusive shape (the single-refresh fix:
-        // a roster-less read would clear the ignore flags MatchSeriesCoreAsync carries across).
+        // Exactly one catalog read. The refresh path reads the row once for its matched-source
+        // check; MatchSeriesCoreAsync no longer re-reads it (it needs no existing roster to
+        // carry ignore decisions - UpsertAsync preserves them in place).
         _seriesRepository.Verify(r => r.GetByNameWithExpectedBooksAsync("Mistborn"), Times.Once);
         _seriesRepository.Verify(r => r.GetByNameAsync("Mistborn"), Times.Never);
     }
 
-    // The ignore flags a refresh carries across still have to survive the row being passed in
-    // rather than re-read - guards against "fixing" the query count by switching to a roster-less
-    // read. This test sets up EXACTLY the shape the repository query returns (GetByNameWithExpectedBooksAsync
-    // loads Series.ExpectedBooks; GetByNameAsync does not), so the row the service receives matches
-    // production rather than an impossible mock shape.
+    // A refresh stores the fresh roster through the unified expected-books repository: every
+    // fetched entry is upserted (an already-stored one - including an entry the user ignored,
+    // which the in-place refresh must not reset) and the rows the source no longer reports are
+    // unlinked, their orphans deleted.
     [TestMethod]
-    public async Task RefreshSeriesAsync_CarriesPreviouslyIgnoredEntriesAcross()
+    public async Task RefreshSeriesAsync_UpsertsTheFreshRoster_AndUnlinksWhatTheSourceStoppedReporting()
     {
         var existing = new Series
         {
@@ -1496,7 +1566,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "Secret History", "3.5", ignored: true),
             },
@@ -1508,10 +1578,12 @@ public class SeriesServiceTests
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
-        List<SeriesExpectedBook> replaced = new();
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Callback((long _, List<SeriesExpectedBook> books) => replaced = books)
-            .Returns(Task.CompletedTask);
+        List<ExpectedBookUpsert>? stored = null;
+        _expectedBookRepository
+            .Setup(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()))
+            .Callback((IReadOnlyList<ExpectedBookUpsert> upserts) => stored = upserts.ToList())
+            .ReturnsAsync((IReadOnlyList<ExpectedBookUpsert> upserts) =>
+                upserts.Select((u, i) => (long)(i + 1)).ToList());
 
         var roster = new SeriesSearchResult("42", "Mistborn")
         {
@@ -1531,9 +1603,77 @@ public class SeriesServiceTests
 
         await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
 
-        Assert.AreEqual(2, replaced.Count);
-        Assert.IsFalse(replaced.Single(b => b.Title == "The Final Empire").IsIgnored);
-        Assert.IsTrue(replaced.Single(b => b.Title == "Secret History").IsIgnored);
+        Assert.IsNotNull(stored);
+        Assert.AreEqual(2, stored.Count);
+        Assert.AreSequenceEqual(
+            new List<string> { "The Final Empire", "Secret History" },
+            stored.Select(b => b.Title).ToList());
+        Assert.AreEqual("3.5", stored.Single(b => b.Title == "Secret History").SeriesPosition);
+        // The upsert carries no ignore flag: the user's decision on the existing row is preserved
+        // by the repository's in-place refresh, so the service never resets it here.
+        _expectedBookRepository.Verify(r => r.SetIgnoredAsync(It.IsAny<long>(), It.IsAny<bool>()), Times.Never);
+        // The kept ids are the upserted roster's, and the unlinked rows' orphans are deleted.
+        _expectedBookRepository.Verify(
+            r => r.UnlinkSeriesBooksAsync(1, new List<long> { 1, 2 }), Times.Once);
+        _expectedBookRepository.Verify(r => r.DeleteOrphanExpectedBooksAsync(), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task MatchSeriesAsync_ResolvesRosterAuthorNamesAgainstExistingPersons_WithoutCreatingThem()
+    {
+        var known = new Database.Models.Person(default, "Brandon Sanderson");
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync((Series?)null);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series s) => { s.Id = 1; return s; });
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync(((Series?)null, Overflow: false));
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), Overflow: false));
+        _audiobookRepository.Setup(r => r.GetAuthorNamesBySeriesAsync("Mistborn"))
+            .ReturnsAsync(new List<string>());
+        _personRepository
+            .Setup(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync((IReadOnlyCollection<string> names) =>
+            {
+                var resolved = new Dictionary<string, Database.Models.Person>(StringComparer.Ordinal);
+                if (names.Contains("Brandon Sanderson"))
+                {
+                    resolved["Brandon Sanderson"] = known;
+                }
+                return resolved;
+            });
+
+        List<ExpectedBookUpsert>? stored = null;
+        _expectedBookRepository
+            .Setup(r => r.UpsertManyAsync(It.IsAny<IReadOnlyList<ExpectedBookUpsert>>()))
+            .Callback((IReadOnlyList<ExpectedBookUpsert> upserts) => stored = upserts.ToList())
+            .ReturnsAsync((IReadOnlyList<ExpectedBookUpsert> upserts) =>
+                upserts.Select((u, i) => (long)(i + 1)).ToList());
+
+        var roster = new SeriesSearchResult("42", "Mistborn")
+        {
+            Books = new List<SeriesExpectedBookResult>
+            {
+                new("The Final Empire")
+                {
+                    Position = "1",
+                    Authors = new List<string> { "Brandon Sanderson", "Unknown Source Spelling" },
+                },
+            },
+        };
+
+        await MakeService(new FakeSeriesScraper("Hardcover", new List<SeriesSearchResult>(), roster))
+            .MatchSeriesAsync("Mistborn", "Hardcover", "42");
+
+        Assert.IsNotNull(stored);
+        var authors = stored.Single().Authors;
+        Assert.AreEqual(2, authors.Count);
+        Assert.AreEqual(known.Id, authors.Single(a => a.AuthorName == "Brandon Sanderson").PersonId,
+            "a source name that resolves to a library Person row links to it");
+        Assert.IsNull(authors.Single(a => a.AuthorName == "Unknown Source Spelling").PersonId,
+            "an unresolvable source name stays a name-only link - never a created Person row");
+        _personRepository.Verify(r => r.GetOrCreatePerson(It.IsAny<string>()), Times.Never);
+        _personRepository.Verify(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()), Times.Once);
     }
 
     [TestMethod]
@@ -1638,7 +1778,7 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task FindMissingBookCandidatesAsync_UnknownExpectedBook_Throws()
     {
-        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Mistborn", "9", "Nope")).ReturnsAsync((SeriesExpectedBook?)null);
+        _seriesRepository.Setup(r => r.FindExpectedBookAsync("Mistborn", "9", "Nope")).ReturnsAsync((ExpectedBook?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
             MakeService().FindMissingBookCandidatesAsync("Mistborn", "9", "Nope"));
@@ -1657,7 +1797,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(10, "The Final Empire", "1"),
                 MakeExpected(11, "The Well of Ascension", "2"),
@@ -1703,7 +1843,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(10, "The Final Empire", "1"),
                 MakeExpected(11, "The Well of Ascension", "2"),
@@ -1749,7 +1889,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(10, "The Final Empire", "1"),
                 MakeExpected(11, "The Well of Ascension", "2"),
@@ -1839,7 +1979,7 @@ public class SeriesServiceTests
     [TestMethod]
     public async Task ApplyMissingBookAsync_UnknownExpectedBook_Throws()
     {
-        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "9", "Nope")).ReturnsAsync((SeriesExpectedBook?)null);
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "9", "Nope")).ReturnsAsync((ExpectedBook?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
             MakeService().ApplyMissingBookAsync("Mistborn", "9", "Nope", 5));
@@ -1852,7 +1992,7 @@ public class SeriesServiceTests
         // Strict matching requires both to match the same row — so this fails.
         _seriesRepository
             .Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "Secret History"))
-            .ReturnsAsync((SeriesExpectedBook?)null);
+            .ReturnsAsync((ExpectedBook?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() =>
             MakeService().ApplyMissingBookAsync("Mistborn", "3", "Secret History", 5));
@@ -1885,7 +2025,7 @@ public class SeriesServiceTests
     {
         _seriesRepository
             .Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "9", "Nope"))
-            .ReturnsAsync((SeriesExpectedBook?)null);
+            .ReturnsAsync((ExpectedBook?)null);
 
         var resolved = await MakeService().ResolveExpectedBookAsync("Mistborn", "9", "Nope");
 
@@ -1901,14 +2041,12 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
@@ -1963,14 +2101,12 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         // The source roster matches the owned books exactly: no changes, so any old pending row
         // for this series is superseded ("no-change bulk items never linger").
         var owned = new List<SeriesOwnedKey> { new(1, "1", "Book A") };
@@ -2013,14 +2149,12 @@ public class SeriesServiceTests
             Name = "Agent Cormac2",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>(),
+            ExpectedBooks = new List<ExpectedBook>(),
         };
 
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Agent Cormac2")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         var owned = new List<SeriesOwnedKey> { new(1, "1", "Book A") };
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Agent Cormac2", It.IsAny<int>()))
             .ReturnsAsync((owned, false));
@@ -2075,7 +2209,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "Secret History", "3.5", ignored: true),
             },
@@ -2084,8 +2218,6 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
@@ -2125,7 +2257,7 @@ public class SeriesServiceTests
             Name = "Mistborn",
             MatchedSourceName = "Hardcover",
             MatchedSourceId = "42",
-            ExpectedBooks = new List<SeriesExpectedBook>
+            ExpectedBooks = new List<ExpectedBook>
             {
                 MakeExpected(1, "Secret History", "3.5", ignored: true),
             },
@@ -2134,8 +2266,6 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
         _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
             .ReturnsAsync((Series row) => { row.Id = 1; return row; });
-        _seriesRepository.Setup(r => r.ReplaceExpectedBooksAsync(It.IsAny<long>(), It.IsAny<List<SeriesExpectedBook>>()))
-            .Returns(Task.CompletedTask);
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
@@ -2374,7 +2504,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
             .ReturnsAsync((new Series
             {
                 Name = "Mistborn",
-                ExpectedBooks = new List<SeriesExpectedBook>
+                ExpectedBooks = new List<ExpectedBook>
                 {
                     MakeExpected(10, "Book A", "1"),
                     MakeExpected(13, "Secret History", "3.5", ignored: true),
@@ -2434,7 +2564,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
             });
         _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new Series { Name = "Mistborn" });
         _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksBoundedAsync("Mistborn", It.IsAny<int>()))
-            .ReturnsAsync((new Series { Name = "Mistborn", ExpectedBooks = new List<SeriesExpectedBook>() }, false));
+            .ReturnsAsync((new Series { Name = "Mistborn", ExpectedBooks = new List<ExpectedBook>() }, false));
         _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey> { new(5, "1", "Book A") }, false));
 

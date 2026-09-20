@@ -8,12 +8,9 @@ import {
   Link as LinkIcon,
   ExternalLink,
   Loader2,
-  EyeOff,
-  Eye,
   Search,
   Check,
   CheckCircle2,
-  BookPlus,
   Wand2,
   Plus,
   Edit2,
@@ -36,11 +33,11 @@ import { SeriesFollowButton } from "./SeriesFollowButton";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
+import { ExpectedBookList, SectionPager } from "./ExpectedBookList";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
-import { formatDate } from "@/helpers/formatHelpers";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -139,6 +136,7 @@ export function SeriesDetail() {
   const [matchingCandidate, setMatchingCandidate] = useState(false);
   const [updatingOmnibus, setUpdatingOmnibus] = useState(false);
   const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
+  const [showIgnored, setShowIgnored] = useState(false);
 
   // Missing book candidates dialog
   const [missingCandidatesOpen, setMissingCandidatesOpen] = useState<
@@ -155,16 +153,19 @@ export function SeriesDetail() {
 
   // Each section pages server-side: a matched series with a large roster (or a book-heavy
   // series) used to send every owned and expected book over the wire and into the DOM at once.
-  // Each section has its own page state so paging one doesn't disturb the others.
+  // Each section has its own page state so paging one doesn't disturb the others - including the
+  // two ignored sub-lists, which page their own classification independently (the review finding:
+  // the shared ignored cursor used to advance BOTH sections' pagers at once).
   const [ownedPage, setOwnedPage] = useState(0);
   const [missingPage, setMissingPage] = useState(0);
-  const [ignoredPage, setIgnoredPage] = useState(0);
+  const [ignoredMissingPage, setIgnoredMissingPage] = useState(0);
+  const [ignoredUpcomingPage, setIgnoredUpcomingPage] = useState(0);
   const [partMismatchPage, setPartMismatchPage] = useState(0);
   const [upcomingPage, setUpcomingPage] = useState(0);
   const [fixingMismatchId, setFixingMismatchId] = useState<number | null>(null);
 
   // One combined detail query instead of three: the endpoint already computes every section on
-  // each call and accepts all three page cursors, so separate queries made every section change
+  // each call and accepts all the page cursors, so separate queries made every section change
   // issue an extra backend call whose other sections (computed with default paging) were thrown
   // away. keepPreviousData keeps the other sections' items rendered while one section pages.
   const seriesDetailQuery = useQuery({
@@ -173,9 +174,10 @@ export function SeriesDetail() {
       authorId,
       ownedPage,
       missingPage,
-      ignoredPage,
+      ignoredMissingPage,
       partMismatchPage,
       upcomingPage,
+      ignoredUpcomingPage,
     ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
@@ -183,8 +185,10 @@ export function SeriesDetail() {
         ownedPageSize: PAGE_SIZE,
         missingPage,
         missingPageSize: PAGE_SIZE,
-        ignoredPage,
-        ignoredPageSize: PAGE_SIZE,
+        ignoredMissingPage,
+        ignoredMissingPageSize: PAGE_SIZE,
+        ignoredUpcomingPage,
+        ignoredUpcomingPageSize: PAGE_SIZE,
         partMismatchPage,
         partMismatchPageSize: PAGE_SIZE,
         upcomingPage,
@@ -214,7 +218,11 @@ export function SeriesDetail() {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
-  const ignoredSection = seriesDetailQuery.data?.ignoredBooks ?? {
+  const ignoredMissingSection = seriesDetailQuery.data?.ignoredMissingBooks ?? {
+    items: [] as SeriesExpectedBook[],
+    totalCount: 0,
+  };
+  const ignoredUpcomingSection = seriesDetailQuery.data?.ignoredUpcomingBooks ?? {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
@@ -228,7 +236,14 @@ export function SeriesDetail() {
   };
   const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
   const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
-  const ignoredPageCount = Math.max(1, Math.ceil(ignoredSection.totalCount / PAGE_SIZE));
+  const ignoredMissingPageCount = Math.max(
+    1,
+    Math.ceil(ignoredMissingSection.totalCount / PAGE_SIZE),
+  );
+  const ignoredUpcomingPageCount = Math.max(
+    1,
+    Math.ceil(ignoredUpcomingSection.totalCount / PAGE_SIZE),
+  );
   const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / PAGE_SIZE));
   const upcomingPageCount = Math.max(1, Math.ceil(upcomingSection.totalCount / PAGE_SIZE));
 
@@ -236,7 +251,8 @@ export function SeriesDetail() {
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentOwnedPage = Math.min(ownedPage, ownedPageCount - 1);
   const currentMissingPage = Math.min(missingPage, missingPageCount - 1);
-  const currentIgnoredPage = Math.min(ignoredPage, ignoredPageCount - 1);
+  const currentIgnoredMissingPage = Math.min(ignoredMissingPage, ignoredMissingPageCount - 1);
+  const currentIgnoredUpcomingPage = Math.min(ignoredUpcomingPage, ignoredUpcomingPageCount - 1);
   const currentPartMismatchPage = Math.min(partMismatchPage, partMismatchPageCount - 1);
   const currentUpcomingPage = Math.min(upcomingPage, upcomingPageCount - 1);
 
@@ -245,7 +261,8 @@ export function SeriesDetail() {
   // fetch - not just the display - lands on a valid page.
   useClampedPage(ownedPage, ownedPageCount, setOwnedPage);
   useClampedPage(missingPage, missingPageCount, setMissingPage);
-  useClampedPage(ignoredPage, ignoredPageCount, setIgnoredPage);
+  useClampedPage(ignoredMissingPage, ignoredMissingPageCount, setIgnoredMissingPage);
+  useClampedPage(ignoredUpcomingPage, ignoredUpcomingPageCount, setIgnoredUpcomingPage);
   useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
   useClampedPage(upcomingPage, upcomingPageCount, setUpcomingPage);
 
@@ -377,12 +394,18 @@ export function SeriesDetail() {
       } else {
         await seriesApi.unignoreExpectedBook(seriesName, book.position, book.title);
         notifications.success(`Unignored "${book.title || "book"}"`);
-        // Unignoring moves a book out of the ignored list; same drop for the ignored section.
-        setIgnoredPage(0);
+        // Unignoring moves a book out of the ignored list - but which classification it came from
+        // depends on the book's release date, so drop both ignored sections' cursors back to 0
+        // (an already-in-range cursor is a no-op for the clamped refetch).
+        setIgnoredMissingPage(0);
+        setIgnoredUpcomingPage(0);
       }
       void queryClient.invalidateQueries({
         queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
       });
+      // The upcoming-releases view renders the same shared row with the flag applied, so a
+      // dismissal here must not keep a stale entry for the query cache's TTL.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {
@@ -593,9 +616,14 @@ export function SeriesDetail() {
   const ownedBooks = ownedSection.items as SeriesOwnedBook[];
   const ownedManagedBooks = ownedBooks.map(toManagedBook);
   const missingBooks = missingSection.items as SeriesExpectedBook[];
-  const ignoredBooks = ignoredSection.items as SeriesExpectedBook[];
+  const ignoredMissingBooks = ignoredMissingSection.items as SeriesExpectedBook[];
+  const ignoredUpcomingBooks = ignoredUpcomingSection.items as SeriesExpectedBook[];
   const partMismatchBooks = partMismatchSection.items as SeriesPartMismatch[];
   const upcomingBooks = upcomingSection.items as SeriesExpectedBook[];
+
+  // The two classification lists partition the scope's ignored rows, so their totals sum to the
+  // combined count the "show ignored" toggle label describes.
+  const ignoredTotal = ignoredMissingSection.totalCount + ignoredUpcomingSection.totalCount;
 
   return (
     <div className="space-y-6">
@@ -725,6 +753,22 @@ export function SeriesDetail() {
         )}
       </div>
 
+      {overview.isMatched && ignoredTotal > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Checkbox
+            id="show-ignored-books"
+            checked={showIgnored}
+            onCheckedChange={(checked) => setShowIgnored(Boolean(checked))}
+          />
+          <label
+            htmlFor="show-ignored-books"
+            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+          >
+            Show ignored books ({ignoredTotal})
+          </label>
+        </div>
+      )}
+
       {overview.isMatched && (
         <CollapsibleCountSection
           label="Missing Books"
@@ -742,26 +786,29 @@ export function SeriesDetail() {
               Match Missing Books
             </Button>
           )}
-          {missingBooks.length === 0 ? (
-            <p className="text-muted-foreground text-xs">
-              No missing books detected in this series.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {missingBooks.map((mb) => (
-                <ExpectedBookRow
-                  key={mb.id}
-                  book={mb}
-                  tone="amber"
-                  ignoringBookId={ignoringBookId}
-                  onIgnore={() => void handleSetIgnored(mb, true)}
-                  onFindInLibrary={() =>
-                    setMissingCandidatesOpen({ id: mb.id, position: mb.position, title: mb.title })
-                  }
-                />
-              ))}
-            </div>
-          )}
+          <ExpectedBookList
+            section="missing"
+            items={missingBooks}
+            ignoredItems={ignoredMissingBooks}
+            // The server pre-splits and pages each ignored classification with its own UTC clock;
+            // re-classifying the rows here with the local one dropped boundary rows the pager
+            // still counted.
+            ignoredItemsPreClassified
+            ignoredTotal={ignoredMissingSection.totalCount}
+            ignoredPager={{
+              currentPage: currentIgnoredMissingPage,
+              pageCount: ignoredMissingPageCount,
+              onPageChange: setIgnoredMissingPage,
+            }}
+            showIgnored={showIgnored}
+            busyBookId={ignoringBookId}
+            emptyMessage="No missing books detected in this series."
+            onIgnore={(book) => void handleSetIgnored(book, true)}
+            onUnignore={(book) => void handleSetIgnored(book, false)}
+            onFindInLibrary={(book) =>
+              setMissingCandidatesOpen({ id: book.id, position: book.position, title: book.title })
+            }
+          />
           {missingPageCount > 1 && (
             <SectionPager
               currentPage={currentMissingPage}
@@ -779,23 +826,23 @@ export function SeriesDetail() {
           count={upcomingSection.totalCount}
           labelClassName="text-muted-foreground"
         >
-          {upcomingBooks.length === 0 ? (
-            <p className="text-muted-foreground text-xs">
-              No upcoming books detected in this series.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {upcomingBooks.map((ub) => (
-                <ExpectedBookRow
-                  key={ub.id}
-                  book={ub}
-                  tone="muted"
-                  ignoringBookId={ignoringBookId}
-                  onIgnore={() => void handleSetIgnored(ub, true)}
-                />
-              ))}
-            </div>
-          )}
+          <ExpectedBookList
+            section="upcoming"
+            items={upcomingBooks}
+            ignoredItems={ignoredUpcomingBooks}
+            ignoredItemsPreClassified
+            ignoredTotal={ignoredUpcomingSection.totalCount}
+            ignoredPager={{
+              currentPage: currentIgnoredUpcomingPage,
+              pageCount: ignoredUpcomingPageCount,
+              onPageChange: setIgnoredUpcomingPage,
+            }}
+            showIgnored={showIgnored}
+            busyBookId={ignoringBookId}
+            emptyMessage="No upcoming books detected in this series."
+            onIgnore={(book) => void handleSetIgnored(book, true)}
+            onUnignore={(book) => void handleSetIgnored(book, false)}
+          />
           {upcomingPageCount > 1 && (
             <SectionPager
               currentPage={currentUpcomingPage}
@@ -805,54 +852,6 @@ export function SeriesDetail() {
             />
           )}
         </CollapsibleCountSection>
-      )}
-
-      {overview.isMatched && ignoredSection.totalCount > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-muted-foreground text-lg font-bold">
-            Ignored Books ({ignoredSection.totalCount})
-          </h2>
-          <div className="space-y-2">
-            {ignoredBooks.map((ib) => (
-              <div
-                key={ib.id}
-                className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs opacity-75 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-muted-foreground break-words">
-                    {ib.position ? `Part ${ib.position} — ` : ""}
-                    {ib.title}
-                  </span>
-                  {ib.year && <span className="text-muted-foreground"> ({ib.year})</span>}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 self-end text-[11px] sm:self-center"
-                  disabled={ignoringBookId === ib.id}
-                  onClick={() => {
-                    void handleSetIgnored(ib, false);
-                  }}
-                >
-                  {ignoringBookId === ib.id ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Eye className="mr-1 h-3 w-3" />
-                  )}
-                  Unignore
-                </Button>
-              </div>
-            ))}
-          </div>
-          {ignoredPageCount > 1 && (
-            <SectionPager
-              currentPage={currentIgnoredPage}
-              pageCount={ignoredPageCount}
-              totalCount={ignoredSection.totalCount}
-              onPageChange={setIgnoredPage}
-            />
-          )}
-        </div>
       )}
 
       {overview.isMatched && partMismatchSection.totalCount > 0 && (
@@ -1461,120 +1460,6 @@ export function SeriesDetail() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-/** The clamped pager each paged section renders, in the CleanBookUrls shape. */
-function SectionPager({
-  currentPage,
-  pageCount,
-  totalCount,
-  onPageChange,
-}: {
-  currentPage: number;
-  pageCount: number;
-  totalCount: number;
-  onPageChange: (page: number) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-      <span className="text-muted-foreground text-xs">
-        Showing {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, totalCount)}{" "}
-        of {totalCount}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={currentPage === 0}
-          onClick={() => onPageChange(currentPage - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={currentPage >= pageCount - 1}
-          onClick={() => onPageChange(currentPage + 1)}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** One row of the Missing/Upcoming Books sections: title, optional part/year/source link, plus
- * whichever actions apply (an upcoming book cannot be "found in library" since it isn't released
- * yet, so `onFindInLibrary` is only passed for missing rows). */
-function ExpectedBookRow({
-  book,
-  tone,
-  ignoringBookId,
-  onIgnore,
-  onFindInLibrary,
-}: {
-  book: SeriesExpectedBook;
-  tone: "amber" | "muted";
-  ignoringBookId: number | null;
-  onIgnore: () => void;
-  onFindInLibrary?: () => void;
-}) {
-  const toneClasses =
-    tone === "amber" ? "border-amber-500/20 bg-amber-500/5" : "border-border bg-card";
-  return (
-    <div
-      className={`flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs sm:flex-row sm:items-center ${toneClasses}`}
-    >
-      <div className="min-w-0 flex-1">
-        <span className="text-foreground font-semibold break-words">
-          {book.position ? `Part ${book.position} — ` : ""}
-          {book.title}
-        </span>
-        {book.year && <span className="text-muted-foreground"> ({book.year})</span>}
-        {book.releaseDate && (
-          <span className="text-muted-foreground"> · releases {formatDate(book.releaseDate)}</span>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-        {book.sourceUrl && (
-          <a
-            href={book.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary flex items-center hover:underline"
-          >
-            <ExternalLink className="mr-1 h-3 w-3" />
-            Source
-          </a>
-        )}
-        {onFindInLibrary && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-6 text-[11px]"
-            onClick={onFindInLibrary}
-          >
-            <BookPlus className="mr-1 h-3 w-3" />
-            Find in Library
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 text-[11px]"
-          disabled={ignoringBookId === book.id}
-          onClick={onIgnore}
-        >
-          {ignoringBookId === book.id ? (
-            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-          ) : (
-            <EyeOff className="mr-1 h-3 w-3" />
-          )}
-          Ignore
-        </Button>
-      </div>
     </div>
   );
 }

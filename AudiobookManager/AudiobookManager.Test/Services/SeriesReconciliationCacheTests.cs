@@ -25,7 +25,7 @@ public class SeriesReconciliationCacheTests
 
     /// <summary>A generic reconciliation-shaped value; the specific field values are irrelevant to the cache contract.</summary>
     private static SeriesReconciliation MakeReconciliation(int tag = 0) =>
-        new(new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>(), new List<SeriesPartMismatch>(), 0, 0, new[] { $"Author {tag}" }, new List<SeriesExpectedBookInfo>());
+        new(new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>(), new List<SeriesPartMismatch>(), 0, 0, new[] { $"Author {tag}" }, new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>(), new List<SeriesExpectedBookInfo>());
 
     [TestInitialize]
     public void Setup()

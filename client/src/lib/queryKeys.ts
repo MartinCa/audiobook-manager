@@ -60,8 +60,8 @@ export const queryKeys = {
 
   author: {
     all: () => ["author"] as const,
-    detail: (id: number, seriesPage: number, standalonePage: number) =>
-      ["author", id, seriesPage, standalonePage] as const,
+    detail: (id: number, seriesPage: number, standalonePage: number, missingSeriesPage: number) =>
+      ["author", id, seriesPage, standalonePage, missingSeriesPage] as const,
   },
 
   // Deliberately a separate family from "author" above (the singular detail page) - a shared
@@ -92,9 +92,10 @@ export const queryKeys = {
       authorId: number | undefined,
       ownedPage: number,
       missingPage: number,
-      ignoredPage: number,
+      ignoredMissingPage: number,
       partMismatchPage: number,
       upcomingPage: number,
+      ignoredUpcomingPage: number,
     ) =>
       [
         "seriesDetail",
@@ -102,9 +103,10 @@ export const queryKeys = {
         authorId,
         ownedPage,
         missingPage,
-        ignoredPage,
+        ignoredMissingPage,
         partMismatchPage,
         upcomingPage,
+        ignoredUpcomingPage,
       ] as const,
   },
 

@@ -18,6 +18,31 @@ public class PersonRepository : IPersonRepository
         _db = db;
     }
 
+    public async Task<Dictionary<string, Person>> GetByNamesAsync(IReadOnlyCollection<string> names)
+    {
+        var result = new Dictionary<string, Person>(StringComparer.Ordinal);
+        if (names.Count == 0)
+        {
+            return result;
+        }
+
+        // One IN clause per chunk, at the codebase's shared in-clause size (see
+        // ExpectedBookRepository.MaxInClauseIdsPerQuery): a roster's distinct author names are a
+        // handful, but the method must not let a pathological set build a single over-limit query.
+        // Accent folding is deliberately not applied - the caller passes the source's exact
+        // spelling and persons.name is unique, so an exact-match IN is the whole lookup.
+        foreach (var chunk in names.ToList().Chunk(ExpectedBookRepository.MaxInClauseIdsPerQuery))
+        {
+            var rows = await _db.Persons.Where(p => chunk.Contains(p.Name)).ToListAsync();
+            foreach (var person in rows)
+            {
+                result[person.Name] = person;
+            }
+        }
+
+        return result;
+    }
+
     public async Task<Person> GetOrCreatePerson(string name)
     {
         var dbPerson = await _db.Persons.SingleOrDefaultAsync(p => p.Name == name)
@@ -362,16 +387,6 @@ public class PersonRepository : IPersonRepository
         return (rows, total);
     }
 
-    /// <inheritdoc cref="IPersonRepository.GetAllActiveAuthorExpectedBooksAsync"/>
-    public async Task<List<AuthorExpectedBookRef>> GetAllActiveAuthorExpectedBooksAsync()
-    {
-        return await _db.AuthorExpectedBooks
-            .AsNoTracking()
-            .Where(b => !b.IsIgnored)
-            .Select(b => new AuthorExpectedBookRef(b.PersonId, b.Title, b.Year, b.ReleaseDate))
-            .ToListAsync();
-    }
-
     public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)
     {
         var folded = AccentFolding.FoldPlain(query);
@@ -449,49 +464,6 @@ public class PersonRepository : IPersonRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task<(Person? Person, bool Overflow)> GetByIdWithExpectedBooksBoundedAsync(long id, int maxExpectedBooks)
-    {
-        var row = await _db.Persons
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id);
-
-        if (row is null)
-        {
-            return (null, false);
-        }
-
-        var books = await _db.AuthorExpectedBooks
-            .AsNoTracking()
-            .Where(b => b.PersonId == row.Id)
-            .OrderBy(b => b.Id)
-            .Take(maxExpectedBooks + 1)
-            .ToListAsync();
-
-        row.ExpectedBooks = books;
-        return (row, books.Count > maxExpectedBooks);
-    }
-
-    public async Task ReplaceAuthorExpectedBooksAsync(long personId, List<AuthorExpectedBook> expectedBooks)
-    {
-        // Same tracked delete/re-insert as SeriesRepository.ReplaceExpectedBooksAsync, and for
-        // the same reason - a set-based delete would bypass the change tracker and risk SQLite
-        // handing a deleted rowid straight back to a replacement row.
-        var existing = await _db.AuthorExpectedBooks
-            .Where(b => b.PersonId == personId)
-            .ToListAsync();
-
-        _db.AuthorExpectedBooks.RemoveRange(existing);
-
-        foreach (var book in expectedBooks)
-        {
-            book.Id = 0;
-            book.PersonId = personId;
-            _db.AuthorExpectedBooks.Add(book);
-        }
-
-        await _db.SaveChangesAsync();
-    }
-
     public async Task SetLastRefreshedAtAsync(long personId, DateTime at)
     {
         var person = await _db.Persons.FirstOrDefaultAsync(p => p.Id == personId)
@@ -507,26 +479,5 @@ public class PersonRepository : IPersonRepository
             .AsNoTracking()
             .Where(p => p.MatchedSourceId != null && p.MatchedSourceId != "")
             .ToListAsync();
-    }
-
-    /// <summary>
-    /// Sets the ignore flag on a standalone-book roster entry addressed by its title - the author
-    /// roster counterpart of <see cref="SeriesRepository.SetExpectedBookIgnoredAsync"/>. Row ids
-    /// are not stable across a re-refresh (<see cref="ReplaceAuthorExpectedBooksAsync"/> deletes
-    /// and re-inserts the whole roster), so the entry is located by title, trimmed and
-    /// case-insensitively, the same way a re-refresh carries ignore decisions across.
-    /// </summary>
-    public async Task SetAuthorExpectedBookIgnoredAsync(long personId, string title, bool ignored)
-    {
-        var books = await _db.AuthorExpectedBooks
-            .Where(b => b.PersonId == personId)
-            .ToListAsync();
-
-        var normalizedTitle = title.Trim();
-        var book = books.FirstOrDefault(b => string.Equals(b.Title.Trim(), normalizedTitle, StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException($"Expected book (title '{title}') not found in author {personId}'s roster");
-
-        book.IsIgnored = ignored;
-        await _db.SaveChangesAsync();
     }
 }

@@ -711,6 +711,9 @@ export interface paths {
                     seriesOffset?: number;
                     standaloneLimit?: number;
                     standaloneOffset?: number;
+                    includeMissingSeries?: boolean;
+                    missingSeriesLimit?: number;
+                    missingSeriesOffset?: number;
                 };
                 header?: never;
                 path: {
@@ -1026,7 +1029,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshResultDto"];
+                        "application/json": components["schemas"]["AuthorRefreshResultDto"];
+                        "text/json": components["schemas"]["AuthorRefreshResultDto"];
+                    };
                 };
             };
         };
@@ -2983,8 +2990,10 @@ export interface paths {
                     ownedPageSize?: number;
                     missingPage?: number;
                     missingPageSize?: number;
-                    ignoredPage?: number;
-                    ignoredPageSize?: number;
+                    ignoredMissingPage?: number;
+                    ignoredMissingPageSize?: number;
+                    ignoredUpcomingPage?: number;
+                    ignoredUpcomingPageSize?: number;
                     partMismatchPage?: number;
                     partMismatchPageSize?: number;
                     upcomingPage?: number;
@@ -4707,6 +4716,7 @@ export interface components {
             missingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
             upcomingBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
             ignoredBooks?: components["schemas"]["AuthorExpectedBookDto"][] | null;
+            missingSeries?: components["schemas"]["AuthorMissingSeriesDtoPaginatedResult"];
         };
         AuthorExpectedBookDto: {
             /** Format: int64 */
@@ -4718,8 +4728,18 @@ export interface components {
             isIgnored?: boolean;
             /** Format: date */
             releaseDate?: string | null;
+            position?: string | null;
+            /** Format: int64 */
+            seriesId?: number | null;
+            seriesName?: string | null;
+            sourceSeriesName?: string | null;
+            sourceName?: string | null;
+            sourceBookId?: string | null;
+            imageUrl?: string | null;
         };
         AuthorExpectedBookRefDto: {
+            /** Format: int64 */
+            id?: number | null;
             title?: string | null;
         };
         AuthorFollowStatusDto: {
@@ -4737,6 +4757,29 @@ export interface components {
             sourceId?: string | null;
             sourceName?: string | null;
             sourceUrl?: string | null;
+        };
+        AuthorMissingSeriesDto: {
+            sourceName?: string | null;
+            sourceSeriesId?: string | null;
+            sourceSeriesName?: string | null;
+            /** Format: int32 */
+            expectedCount?: number;
+            /** Format: int32 */
+            missingCount?: number;
+            /** Format: int32 */
+            upcomingCount?: number;
+            /** Format: int32 */
+            ownedBookCount?: number;
+            /** Format: int64 */
+            matchedSeriesId?: number | null;
+            matchedSeriesName?: string | null;
+        };
+        AuthorMissingSeriesDtoPaginatedResult: {
+            /** Format: int32 */
+            count?: number;
+            /** Format: int32 */
+            total?: number;
+            items?: components["schemas"]["AuthorMissingSeriesDto"][] | null;
         };
         AuthorRefreshResultDto: {
             success?: boolean;
@@ -4893,6 +4936,10 @@ export interface components {
             items?: components["schemas"]["DiscoveredAudiobookDto"][] | null;
         };
         DismissRosterUpcomingReleaseDto: {
+            /** Format: int64 */
+            expectedBookId?: number | null;
+            sourceName?: string | null;
+            sourceBookId?: string | null;
             seriesName?: string | null;
             seriesPosition?: string | null;
             /** Format: int64 */
@@ -5220,7 +5267,8 @@ export interface components {
             overview?: components["schemas"]["SeriesOverviewDto"];
             ownedBooks?: components["schemas"]["SeriesOwnedBookPageDto"];
             missingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
-            ignoredBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            ignoredMissingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
+            ignoredUpcomingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
             partMismatches?: components["schemas"]["SeriesPartMismatchPageDto"];
             upcomingBooks?: components["schemas"]["SeriesExpectedBookPageDto"];
         };
@@ -5235,6 +5283,8 @@ export interface components {
             isIgnored?: boolean;
             /** Format: date */
             releaseDate?: string | null;
+            sourceName?: string | null;
+            sourceBookId?: string | null;
         };
         SeriesExpectedBookPageDto: {
             items?: components["schemas"]["SeriesExpectedBookDto"][] | null;
@@ -5430,6 +5480,9 @@ export interface components {
             sourceName?: string | null;
             sourceUrl?: string | null;
             imageUrl?: string | null;
+            /** Format: int64 */
+            expectedBookId?: number | null;
+            sourceBookId?: string | null;
         };
         UpcomingReleaseDtoPaginatedResult: {
             /** Format: int32 */

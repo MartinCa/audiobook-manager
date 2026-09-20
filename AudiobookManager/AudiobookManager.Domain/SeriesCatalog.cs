@@ -51,8 +51,17 @@ public class SeriesDetailPage
     public int MissingBookTotal { get; set; }
     public List<SeriesExpectedBookInfo> UpcomingBooks { get; set; } = new();
     public int UpcomingBookTotal { get; set; }
-    public List<SeriesExpectedBookInfo> IgnoredBooks { get; set; } = new();
-    public int IgnoredBookTotal { get; set; }
+
+    /// <summary>
+    /// The dismissed roster entries split by the same Missing-vs-Upcoming classification the
+    /// active entries are: the detail page renders ignored rows inside the section they classify
+    /// to, and each section pages ITS classification's ignored rows with its own cursor, so the
+    /// combined list is never sent (and each section's total reflects only its own rows).
+    /// </summary>
+    public List<SeriesExpectedBookInfo> IgnoredMissingBooks { get; set; } = new();
+    public int IgnoredMissingBookTotal { get; set; }
+    public List<SeriesExpectedBookInfo> IgnoredUpcomingBooks { get; set; } = new();
+    public int IgnoredUpcomingBookTotal { get; set; }
     public List<SeriesPartMismatch> PartMismatches { get; set; } = new();
     public int PartMismatchTotal { get; set; }
 }
@@ -97,6 +106,15 @@ public class SeriesExpectedBookInfo
     public DateOnly? ReleaseDate { get; set; }
     public string? SourceUrl { get; set; }
     public bool IsIgnored { get; set; }
+
+    /// <summary>The metadata source that reported this roster entry (e.g. "Hardcover").</summary>
+    public string? SourceName { get; set; }
+
+    /// <summary>The source's own book identifier, when it reported one - the dedup identity the author and series rosters share.</summary>
+    public string? SourceBookId { get; set; }
+
+    /// <summary>A cover image URL from the source, when one is stored for the unified row (see <see cref="ExpectedBook.ImageUrl"/>) - what the upcoming view renders for a roster-derived item.</summary>
+    public string? ImageUrl { get; set; }
 }
 
 /// <summary>

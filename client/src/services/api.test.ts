@@ -651,14 +651,15 @@ describe("api service mappings and contracts", () => {
   });
 
   describe("seriesApi.getSeriesDetail", () => {
-    it("includes the upcoming-books page cursor alongside the existing sections", async () => {
+    it("includes both ignored-classification page cursors alongside the existing sections", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(
           JSON.stringify({
             overview: { name: "Mistborn" },
             ownedBooks: { items: [], totalCount: 0 },
             missingBooks: { items: [], totalCount: 0 },
-            ignoredBooks: { items: [], totalCount: 0 },
+            ignoredMissingBooks: { items: [], totalCount: 0 },
+            ignoredUpcomingBooks: { items: [], totalCount: 0 },
             partMismatches: { items: [], totalCount: 0 },
             upcomingBooks: { items: [], totalCount: 0 },
           }),
@@ -666,7 +667,14 @@ describe("api service mappings and contracts", () => {
         ),
       );
 
-      await seriesApi.getSeriesDetail("Mistborn", { upcomingPage: 1, upcomingPageSize: 25 });
+      await seriesApi.getSeriesDetail("Mistborn", {
+        upcomingPage: 1,
+        upcomingPageSize: 25,
+        ignoredMissingPage: 1,
+        ignoredMissingPageSize: 20,
+        ignoredUpcomingPage: 2,
+        ignoredUpcomingPageSize: 20,
+      });
 
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining("upcomingPage=1"),
@@ -674,6 +682,23 @@ describe("api service mappings and contracts", () => {
       );
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining("upcomingPageSize=25"),
+        expect.anything(),
+      );
+      // The ignored sections page independently: each classification carries its own cursor.
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ignoredMissingPage=1"),
+        expect.anything(),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ignoredMissingPageSize=20"),
+        expect.anything(),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ignoredUpcomingPage=2"),
+        expect.anything(),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ignoredUpcomingPageSize=20"),
         expect.anything(),
       );
     });

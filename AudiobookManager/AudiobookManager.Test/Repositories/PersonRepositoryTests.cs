@@ -8,10 +8,8 @@ using Microsoft.Extensions.Options;
 namespace AudiobookManager.Test.Repositories;
 
 /// <summary>
-/// Exercises the author standalone-books roster path against a real (temp-file) SQLite database,
-/// mirroring <see cref="SeriesRepositoryTests"/> - the point of the natural-key (title) addressing
-/// is exactly what happens to row ids across a roster replace, which an in-memory fake cannot
-/// disprove.
+/// Exercises PersonRepository's paged author-summary queries and filter support against a real
+/// (temp-file) SQLite database.
 /// </summary>
 [TestClass]
 public class PersonRepositoryTests
@@ -42,158 +40,6 @@ public class PersonRepositoryTests
                 File.Delete(path);
             }
         }
-    }
-
-    private async Task<Person> SeedAuthorAsync()
-    {
-        var author = await _repository.GetOrCreatePerson("Brandon Sanderson");
-
-        await _repository.ReplaceAuthorExpectedBooksAsync(author.Id, new List<AuthorExpectedBook>
-        {
-            new() { Title = "Elantris", Year = 2005 },
-            new() { Title = "Warbreaker", Year = 2009 },
-        });
-
-        return author;
-    }
-
-    [TestMethod]
-    public async Task GetByIdWithExpectedBooksBoundedAsync_ReturnsThePersonAndItsRoster()
-    {
-        var author = await SeedAuthorAsync();
-
-        var (result, overflow) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-
-        Assert.IsNotNull(result);
-        Assert.AreEqual(author.Id, result.Id);
-        Assert.AreEqual(2, result.ExpectedBooks.Count);
-        Assert.IsFalse(overflow);
-    }
-
-    [TestMethod]
-    public async Task GetByIdWithExpectedBooksBoundedAsync_UnknownPerson_ReturnsNull()
-    {
-        var (result, overflow) = await _repository.GetByIdWithExpectedBooksBoundedAsync(999, 10);
-
-        Assert.IsNull(result);
-        Assert.IsFalse(overflow);
-    }
-
-    [TestMethod]
-    public async Task GetByIdWithExpectedBooksBoundedAsync_MoreRowsThanTheCap_ReportsOverflow()
-    {
-        var author = await SeedAuthorAsync();
-
-        var (result, overflow) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 1);
-
-        Assert.IsNotNull(result);
-        // The overflow flag is what the caller acts on; the fetch is bounded to cap + 1 rows, so
-        // the returned collection itself may exceed the cap by one - only the flag matters.
-        Assert.IsTrue(overflow);
-    }
-
-    [TestMethod]
-    public async Task ReplaceAuthorExpectedBooksAsync_ReplacesTheWholeRoster()
-    {
-        var author = await SeedAuthorAsync();
-
-        await _repository.ReplaceAuthorExpectedBooksAsync(author.Id, new List<AuthorExpectedBook>
-        {
-            new() { Title = "The Way of Kings", Year = 2010 },
-        });
-
-        var (result, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        Assert.IsNotNull(result);
-        Assert.AreEqual(1, result.ExpectedBooks.Count);
-        Assert.AreEqual("The Way of Kings", result.ExpectedBooks.Single().Title);
-    }
-
-    [TestMethod]
-    public async Task ReplaceAuthorExpectedBooksAsync_TrackedDeleteThenInsert_DoesNotLeakOldRowsAcrossAuthors()
-    {
-        var author = await SeedAuthorAsync();
-        var otherAuthor = await _repository.GetOrCreatePerson("Robert Jordan");
-        await _repository.ReplaceAuthorExpectedBooksAsync(otherAuthor.Id, new List<AuthorExpectedBook>
-        {
-            new() { Title = "The Eye of the World" },
-        });
-
-        await _repository.ReplaceAuthorExpectedBooksAsync(author.Id, new List<AuthorExpectedBook>());
-
-        var (authorResult, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        var (otherResult, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(otherAuthor.Id, 10);
-        Assert.IsNotNull(authorResult);
-        Assert.AreEqual(0, authorResult.ExpectedBooks.Count);
-        Assert.IsNotNull(otherResult);
-        Assert.AreEqual(1, otherResult.ExpectedBooks.Count, "replacing one author's roster must not touch another's");
-    }
-
-    [TestMethod]
-    public async Task SetAuthorExpectedBookIgnoredAsync_FlagsTheEntryMatchingTheNaturalKey()
-    {
-        var author = await SeedAuthorAsync();
-
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", true);
-
-        var (result, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        Assert.IsNotNull(result);
-        Assert.IsTrue(result.ExpectedBooks.Single(b => b.Title == "Elantris").IsIgnored);
-        Assert.IsFalse(result.ExpectedBooks.Single(b => b.Title == "Warbreaker").IsIgnored);
-    }
-
-    [TestMethod]
-    public async Task SetAuthorExpectedBookIgnoredAsync_MatchesCaseInsensitivelyAndTrimmed()
-    {
-        var author = await SeedAuthorAsync();
-
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "  ELANTRIS  ", true);
-
-        var (result, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        Assert.IsNotNull(result);
-        Assert.IsTrue(result.ExpectedBooks.Single(b => b.Title == "Elantris").IsIgnored);
-    }
-
-    [TestMethod]
-    public async Task SetAuthorExpectedBookIgnoredAsync_UnknownTitle_ThrowsKeyNotFound()
-    {
-        var author = await SeedAuthorAsync();
-
-        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
-            () => _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Nonexistent", true));
-    }
-
-    [TestMethod]
-    public async Task SetAuthorExpectedBookIgnoredAsync_FalseUnignoresAPreviouslyIgnoredEntry()
-    {
-        var author = await SeedAuthorAsync();
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", true);
-
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", false);
-
-        var (result, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        Assert.IsNotNull(result);
-        Assert.IsFalse(result.ExpectedBooks.Single(b => b.Title == "Elantris").IsIgnored);
-    }
-
-    [TestMethod]
-    public async Task SetAuthorExpectedBookIgnoredAsync_StillHitsTheSameLogicalBookAfterARosterReplace()
-    {
-        var author = await SeedAuthorAsync();
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", true);
-
-        // A refresh deletes and re-inserts the whole roster - the row id changes, but the title
-        // (the natural key) is the same logical book.
-        await _repository.ReplaceAuthorExpectedBooksAsync(author.Id, new List<AuthorExpectedBook>
-        {
-            new() { Title = "Elantris", Year = 2005, IsIgnored = true },
-            new() { Title = "Warbreaker", Year = 2009 },
-        });
-
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", false);
-
-        var (result, _) = await _repository.GetByIdWithExpectedBooksBoundedAsync(author.Id, 10);
-        Assert.IsNotNull(result);
-        Assert.IsFalse(result.ExpectedBooks.Single(b => b.Title == "Elantris").IsIgnored);
     }
 
     private async Task<Person> SeedAuthorWithBooksAsync(string name, int bookCount)
@@ -320,15 +166,57 @@ public class PersonRepositoryTests
         Assert.AreEqual("Keep Author", items.Single().Name);
     }
 
+    // The batched roster-author resolution (SeriesService.MatchSeriesCoreAsync): one call resolves
+    // a whole set of source author spellings against the library's Person rows. Exact-match on the
+    // unique name - a name with no Person row is absent from the result, never a created row.
     [TestMethod]
-    public async Task GetAllActiveAuthorExpectedBooksAsync_ExcludesIgnoredEntries()
+    public async Task GetByNamesAsync_ResolvesExistingNamesAndOmitsUnknownOnes()
     {
-        var author = await SeedAuthorAsync();
-        await _repository.SetAuthorExpectedBookIgnoredAsync(author.Id, "Elantris", true);
+        var existing = Enumerable.Range(0, 20)
+            .Select(i => new Person(default, $"Author {i:D2}"))
+            .ToList();
+        _db.Persons.AddRange(existing);
+        await _db.SaveChangesAsync();
 
-        var rows = await _repository.GetAllActiveAuthorExpectedBooksAsync();
+        var resolved = await _repository.GetByNamesAsync(
+            existing.Select(p => p.Name).Concat(new[] { "Author 99", "Missing Author" }).ToList());
 
-        Assert.AreEqual(1, rows.Count);
-        Assert.AreEqual("Warbreaker", rows.Single().Title);
+        Assert.AreEqual(20, resolved.Count, "only names that exist resolve; unknown names are simply absent");
+        foreach (var person in existing)
+        {
+            Assert.AreEqual(person.Id, resolved[person.Name].Id, "each name resolves to its one unique Person row");
+        }
+        Assert.IsFalse(resolved.ContainsKey("Author 99"));
+        Assert.IsFalse(resolved.ContainsKey("Missing Author"));
+    }
+
+    [TestMethod]
+    public async Task GetByNamesAsync_EmptyNameSet_ReturnsAnEmptyMap()
+    {
+        var resolved = await _repository.GetByNamesAsync(new List<string>());
+
+        Assert.AreEqual(0, resolved.Count, "no names in, no rows out - and no query against an empty IN clause");
+    }
+
+    // The batched lookup is chunked at the codebase's shared in-clause size, so a pathological
+    // name set never becomes one over-limit IN (...) query - and every name still resolves.
+    [TestMethod]
+    public async Task GetByNamesAsync_MoreNamesThanTheInClauseChunkSize_ResolvesEveryOne()
+    {
+        var nameCount = ExpectedBookRepository.MaxInClauseIdsPerQuery * 2 + 20;
+        var existing = Enumerable.Range(0, nameCount)
+            .Select(i => new Person(default, $"Author {i:D4}"))
+            .ToList();
+        _db.Persons.AddRange(existing);
+        await _db.SaveChangesAsync();
+
+        var resolved = await _repository.GetByNamesAsync(
+            existing.Select(p => p.Name).Concat(new[] { "No Such Author" }).ToList());
+
+        Assert.AreEqual(nameCount, resolved.Count, "every stored name resolves across the chunk boundary, the unknown one stays absent");
+        foreach (var person in existing)
+        {
+            Assert.AreEqual(person.Id, resolved[person.Name].Id);
+        }
     }
 }

@@ -23,6 +23,14 @@ public interface ISeriesRepository
     Task<Series?> GetByNameAsync(string name);
 
     /// <summary>
+    /// The catalog <see cref="Series.Name"/> of one row, or null when no row owns the id. The
+    /// single-value cousin of <see cref="GetByNameAsync"/> for the id→name direction, used to
+    /// resolve a roster row's series link (<see cref="ExpectedBook.SeriesId"/>) into the cache
+    /// key a caller needs to invalidate without loading the row's roster.
+    /// </summary>
+    Task<string?> GetNameByIdAsync(long id);
+
+    /// <summary>
     /// The catalog row matched to this exact source (e.g. Hardcover) id, or null. Name-independent
     /// - unlike <see cref="GetByNameAsync"/>, this is what the upcoming-releases poll uses to link
     /// a release discovered through a followed author to a followed-but-differently-named series,
@@ -78,15 +86,20 @@ public interface ISeriesRepository
     /// already owns the new name (a rename would silently merge or clobber its roster).
     /// </summary>
     Task<Series> RenameAsync(string oldName, string newName);
-    Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks);
-    Task<SeriesExpectedBook?> GetExpectedBookAsync(long id);
+    Task<ExpectedBook?> GetExpectedBookAsync(long id);
 
     /// <summary>
     /// Sets the ignore flag on the roster entry addressed by series name plus position
-    /// and/or title. Addressing by natural key rather than row id, because the roster is
-    /// deleted and re-inserted on every match/refresh.
+    /// and/or title - the natural-key compatibility surface of the series-scoped API (the
+    /// pre-unification addressing contract, which is what the client's missing/mismatch flows
+    /// carry). The flag write is a set-based single-row update, and the roster read is bounded
+    /// to <paramref name="maxBooks"/> + 1 rows like <see cref="GetByNameWithExpectedBooksBoundedAsync"/>:
+    /// a roster that outgrows the cap and does not resolve the natural key within the readable
+    /// prefix degrades to "not found". New callers address the unified row by its stable id via
+    /// <see cref="ExpectedBookRepository.SetIgnoredByIdAsync"/> instead - the rows are refreshed
+    /// in place, so ids are stable - because a series can carry two same-titled entries.
     /// </summary>
-    Task SetExpectedBookIgnoredAsync(string seriesName, string? position, string? title, bool ignored);
+    Task SetExpectedBookIgnoredAsync(string seriesName, string? position, string? title, bool ignored, int maxBooks);
 
     /// <summary>
     /// Resolves a roster entry by its natural key (series name plus position and/or title), using
@@ -94,7 +107,7 @@ public interface ISeriesRepository
     /// matching both parts of the key, then fall back to either alone. Returns null when the
     /// series or the entry is not found, so callers decide how to report it.
     /// </summary>
-    Task<SeriesExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title);
+    Task<ExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title);
 
     /// <summary>
     /// Resolves a roster entry by its natural key using strict matching: when both position
@@ -102,7 +115,7 @@ public interface ISeriesRepository
     /// only one is supplied, one row must match that field. Returns null when the series or
     /// the entry is not found.
     /// </summary>
-    Task<SeriesExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title);
+    Task<ExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title);
 
     /// <summary>
     /// Sets the display-time omnibus/box-set inclusion flag on the series row, creating an
@@ -113,13 +126,14 @@ public interface ISeriesRepository
     Task<Series> SetIncludeOmnibusEditionsAsync(string seriesName, bool includeOmnibusEditions);
 
     /// <summary>
-    /// Deletes the catalog row for a series, if one exists. Its roster (ExpectedBooks) and
-    /// mapping patterns (Mappings) cascade with it via the FK constraints configured in
-    /// <see cref="AudiobookManager.Database.EntityMappings.SeriesEntityMapping"/> and
-    /// <see cref="AudiobookManager.Database.EntityMappings.SeriesMappingMapping"/>. An unmatched
-    /// series with no catalog row is a no-op success, not a failure - the caller (series
-    /// deletion) still has owned books to clear regardless of whether a row existed here.
-    /// Returns whether a row was actually deleted.
+    /// Deletes the catalog row for a series, if one exists. Its mapping patterns (Mappings)
+    /// cascade via the FK constraint configured in <see cref="AudiobookManager.Database.EntityMappings.SeriesMappingMapping"/>;
+    /// its expected books cannot cascade - <c>expected_books.series_id</c> is SET NULL - so the
+    /// delete unlinks them (<see cref="ExpectedBookRepository.UnlinkSeriesBooksAsync"/>) and then
+    /// deletes the ones no author or other series links anymore. An unmatched series with no
+    /// catalog row is a no-op success, not a failure - the caller (series deletion) still has
+    /// owned books to clear regardless of whether a row existed here. Returns whether a row was
+    /// actually deleted.
     /// </summary>
     Task<bool> DeleteSeriesAsync(string name);
 }

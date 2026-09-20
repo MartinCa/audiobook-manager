@@ -198,8 +198,8 @@ public class SeriesRefreshDifferTests
     // Regression for the refresh review finding: an ignored roster entry (renumbered by the
     // source or not) and an owned one both produce no changes, same as any other unmatched or
     // matched entry now that MissingBook is never reported - there is no ignore-specific
-    // exemption left in Diff itself (the carry-across now happens on the roster replace, see
-    // SeriesService.MatchSeriesCoreAsync).
+    // exemption left in Diff itself (ignore decisions survive via the in-place upsert, which
+    // never resets IsIgnored - see SeriesService.MatchSeriesCoreAsync).
     [TestMethod]
     public void Diff_UnmatchedEntry_ProducesNoChangeRegardlessOfIgnoreStatus()
     {

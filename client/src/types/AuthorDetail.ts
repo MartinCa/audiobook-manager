@@ -5,7 +5,10 @@ import type ManagedAudiobook from "./ManagedAudiobook";
 import type { SeriesOverview } from "./Series";
 
 // AudiobookManager.Api/Dtos/AuthorDetailDto.cs (AuthorExpectedBookDto): id/title/isIgnored are
-// non-nullable; year/sourceUrl/releaseDate are genuinely nullable - mirrors SeriesExpectedBook.
+// non-nullable; year/sourceUrl/releaseDate are genuinely nullable, and the Phase 3 additions
+// (position/seriesId/seriesName/sourceSeriesName/sourceName/sourceBookId/imageUrl) are all
+// genuinely nullable too - a standalone book has no series, and a legacy-copied row may carry no
+// source identity.
 export type AuthorExpectedBook = Require<
   components["schemas"]["AuthorExpectedBookDto"],
   "id" | "title" | "isIgnored"
@@ -16,11 +19,12 @@ export type AuthorExpectedBook = Require<
 // section reuses the SeriesOverview shape from the /library/series page so the author detail
 // renders the same rich series entries (match badge, authors, owned/missing counts).
 //
-// missingBooks/upcomingBooks/ignoredBooks are the author's standalone-books roster
-// (AudiobookManager/UPCOMING_RELEASES_DESIGN.md) - unpaged like the series detail's own
-// upcoming/missing/ignored sections were before paging, but bounded by the same roster cap the
-// reconciliation provider enforces, so the whole-list shape here is deliberate, not a regression
-// of the bounded-list invariant.
+// missingBooks/upcomingBooks/ignoredBooks are the author's expected-book roster
+// (AudiobookManager/UPCOMING_RELEASES_DESIGN.md) - the unified roster rows are shared with the
+// series view, so series books appear in an author's roster too. Unpaged like the series detail's
+// own upcoming/missing/ignored sections were before paging, but bounded by the same roster cap
+// the reconciliation provider enforces, so the whole-list shape here is deliberate, not a
+// regression of the bounded-list invariant.
 // lastRefreshedAt is null for a never-refreshed (or unmatched) author.
 export interface AuthorDetail {
   author: AuthorSummary;
@@ -38,7 +42,29 @@ export interface AuthorDetail {
   missingBooks: AuthorExpectedBook[];
   upcomingBooks: AuthorExpectedBook[];
   ignoredBooks: AuthorExpectedBook[];
+  // The endpoint computes the missing-series groups only when asked (includeMissingSeries=true,
+  // default false), so this section is null on the wire unless the caller opted in. Paged
+  // server-side like the sibling sections.
+  missingSeries: {
+    count: number;
+    total: number;
+    items: AuthorMissingSeries[];
+  } | null;
 }
+
+// AudiobookManager.Api/Dtos/AuthorDetailDto.cs (AuthorMissingSeriesDto): sourceName/sourceSeriesId/
+// expectedCount/missingCount/upcomingCount/ownedBookCount are non-nullable on the record;
+// sourceSeriesName/matchedSeriesId/matchedSeriesName are genuinely nullable (an unmatched source
+// series has no matched local series).
+export type AuthorMissingSeries = Require<
+  components["schemas"]["AuthorMissingSeriesDto"],
+  | "sourceName"
+  | "sourceSeriesId"
+  | "expectedCount"
+  | "missingCount"
+  | "upcomingCount"
+  | "ownedBookCount"
+>;
 
 // AudiobookManager.Api/Dtos/AuthorDetailDto.cs: AuthorRefreshResultDto.success is non-nullable;
 // lastRefreshedAt is genuinely nullable.

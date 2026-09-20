@@ -214,8 +214,10 @@ export const browseApi = {
       query: { limit, offset, q: q || undefined, ...filters },
     }),
 
-  // The two sections are paged server-side too: an author owning hundreds of series/books used
-  // to have them all sent and rendered. Pass each section's own limit/offset.
+  // The three sections are paged server-side: an author owning hundreds of series/books used
+  // to have them all sent and rendered. Pass each section's own limit/offset. The missing-series
+  // section is opt-in (includeMissingSeries=true) - the backend only pays for its reconciliation
+  // pass when asked, and leaves it null otherwise.
   getAuthorDetail: (
     authorId: number,
     params: {
@@ -223,6 +225,9 @@ export const browseApi = {
       seriesOffset?: number;
       standaloneLimit?: number;
       standaloneOffset?: number;
+      includeMissingSeries?: boolean;
+      missingSeriesLimit?: number;
+      missingSeriesOffset?: number;
     } = {},
   ) =>
     api.get<AuthorDetail>(`/browse/authors/${authorId}`, {
@@ -231,6 +236,9 @@ export const browseApi = {
         seriesOffset: params.seriesOffset,
         standaloneLimit: params.standaloneLimit,
         standaloneOffset: params.standaloneOffset,
+        includeMissingSeries: params.includeMissingSeries,
+        missingSeriesLimit: params.missingSeriesLimit,
+        missingSeriesOffset: params.missingSeriesOffset,
       },
     }),
 
@@ -259,13 +267,18 @@ export const browseApi = {
       query: { query: query || undefined },
     }),
 
+  // Persist-first: the backend stores the match, then refreshes the roster. When the refresh
+  // fails (daily budget exhausted, source cannot resolve the id, no author-capable scraper), the
+  // response is still a 200 carrying AuthorRefreshResultDto.success=false - the match itself
+  // persisted, so callers must treat the request as accepted and only report the refresh as
+  // pending.
   matchAuthorToHardcover: (
     authorId: number,
     sourceId: string,
     sourceName: string,
     sourceUrl?: string,
   ) =>
-    api.post<void>(`/browse/authors/${authorId}/hardcover-match`, {
+    api.post<AuthorRefreshResult>(`/browse/authors/${authorId}/hardcover-match`, {
       sourceId,
       sourceName,
       sourceUrl,
@@ -274,22 +287,31 @@ export const browseApi = {
   unmatchAuthorFromHardcover: (authorId: number) =>
     api.delete<void>(`/browse/authors/${authorId}/hardcover-match`),
 
-  // Synchronous (no SignalR progress, unlike seriesApi.refreshSeries): an author refresh replaces
-  // the standalone-books roster directly, with no pending-changes review step.
+  // Synchronous (no SignalR progress, unlike seriesApi.refreshSeries): an author refresh writes
+  // the unified expected-book roster directly (upsert + prune), with no pending-changes review step.
   refreshAuthor: (authorId: number) =>
     api.post<AuthorRefreshResult>(`/browse/authors/${authorId}/refresh`, undefined),
 
-  // Fire-and-forget sweep of every matched author's standalone-books roster (mirrors
+  // Fire-and-forget sweep of every matched author's unified expected-book roster (mirrors
   // seriesApi.startRefreshAll): can run for minutes at the source's rate limit, so it returns as
   // soon as it is accepted. There is no UI trigger for this yet - when one is added, follow it
   // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
   refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
 
-  ignoreAuthorExpectedBook: (authorId: number, title: string) =>
-    api.post<void>(`/browse/authors/${authorId}/expected-books/ignore`, { title }),
+  // Dismisses/restores a roster entry on the same shared expected-book rows the series view
+  // reads from (global ignore). The stable expected-book row id (book.id) is the preferred
+  // addressing; title is the compatibility fallback for callers that only carry the natural key.
+  ignoreAuthorExpectedBook: (authorId: number, ref: { id?: number; title?: string }) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/ignore`, {
+      id: ref.id,
+      title: ref.title || undefined,
+    }),
 
-  unignoreAuthorExpectedBook: (authorId: number, title: string) =>
-    api.post<void>(`/browse/authors/${authorId}/expected-books/unignore`, { title }),
+  unignoreAuthorExpectedBook: (authorId: number, ref: { id?: number; title?: string }) =>
+    api.post<void>(`/browse/authors/${authorId}/expected-books/unignore`, {
+      id: ref.id,
+      title: ref.title || undefined,
+    }),
 };
 
 // Library Scanning & Discovered
@@ -521,8 +543,10 @@ export const seriesApi = {
       ownedPageSize?: number;
       missingPage?: number;
       missingPageSize?: number;
-      ignoredPage?: number;
-      ignoredPageSize?: number;
+      ignoredMissingPage?: number;
+      ignoredMissingPageSize?: number;
+      ignoredUpcomingPage?: number;
+      ignoredUpcomingPageSize?: number;
       partMismatchPage?: number;
       partMismatchPageSize?: number;
       upcomingPage?: number;

@@ -13,16 +13,17 @@ public enum UpcomingReleaseSource
     Legacy,
 
     /// <summary>
-    /// Derived live from a followed-and-matched series' or author's roster (<see cref="AudiobookManager.Database.Models.SeriesExpectedBook"/>/
-    /// <see cref="AudiobookManager.Database.Models.AuthorExpectedBook"/>), classified <c>Upcoming</c> by
+    /// Derived live from a followed-and-matched series'/author's roster entry on the unified
+    /// <see cref="AudiobookManager.Database.Models.ExpectedBook"/> table, classified <c>Upcoming</c> by
     /// <see cref="AudiobookManager.Domain.ExpectedBookClassifier"/>. There is no backing
-    /// <c>UpcomingRelease</c> row to delete - "remove" instead sets <c>IsIgnored</c> on the roster
-    /// entry, the same mechanism the series/author detail pages already use to dismiss a roster
-    /// entry. Addressed by <see cref="UpcomingReleaseItem.SeriesName"/>/<see cref="UpcomingReleaseItem.SeriesPosition"/>/
-    /// <see cref="UpcomingReleaseItem.Title"/> (series-derived) or <see cref="UpcomingReleaseItem.AuthorId"/>/
-    /// <see cref="UpcomingReleaseItem.Title"/> (author-derived) - the same natural-key addressing
-    /// the roster ignore endpoints already use, since roster row ids are not stable across a
-    /// re-match or refresh.
+    /// <c>UpcomingRelease</c> row to delete - "remove" instead sets <c>IsIgnored</c> on the shared
+    /// expected-book row, the same mechanism the series/author detail pages already use to dismiss a
+    /// roster entry. Addressed preferably by <see cref="UpcomingReleaseItem.ExpectedBookId"/> (the
+    /// stable unified row id) or the source identity (<see cref="SourceName"/> +
+    /// <see cref="SourceBookId"/>), with <see cref="UpcomingReleaseItem.SeriesName"/>/
+    /// <see cref="UpcomingReleaseItem.SeriesPosition"/>/<see cref="UpcomingReleaseItem.Title"/>
+    /// (series-derived) and <see cref="UpcomingReleaseItem.AuthorId"/>/
+    /// <see cref="UpcomingReleaseItem.Title"/> (author-derived) as the compatibility fallback.
     /// </summary>
     Roster,
 }
@@ -33,6 +34,12 @@ public enum UpcomingReleaseSource
 /// followed-and-matched series'/author's roster entries classified <c>Upcoming</c> (see
 /// AudiobookManager/UPCOMING_RELEASES_DESIGN.md). <see cref="Source"/> tells the caller which
 /// removal mechanism applies - see <see cref="UpcomingReleaseSource"/>.
+///
+/// <see cref="SourceName"/>/<see cref="SourceBookId"/> are the roster entry's source identity when
+/// the item is roster-derived (the same dedup identity the author and series rosters share - one
+/// unified <see cref="AudiobookManager.Database.Models.ExpectedBook"/> row, so an author-derived
+/// and a series-derived item for the same book can be merged, see
+/// <see cref="UpcomingReleaseService"/>) and the legacy row's source identity when legacy.
 /// </summary>
 public sealed record UpcomingReleaseItem(
     UpcomingReleaseSource Source,
@@ -48,9 +55,15 @@ public sealed record UpcomingReleaseItem(
     long? SeriesId,
     string? SeriesName,
     string? SeriesPosition,
-    string SourceName,
+    /// <summary>The metadata source that reported this book (e.g. "Hardcover"), or null when unknown.</summary>
+    string? SourceName,
     string? SourceUrl,
-    string? ImageUrl)
+    /// <summary>A cover image URL from the source, when known - the stored unified row's image for a roster-derived item (see the expected-book <c>ImageUrl</c>), the scraped row's for a legacy one.</summary>
+    string? ImageUrl,
+    /// <summary>The source's own book identifier - the dedup identity shared with the roster reconciliation; null when the source gave none.</summary>
+    string? SourceBookId,
+    /// <summary>Internal identity for dismissal: the stable unified <see cref="AudiobookManager.Database.Models.ExpectedBook"/> row id, always set for a roster-derived item (null for a legacy one, which uses its own <see cref="Id"/> instead).</summary>
+    long? ExpectedBookId = null)
 {
     /// <summary>
     /// The date this item sorts by: the precise <see cref="ReleaseDate"/> when known, else

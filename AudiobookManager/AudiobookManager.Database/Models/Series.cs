@@ -51,7 +51,12 @@ public class Series
     [Column("include_omnibus_editions")]
     public bool IncludeOmnibusEditions { get; set; }
 
-    public List<SeriesExpectedBook> ExpectedBooks { get; set; } = new();
+    /// <summary>
+    /// The unified expected-book rows this series currently reports, on the shared
+    /// <see cref="ExpectedBook"/> table - a book discovered by an author refresh and by a series
+    /// refresh is one row (the legacy per-series <c>series_expected_books</c> table is gone).
+    /// </summary>
+    public List<ExpectedBook> ExpectedBooks { get; set; } = new();
 
     /// <summary>
     /// The regex mapping patterns that route scraped/embedded series values to this series.

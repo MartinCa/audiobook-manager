@@ -6,7 +6,7 @@ describe("queryKeys", () => {
     it("keeps every narrower variant a literal prefix of the detail key, in order", () => {
       const seriesName = "Some Series";
       const authorId = 7;
-      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4);
+      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4, 5);
 
       expect(queryKeys.seriesDetail.bySeries(seriesName)).toEqual(detail.slice(0, 2));
       expect(queryKeys.seriesDetail.byAuthor(seriesName, authorId)).toEqual(detail.slice(0, 3));
@@ -21,7 +21,8 @@ describe("queryKeys", () => {
       const authorId = 3;
       const ownedPage = 2;
       const missingPage = 0;
-      const ignoredPage = 1;
+      const ignoredMissingPage = 1;
+      const ignoredUpcomingPage = 1;
       const partMismatchPage = 0;
 
       const upcomingPage = 0;
@@ -31,9 +32,10 @@ describe("queryKeys", () => {
         authorId,
         ownedPage,
         missingPage,
-        ignoredPage,
+        ignoredMissingPage,
         partMismatchPage,
         upcomingPage,
+        ignoredUpcomingPage,
       );
       const invalidationKey = queryKeys.seriesDetail.byAuthor(seriesName, authorId);
 
@@ -73,7 +75,7 @@ describe("queryKeys", () => {
       expect(queryKeys.author.all()).not.toEqual(queryKeys.authors.all());
       // authors.all() must not be a prefix of an author.detail() key, or invalidating the
       // authors list would also invalidate every open author-detail page.
-      const detail = queryKeys.author.detail(1, 0, 0);
+      const detail = queryKeys.author.detail(1, 0, 0, 0);
       expect(detail.slice(0, 1)).not.toEqual(queryKeys.authors.all());
     });
   });

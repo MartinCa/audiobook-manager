@@ -18,6 +18,7 @@ public class SeriesRepositoryTests
     private string _dbPath = null!;
     private DatabaseContext _db = null!;
     private SeriesRepository _repository = null!;
+    private ExpectedBookRepository _expectedBookRepository = null!;
 
     [TestInitialize]
     public void Setup()
@@ -26,7 +27,8 @@ public class SeriesRepositoryTests
         var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
         _db = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
         _db.Database.EnsureCreated();
-        _repository = new SeriesRepository(_db);
+        _expectedBookRepository = new ExpectedBookRepository(_db);
+        _repository = new SeriesRepository(_db, _expectedBookRepository);
     }
 
     [TestCleanup]
@@ -49,14 +51,37 @@ public class SeriesRepositoryTests
             MatchedSourceId = "42",
         });
 
-        await _repository.ReplaceExpectedBooksAsync(series.Id, new List<SeriesExpectedBook>
+        await SeedBooksAsync(series.Id, new List<ExpectedBook>
         {
-            new() { Title = "The Final Empire", Position = "1" },
-            new() { Title = "The Well of Ascension", Position = "2" },
-            new() { Title = "Secret History", Position = "3.5" },
+            new() { Title = "The Final Empire", SeriesPosition = "1" },
+            new() { Title = "The Well of Ascension", SeriesPosition = "2" },
+            new() { Title = "Secret History", SeriesPosition = "3.5" },
         });
 
         return series;
+    }
+
+    private async Task SeedBooksAsync(long seriesId, List<ExpectedBook> books)
+    {
+        // The roster lives on the unified expected_books table; the legacy per-series
+        // series_expected_books table was dropped once the migration copy landed.
+        var now = DateTime.UtcNow;
+        foreach (var book in books)
+        {
+            _db.ExpectedBooks.Add(new ExpectedBook
+            {
+                SourceName = "Hardcover",
+                Title = book.Title,
+                SeriesPosition = book.SeriesPosition,
+                IsIgnored = book.IsIgnored,
+                IsCompilation = book.IsCompilation,
+                SeriesId = seriesId,
+                FirstSeenAt = now,
+                LastRefreshedAt = now,
+            });
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     [TestMethod]
@@ -64,59 +89,78 @@ public class SeriesRepositoryTests
     {
         var series = await SeedSeriesAsync();
 
-        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true);
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, 10);
 
-        var stored = await _repository.GetByIdWithExpectedBooksAsync(series.Id);
-        Assert.IsNotNull(stored);
+        var stored = await GetRosterViewAsync("Mistborn");
         Assert.IsTrue(stored.ExpectedBooks.Single(b => b.Title == "Secret History").IsIgnored);
         Assert.IsFalse(stored.ExpectedBooks.Where(b => b.Title != "Secret History").Any(b => b.IsIgnored));
     }
 
     [TestMethod]
-    public async Task SetExpectedBookIgnoredAsync_StillHitsTheSameLogicalBookAfterARosterReplace()
+    public async Task SetExpectedBookIgnoredAsync_StillHitsTheSameLogicalBookAfterAnInPlaceReMatch()
     {
         var series = await SeedSeriesAsync();
-        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true);
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, 10);
 
-        var idBeforeRefresh = (await _repository.GetByIdWithExpectedBooksAsync(series.Id))!
+        var idBefore = (await GetRosterViewAsync("Mistborn"))
             .ExpectedBooks.Single(b => b.Title == "Secret History").Id;
 
-        // A refresh replaces the whole roster - rows are deleted and re-inserted with new ids
-        // (and in a different order), which is exactly what makes a cached id unsafe.
-        await _repository.ReplaceExpectedBooksAsync(series.Id, new List<SeriesExpectedBook>
+        // Re-match the same three-book roster through the unified upsert - the same path
+        // MatchSeriesCoreAsync uses. The rows are refreshed IN PLACE (UpsertAsync never deletes
+        // a row or resets IsIgnored), so the ignore decision survives and the row id is stable
+        // rather than a cached id being unsafe.
+        var upserts = new List<ExpectedBookUpsert>
         {
-            new() { Title = "Secret History", Position = "3.5", IsIgnored = true },
-            new() { Title = "The Final Empire", Position = "1" },
-            new() { Title = "The Well of Ascension", Position = "2" },
-            new() { Title = "The Hero of Ages", Position = "3" },
-        });
+            MakeSeriesUpsert(series, "The Final Empire", "1"),
+            MakeSeriesUpsert(series, "The Well of Ascension", "2"),
+            MakeSeriesUpsert(series, "Secret History", "3.5"),
+        };
+        await _expectedBookRepository.UpsertManyAsync(upserts);
 
-        var refreshed = (await _repository.GetByIdWithExpectedBooksAsync(series.Id))!;
+        var refreshed = await GetRosterViewAsync("Mistborn");
         var secretHistoryAfter = refreshed.ExpectedBooks.Single(b => b.Title == "Secret History");
-        Assert.AreNotEqual(idBeforeRefresh, secretHistoryAfter.Id, "the roster replace should have re-issued row ids");
-        Assert.IsTrue(secretHistoryAfter.IsIgnored, "the ignore flag should survive the roster replace");
+        Assert.AreEqual(idBefore, secretHistoryAfter.Id,
+            "an in-place re-match keeps the row, so its id is stable");
+        Assert.IsTrue(secretHistoryAfter.IsIgnored,
+            "the ignore decision the user made on the same logical book survives an in-place re-match");
 
         // Unignoring by the natural key finds the current row, whatever its id is now.
-        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", false);
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", false, 10);
 
-        var afterUnignore = (await _repository.GetByIdWithExpectedBooksAsync(series.Id))!;
+        var afterUnignore = await GetRosterViewAsync("Mistborn");
         Assert.IsFalse(afterUnignore.ExpectedBooks.Single(b => b.Title == "Secret History").IsIgnored);
         Assert.IsFalse(afterUnignore.ExpectedBooks.Any(b => b.IsIgnored));
     }
+
+    private static ExpectedBookUpsert MakeSeriesUpsert(Series series, string title, string position) =>
+        new(
+            SourceName: "Hardcover",
+            SourceBookId: "hc-" + title,
+            Title: title,
+            Year: null,
+            ReleaseDate: null,
+            SourceUrl: null,
+            ImageUrl: null,
+            SeriesId: series.Id,
+            SourceSeriesId: series.MatchedSourceId,
+            SourceSeriesName: series.MatchedSeriesName,
+            SeriesPosition: position,
+            IsCompilation: false,
+            Authors: new List<ExpectedBookAuthorLink>());
 
     [TestMethod]
     public async Task SetExpectedBookIgnoredAsync_FallsBackToTheTitleWhenTheEntryHasNoPosition()
     {
         var series = await _repository.UpsertSeriesAsync(new Series { Name = "Standalones" });
-        await _repository.ReplaceExpectedBooksAsync(series.Id, new List<SeriesExpectedBook>
+        await SeedBooksAsync(series.Id, new List<ExpectedBook>
         {
             new() { Title = "A Book Without A Position" },
         });
 
-        await _repository.SetExpectedBookIgnoredAsync("Standalones", null, "A Book Without A Position", true);
+        await _repository.SetExpectedBookIgnoredAsync("Standalones", null, "A Book Without A Position", true, 10);
 
-        var stored = await _repository.GetByIdWithExpectedBooksAsync(series.Id);
-        Assert.IsTrue(stored!.ExpectedBooks.Single().IsIgnored);
+        var stored = await GetRosterViewAsync("Standalones");
+        Assert.IsTrue(stored.ExpectedBooks.Single().IsIgnored);
     }
 
     // Regression: series.name is unique and the upsert reads before it inserts, across an await
@@ -140,7 +184,7 @@ public class SeriesRepositoryTests
                 // A context per caller, as each request scope gets its own.
                 var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
                 contexts.Add(context);
-                var repository = new SeriesRepository(context);
+                var repository = new SeriesRepository(context, new ExpectedBookRepository(context));
                 calls.Add(Task.Run(() => repository.SetIncludeOmnibusEditionsAsync(seriesName, true)));
             }
 
@@ -165,10 +209,35 @@ public class SeriesRepositoryTests
         await SeedSeriesAsync();
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
-            () => _repository.SetExpectedBookIgnoredAsync("Mistborn", "99", "Nonexistent", true));
+            () => _repository.SetExpectedBookIgnoredAsync("Mistborn", "99", "Nonexistent", true, 10));
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
-            () => _repository.SetExpectedBookIgnoredAsync("Unknown Series", "1", "Whatever", true));
+            () => _repository.SetExpectedBookIgnoredAsync("Unknown Series", "1", "Whatever", true, 10));
+    }
+
+    // The ignore-path roster read is bounded to maxBooks + 1 rows like the sibling reads, and
+    // the flag write is set-based (safe against a concurrent refresh's unlink/orphan-delete). A
+    // roster past the cap degrades safely: an entry the natural key resolves WITHIN the readable
+    // prefix is still updated, and one beyond the prefix is reported not-found - never a guess.
+    [TestMethod]
+    public async Task SetExpectedBookIgnoredAsync_RosterPastTheCap_StillTouchesTheVisibleMatch()
+    {
+        await SeedSeriesAsync();
+
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn", "2", "The Well of Ascension", true, 2);
+
+        var stored = await GetRosterViewAsync("Mistborn");
+        Assert.IsTrue(stored.ExpectedBooks.Single(b => b.Title == "The Well of Ascension").IsIgnored);
+        Assert.AreEqual(1, stored.ExpectedBooks.Count(b => b.IsIgnored));
+    }
+
+    [TestMethod]
+    public async Task SetExpectedBookIgnoredAsync_RosterPastTheCap_NotFoundWhenTheEntryLiesBeyondThePrefix()
+    {
+        await SeedSeriesAsync();
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
+            () => _repository.SetExpectedBookIgnoredAsync("Mistborn", "3.5", "Secret History", true, 2));
     }
 
     [TestMethod]
@@ -180,7 +249,7 @@ public class SeriesRepositoryTests
 
         Assert.IsNotNull(book);
         Assert.AreEqual("The Final Empire", book.Title);
-        Assert.AreEqual("1", book.Position);
+        Assert.AreEqual("1", book.SeriesPosition);
     }
 
     [TestMethod]
@@ -202,7 +271,7 @@ public class SeriesRepositoryTests
         var book = await _repository.FindExpectedBookAsync("Mistborn", null, "Secret History");
 
         Assert.IsNotNull(book);
-        Assert.AreEqual("3.5", book.Position);
+        Assert.AreEqual("3.5", book.SeriesPosition);
     }
 
     [TestMethod]
@@ -235,13 +304,22 @@ public class SeriesRepositoryTests
         Assert.IsNull(await _repository.GetByNameAsync("Unknown Series"));
     }
 
-    private async Task<(Series Series, List<SeriesExpectedBook> Books)> SeedRosterAsync(string name, int bookCount)
+    [TestMethod]
+    public async Task GetNameByIdAsync_ReturnsTheNameOrNull()
+    {
+        var series = await SeedSeriesAsync();
+
+        Assert.AreEqual("Mistborn", await _repository.GetNameByIdAsync(series.Id));
+        Assert.IsNull(await _repository.GetNameByIdAsync(999_999));
+    }
+
+    private async Task<(Series Series, List<ExpectedBook> Books)> SeedRosterAsync(string name, int bookCount)
     {
         var series = await _repository.UpsertSeriesAsync(new Series { Name = name });
         var books = Enumerable.Range(1, bookCount)
-            .Select(i => new SeriesExpectedBook { Title = $"Book {i:00}", Position = (i % 7).ToString() })
+            .Select(i => new ExpectedBook { Title = $"Book {i:00}", SeriesPosition = (i % 7).ToString() })
             .ToList();
-        await _repository.ReplaceExpectedBooksAsync(series.Id, books);
+        await SeedBooksAsync(series.Id, books);
         return (series, books);
     }
 
@@ -303,10 +381,10 @@ public class SeriesRepositoryTests
             LastRefreshedAt = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc),
             IncludeOmnibusEditions = true,
         });
-        await _repository.ReplaceExpectedBooksAsync(series.Id, new List<SeriesExpectedBook>
+        await SeedBooksAsync(series.Id, new List<ExpectedBook>
         {
-            new() { Title = "The Final Empire", Position = "1" },
-            new() { Title = "Secret History", Position = "3.5", IsIgnored = true },
+            new() { Title = "The Final Empire", SeriesPosition = "1" },
+            new() { Title = "Secret History", SeriesPosition = "3.5", IsIgnored = true },
         });
 
         var renamed = await _repository.RenameAsync("Mistborn", "Mistborn Saga");
@@ -334,8 +412,8 @@ public class SeriesRepositoryTests
         // resolve under the new name, which is what keeps detail/refresh/candidates working.
         Assert.IsNotNull(await _repository.FindExpectedBookAsync("Mistborn Saga", "1", "The Final Empire"));
         Assert.IsNotNull(await _repository.FindExpectedBookStrictAsync("Mistborn Saga", "3.5", "Secret History"));
-        await _repository.SetExpectedBookIgnoredAsync("Mistborn Saga", "3.5", "Secret History", false);
-        Assert.IsFalse((await _repository.GetByNameWithExpectedBooksAsync("Mistborn Saga"))!
+        await _repository.SetExpectedBookIgnoredAsync("Mistborn Saga", "3.5", "Secret History", false, 10);
+        Assert.IsFalse((await GetRosterViewAsync("Mistborn Saga"))
             .ExpectedBooks.Single(b => b.Title == "Secret History").IsIgnored);
     }
 
@@ -406,11 +484,15 @@ public class SeriesRepositoryTests
     public async Task DeleteIfEmptyAsync_RefusesWhenTheRowHasARoster()
     {
         var series = await _repository.GetOrCreateByNameAsync("Rostered Series");
-        _db.SeriesExpectedBooks.Add(new SeriesExpectedBook
+        var now = DateTime.UtcNow;
+        _db.ExpectedBooks.Add(new ExpectedBook
         {
-            SeriesId = series.Series.Id,
+            SourceName = "Hardcover",
             Title = "The Only Book",
-            Position = "1",
+            SeriesPosition = "1",
+            SeriesId = series.Series.Id,
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
         });
         await _db.SaveChangesAsync();
 
@@ -457,18 +539,47 @@ public class SeriesRepositoryTests
     }
 
     [TestMethod]
-    public async Task DeleteSeriesAsync_CascadesExpectedBooksAndMappings_AndReturnsTrue()
+    public async Task DeleteSeriesAsync_UnlinksAndDeletesOrphanExpectedBooksAndCascadesMappings()
     {
         var series = await SeedSeriesAsync();
         _db.SeriesMappings.Add(new SeriesMapping(default, "^mistborn.*$", false, series.Id));
+        // A book the author rosters also report must survive the series deletion as an
+        // author-linked row (expected_books.series_id is SET NULL, not cascading).
+        var person = new Person(default, "Brandon Sanderson");
+        _db.Persons.Add(person);
+        await _db.SaveChangesAsync();
+        var now = DateTime.UtcNow;
+        var authorLinked = new ExpectedBook
+        {
+            SourceName = "Hardcover",
+            Title = "The Way of Kings",
+            SeriesPosition = "1",
+            SeriesId = series.Id,
+            FirstSeenAt = now,
+            LastRefreshedAt = now,
+            AuthorLinks = new List<ExpectedBookAuthor>
+            {
+                new() { PersonId = person.Id, AuthorName = "Brandon Sanderson" },
+            },
+        };
+        _db.ExpectedBooks.Add(authorLinked);
         await _db.SaveChangesAsync();
 
         var deleted = await _repository.DeleteSeriesAsync("Mistborn");
 
         Assert.IsTrue(deleted);
         Assert.IsNull(await _repository.GetByNameAsync("Mistborn"));
-        Assert.AreEqual(0, await _db.SeriesExpectedBooks.AsNoTracking().CountAsync(b => b.SeriesId == series.Id),
-            "the roster must cascade away with the series row");
+        Assert.AreEqual(0, await _db.ExpectedBooks.AsNoTracking()
+                .CountAsync(b => b.Id == authorLinked.Id && b.SeriesId != null),
+            "the series' expected books must not keep their (now deleted) series link");
+        var surviving = await _db.ExpectedBooks.AsNoTracking().Include(b => b.AuthorLinks).SingleAsync();
+        Assert.AreEqual(authorLinked.Id, surviving.Id,
+            "the author-linked book survives the series deletion");
+        Assert.IsNull(surviving.SeriesId, "its series link is cleared, but the row is not deleted");
+        Assert.AreEqual(1, surviving.AuthorLinks.Count);
+        Assert.AreEqual(0, await _db.ExpectedBooks.AsNoTracking()
+                .CountAsync(b => b.SeriesId == series.Id),
+            "no series-linked expected book may survive");
         Assert.AreEqual(0, await _db.SeriesMappings.AsNoTracking().CountAsync(m => m.SeriesId == series.Id),
             "the mapping patterns must cascade away with the series row");
     }
@@ -522,5 +633,18 @@ public class SeriesRepositoryTests
         var result = await _repository.GetByMatchedSourceIdAsync("Hardcover", "42");
 
         Assert.IsNull(result);
+    }
+
+    /// <summary>
+    /// The AsNoTracking roster of a series - the read shape the app itself uses after a set-based
+    /// mutation, since the change tracker is bypassed and a tracked re-load of the collection in
+    /// the SAME context would echo the pre-update flag (or, after the update's detach, duplicate
+    /// the row). The repository's own ignore tests had to switch to this read for the same reason
+    /// the set-based mutators document their DetachTracked.
+    /// </summary>
+    private async Task<Series> GetRosterViewAsync(string name)
+    {
+        var (row, _) = await _repository.GetByNameWithExpectedBooksBoundedAsync(name, maxExpectedBooks: 10);
+        return row!;
     }
 }

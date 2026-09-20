@@ -30,16 +30,32 @@ public class SeriesSearchResult
 
 public class SeriesExpectedBookResult
 {
+    /// <summary>
+    /// The source-specific book identifier (e.g. a Hardcover book id). Prefer over the slug-based
+    /// URL as the stable identity of the roster entry - it is what the unified expected-books
+    /// model dedupes on across author- and series-side refreshes.
+    /// </summary>
+    public string? SourceBookId { get; set; }
+
     public string Title { get; set; }
 
     public string? Position { get; set; }
 
     public int? Year { get; set; }
 
-    /// <summary>A precise release date, when the source reports one - see <see cref="Database.Models.SeriesExpectedBook.ReleaseDate"/>.</summary>
+    /// <summary>A precise release date, when the source reports one - see <see cref="Database.Models.ExpectedBook.ReleaseDate"/>.</summary>
     public DateOnly? ReleaseDate { get; set; }
 
     public string? SourceUrl { get; set; }
+
+    /// <summary>A cover image URL from the source, when it reports one - stored on the unified expected-book row so roster-derived upcoming items can render it.</summary>
+    public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// The authors credited on this roster entry (writing credits only - narrators are excluded),
+    /// so a series refresh can attribute each book to the same people an author refresh would.
+    /// </summary>
+    public IList<string> Authors { get; set; } = new List<string>();
 
     /// <summary>
     /// Whether the source flags this roster entry as an omnibus/box-set edition rather than an

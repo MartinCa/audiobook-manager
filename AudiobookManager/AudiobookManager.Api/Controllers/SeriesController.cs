@@ -25,10 +25,15 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class SeriesController : ControllerBase
 {
-    private static readonly SemaphoreSlim _matchLock = new(1, 1);
-    private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+    // The bulk missing-book apply writes no roster rows (it assigns owned audiobooks), so it
+    // stays behind its own small gate. EVERY other mutating surface here - match, refresh,
+    // pending apply, delete/unlink - writes the unified expected-books roster, and shares the
+    // process-wide <see cref="IExpectedBookWriteGate"/> with BrowseController's author refresh:
+    // the same rows are written by both scopes, so a series refresh must never race an author
+    // refresh into a read-then-upsert-then-prune on them.
     private static readonly SemaphoreSlim _missingBookApplyLock = new(1, 1);
-    private static readonly SemaphoreSlim _deleteLock = new(1, 1);
+
+    private readonly IExpectedBookWriteGate _expectedBookWriteGate;
 
     public const string MatchOperationKey = "series-match";
     public const string RefreshOperationKey = "series-refresh";
@@ -54,6 +59,7 @@ public class SeriesController : ControllerBase
         IAudiobookSaveGate saveGate,
         ILibraryConsistencyService libraryConsistencyService,
         IUpcomingReleaseService upcomingReleaseService,
+        IExpectedBookWriteGate expectedBookWriteGate,
         IHostApplicationLifetime appLifetime,
         ILogger<SeriesController> logger)
     {
@@ -64,6 +70,7 @@ public class SeriesController : ControllerBase
         _saveGate = saveGate;
         _libraryConsistencyService = libraryConsistencyService;
         _upcomingReleaseService = upcomingReleaseService;
+        _expectedBookWriteGate = expectedBookWriteGate;
         _appLifetime = appLifetime;
         _logger = logger;
     }
@@ -174,8 +181,10 @@ public class SeriesController : ControllerBase
         [FromQuery] int ownedPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int missingPage = 0,
         [FromQuery] int missingPageSize = PagingLimits.DefaultPageSize,
-        [FromQuery] int ignoredPage = 0,
-        [FromQuery] int ignoredPageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] int ignoredMissingPage = 0,
+        [FromQuery] int ignoredMissingPageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] int ignoredUpcomingPage = 0,
+        [FromQuery] int ignoredUpcomingPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int partMismatchPage = 0,
         [FromQuery] int partMismatchPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int upcomingPage = 0,
@@ -185,7 +194,8 @@ public class SeriesController : ControllerBase
         {
             ValidatePageSelection(ownedPage, ownedPageSize, "owned books"),
             ValidatePageSelection(missingPage, missingPageSize, "missing books"),
-            ValidatePageSelection(ignoredPage, ignoredPageSize, "ignored books"),
+            ValidatePageSelection(ignoredMissingPage, ignoredMissingPageSize, "ignored books"),
+            ValidatePageSelection(ignoredUpcomingPage, ignoredUpcomingPageSize, "ignored books"),
             ValidatePageSelection(partMismatchPage, partMismatchPageSize, "part mismatches"),
             ValidatePageSelection(upcomingPage, upcomingPageSize, "upcoming books"),
         })
@@ -200,7 +210,8 @@ public class SeriesController : ControllerBase
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,
             missingSkip: (int)((long)missingPage * missingPageSize), missingTake: missingPageSize,
-            ignoredSkip: (int)((long)ignoredPage * ignoredPageSize), ignoredTake: ignoredPageSize,
+            ignoredMissingSkip: (int)((long)ignoredMissingPage * ignoredMissingPageSize), ignoredMissingTake: ignoredMissingPageSize,
+            ignoredUpcomingSkip: (int)((long)ignoredUpcomingPage * ignoredUpcomingPageSize), ignoredUpcomingTake: ignoredUpcomingPageSize,
             partMismatchSkip: (int)((long)partMismatchPage * partMismatchPageSize), partMismatchTake: partMismatchPageSize,
             upcomingSkip: (int)((long)upcomingPage * upcomingPageSize), upcomingTake: upcomingPageSize);
         if (detail is null)
@@ -213,7 +224,8 @@ public class SeriesController : ControllerBase
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
                 b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
-            new SeriesExpectedBookPageDto(detail.IgnoredBooks.Select(ToDto).ToList(), detail.IgnoredBookTotal),
+            new SeriesExpectedBookPageDto(detail.IgnoredMissingBooks.Select(ToDto).ToList(), detail.IgnoredMissingBookTotal),
+            new SeriesExpectedBookPageDto(detail.IgnoredUpcomingBooks.Select(ToDto).ToList(), detail.IgnoredUpcomingBookTotal),
             new SeriesPartMismatchPageDto(detail.PartMismatches.Select(ToMismatchDto).ToList(), detail.PartMismatchTotal),
             new SeriesExpectedBookPageDto(detail.UpcomingBooks.Select(ToDto).ToList(), detail.UpcomingBookTotal));
     }
@@ -263,6 +275,15 @@ public class SeriesController : ControllerBase
             return this.InvalidRequest("SourceName and SourceId are required.");
         }
 
+        // Matching immediately stores the source roster on the unified expected-books table, so
+        // it takes the same process-wide gate as every other roster mutation - a refresh or an
+        // author refresh already rewriting rows refuses a concurrent match with 409 rather than
+        // two upsert/unlink cycles racing the same rows.
+        if (!_expectedBookWriteGate.TryAcquire())
+        {
+            return this.ConflictingState("A series roster operation is already in progress.", "Operation in progress");
+        }
+
         try
         {
             var overview = await _seriesService.MatchSeriesAsync(seriesName, dto.SourceName, dto.SourceId, dto.Confidence, dto.IncludeOmnibusEditions);
@@ -276,6 +297,10 @@ public class SeriesController : ControllerBase
         {
             _logger.LogError(ex, "Error matching series {SeriesName} to {SourceName}/{SourceId}", seriesName, dto.SourceName, dto.SourceId);
             return this.UnexpectedError();
+        }
+        finally
+        {
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -404,7 +429,7 @@ public class SeriesController : ControllerBase
         }
 
         return BackgroundOperationRunner.Start(
-            _deleteLock,
+            _expectedBookWriteGate,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -441,7 +466,7 @@ public class SeriesController : ControllerBase
         var seriesNames = dto?.SeriesNames is { Count: > 0 } ? dto.SeriesNames : null;
 
         return BackgroundOperationRunner.Start(
-            _matchLock,
+            _expectedBookWriteGate,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -474,16 +499,17 @@ public class SeriesController : ControllerBase
     /// the result reports whether anything changed, and a refresh that found changes also stores
     /// a pending snapshot the review dialog applies.
     ///
-    /// The <see cref="_refreshLock"/> held here is the SAME gate the bulk refresh (and the
-    /// pending apply, which recomputes the same pending state) uses, so a single refresh never
-    /// runs concurrently with a sweep that is re-fetching the same rosters - and a busy gate
-    /// returns 409 immediately, exactly like the fire-and-forget endpoints, rather than parking
-    /// the request thread.
+    /// The <see cref="IExpectedBookWriteGate"/> held here is the SAME process-wide gate the bulk
+    /// refresh (and the pending apply, which recomputes the same pending state) uses, and the one
+    /// BrowseController's author refresh holds against this controller - a single refresh never
+    /// runs concurrently with a sweep, a pending apply, or an author refresh rewriting the same
+    /// unified roster rows - and a busy gate returns 409 immediately, exactly like the
+    /// fire-and-forget endpoints, rather than parking the request thread.
     /// </summary>
     [HttpPost("refresh")]
     public async Task<ActionResult<SeriesRefreshResultDto>> RefreshSeries([FromQuery] string seriesName)
     {
-        if (!_refreshLock.Wait(0))
+        if (!_expectedBookWriteGate.TryAcquire())
         {
             return this.ConflictingState("A series refresh or pending apply is already in progress.", "Operation in progress");
         }
@@ -518,7 +544,7 @@ public class SeriesController : ControllerBase
         }
         finally
         {
-            _refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -892,15 +918,16 @@ public class SeriesController : ControllerBase
     /// discard) the changes. Dismissing an already-dismissed snapshot is a no-op success, not a
     /// failure: the series is already in the state the caller asked for.
     ///
-    /// Takes the same <see cref="_refreshLock"/> the refresh and the pending apply hold, for the
-    /// same reason they hold it against each other: all three read and then replace this row. A
+    /// Takes the same <see cref="IExpectedBookWriteGate"/> the refresh and the pending apply hold,
+    /// for the same reason they hold it against each other: all three read and then replace this
+    /// pending row, and the refresh also rewrites the roster under the same gate. A
     /// dismiss landing between an apply's recompute and its upsert deleted a row the apply then
     /// put straight back, so the snapshot the user dismissed reappeared.
     /// </summary>
     [HttpPost("pending/dismiss")]
     public async Task<IActionResult> DismissPending([FromQuery] string seriesName)
     {
-        if (!_refreshLock.Wait(0))
+        if (!_expectedBookWriteGate.TryAcquire())
         {
             return this.ConflictingState("A series refresh or pending apply is already in progress.", "Operation in progress");
         }
@@ -917,7 +944,7 @@ public class SeriesController : ControllerBase
         }
         finally
         {
-            _refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -1009,9 +1036,11 @@ public class SeriesController : ControllerBase
 
         // The apply shares the refresh gate on purpose: both operations read and then replace the
         // same pending snapshot, so they must be mutually exclusive or a refresh running mid-apply
-        // could wipe the row the apply is about to recompute (and vice versa).
+        // could wipe the row the apply is about to recompute (and vice versa). The gate is the
+        // shared expected-book one so the apply (which recomputes the roster) can never race an
+        // author refresh either.
         return BackgroundOperationRunner.Start(
-            _refreshLock,
+            _expectedBookWriteGate,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -1037,9 +1066,12 @@ public class SeriesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
-    // Roster entries are addressed by their natural key (series name plus position and/or
-    // title), not by row id: matching and refreshing delete and re-insert the whole roster,
-    // so an id a client cached earlier can point at a different book by the time it is used.
+    // Roster entries are addressed by their natural key - series name plus position and/or
+    // title - as the series-scoped API's pre-unification compatibility surface: the (position,
+    // title) pair the source reports is what the client's missing/mismatch flows carry, so this
+    // route needs no row id. It is kept for that contract, not because ids are unstable - the
+    // unified rows are refreshed in place, so an id is stable; the id-addressed dismissal
+    // routes (the author detail's BrowseController pair) are preferred for callers that know one.
     [HttpPost("expected-books/ignore")]
     public Task<IActionResult> IgnoreExpectedBook([FromQuery] string seriesName, [FromBody] ExpectedBookRefDto dto) =>
         SetIgnored(seriesName, dto, true);
@@ -1083,7 +1115,7 @@ public class SeriesController : ControllerBase
     private IActionResult StartRefresh(Func<ISeriesService, Task<(int Processed, int Succeeded, int Failed, string? StopReason)>> work)
     {
         return BackgroundOperationRunner.Start(
-            _refreshLock,
+            _expectedBookWriteGate,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -1127,7 +1159,8 @@ public class SeriesController : ControllerBase
     }
 
     private static SeriesExpectedBookDto ToDto(SeriesExpectedBookInfo b) => new(
-        b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate);
+        b.Id, b.Title, b.Position, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate,
+        b.SourceName, b.SourceBookId);
 
     private static SeriesPartMismatchDto ToMismatchDto(SeriesPartMismatch m) => new(
         m.AudiobookId, m.BookName, m.StoredPart, m.ExpectedPart, m.RosterTitle);

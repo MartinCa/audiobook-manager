@@ -63,15 +63,6 @@ public interface IAudiobookRepository
     Task<(int Total, int Matched)> GetSeriesValueCountsAsync();
 
     /// <summary>
-    /// The standalone (no-series) owned book titles of each of the given authors, for the bulk
-    /// author missing/upcoming-book reconciliation the authors list filter needs
-    /// (<see cref="AuthorReconciliationProvider.GetBulkMissingOrUpcomingAuthorIdsAsync"/>). Only
-    /// the title is projected - the reconciliation there has no series part to compare, same as
-    /// <see cref="GetStandaloneOwnedKeysByAuthorAsync"/>.
-    /// </summary>
-    Task<Dictionary<long, List<string>>> GetStandaloneOwnedTitlesByAuthorsAsync(IReadOnlyCollection<long> authorIds);
-
-    /// <summary>
     /// One page of audiobooks with a *dirty* website URL - one whose query string or fragment
     /// <see cref="AudiobookManager.Scraping.Utils.BookUrlCleaner"/> would strip - projected to the
     /// columns the URL cleanup page renders rather than the full entity graph.
@@ -128,8 +119,32 @@ public interface IAudiobookRepository
     Task<string?> GetCoverFilePathAsync(long id);
     Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
 
-    /// <summary>The author-roster counterpart of <see cref="GetSeriesOwnedKeysAsync"/> - see the implementation's doc comment.</summary>
-    Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetStandaloneOwnedKeysByAuthorAsync(long authorId, int maxKeys);
+    /// <summary>
+    /// Every owned book of one author reduced to its (series value, series part, book name, id)
+    /// keys - the author reconciliation's owned-book input. Unlike the series counterpart, this
+    /// deliberately spans the author's whole catalogue including series books: a series-linked
+    /// expected entry must be matched against the owned books of the same local series (and an
+    /// unmatched source-series entry best-effort matched by position/title over everything the
+    /// author owns). Bounded the same way as <see cref="GetSeriesOwnedKeysAsync"/>: at most
+    /// <paramref name="maxKeys"/> + 1 rows, with the overflow flag telling the caller whether the
+    /// cap was breached.
+    /// </summary>
+    Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorAsync(long authorId, int maxKeys);
+
+    /// <summary>
+    /// The batched counterpart of <see cref="GetOwnedKeysByAuthorAsync"/> for the bulk authors-list
+    /// filter: every owned book of every person in <paramref name="personIds"/>, reduced to an
+    /// <see cref="AuthorOwnedKey"/> (person id + the same series/part/title/id key), fetched in
+    /// ONE SQL query (a join through the authors many-to-many) ordered by person id then audiobook
+    /// id - a total order, so the per-author grouping is stable. Bounded like every owned-key
+    /// read: at most <paramref name="maxTotalKeys"/> + 1 rows, with the overflow flag telling the
+    /// caller whether the total was breached. Below the bound every requested person's key set is
+    /// complete; past it the flat bound can cut an author's keys mid-list, so the caller must
+    /// treat the result as untrustworthy rather than classify from a short prefix.
+    /// </summary>
+    Task<(List<AuthorOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorsAsync(
+        IReadOnlyList<long> personIds, int maxTotalKeys);
+
     Task<Audiobook?> GetByIdWithIncludesAsync(long id);
 
     /// <summary>

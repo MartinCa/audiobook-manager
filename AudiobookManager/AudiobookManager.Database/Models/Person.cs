@@ -42,14 +42,13 @@ public class Person
     public string? MatchedSourceUrl { get; set; }
 
     /// <summary>
-    /// When this author's standalone-books roster (<see cref="AuthorExpectedBook"/>) was last
-    /// refreshed from the matched source - the author-roster counterpart of
-    /// <see cref="Series.LastRefreshedAt"/>. Null until the first refresh.
+    /// When this author's roster (the unified <see cref="ExpectedBook"/> rows linked through
+    /// <see cref="ExpectedBookAuthor"/>) was last refreshed from the matched source - the
+    /// author-roster counterpart of <see cref="Series.LastRefreshedAt"/>. Null until the first
+    /// refresh.
     /// </summary>
     [Column("last_refreshed_at")]
     public DateTime? LastRefreshedAt { get; set; }
-
-    public List<AuthorExpectedBook> ExpectedBooks { get; set; } = new();
 
     public Person(long id, string name)
     {

@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
@@ -14,14 +15,16 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class BrowseController : ControllerBase
 {
-    // Shared by the single-author refresh and the bulk sweep, mirroring
-    // SeriesController._refreshLock over RefreshSeries/RefreshAllSeries: both endpoints reach
-    // IUpcomingReleaseService.RefreshAuthorRosterAsync/RefreshAllAuthorRostersAsync, which share
-    // the read-then-delete-then-insert ReplaceAuthorExpectedBooksAsync pattern with no unique
-    // index backing it - two concurrent callers (a direct single refresh racing the sweep, or two
-    // direct API calls) could otherwise both read the ignore set and then both replace the same
-    // author's roster, duplicating rows and losing a dismissal made in between.
-    private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+    // The process-wide expected-book write gate shared with SeriesController: the author refresh
+    // and the series refresh write the SAME unified expected-books rows (one row serves an
+    // author's bibliography and its series' roster), so a per-controller semaphore could not stop
+    // an author refresh from racing a series refresh into a read-then-upsert-then-prune on the
+    // same rows. All three endpoints reach
+    // IUpcomingReleaseService.RefreshAuthorRosterAsync/RefreshAllAuthorRostersAsync (and the
+    // match endpoint runs that refresh as well) under this one gate, so two concurrent roster
+    // mutations - of either scope - are impossible; a busy gate returns 409 immediately, exactly
+    // like the fire-and-forget endpoints, rather than parking the request thread.
+    private readonly IExpectedBookWriteGate _expectedBookWriteGate;
 
     public const string RefreshAllOperationKey = "author-roster-refresh-all";
 
@@ -44,6 +47,7 @@ public class BrowseController : ControllerBase
         ISeriesService seriesService,
         IUpcomingReleaseService upcomingReleaseService,
         IAuthorReconciliationProvider authorReconciliation,
+        IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
@@ -56,6 +60,7 @@ public class BrowseController : ControllerBase
         _seriesService = seriesService;
         _upcomingReleaseService = upcomingReleaseService;
         _authorReconciliation = authorReconciliation;
+        _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
@@ -270,35 +275,46 @@ public class BrowseController : ControllerBase
         // controller already holds a provider for (the author detail page's missing-books
         // section uses the same one) - resolved into a restricting id set before the paged SQL
         // query runs, exactly like SeriesService does for the series list. Only computed when the
-        // caller actually asks for one of these two filters.
+        // caller actually asks for one of these two filters. A librarian past the bulk
+        // classification's bounded read cannot be classified safely - the provider reports the
+        // refusal and the missing/upcoming filter is skipped (the rest of the filters still
+        // apply) rather than applied to a truncated set.
         IReadOnlyCollection<long>? restrictToIds = null;
         IReadOnlyCollection<long>? excludeIds = null;
         if (filter.NeedsReconciliation)
         {
-            var (hasMissing, hasUpcoming) = await _authorReconciliation.GetBulkMissingOrUpcomingAuthorIdsAsync();
-            HashSet<long>? include = null;
-            var exclude = new HashSet<long>();
+            var bulk = await _authorReconciliation.GetBulkMissingOrUpcomingAuthorIdsAsync();
+            if (bulk.Refused)
+            {
+                _logger.LogWarning(
+                    "Skipping the missing/upcoming-book author filter: the unified expected-book roster exceeds the bounded bulk classification's reference cap.");
+            }
+            else
+            {
+                HashSet<long>? include = null;
+                var exclude = new HashSet<long>();
 
-            if (hasMissingBooks == true)
-            {
-                include = hasMissing;
-            }
-            else if (hasMissingBooks == false)
-            {
-                exclude.UnionWith(hasMissing);
-            }
+                if (hasMissingBooks == true)
+                {
+                    include = bulk.HasMissingBooks;
+                }
+                else if (hasMissingBooks == false)
+                {
+                    exclude.UnionWith(bulk.HasMissingBooks);
+                }
 
-            if (hasUpcomingBooks == true)
-            {
-                include = include is null ? hasUpcoming : include.Intersect(hasUpcoming).ToHashSet();
-            }
-            else if (hasUpcomingBooks == false)
-            {
-                exclude.UnionWith(hasUpcoming);
-            }
+                if (hasUpcomingBooks == true)
+                {
+                    include = include is null ? bulk.HasUpcomingBooks : include.Intersect(bulk.HasUpcomingBooks).ToHashSet();
+                }
+                else if (hasUpcomingBooks == false)
+                {
+                    exclude.UnionWith(bulk.HasUpcomingBooks);
+                }
 
-            restrictToIds = include;
-            excludeIds = exclude.Count > 0 ? exclude : null;
+                restrictToIds = include;
+                excludeIds = exclude.Count > 0 ? exclude : null;
+            }
         }
 
         var search = string.IsNullOrWhiteSpace(q) ? null : q!.Trim();
@@ -314,10 +330,14 @@ public class BrowseController : ControllerBase
         int seriesLimit = PagingLimits.DefaultPageSize,
         int seriesOffset = 0,
         int standaloneLimit = PagingLimits.DefaultPageSize,
-        int standaloneOffset = 0)
+        int standaloneOffset = 0,
+        [FromQuery] bool includeMissingSeries = false,
+        [FromQuery] int missingSeriesLimit = PagingLimits.DefaultPageSize,
+        [FromQuery] int missingSeriesOffset = 0)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
-            ?? ValidateSearchPaging(standaloneLimit, standaloneOffset);
+            ?? ValidateSearchPaging(standaloneLimit, standaloneOffset)
+            ?? ValidateSearchPaging(missingSeriesLimit, missingSeriesOffset);
         if (clampError != null)
         {
             return clampError;
@@ -357,7 +377,24 @@ public class BrowseController : ControllerBase
         // GetAuthorMatch above - the cheap AuthorSummaryRow projection this endpoint otherwise
         // reads from doesn't carry them.
         var person = await _personRepo.GetByIdAsync(authorId);
-        var reconciliation = await _authorReconciliation.GetReconciliationAsync(authorId);
+        var reconciliation = await _authorReconciliation.GetReconciliationAsync(
+            authorId, includeMissingSeries);
+
+        // The missing-series groups are computed (capped per author by the reconciliation
+        // provider) only when the caller asks for them and then sliced into one page here, so a
+        // call that does not want the section never pays for the reconciliation pass that feeds
+        // it, and a call that does want it never receives the whole capped list.
+        PaginatedResult<AuthorMissingSeriesDto>? missingSeries = null;
+        if (includeMissingSeries)
+        {
+            var missingSeriesItems = reconciliation.MissingSeries
+                .Skip(missingSeriesOffset)
+                .Take(missingSeriesLimit)
+                .Select(ToMissingSeriesDto)
+                .ToList();
+            missingSeries = new PaginatedResult<AuthorMissingSeriesDto>(
+                missingSeriesItems.Count, reconciliation.MissingSeries.Count, missingSeriesItems);
+        }
 
         return new AuthorDetailDto(
             summary,
@@ -366,26 +403,36 @@ public class BrowseController : ControllerBase
             person?.LastRefreshedAt,
             reconciliation.Missing.Select(ToAuthorExpectedBookDto).ToList(),
             reconciliation.Upcoming.Select(ToAuthorExpectedBookDto).ToList(),
-            reconciliation.Ignored.Select(ToAuthorExpectedBookDto).ToList());
+            reconciliation.Ignored.Select(ToAuthorExpectedBookDto).ToList(),
+            missingSeries);
     }
 
     private static AuthorExpectedBookDto ToAuthorExpectedBookDto(AuthorExpectedBookInfo b) =>
-        new(b.Id, b.Title, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate);
+        new(b.Id, b.Title, b.Year, b.SourceUrl, b.IsIgnored, b.ReleaseDate,
+            b.Position, b.SeriesId, b.SeriesName, b.SourceSeriesName,
+            b.SourceName, b.SourceBookId, b.ImageUrl);
+
+    private static AuthorMissingSeriesDto ToMissingSeriesDto(AuthorMissingSeriesInfo m) => new(
+        m.SourceName, m.SourceSeriesId, m.SourceSeriesName,
+        m.ExpectedCount, m.MissingCount, m.UpcomingCount, m.OwnedCount,
+        m.SeriesId, m.SeriesName);
 
     /// <summary>
-    /// Refreshes one author's standalone-books roster from their matched source. Mirrors
+    /// Refreshes one author's roster (unified expected books) from their matched source. Mirrors
     /// SeriesController.RefreshSeries, but without the pending-changes review step - an author
-    /// refresh replaces the roster directly (see IUpcomingReleaseService.RefreshAuthorRosterAsync).
+    /// refresh writes the unified roster directly (upsert + prune, see
+    /// IUpcomingReleaseService.RefreshAuthorRosterAsync).
     ///
-    /// Takes the SAME static <see cref="_refreshLock"/> the bulk sweep below holds for its whole
-    /// run, so a single-author refresh can never run concurrently with (or interleave with) the
-    /// bulk sweep re-fetching the same author's roster - a busy gate returns 409 immediately,
-    /// exactly like the fire-and-forget endpoints, rather than parking the request thread.
+    /// Takes the SAME shared <see cref="IExpectedBookWriteGate"/> the bulk sweep below (and every
+    /// series-side roster mutation) holds, so a single-author refresh can never run concurrently
+    /// with the bulk sweep re-fetching the same author's roster, nor with a series refresh
+    /// rewriting the same unified rows - a busy gate returns 409 immediately, exactly
+    /// like the fire-and-forget endpoints, rather than parking the request thread.
     /// </summary>
     [HttpPost("authors/{authorId}/refresh")]
     public async Task<ActionResult<AuthorRefreshResultDto>> RefreshAuthor(long authorId)
     {
-        if (!_refreshLock.Wait(0))
+        if (!_expectedBookWriteGate.TryAcquire())
         {
             return this.ConflictingState("An author-roster refresh is already in progress.", "Operation in progress");
         }
@@ -408,34 +455,41 @@ public class BrowseController : ControllerBase
         {
             return this.InvalidRequest(ex.Message);
         }
+        catch (AuthorNotFoundException ex)
+        {
+            // The source could not resolve the author (deleted/merged upstream, or an empty
+            // transient response) - a caller-side problem with what was matched, not a server
+            // failure, and the roster was deliberately left untouched.
+            return this.InvalidRequest(ex.Message);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error refreshing standalone-books roster for author {AuthorId}", authorId);
+            _logger.LogError(ex, "Error refreshing roster for author {AuthorId}", authorId);
             return this.UnexpectedError();
         }
         finally
         {
-            _refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
     /// <summary>
-    /// Refreshes the standalone-books roster of every matched author, fire-and-forget - mirroring
+    /// Refreshes the roster of every matched author, fire-and-forget - mirroring
     /// SeriesController's refresh-all rather than the synchronous single-author refresh above.
     /// This issues one rate-limited request per matched author (burst 5, <=55/min), so a library
     /// with a meaningful number of matched authors can run for minutes; awaiting that on the
     /// request thread would commonly hit a reverse proxy's or browser's timeout while the sweep
     /// kept running server-side. No SignalR progress stream - like
     /// MissingTagsController.StartLanguageBackfill, the client follows it by polling
-    /// GET api/operations/author-roster-refresh-all/status. Shares the SAME static
-    /// <see cref="_refreshLock"/> the single-author refresh takes, so the two can never run
-    /// concurrently against the same rosters.
+    /// GET api/operations/author-roster-refresh-all/status. Holds the SAME shared
+    /// <see cref="IExpectedBookWriteGate"/> the single-author refresh (and the series roster
+    /// mutations) take, so the two can never run concurrently against the same rosters.
     /// </summary>
     [HttpPost("authors/refresh-all")]
     public IActionResult RefreshAllAuthors()
     {
         return BackgroundOperationRunner.Start(
-            _refreshLock,
+            _expectedBookWriteGate,
             _serviceScopeFactory,
             _logger,
             _statusRegistry,
@@ -454,10 +508,14 @@ public class BrowseController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
-    // Standalone-books roster entries are addressed by their natural key (title), not by row id:
-    // a refresh deletes and re-inserts the whole roster, so an id a client cached earlier can
-    // point at a different book by the time it is used. Mirrors SeriesController's
-    // IgnoreExpectedBook/UnignoreExpectedBook pair.
+    // Roster entries are addressed by the stable expected-book row id (preferred - the id the
+    // unified row keeps across refreshes, so a person with two same-titled entries can ignore the
+    // exact row) with the title route kept as the compatibility fallback. Internally the service
+    // has id-addressing paths (UpcomingReleaseService.DismissAuthorRosterUpcomingByIdAsync) that
+    // avoid the title ambiguity entirely; the title-addressed routes here remain as the
+    // compatibility surface, mirroring SeriesController's IgnoreExpectedBook/UnignoreExpectedBook
+    // pair on the SAME shared expected-book row the author and series scopes read from, so
+    // dismissing here hides the book everywhere.
     [HttpPost("authors/{authorId}/expected-books/ignore")]
     public Task<IActionResult> IgnoreExpectedBook(long authorId, [FromBody] AuthorExpectedBookRefDto dto) =>
         SetExpectedBookIgnored(authorId, dto, true);
@@ -468,14 +526,52 @@ public class BrowseController : ControllerBase
 
     private async Task<IActionResult> SetExpectedBookIgnored(long authorId, AuthorExpectedBookRefDto? dto, bool ignored)
     {
-        if (string.IsNullOrWhiteSpace(dto?.Title))
+        // The stable expected-book row id is the preferred addressing; the title route is the
+        // compatibility fallback for callers that only carry the natural key.
+        if (dto?.Id is not long id)
         {
-            return this.InvalidRequest("Title is required to identify the expected book.");
+            if (dto is null || string.IsNullOrWhiteSpace(dto.Title))
+            {
+                return this.InvalidRequest("Expected book Id or Title is required to identify the expected book.");
+            }
+
+            try
+            {
+                if (ignored)
+                {
+                    await _upcomingReleaseService.DismissAuthorRosterUpcomingAsync(authorId, dto.Title);
+                }
+                else
+                {
+                    await _upcomingReleaseService.RestoreAuthorRosterUpcomingAsync(authorId, dto.Title);
+                }
+
+                return Ok();
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error setting ignored={Ignored} on expected book (title {Title}) of author {AuthorId}",
+                    ignored, dto.Title, authorId);
+                return this.UnexpectedError();
+            }
         }
 
         try
         {
-            await _personRepo.SetAuthorExpectedBookIgnoredAsync(authorId, dto.Title, ignored);
+            if (ignored)
+            {
+                await _upcomingReleaseService.DismissAuthorRosterUpcomingByIdAsync(id);
+            }
+            else
+            {
+                await _upcomingReleaseService.RestoreAuthorRosterUpcomingByIdAsync(id);
+            }
+
             return Ok();
         }
         catch (KeyNotFoundException)
@@ -485,8 +581,8 @@ public class BrowseController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Error setting ignored={Ignored} on expected book (title {Title}) of author {AuthorId}",
-                ignored, dto.Title, authorId);
+                "Error setting ignored={Ignored} on expected book (id {ExpectedBookId}) of author {AuthorId}",
+                ignored, id, authorId);
             return this.UnexpectedError();
         }
     }
@@ -578,27 +674,100 @@ public class BrowseController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Persists the Hardcover match AND refreshes the author's roster under the shared
+    /// <see cref="IExpectedBookWriteGate"/>. Returns <see cref="AuthorRefreshResultDto"/> rather
+    /// than a bare okay because the two steps have different durability: the match is stored
+    /// FIRST, so when the refresh that follows fails - the source's daily budget exhausted, the
+    /// source cannot resolve the freshly-supplied id (deleted/merged upstream), or no
+    /// author-capable scraper is configured - the request still succeeds with
+    /// <c>Success=false</c> and the match stays persisted for the periodic sweep to pick the
+    /// roster up on its next tick. The client treats a 200 as "the match was accepted" either
+    /// way, invalidating the match/detail/upcoming caches and closing the dialog; only the
+    /// refresh's own known failures map to that outcome. The match step failing (unknown author,
+    /// malformed payload), a busy gate, or an unexpected error stays a rejection, because in
+    /// those cases nothing was persisted.
+    /// </summary>
     [HttpPost("authors/{authorId}/hardcover-match")]
-    public async Task<IActionResult> MatchAuthor(long authorId, [FromBody] MatchAuthorDto? dto)
+    public async Task<ActionResult<AuthorRefreshResultDto>> MatchAuthor(long authorId, [FromBody] MatchAuthorDto? dto)
     {
         if (dto is null || string.IsNullOrWhiteSpace(dto.SourceId) || string.IsNullOrWhiteSpace(dto.SourceName))
         {
             return this.InvalidRequest("SourceId and SourceName are required.");
         }
 
+        // The roster refresh this match immediately triggers shares the SAME
+        // <see cref="IExpectedBookWriteGate"/> the single-author refresh and the bulk sweep take,
+        // so a match can never race them - or a series-side roster write - into a concurrent
+        // upsert/prune of the same unified rows. A busy gate refuses with 409, exactly like the
+        // explicit refresh endpoints.
+        if (!_expectedBookWriteGate.TryAcquire())
+        {
+            return this.ConflictingState("An author-roster refresh is already in progress.", "Operation in progress");
+        }
+
         try
         {
-            await _upcomingReleaseService.MatchAuthorAsync(authorId, dto.SourceId, dto.SourceName, dto.SourceUrl);
-            return Ok();
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
+            // Persist-first: the match is stored BEFORE the refresh. Only this step's failures
+            // reject the request - an author deleted under the dialog, or a malformed call - since
+            // the refresh step failing must not look like the match failed.
+            try
+            {
+                await _upcomingReleaseService.MatchAuthorAsync(authorId, dto.SourceId, dto.SourceName, dto.SourceUrl);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (ArgumentException ex)
+            {
+                return this.InvalidRequest(ex.Message);
+            }
+
+            // The match is stored at this point, so a refresh failure reports Success=false with a
+            // 200 instead of rejecting the request - the UI's "matched" state is true and only the
+            // roster scrape did not run (the periodic sweep picks it up on its next tick).
+            try
+            {
+                await _upcomingReleaseService.RefreshAuthorRosterAsync(authorId);
+                var person = await _personRepo.GetByIdAsync(authorId);
+                return new AuthorRefreshResultDto(true, person?.LastRefreshedAt);
+            }
+            catch (HardcoverDailyLimitExceededException ex)
+            {
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (AuthorNotFoundException ex)
+            {
+                // The source could not resolve the freshly-matched author - a caller-side problem
+                // with the id they just supplied; the match stays stored and the roster stays
+                // untouched (see RefreshAuthor's identical mapping).
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (ArgumentException ex)
+            {
+                // e.g. no author-capable scraper is configured - a refresh failure, not a match
+                // failure, and the match is already stored.
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (KeyNotFoundException)
+            {
+                // The author row vanished between the match and the refresh - effectively a
+                // request-level 404, distinct from the refresh failures above.
+                return NotFound();
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error matching author {AuthorId} to Hardcover author {SourceId}", authorId, dto.SourceId);
             return this.UnexpectedError();
+        }
+        finally
+        {
+            _expectedBookWriteGate.Release();
         }
     }
 

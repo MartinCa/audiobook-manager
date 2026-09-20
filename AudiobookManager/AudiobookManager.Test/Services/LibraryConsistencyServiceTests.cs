@@ -1691,7 +1691,7 @@ public class LibraryConsistencyServiceTests
             "the rewrite invalidates every other stored check for the book");
     }
 
-    /// <summary>A reconciliation whose only mismatch is one book's part (expected/stored).</summary>
+/// <summary>A reconciliation whose only mismatch is one book's part (expected/stored).</summary>
     private static SeriesReconciliation MakeReconciliationWithPartMismatch(
         long audiobookId, string expectedPart, string? storedPart) =>
         new(
@@ -1708,10 +1708,12 @@ public class LibraryConsistencyServiceTests
                     RosterTitle = $"Roster {expectedPart}",
                 },
             },
-            ExpectedBookCount: 1,
-            OwnedCount: 1,
-            Authors: new List<string>(),
-            Upcoming: new List<SeriesExpectedBookInfo>());
+            0,
+            0,
+            new List<string>(),
+            new List<SeriesExpectedBookInfo>(),
+            new List<SeriesExpectedBookInfo>(),
+            new List<SeriesExpectedBookInfo>());
 
     // Regression: the issue's expected part was detected against the roster as it stood when the
     // full check ran. A refresh since (which renumbers or re-orders the source's books) can assign
@@ -1803,7 +1805,9 @@ public class LibraryConsistencyServiceTests
                 ExpectedBookCount: 1,
                 OwnedCount: 1,
                 Authors: new List<string>(),
-                Upcoming: new List<SeriesExpectedBookInfo>()));
+                Upcoming: new List<SeriesExpectedBookInfo>(),
+                IgnoredMissing: new List<SeriesExpectedBookInfo>(),
+                IgnoredUpcoming: new List<SeriesExpectedBookInfo>()));
 
         var result = await _service.ResolveIssue(45);
 

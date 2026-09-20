@@ -54,11 +54,21 @@ public interface IScraper
     /// <summary>
     /// The author's full bibliography - not just not-yet-released books - identified by
     /// <paramref name="authorSourceId"/> (the id returned from <see cref="SearchAuthors"/>).
-    /// Backs the author standalone-books roster; a book this returns with
-    /// <see cref="AuthorBookResult.HasSeries"/> set is left out of that roster by the caller (it
-    /// is already covered through its series' own roster). Optional capability, defaulting to
-    /// empty like <see cref="GetAuthorUpcomingReleases"/> - gated by the same
+    /// Backs the unified expected-books roster, so series books are INCLUDED (not filtered out)
+    /// with their placement, and
+    /// <see cref="AuthorBookResult.SeriesName"/>/<see cref="AuthorBookResult.SeriesSourceId"/>/
+    /// <see cref="AuthorBookResult.SeriesPosition"/> carry the series placement for books that
+    /// have one. Optional capability, defaulting to empty like
+    /// <see cref="GetAuthorUpcomingReleases"/> - gated by the same
     /// <see cref="SupportsAuthorLookup"/> flag.
+    ///
+    /// Throws <c>AuthorNotFoundException</c> (AudiobookManager.Scraping) when the author cannot
+    /// be resolved - the id does not parse, or the source returns no such author (deleted/merged
+    /// upstream or a transient empty response). A caller refreshing an author's roster must treat
+    /// this as a FAILED fetch and leave the stored roster untouched: an empty failure is not an
+    /// empty bibliography, and pruning the roster to it would delete the author's stored books.
+    /// A genuinely empty book list for an author the source DOES resolve must still come back as
+    /// an empty result (not an exception), so the caller's normal prune-to-empty stays legal.
     /// </summary>
     Task<IList<AuthorBookResult>> GetAuthorBooks(string authorSourceId) =>
         Task.FromResult<IList<AuthorBookResult>>(new List<AuthorBookResult>());

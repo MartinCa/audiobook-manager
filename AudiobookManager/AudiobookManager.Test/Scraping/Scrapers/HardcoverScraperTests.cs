@@ -1068,6 +1068,7 @@ public class HardcoverScraperTests
         var query = ExtractGraphqlQuery(handler.CapturedRequestBodies.Single());
         Assert.IsTrue(query.Contains("is_partial_book"), "id path should filter out partial editions");
         Assert.IsTrue(query.Contains("users_count"), "id path should request users_count for the dedupe");
+        Assert.IsTrue(query.Contains("cached_image"), "id path should request the cover image Url");
 
         // And the slug-based path sends the same shape.
         var slugResponse = """
@@ -1090,6 +1091,7 @@ public class HardcoverScraperTests
         var query2 = ExtractGraphqlQuery(handler2.CapturedRequestBodies.Single());
         Assert.IsTrue(query2.Contains("is_partial_book"), "slug path should filter out partial editions");
         Assert.IsTrue(query2.Contains("users_count"), "slug path should request users_count for the dedupe");
+        Assert.IsTrue(query2.Contains("cached_image"), "slug path should request the cover image Url");
     }
 
     private static string ExtractGraphqlQuery(string requestBody)
@@ -1112,5 +1114,249 @@ public class HardcoverScraperTests
                 query.Contains(op, StringComparison.OrdinalIgnoreCase),
                 $"query must never use the disabled Hasura operator '{op}' (see CLAUDE.md Hardcover limitations): {query}");
         }
+    }
+
+    // ---------- GetAuthorBooks() series enrichment ----------
+
+    private const string _authorAllBooksResponseJson = """
+        {
+          "data": {
+            "authors_by_pk": {
+              "id": 1,
+              "name": "Brandon Sanderson",
+              "contributions": [
+                {
+                  "contribution": null,
+                  "book": {
+                    "id": 1,
+                    "title": "The Way of Kings",
+                    "slug": "the-way-of-kings",
+                    "release_date": "2010-08-31",
+                    "cached_image": { "url": "https://covers.hardcover.app/wok.jpg" },
+                    "book_series": [
+                      { "position": 1, "series": { "id": 10, "name": "The Stormlight Archive" } }
+                    ]
+                  }
+                },
+                {
+                  "contribution": "Narrator",
+                  "book": {
+                    "id": 2,
+                    "title": "Narrated Book",
+                    "slug": "narrated-book",
+                    "release_date": "2020-01-01"
+                  }
+                },
+                {
+                  "contribution": null,
+                  "book": {
+                    "id": 3,
+                    "title": "Standalone Novel",
+                    "slug": "standalone-novel",
+                    "release_date": "2015-05-05",
+                    "cached_image": { "url": "https://covers.hardcover.app/standalone.jpg" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """;
+
+    [TestMethod]
+    public async Task GetAuthorBooks_ParsesSeriesFieldsFromTheFirstBookSeriesEntry()
+    {
+        var target = CreateScraper(_authorAllBooksResponseJson, out var handler);
+
+        var results = await target.GetAuthorBooks("1");
+
+        // The Narrator contribution is skipped entirely, so only the two writing credits remain.
+        Assert.AreEqual(2, results.Count);
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
+
+        var seriesBook = results.Single(r => r.SourceBookId == "1");
+        Assert.AreEqual("10", seriesBook.SeriesSourceId);
+        Assert.AreEqual("The Stormlight Archive", seriesBook.SeriesName);
+        Assert.AreEqual("1", seriesBook.SeriesPosition);
+        Assert.AreEqual("https://covers.hardcover.app/wok.jpg", seriesBook.ImageUrl);
+        Assert.AreEqual("https://hardcover.app/books/the-way-of-kings", seriesBook.SourceUrl);
+
+        var standalone = results.Single(r => r.SourceBookId == "3");
+        Assert.IsNull(standalone.SeriesSourceId);
+        Assert.IsNull(standalone.SeriesName);
+        Assert.IsNull(standalone.SeriesPosition);
+        Assert.AreEqual("https://covers.hardcover.app/standalone.jpg", standalone.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBooks_AsksForCachedImageAndTheSeriesNameAndPositionInTheQuery()
+    {
+        var target = CreateScraper(_authorAllBooksResponseJson, out var handler);
+        await target.GetAuthorBooks("1");
+
+        var query = ExtractGraphqlQuery(handler.CapturedRequestBodies.Single());
+        StringAssert.Contains(query, "cached_image");
+        StringAssert.Contains(query, "position");
+        StringAssert.Contains(query, "series");
+        StringAssert.Contains(query, "name");
+    }
+
+    // Regression guards for the roster data-loss finding: an id that fails int.TryParse (and a
+    // null/undefined authors_by_pk - author deleted/merged upstream or a transient response)
+    // must THROW, never return an empty list. The caller refreshes its stored roster on the
+    // result, and an empty fetch would prune the author's whole unified roster, ignore history
+    // included - an empty-but-failed bibliography must be distinguishable from a genuinely empty
+    // one (the latter still returns an empty list, see the service-level test).
+    [TestMethod]
+    public async Task GetAuthorBooks_UnparseableAuthorId_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("{ }", out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("not-a-number"));
+
+        Assert.AreEqual(0, handler.CapturedRequestBodies.Count,
+            "no GraphQL query is sent for an id that cannot parse into the source's numeric id");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBooks_NullAuthorsByPk_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("""
+            {
+              "data": {
+                "authors_by_pk": null
+              }
+            }
+            """, out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("123"));
+
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count, "the query is sent, then the missing author is detected");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBooks_UndefinedAuthorsByPk_ThrowsAuthorNotFound()
+    {
+        var target = CreateScraper("""
+            {
+              "data": {
+              }
+            }
+            """, out var handler);
+
+        await Assert.ThrowsExactlyAsync<AuthorNotFoundException>(() => target.GetAuthorBooks("123"));
+    }
+
+    // ---------- GetSeriesBooks() source book id + author credits ----------
+
+    // Two entries at position 2 (the English original and a translated edition) prove the
+    // per-position popularity dedupe is untouched by the new fields, and that the winner's
+    // source book id and author credits survive it.
+    [TestMethod]
+    public async Task GetSeriesBooks_ParsesSourceBookIdAndWritingCreditsAndKeepsTheDedupe()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Jack Reacher",
+                  "slug": "jack-reacher",
+                  "book_series": [
+                    {
+                      "position": 1,
+                      "compilation": false,
+                      "book": {
+                        "id": 1,
+                        "title": "Killing Floor",
+                        "slug": "killing-floor",
+                        "release_date": "2001-01-01",
+                        "compilation": false,
+                        "users_count": 100,
+                        "contributions": [
+                          { "contribution": null, "author": { "id": 10, "name": "Lee Child" } },
+                          { "contribution": "Narrator", "author": { "id": 11, "name": "Jeff Harding" } }
+                        ]
+                      }
+                    },
+                    {
+                      "position": 2,
+                      "compilation": false,
+                      "book": {
+                        "id": 2,
+                        "title": "Die Trying",
+                        "slug": "die-trying",
+                        "release_date": "2002-01-01",
+                        "compilation": false,
+                        "users_count": 200,
+                        "contributions": [
+                          { "contribution": null, "author": { "id": 10, "name": "Lee Child" } }
+                        ]
+                      }
+                    },
+                    {
+                      "position": 2,
+                      "compilation": false,
+                      "book": {
+                        "id": 3,
+                        "title": "Les caves de la Maison Blanche",
+                        "slug": "les-caves",
+                        "release_date": "2002-01-01",
+                        "compilation": false,
+                        "users_count": 5,
+                        "contributions": [
+                          { "contribution": null, "author": { "id": 12, "name": "Un Autre Auteur" } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+
+        var result = await target.GetSeriesBooks("1");
+
+        // Position 2 keeps only the most popular entry (Die Trying) - the translated edition is
+        // dropped as before, despite now carrying its own author credits.
+        Assert.IsNotNull(result);
+        CollectionAssert.AreEqual(
+            new[] { "Killing Floor", "Die Trying" },
+            result.Books.Select(b => b.Title).ToList());
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
+
+        var killingFloor = result.Books.Single(b => b.Title == "Killing Floor");
+        Assert.AreEqual("1", killingFloor.SourceBookId);
+        // Narrator contribution excluded - only the writing credit survives.
+        CollectionAssert.AreEqual(new[] { "Lee Child" }, killingFloor.Authors.ToList());
+
+        var dieTrying = result.Books.Single(b => b.Title == "Die Trying");
+        Assert.AreEqual("2", dieTrying.SourceBookId);
+        CollectionAssert.AreEqual(new[] { "Lee Child" }, dieTrying.Authors.ToList());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesBooks_AsksForContributionsInTheRosterQuery()
+    {
+        var seriesResponse = """
+            {
+              "data": {
+                "series_by_pk": {
+                  "id": 1,
+                  "name": "Reacher",
+                  "slug": "reacher",
+                  "book_series": []
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(seriesResponse, out var handler);
+        await target.GetSeriesBooks("1");
+
+        var query = ExtractGraphqlQuery(handler.CapturedRequestBodies.Single());
+        StringAssert.Contains(query, "contributions");
+        StringAssert.Contains(query, "author");
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
     }
 }

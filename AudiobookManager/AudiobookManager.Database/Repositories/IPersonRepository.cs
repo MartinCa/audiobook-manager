@@ -6,6 +6,17 @@ public interface IPersonRepository
     Task<Person> GetOrCreatePerson(string name);
 
     /// <summary>
+    /// The tracked person rows for the names in <paramref name="names"/>, resolved in one batched
+    /// <c>WHERE name IN (...)</c> query - the batch equivalent of the single-name lookup, for
+    /// resolving a whole roster's distinct source author names without one round trip per name.
+    /// Names that have no <see cref="Person"/> row are simply absent from the result map.
+    /// Read-only - never creates a row. Exact-match only, and deliberately NOT accent-folded:
+    /// <c>persons.name</c> is unique (the unique index), so each name either resolves to its one
+    /// row or is absent, and the caller is matching the source's exact spelling.
+    /// </summary>
+    Task<Dictionary<string, Person>> GetByNamesAsync(IReadOnlyCollection<string> names);
+
+    /// <summary>
     /// Batch equivalent of <see cref="GetOrCreatePerson"/>: resolves every distinct name in
     /// <paramref name="names"/> in a single query, creates whichever ones don't already exist
     /// in a single insert, and returns one <see cref="Person"/> per input name (duplicates in
@@ -68,14 +79,6 @@ public interface IPersonRepository
         AuthorSummaryFilter? filter = null, IReadOnlyCollection<long>? restrictToIds = null,
         IReadOnlyCollection<long>? excludeIds = null);
 
-    /// <summary>
-    /// Every non-ignored standalone-book roster entry in the library, as (person id, title, year,
-    /// release date), for the authors list filter's bulk missing/upcoming-book reconciliation
-    /// (<see cref="AuthorReconciliationProvider.GetBulkMissingOrUpcomingAuthorIdsAsync"/>). Only
-    /// runs when that filter is actually requested.
-    /// </summary>
-    Task<List<AuthorExpectedBookRef>> GetAllActiveAuthorExpectedBooksAsync();
-
     /// <summary>Name-matching authors, with the book count projected in SQL, paged with a total.</summary>
     Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset);
 
@@ -99,25 +102,9 @@ public interface IPersonRepository
     /// </summary>
     Task SetAuthorMatchAsync(long personId, string? matchedSourceName, string? sourceId, string? sourceUrl);
 
-    /// <summary>
-    /// The tracked person row plus its standalone-books roster, bounded to
-    /// <paramref name="maxExpectedBooks"/> + 1 rows - the author-roster counterpart of
-    /// <c>ISeriesRepository.GetByNameWithExpectedBooksBoundedAsync</c>.
-    /// </summary>
-    Task<(Person? Person, bool Overflow)> GetByIdWithExpectedBooksBoundedAsync(long id, int maxExpectedBooks);
-
-    /// <summary>Replaces an author's whole standalone-books roster, tolerating a re-refresh's read-then-replace pattern.</summary>
-    Task ReplaceAuthorExpectedBooksAsync(long personId, List<AuthorExpectedBook> expectedBooks);
-
-    /// <summary>Stamps when an author's standalone-books roster was last refreshed from its matched source.</summary>
+    /// <summary>Stamps when an author's roster was last refreshed from its matched source.</summary>
     Task SetLastRefreshedAtAsync(long personId, DateTime at);
 
     /// <summary>Every author with a Hardcover match, for the bulk "refresh all matched authors" sweep.</summary>
     Task<List<Person>> GetMatchedAuthorsAsync();
-
-    /// <summary>
-    /// Sets the ignore flag on a standalone-book roster entry addressed by title. Throws
-    /// <see cref="KeyNotFoundException"/> when no entry with that title exists for the author.
-    /// </summary>
-    Task SetAuthorExpectedBookIgnoredAsync(long personId, string title, bool ignored);
 }

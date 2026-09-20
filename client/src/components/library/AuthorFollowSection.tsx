@@ -124,6 +124,9 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
   const [query, setQuery] = useState(authorName);
   const [debouncedQuery, setDebouncedQuery] = useState(authorName);
   const [matching, setMatching] = useState(false);
+  // Which candidate is being applied - the match call runs a roster refresh server-side and can
+  // take seconds, so the clicked candidate keeps a spinner while every other row is disabled.
+  const [matchingSourceId, setMatchingSourceId] = useState<string | null>(null);
 
   // Debounced like AuthorsList's own filter: a fast typist must not enqueue a Hardcover search
   // request per keystroke through the shared 5000/day budget.
@@ -145,20 +148,38 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
 
   const handleMatch = async (candidate: AuthorMatchCandidate) => {
     setMatching(true);
+    setMatchingSourceId(candidate.sourceId);
     try {
-      await browseApi.matchAuthorToHardcover(
+      // The backend is persist-first: MatchAuthor stores the source link and THEN refreshes the
+      // roster (which can take seconds). A refresh failure - daily budget exhausted, the source
+      // cannot resolve the id, no author-capable scraper - comes back as a 200 with
+      // success=false, since the match itself was stored. Either way the author IS matched, so
+      // the match/detail/upcoming queries are invalidated and the dialog closes; only the
+      // notification differs, and the periodic sweep picks the roster up on its next tick.
+      // Without this, a refresh failure left the dialog open and the author shown as unmatched
+      // until a full reload, and every retry repeated the same refresh failure.
+      const result = await browseApi.matchAuthorToHardcover(
         authorId,
         candidate.sourceId,
         candidate.sourceName,
         candidate.sourceUrl ?? undefined,
       );
       await queryClient.invalidateQueries({ queryKey: queryKeys.authorHardcoverMatch(authorId) });
-      notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
+      if (result.success) {
+        notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
+      } else {
+        notifications.warning(
+          `Matched to ${candidate.sourceName}: ${candidate.name}, but the roster refresh failed. The next scheduled refresh will pick it up.`,
+        );
+      }
       onOpenChange(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {
       setMatching(false);
+      setMatchingSourceId(null);
     }
   };
 
@@ -208,11 +229,16 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
                   className="hover:bg-muted/50 flex w-full items-center justify-between gap-2 p-2.5 text-left transition-colors disabled:opacity-50"
                 >
                   <span className="font-medium">{candidate.name}</span>
-                  {candidate.bookCount != null && (
-                    <span className="text-muted-foreground text-xs">
-                      {candidate.bookCount} books
-                    </span>
-                  )}
+                  <span className="flex items-center gap-1.5">
+                    {matchingSourceId === candidate.sourceId && (
+                      <Loader2 className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
+                    )}
+                    {candidate.bookCount != null && (
+                      <span className="text-muted-foreground text-xs">
+                        {candidate.bookCount} books
+                      </span>
+                    )}
+                  </span>
                 </button>
               ))}
             </div>

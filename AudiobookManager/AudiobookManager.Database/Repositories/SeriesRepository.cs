@@ -6,10 +6,12 @@ namespace AudiobookManager.Database.Repositories;
 public class SeriesRepository : ISeriesRepository
 {
     private readonly DatabaseContext _db;
+    private readonly IExpectedBookRepository _expectedBookRepository;
 
-    public SeriesRepository(DatabaseContext db)
+    public SeriesRepository(DatabaseContext db, IExpectedBookRepository expectedBookRepository)
     {
         _db = db;
+        _expectedBookRepository = expectedBookRepository;
     }
 
     /// <summary>
@@ -54,6 +56,13 @@ public class SeriesRepository : ISeriesRepository
             .FirstOrDefaultAsync(s => s.Name == name);
     }
 
+    public Task<string?> GetNameByIdAsync(long id) =>
+        _db.Series
+            .AsNoTracking()
+            .Where(s => s.Id == id)
+            .Select(s => s.Name)
+            .FirstOrDefaultAsync();
+
     public async Task<Series?> GetByMatchedSourceIdAsync(string sourceName, string sourceId)
     {
         return await _db.Series
@@ -96,7 +105,7 @@ public class SeriesRepository : ISeriesRepository
             return (null, false);
         }
 
-        var books = await _db.SeriesExpectedBooks
+        var books = await _db.ExpectedBooks
             .AsNoTracking()
             .Where(b => b.SeriesId == row.Id)
             .OrderBy(b => b.Id)
@@ -195,57 +204,58 @@ public class SeriesRepository : ISeriesRepository
         }
     }
 
-    public async Task ReplaceExpectedBooksAsync(long seriesId, List<SeriesExpectedBook> expectedBooks)
+    public async Task<ExpectedBook?> GetExpectedBookAsync(long id)
     {
-        // Deliberately the tracked path, not ExecuteDeleteAsync. Series.ExpectedBooks is an
-        // inverse navigation, so callers that already loaded the series (MatchSeriesCoreAsync
-        // reads the existing roster first) hold a tracked Series whose collection EF keeps
-        // fixed up. A set-based delete bypasses the change tracker, leaving the deleted rows
-        // both in that collection and in the identity map - and since SQLite reuses deleted
-        // rowids, the replacements can be resolved straight back to those ghosts. A roster is
-        // tens of rows, so the round trips this costs are not worth that risk.
-        var existing = await _db.SeriesExpectedBooks
-            .Where(b => b.SeriesId == seriesId)
-            .ToListAsync();
-
-        _db.SeriesExpectedBooks.RemoveRange(existing);
-
-        foreach (var book in expectedBooks)
-        {
-            book.Id = 0;
-            book.SeriesId = seriesId;
-            _db.SeriesExpectedBooks.Add(book);
-        }
-
-        await _db.SaveChangesAsync();
-    }
-
-    public async Task<SeriesExpectedBook?> GetExpectedBookAsync(long id)
-    {
-        return await _db.SeriesExpectedBooks.FindAsync(id);
+        return await _db.ExpectedBooks.FindAsync(id);
     }
 
     /// <summary>
-    /// Sets the ignore flag on a roster entry addressed by its natural key. Row ids are not
-    /// stable across a re-match or refresh (ReplaceExpectedBooksAsync deletes and re-inserts
-    /// the whole roster, and SQLite may hand a deleted rowid to an unrelated new row), so the
-    /// entry is located by its series plus position and/or title instead.
+    /// Sets the ignore flag on a roster entry addressed by its natural key (series name plus
+    /// position and/or title) - the series-scoped API's pre-unification addressing contract, kept
+    /// as the compatibility surface: the client's missing/mismatch flows carry exactly the
+    /// (position, title) pair the source reports, so this route needs no row id. The unified
+    /// expected-book rows are refreshed IN PLACE across roster rewrites (their ids stay stable),
+    /// which is precisely why the id-addressed dismissal routes
+    /// (<see cref="ExpectedBookRepository.SetIgnoredByIdAsync"/>) are preferred for new callers.
+    ///
+    /// The roster read is bounded to <paramref name="maxBooks"/> + 1 rows like
+    /// <see cref="GetByNameWithExpectedBooksBoundedAsync"/>, and the flag write is a set-based
+    /// <c>ExecuteUpdateAsync</c> - never a tracked read-modify-write - so a concurrent
+    /// <see cref="ExpectedBookRepository.UnlinkSeriesBooksAsync"/>/orphan delete cannot throw a
+    /// <c>DbUpdateConcurrencyException</c> at this write. A roster that outgrows the cap and does
+    /// not resolve the natural key within the readable prefix degrades to "not found" rather
+    /// than reading the unbounded remainder (or guessing at a row).
     /// </summary>
-    public async Task SetExpectedBookIgnoredAsync(string seriesName, string? position, string? title, bool ignored)
+    public async Task SetExpectedBookIgnoredAsync(string seriesName, string? position, string? title, bool ignored, int maxBooks)
     {
-        var series = await _db.Series.FirstOrDefaultAsync(s => s.Name == seriesName)
-            ?? throw new KeyNotFoundException($"Series '{seriesName}' not found");
+        var (series, overflow) = await GetByNameWithExpectedBooksBoundedAsync(seriesName, maxBooks);
+        if (series is null)
+        {
+            throw new KeyNotFoundException($"Series '{seriesName}' not found");
+        }
 
-        var books = await _db.SeriesExpectedBooks
-            .Where(b => b.SeriesId == series.Id)
-            .ToListAsync();
+        // The bounded read's overflow probe is the (cap + 1)th row - not part of the readable
+        // prefix, so it must not be matched against when the roster outgrows the cap.
+        var books = overflow ? series.ExpectedBooks.Take(maxBooks).ToList() : series.ExpectedBooks;
+        var book = MatchExpectedBook(books, position, title);
+        if (book is null)
+        {
+            // Whether the roster overflowed the read cap or genuinely lacks the entry, the row
+            // is not resolvable within the bounded prefix - report the same not-found (the
+            // overflow message just says why the search could not continue) rather than reading
+            // the rest of the roster or mutating a row the natural key did not name.
+            throw new KeyNotFoundException(overflow
+                ? $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}' within the first {maxBooks} roster entries"
+                : $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+        }
 
-        var book = MatchExpectedBook(books, position, title)
-            ?? throw new KeyNotFoundException(
-                $"Expected book (position '{position}', title '{title}') not found in series '{seriesName}'");
+        await _db.ExpectedBooks
+            .Where(b => b.Id == book.Id)
+            .ExecuteUpdateAsync(b => b.SetProperty(x => x.IsIgnored, ignored));
 
-        book.IsIgnored = ignored;
-        await _db.SaveChangesAsync();
+        // ExecuteUpdateAsync bypasses the change tracker - a tracked stale copy would overwrite
+        // the flag back on the next SaveChanges (see ExpectedBookRepository.SetIgnoredAsync).
+        ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<ExpectedBook>(), b => b.Id == book.Id);
     }
 
     /// <summary>
@@ -253,7 +263,7 @@ public class SeriesRepository : ISeriesRepository
     /// same natural-key rule, but null instead of an exception so callers can choose how to
     /// report a missing entry. Read-only - no tracking, the callers only read the result.
     /// </summary>
-    public async Task<SeriesExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title)
+    public async Task<ExpectedBook?> FindExpectedBookAsync(string seriesName, string? position, string? title)
     {
         var books = await GetExpectedBooksAsync(seriesName);
         return books is null ? null : MatchExpectedBook(books, position, title);
@@ -264,10 +274,11 @@ public class SeriesRepository : ISeriesRepository
     /// the two read-side roster lookups so the identical series lookup + AsNoTracking fetch isn't
     /// duplicated - a null result is how the callers report a missing series, and an empty list
     /// (a matched series whose roster is empty) must stay distinct from it. Deliberately NOT used
-    /// by <see cref="SetExpectedBookIgnoredAsync"/>, which needs tracked entities to mutate
-    /// IsIgnored and save.
+    /// by <see cref="SetExpectedBookIgnoredAsync"/>, which locates its entry through the bounded
+    /// <see cref="GetByNameWithExpectedBooksBoundedAsync"/> and writes the flag with a set-based
+    /// <c>ExecuteUpdateAsync</c>.
     /// </summary>
-    private async Task<List<SeriesExpectedBook>?> GetExpectedBooksAsync(string seriesName)
+    private async Task<List<ExpectedBook>?> GetExpectedBooksAsync(string seriesName)
     {
         var series = await _db.Series
             .AsNoTracking()
@@ -277,7 +288,7 @@ public class SeriesRepository : ISeriesRepository
             return null;
         }
 
-        return await _db.SeriesExpectedBooks
+        return await _db.ExpectedBooks
             .AsNoTracking()
             .Where(b => b.SeriesId == series.Id)
             .ToListAsync();
@@ -288,15 +299,15 @@ public class SeriesRepository : ISeriesRepository
     /// comparison, preferring an entry that matches both position and title, then either alone -
     /// a source may report a roster entry without a position at all.
     /// </summary>
-    private static SeriesExpectedBook? MatchExpectedBook(IEnumerable<SeriesExpectedBook> books, string? position, string? title)
+    private static ExpectedBook? MatchExpectedBook(IEnumerable<ExpectedBook> books, string? position, string? title)
     {
         var hasPosition = !string.IsNullOrWhiteSpace(position);
         var hasTitle = !string.IsNullOrWhiteSpace(title);
 
-        bool PositionMatches(SeriesExpectedBook b) =>
-            hasPosition && string.Equals(b.Position?.Trim(), position!.Trim(), StringComparison.OrdinalIgnoreCase);
+        bool PositionMatches(ExpectedBook b) =>
+            hasPosition && string.Equals(b.SeriesPosition?.Trim(), position!.Trim(), StringComparison.OrdinalIgnoreCase);
 
-        bool TitleMatches(SeriesExpectedBook b) =>
+        bool TitleMatches(ExpectedBook b) =>
             hasTitle && string.Equals(b.Title.Trim(), title!.Trim(), StringComparison.OrdinalIgnoreCase);
 
         return books.FirstOrDefault(b => PositionMatches(b) && TitleMatches(b))
@@ -304,7 +315,7 @@ public class SeriesRepository : ISeriesRepository
             ?? books.FirstOrDefault(TitleMatches);
     }
 
-    public async Task<SeriesExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title)
+    public async Task<ExpectedBook?> FindExpectedBookStrictAsync(string seriesName, string? position, string? title)
     {
         var books = await GetExpectedBooksAsync(seriesName);
         return books is null ? null : MatchExpectedBookStrict(books, position, title);
@@ -316,15 +327,15 @@ public class SeriesRepository : ISeriesRepository
     /// sufficient. This prevents the permissive fall-back from picking a wrong roster entry
     /// when the caller supplied both parts of the key but they map to different rows.
     /// </summary>
-    private static SeriesExpectedBook? MatchExpectedBookStrict(IEnumerable<SeriesExpectedBook> books, string? position, string? title)
+    private static ExpectedBook? MatchExpectedBookStrict(IEnumerable<ExpectedBook> books, string? position, string? title)
     {
         var hasPosition = !string.IsNullOrWhiteSpace(position);
         var hasTitle = !string.IsNullOrWhiteSpace(title);
 
-        bool PositionMatches(SeriesExpectedBook b) =>
-            hasPosition && string.Equals(b.Position?.Trim(), position!.Trim(), StringComparison.OrdinalIgnoreCase);
+        bool PositionMatches(ExpectedBook b) =>
+            hasPosition && string.Equals(b.SeriesPosition?.Trim(), position!.Trim(), StringComparison.OrdinalIgnoreCase);
 
-        bool TitleMatches(SeriesExpectedBook b) =>
+        bool TitleMatches(ExpectedBook b) =>
             hasTitle && string.Equals(b.Title.Trim(), title!.Trim(), StringComparison.OrdinalIgnoreCase);
 
         // When both parts are supplied, require both to match — no fallback.
@@ -384,10 +395,7 @@ public class SeriesRepository : ISeriesRepository
             // ExecuteDeleteAsync bypasses the change tracker: the row this call inserted is still
             // tracked here, and a deleted rowid SQLite may hand to a later insert must never
             // resolve back to it inside this request-scoped context.
-            foreach (var entry in _db.ChangeTracker.Entries<Series>().Where(e => e.Entity.Id == id).ToList())
-            {
-                entry.State = EntityState.Detached;
-            }
+            ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<Series>(), s => s.Id == id);
         }
 
         return deletedRows > 0;
@@ -422,15 +430,39 @@ public class SeriesRepository : ISeriesRepository
     }
 
     /// <summary>
-    /// Set-based delete (bypasses the change tracker, like <see cref="DeleteIfEmptyAsync"/>) -
-    /// the row's ExpectedBooks and Mappings cascade via the ON DELETE CASCADE FK constraints the
-    /// entity mappings configure, so no separate child deletes are needed here.
+    /// Deletes the catalog row for a series, along with the expected books that belonged to it
+    /// alone. <c>expected_books.series_id</c> is SET NULL rather than cascading, so the delete
+    /// first unlinks every expected book of this series (<see cref="ExpectedBook.SeriesId"/> to
+    /// null), removes the row, then deletes the orphans the unlink produced - books with no
+    /// series and no author links. A book the author rosters also report survives as an
+    /// author-linked row; a book another series reports keeps its series link. Mappings cascade
+    /// via their FK as before. Set-based deletes bypass the change tracker, so tracked copies of
+    /// the deleted/unlinked rows are detached (see <see cref="DeleteIfEmptyAsync"/>).
     /// </summary>
     public async Task<bool> DeleteSeriesAsync(string name)
     {
+        var row = await _db.Series.FirstOrDefaultAsync(s => s.Name == name);
+        if (row is null)
+        {
+            return false;
+        }
+
+        // Deliberately the repository-level cleanup, not the FK's SET NULL alone: the FK would
+        // unlink the rows but leave series-less bookless rows behind, while this deletes exactly
+        // the orphans (and keeps the author-linked ones).
+        await _expectedBookRepository.UnlinkSeriesBooksAsync(row.Id, new List<long>());
+
         var deletedRows = await _db.Series
-            .Where(s => s.Name == name)
+            .Where(s => s.Id == row.Id)
             .ExecuteDeleteAsync();
+
+        await _expectedBookRepository.DeleteOrphanExpectedBooksAsync();
+
+        if (deletedRows > 0)
+        {
+            ChangeTrackerDetach.DetachTracked(_db.ChangeTracker.Entries<Series>(), s => s.Id == row.Id);
+        }
+
         return deletedRows > 0;
     }
 }
