@@ -40,6 +40,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { useStartLibraryScan } from "@/hooks/useStartLibraryScan";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
 import { formatDateTime, formatDuration, formatFileSize } from "@/helpers/formatHelpers";
@@ -292,14 +293,20 @@ export function DiscoveredAudiobooks() {
     });
   });
 
+  // The combined "Scan Library" run is triggered through the same shared hook as the Library
+  // Consistency page (POST /api/library/scan discovers files AND runs the consistency check), so
+  // the two pages cannot drift: same endpoint, same toasts. The failure path re-throws after the
+  // hook's error toast so the optimistic busy state set here is unwound, keeping the button from
+  // sticking on "Scanning Library..." when the server refused the start (e.g. 409 while another
+  // run is in progress).
+  const { startScan: startLibraryScan, isStarting } = useStartLibraryScan();
+
   const handleStartScan = async () => {
     setScanning(true);
     setScanResult(null);
     try {
-      await libraryApi.startScan();
-      notifications.success("Library scan started in background");
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
+      await startLibraryScan();
+    } catch {
       setScanning(false);
     }
   };
@@ -439,9 +446,9 @@ export function DiscoveredAudiobooks() {
           onClick={() => {
             void handleStartScan();
           }}
-          disabled={scanning}
+          disabled={scanning || isStarting}
         >
-          <Scan className={`mr-2 h-4 w-4 ${scanning ? "animate-spin" : ""}`} />
+          <Scan className={`mr-2 h-4 w-4 ${scanning || isStarting ? "animate-spin" : ""}`} />
           {scanning ? "Scanning Library..." : "Scan Library"}
         </Button>
       </div>

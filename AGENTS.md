@@ -262,8 +262,10 @@ paths need normalizing (`.`/`..`/`//`/mixed separators), and case-sensitivity is
 - `PathComparison` / `PathComparer` — the `StringComparison`/`StringComparer` to hand to anything
   that compares or hashes paths itself (`ToHashSet`, `GroupBy`, `Distinct`, `OrderBy`).
 
-When a repository returns a set of paths for membership testing, it takes the comparer from the
-caller (`GetAllFilePathsAsync(AudiobookFileHandler.PathComparer)`) rather than defaulting.
+When a set of paths is built for membership testing, it takes the comparer from the caller
+(`LibraryScanOrchestrator` builds its known-path set with `AudiobookFileHandler.PathComparer`)
+rather than defaulting, and `GetByFullPathAsync` takes its path predicate from the caller for
+the same reason.
 
 ### Search and type-ahead matching must be accent-insensitive
 

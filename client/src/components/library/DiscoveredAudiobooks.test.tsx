@@ -7,6 +7,12 @@ import { SignalRContext } from "@/context/SignalRContext";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import type { DiscoveredAudiobook } from "@/types/DiscoveredAudiobook";
 
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
+import { notifications } from "@/lib/notifications";
+
 // The backend's DiscoveredAudiobookDto is flat (fullPath/fileName/sizeInBytes, no nested
 // fileInfo) and reports authors/narrators/genres as "/"-joined strings, not arrays — see
 // AudiobookManager.Api.Dtos.DiscoveredAudiobookDto. A hand-written frontend type once claimed
@@ -366,6 +372,31 @@ describe("DiscoveredAudiobooks", () => {
 
     expect(await screen.findByText(/Saving tags/)).toBeInTheDocument();
     expect(screen.getByText("38%")).toBeInTheDocument();
+  });
+
+  // The scan button goes through the same shared trigger as the Library Consistency page (the
+  // combined /library/scan endpoint), so the start request and its toasts cannot drift between
+  // the two pages.
+  it("triggers the combined library scan through the shared start hook", async () => {
+    vi.mocked(libraryApi.getDiscovered).mockResolvedValue({
+      items: [],
+      total: 0,
+      count: 0,
+      wellTaggedTotal: 0,
+    });
+    vi.mocked(libraryApi.startScan).mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Scan Library" }));
+
+    await waitFor(() => {
+      expect(libraryApi.startScan).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Library scan started in background");
+    });
+    expect(notifications.error).not.toHaveBeenCalled();
   });
 
   it("restores an in-flight library scan from the status registry", async () => {

@@ -21,7 +21,6 @@ public class LibraryScanService : ILibraryScanService
     private const int ProgressBroadcastInterval = 25;
 
     private readonly AudiobookManagerSettings _settings;
-    private readonly IAudiobookRepository _audiobookRepository;
     private readonly IDiscoveredAudiobookRepository _discoveredAudiobookRepository;
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly IAudiobookService _audiobookService;
@@ -29,34 +28,24 @@ public class LibraryScanService : ILibraryScanService
 
     public LibraryScanService(
         IOptions<AudiobookManagerSettings> settings,
-        IAudiobookRepository audiobookRepository,
         IDiscoveredAudiobookRepository discoveredAudiobookRepository,
         IAudiobookTagHandler tagHandler,
         IAudiobookService audiobookService,
         ILogger<LibraryScanService> logger)
     {
         _settings = settings.Value;
-        _audiobookRepository = audiobookRepository;
         _discoveredAudiobookRepository = discoveredAudiobookRepository;
         _tagHandler = tagHandler;
         _audiobookService = audiobookService;
         _logger = logger;
     }
 
-    public async Task<(int TotalFiles, int NewFiles, int TrackedFiles)> ScanLibrary(Func<string, int, int, Task> progressAction)
+    public async Task<(int TotalFiles, int NewFiles, int TrackedFiles)> ScanFilesAsync(
+        IReadOnlyList<DomainAudiobookFileInfo> files,
+        IReadOnlyCollection<string> knownPaths,
+        Func<string, int, int, Task> progressAction)
     {
         _logger.LogInformation("Starting library scan of {LibraryPath}", _settings.AudiobookLibraryPath);
-
-        await _discoveredAudiobookRepository.ClearAllAsync();
-
-        var files = FileScanner.ScanDirectoryForFiles(
-            _settings.AudiobookLibraryPath,
-            AudiobookTagHandler.IsSupported);
-
-        // Paths must be matched the way the file system matches them: a case-only difference is
-        // the same file on Windows/macOS, and treating it as new would re-discover (and let the
-        // user re-import) a book that is already tracked.
-        var knownPaths = await _audiobookRepository.GetAllFilePathsAsync(AudiobookFileHandler.PathComparer);
 
         var totalFiles = files.Count;
         var filesScanned = 0;

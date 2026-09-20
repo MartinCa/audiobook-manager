@@ -537,9 +537,6 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
         };
 
-        _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-            .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
-
         var progressCalls = new List<(string message, int booksChecked, int total, int issues)>();
         Func<string, int, int, int, Task> progressAction = (msg, bc, t, i) =>
         {
@@ -547,7 +544,11 @@ public class LibraryConsistencyServiceTests
             return Task.CompletedTask;
         };
 
-        await _service.RunConsistencyCheck(progressAction);
+        // The caller (the scan orchestrator) supplies the loaded graph and the library walk;
+        // walk the real directory with the same walker the orchestrator uses so the orphan
+        // sweep sees the "Gone Author" folder that is genuinely there.
+        var dirs = new LibraryTreeWalker().Walk(_libraryPath, AudiobookTagHandler.IsSupported).Directories;
+        await _service.RunConsistencyCheck(progressAction, new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, dirs));
 
         _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
             i.IssueType == ConsistencyIssueType.MissingMediaFile &&
@@ -593,9 +594,6 @@ public class LibraryConsistencyServiceTests
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
             };
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
-
             var parsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author One") },
                 "Test Book",
@@ -621,7 +619,9 @@ public class LibraryConsistencyServiceTests
                 return Task.CompletedTask;
             };
 
-            await _service.RunConsistencyCheck(progressAction);
+            await _service.RunConsistencyCheck(
+                progressAction,
+                new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             // File exists, so MissingMediaFile should NOT be inserted
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
@@ -664,9 +664,6 @@ public class LibraryConsistencyServiceTests
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
             };
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
-
             var parsed = new Domain.Audiobook(
                 new List<Domain.Person> { new Domain.Person("Author One") },
                 "Test Book",
@@ -675,7 +672,9 @@ public class LibraryConsistencyServiceTests
 
             _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
-            await _service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+            await _service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.MissingCoverFile &&
@@ -1490,9 +1489,6 @@ public class LibraryConsistencyServiceTests
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
             };
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
-
             // Simulates the file's tags having lost the fractional series part (e.g. the
             // Movement Part fallback truncation bug), so the value on disk no longer matches
             // what the library metadata says it should be.
@@ -1515,7 +1511,9 @@ public class LibraryConsistencyServiceTests
                 return Task.CompletedTask;
             };
 
-            await _service.RunConsistencyCheck(progressAction);
+            await _service.RunConsistencyCheck(
+                progressAction,
+                new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
@@ -1551,9 +1549,6 @@ public class LibraryConsistencyServiceTests
                 Genres = new List<Database.Models.Genre> { new Database.Models.Genre(1, "Fiction") }
             };
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
-
             // Simulates the m4b tags on disk having drifted from the library metadata for
             // fields that were previously excluded from the tag-mismatch comparison.
             var parsed = new Domain.Audiobook(
@@ -1580,7 +1575,9 @@ public class LibraryConsistencyServiceTests
                 return Task.CompletedTask;
             };
 
-            await _service.RunConsistencyCheck(progressAction);
+            await _service.RunConsistencyCheck(
+                progressAction,
+                new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
                 iss.IssueType == ConsistencyIssueType.TagMismatch &&
@@ -1976,14 +1973,17 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = CreateService(settings);
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
-
             List<OrphanDirectory> insertedDirectories = new();
             _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
                 .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
                 .Returns(Task.CompletedTask);
 
-            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+            // The directory walk is produced up front by the orchestrator's walker; hand the
+            // sweep the same input the real flow would.
+            var dirs = new LibraryTreeWalker().Walk(libraryPath, AudiobookTagHandler.IsSupported).Directories;
+            await service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), dirs));
 
             // The whole "Gone Author" subtree is reclaimable, so that is what is offered - not
             // just its deepest folder, and not each level as a separate issue to resolve.
@@ -2013,14 +2013,15 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = CreateService(settings);
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
-
             List<OrphanDirectory> insertedDirectories = new();
             _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
                 .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
                 .Returns(Task.CompletedTask);
 
-            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+            var dirs = new LibraryTreeWalker().Walk(libraryPath, AudiobookTagHandler.IsSupported).Directories;
+            await service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), dirs));
 
             Assert.AreEqual(0, insertedDirectories.Count,
                 "no ancestor of a directory holding audio is reclaimable");
@@ -2028,6 +2029,64 @@ public class LibraryConsistencyServiceTests
         finally
         {
             Directory.Delete(libraryPath, true);
+        }
+    }
+
+    // The sweep-level twin of the walker-level link tests (LibraryTreeWalkTests): the walker
+    // proves a link child is flagged with HasLinkSubdirectory, but only the orphan sweep can prove
+    // it refuses to reclaim a link-containing subtree - the branch whose failure means recursively
+    // deleting a directory whose contents were never examined. The link's target lives outside the
+    // walked root so it can never be walked in its own right, and keeping the link keeps every
+    // ancestor of it too.
+    [TestMethod]
+    public async Task RunConsistencyCheck_DirectoryContainingASymlinkedChild_KeepsTheLinkAndItsAncestors()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var nestedDir = Path.Combine(libraryPath, "Author", "Series", "Sub");
+        Directory.CreateDirectory(nestedDir);
+
+        // A populated directory outside the library, reached only through a symlink - like a media
+        // directory on another share. Nothing under it may ever be swept as an orphan.
+        var targetDir = Path.Combine(Path.GetTempPath(), $"abm-link-target-{Guid.NewGuid()}");
+        Directory.CreateDirectory(targetDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(targetDir, "hidden.m4b"), "fake audio");
+            Directory.CreateSymbolicLink(Path.Combine(nestedDir, "shortcut"), targetDir);
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = CreateService(settings);
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            var dirs = new LibraryTreeWalker().Walk(libraryPath, AudiobookTagHandler.IsSupported).Directories;
+            await service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), dirs));
+
+            Assert.AreEqual(0, insertedDirectories.Count,
+                "a directory whose child is a link must never be reported as an orphan - nothing "
+                + "ever answered for the contents behind the link, so reclaiming it would be a "
+                + "recursive delete of a subtree that was never examined - and with the link kept "
+                + "every ancestor of it is kept too");
+        }
+        finally
+        {
+            // Directory.Delete(recursive: true) does not follow a reparse point, so deleting the
+            // library tree unlinks the symlink and leaves the target untouched; the target then
+            // goes separately.
+            if (Directory.Exists(libraryPath))
+            {
+                Directory.Delete(libraryPath, true);
+            }
+            if (Directory.Exists(targetDir))
+            {
+                Directory.Delete(targetDir, true);
+            }
         }
     }
 
@@ -2050,14 +2109,15 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = CreateService(settings);
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
-
             List<OrphanDirectory> insertedDirectories = new();
             _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
                 .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
                 .Returns(Task.CompletedTask);
 
-            await service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+            var dirs = new LibraryTreeWalker().Walk(libraryPath, AudiobookTagHandler.IsSupported).Directories;
+            await service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), dirs));
 
             CollectionAssert.AreEqual(
                 new List<string> { orphanDir },
@@ -2086,8 +2146,6 @@ public class LibraryConsistencyServiceTests
             var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
             var service = CreateService(settings);
 
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync()).ReturnsAsync(new List<DbAudiobook>());
-
             // The sweep inserts all orphans in one batch rather than one SaveChanges per folder.
             List<OrphanDirectory> insertedDirectories = new();
             _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
@@ -2101,7 +2159,10 @@ public class LibraryConsistencyServiceTests
                 return Task.CompletedTask;
             };
 
-            await service.RunConsistencyCheck(progressAction);
+            var dirs = new LibraryTreeWalker().Walk(libraryPath, AudiobookTagHandler.IsSupported).Directories;
+            await service.RunConsistencyCheck(
+                progressAction,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), dirs));
 
             _orphanDirectoryRepository.Verify(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()), Times.Once);
             _orphanDirectoryRepository.Verify(r => r.InsertAsync(It.IsAny<OrphanDirectory>()), Times.Never);
@@ -2933,7 +2994,9 @@ public class LibraryConsistencyServiceTests
         var service = CreateService(settings);
 
         var ex = await Assert.ThrowsExactlyAsync<LibraryUnavailableException>(
-            () => service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask));
+            () => service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook>(), new List<LibraryDirectory>())));
 
         StringAssert.Contains(ex.Message, "is not available");
 
@@ -3032,8 +3095,6 @@ public class LibraryConsistencyServiceTests
             {
                 Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author") }
             };
-            _audiobookRepository.Setup(r => r.GetAllWithIncludesAsync())
-                .ReturnsAsync(new List<DbAudiobook> { dbAudiobook });
             _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
                 .Returns(new Domain.Audiobook(
                     new List<Domain.Person> { new Domain.Person("Author") }, "Test Book", 2024,
@@ -3054,7 +3115,9 @@ public class LibraryConsistencyServiceTests
                     },
                 });
 
-            var (booksChecked, issuesFound) = await _service.RunConsistencyCheck((_, _, _, _) => Task.CompletedTask);
+            var (booksChecked, issuesFound) = await _service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             Assert.AreEqual(1, booksChecked);
             Assert.IsTrue(issuesFound >= 1, "the run reports findings including the sweep's");

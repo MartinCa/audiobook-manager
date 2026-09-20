@@ -51,7 +51,6 @@ export const SignalREvents = {
 } as const;
 
 export const OperationKeys = {
-  consistencyCheck: "consistency-check",
   consistencyResolve: "consistency-resolve",
   consistencyCheckSelected: "consistency-check-selected",
   seriesMatch: "series-match",

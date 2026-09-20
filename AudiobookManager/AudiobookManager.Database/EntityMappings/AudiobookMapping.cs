@@ -22,7 +22,7 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
             .WithMany(g => g.Books);
 
         // The full path is the natural key every organize, scan and duplicate check looks a
-        // book up by (GetByFullPathAsync, GetAllFilePathsAsync, IsDuplicateTarget), and without
+        // book up by (GetByFullPathAsync, IsDuplicateTarget), and without
         // an index each of those is a full table scan of the library. Deliberately not unique:
         // nothing in the schema guarantees two rows can't briefly share a path, and a unique
         // constraint would turn that into a hard failure mid-relocation.

@@ -85,7 +85,6 @@ public class SignalREventParityTests
         // reflection-based; a newly added controller const shows up in the reflection first and
         // fails the "noted in this list" assertion until it is added here AND in the TS file.
         var documentedExpectedKeys = new List<string> {
-            ConsistencyController.OperationKey,
             ConsistencyController.ResolveOperationKey,
             ConsistencyController.CheckSelectedOperationKey,
             SimilarValuesController.OperationKey,

@@ -1,10 +1,20 @@
 using AudiobookManager.Database.Models;
+using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
 
 public interface ILibraryScanService
 {
-    Task<(int TotalFiles, int NewFiles, int TrackedFiles)> ScanLibrary(Func<string, int, int, Task> progressAction);
+    /// <summary>
+    /// Classifies the already-walked supported files against the already-loaded known paths,
+    /// parsing and inserting the untracked ones. The caller (<see cref="ILibraryScanOrchestrator"/>)
+    /// performed the directory walk and the tracked-graph load so they can be shared with the
+    /// consistency check.
+    /// </summary>
+    Task<(int TotalFiles, int NewFiles, int TrackedFiles)> ScanFilesAsync(
+        IReadOnlyList<AudiobookFileInfo> files,
+        IReadOnlyCollection<string> knownPaths,
+        Func<string, int, int, Task> progressAction);
 
     Task<(int Processed, int Succeeded, int Failed)> BulkImportAsync(
         List<string> filePaths,

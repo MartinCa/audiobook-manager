@@ -9,7 +9,9 @@ public static class DependencyInjection
         services
         .AddScoped<IFileOperations, FileOperations>()
         .AddScoped<IAudiobookFileHandler, AudiobookFileHandler>()
-        .AddScoped<IAudiobookTagHandler, AudiobookTagHandler>();
+        .AddScoped<IAudiobookTagHandler, AudiobookTagHandler>()
+        // Stateless: a shared singleton avoids re-resolving it per request for a pure walk.
+        .AddSingleton<ILibraryTreeWalker, LibraryTreeWalker>();
 
         services.AddSingleton<IAtlLogging>(sp =>
         {

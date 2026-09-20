@@ -82,6 +82,7 @@ public class ServiceGraphTests
         Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>());
         Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<IPartMismatchIssueDetector>());
         Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ISeriesReconciliationProvider>());
+        Assert.IsNotNull(scope.ServiceProvider.GetRequiredService<ILibraryScanOrchestrator>());
     }
 
     /// <summary>
@@ -100,6 +101,7 @@ public class ServiceGraphTests
                  {
                      typeof(SeriesController),
                      typeof(ConsistencyController),
+                     typeof(LibraryController),
                      typeof(AudiobookController),
                  })
         {

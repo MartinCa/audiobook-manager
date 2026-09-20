@@ -21,20 +21,13 @@ public class AudiobookRepository : IAudiobookRepository
         return audiobook;
     }
 
-    public async Task<HashSet<string>> GetAllFilePathsAsync(StringComparer? comparer = null)
-    {
-        var paths = await _db.Audiobooks.AsNoTracking().Select(a => a.FileInfoFullPath).ToListAsync();
-        return paths.ToHashSet(comparer ?? StringComparer.Ordinal);
-    }
-
     /// <summary>
     /// The tracked book at <paramref name="fullPath"/>, if any.
     ///
     /// Path comparison is a property of the file system, not of the string, so it cannot be done
     /// in SQL - SQLite's BINARY collation would treat a case-only difference as a different file
     /// even on Windows/macOS, and it normalizes nothing. This narrows in SQL on the file name
-    /// (indexed) and settles it in memory with the caller's own comparison, exactly as
-    /// <see cref="GetAllFilePathsAsync"/> takes its comparer from the caller. The Database layer
+    /// (indexed) and settles it in memory with the caller's own comparison. The Database layer
     /// deliberately has no reference to FileManager, so the predicate comes in rather than being
     /// hard-coded to AudiobookFileHandler.PathsEqual.
     /// </summary>

@@ -25,6 +25,14 @@ vi.mock("@/services/api", () => ({
   filesApi: {
     getCoverUrl: vi.fn((path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`),
   },
+  // The organize form renders SeriesField (and its debounced entry-status/typeahead lookups).
+  // Without these, a debounce that fires while the form is still mounted throws an unhandled
+  // "No similarValuesApi export is defined" error that fails the whole Vitest run even though
+  // every test passed - timing-dependent, so it only surfaced under CI load.
+  similarValuesApi: {
+    getAutocomplete: vi.fn().mockResolvedValue([]),
+    getEntryStatus: vi.fn().mockResolvedValue(null),
+  },
 }));
 
 import { untaggedApi, queueApi, audiobookApi } from "@/services/api";
