@@ -1029,7 +1029,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshResultDto"];
+                        "application/json": components["schemas"]["AuthorRefreshResultDto"];
+                        "text/json": components["schemas"]["AuthorRefreshResultDto"];
+                    };
                 };
             };
         };

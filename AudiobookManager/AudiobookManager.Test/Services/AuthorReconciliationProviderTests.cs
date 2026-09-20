@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace AudiobookManager.Test.Services;
@@ -27,7 +28,10 @@ public class AuthorReconciliationProviderTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _expectedBookRepository = new Mock<IExpectedBookRepository>();
-        _provider = new AuthorReconciliationProvider(_audiobookRepository.Object, _expectedBookRepository.Object);
+        _provider = new AuthorReconciliationProvider(
+            _audiobookRepository.Object,
+            _expectedBookRepository.Object,
+            NullLogger<AuthorReconciliationProvider>.Instance);
 
         _audiobookRepository
             .Setup(r => r.GetOwnedKeysByAuthorAsync(It.IsAny<long>(), It.IsAny<int>()))
@@ -540,5 +544,72 @@ public class AuthorReconciliationProviderTests
             "an owned-key total past the batched read's bound must refuse the filter, not classify from a truncated prefix");
         Assert.AreEqual(0, result.HasMissingBooks.Count);
         Assert.AreEqual(0, result.HasUpcomingBooks.Count);
+    }
+
+    // Review finding: the flat total cap used to be an int product clamped to int.MaxValue. Past
+    // ~107k rostered authors the product overflowed and the clamp silently handed the repository
+    // an int.MaxValue cap whose Take(cap + 1) probe overflowed back - a large-but-legitimate
+    // library was refused (or truncated to an empty read) even though no single author was over
+    // the cap. The multiplication now happens in long, and a true total past int.MaxValue - 1
+    // (the largest cap the repository's int Take(cap + 1) can express) is a DELIBERATE refusal,
+    // not an incidental clamp.
+    [TestMethod]
+    public void ComputeTotalKeyCap_BelowTheIntCeiling_IsPersonCountTimesPerAuthorCapPlusOne()
+    {
+        Assert.AreEqual(
+            3 * (AuthorReconciliationProvider.MaxReconciliationOwnedKeys + 1),
+            AuthorReconciliationProvider.ComputeTotalKeyCap(3));
+    }
+
+    [TestMethod]
+    public void ComputeTotalKeyCap_ExactlyAtTheIntCeiling_IsStillAnIntCap()
+    {
+        // The repository's bounded read probes with Take(cap + 1), so cap = int.MaxValue - 1 is the
+        // largest value that survives the probe without wrapping; exactly at it the cap is usable.
+        var personsAtCeiling = (int.MaxValue - 1) / (AuthorReconciliationProvider.MaxReconciliationOwnedKeys + 1);
+
+        var cap = AuthorReconciliationProvider.ComputeTotalKeyCap(personsAtCeiling);
+        Assert.IsNotNull(cap, "a total exactly at the int ceiling is still a usable repository Take cap");
+        Assert.AreEqual(
+            (long)personsAtCeiling * (AuthorReconciliationProvider.MaxReconciliationOwnedKeys + 1),
+            cap.Value);
+    }
+
+    [TestMethod]
+    public void ComputeTotalKeyCap_PastTheIntCeiling_ReturnsNullForADeliberateRefusal()
+    {
+        var personsPastCeiling =
+            (int.MaxValue - 1) / (AuthorReconciliationProvider.MaxReconciliationOwnedKeys + 1) + 1;
+
+        Assert.IsNull(
+            AuthorReconciliationProvider.ComputeTotalKeyCap(personsPastCeiling),
+            "a cap above int.MaxValue - 1 cannot be expressed by the repository's int Take(cap + 1) probe, so the caller must refuse rather than clamp");
+    }
+
+    // The deliberate refusal wired into the bulk filter: enough distinct rostered authors to push
+    // the flat total past int.MaxValue - 1 refuses the filter up front, without a single owned-key
+    // query - there is no clamped cap to hand a truncated read.
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_FlatTotalPastTheIntCeiling_RefusesWithoutQuerying()
+    {
+        var personsPastCeiling =
+            (int.MaxValue - 1) / (AuthorReconciliationProvider.MaxReconciliationOwnedKeys + 1) + 1;
+        var refs = Enumerable
+            .Range(1, personsPastCeiling)
+            .Select(i => MakeRef(i, i, $"Book {i}", 2005))
+            .ToList();
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((refs, false));
+
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        Assert.IsTrue(result.Refused,
+            "a flat bound above what the int Take(cap + 1) probe can express must refuse the filter deliberately, never clamp");
+        Assert.AreEqual(0, result.HasMissingBooks.Count);
+        Assert.AreEqual(0, result.HasUpcomingBooks.Count);
+        _audiobookRepository.Verify(
+            r => r.GetOwnedKeysByAuthorsAsync(It.IsAny<IReadOnlyList<long>>(), It.IsAny<int>()), Times.Never,
+            "the refusal happens before any owned-key query");
     }
 }

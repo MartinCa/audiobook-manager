@@ -150,20 +150,30 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
     setMatching(true);
     setMatchingSourceId(candidate.sourceId);
     try {
-      await browseApi.matchAuthorToHardcover(
+      // The backend is persist-first: MatchAuthor stores the source link and THEN refreshes the
+      // roster (which can take seconds). A refresh failure - daily budget exhausted, the source
+      // cannot resolve the id, no author-capable scraper - comes back as a 200 with
+      // success=false, since the match itself was stored. Either way the author IS matched, so
+      // the match/detail/upcoming queries are invalidated and the dialog closes; only the
+      // notification differs, and the periodic sweep picks the roster up on its next tick.
+      // Without this, a refresh failure left the dialog open and the author shown as unmatched
+      // until a full reload, and every retry repeated the same refresh failure.
+      const result = await browseApi.matchAuthorToHardcover(
         authorId,
         candidate.sourceId,
         candidate.sourceName,
         candidate.sourceUrl ?? undefined,
       );
-      // Matching persists the author's source link AND refreshes their roster (the backend does
-      // both in MatchAuthor, the refresh can take seconds), so the author detail and the
-      // upcoming-releases views pick up the newly-scraped books here rather than on the next
-      // periodic tick.
       await queryClient.invalidateQueries({ queryKey: queryKeys.authorHardcoverMatch(authorId) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
       await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
-      notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
+      if (result.success) {
+        notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
+      } else {
+        notifications.warning(
+          `Matched to ${candidate.sourceName}: ${candidate.name}, but the roster refresh failed. The next scheduled refresh will pick it up.`,
+        );
+      }
       onOpenChange(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);

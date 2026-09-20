@@ -267,13 +267,18 @@ export const browseApi = {
       query: { query: query || undefined },
     }),
 
+  // Persist-first: the backend stores the match, then refreshes the roster. When the refresh
+  // fails (daily budget exhausted, source cannot resolve the id, no author-capable scraper), the
+  // response is still a 200 carrying AuthorRefreshResultDto.success=false - the match itself
+  // persisted, so callers must treat the request as accepted and only report the refresh as
+  // pending.
   matchAuthorToHardcover: (
     authorId: number,
     sourceId: string,
     sourceName: string,
     sourceUrl?: string,
   ) =>
-    api.post<void>(`/browse/authors/${authorId}/hardcover-match`, {
+    api.post<AuthorRefreshResult>(`/browse/authors/${authorId}/hardcover-match`, {
       sourceId,
       sourceName,
       sourceUrl,

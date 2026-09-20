@@ -22,6 +22,7 @@ function renderList({
   section = "missing",
   items = [],
   ignoredItems = [],
+  ignoredItemsPreClassified,
   ignoredTotal,
   showIgnored = false,
   ignoredPager,
@@ -30,6 +31,7 @@ function renderList({
   section?: "missing" | "upcoming";
   items?: ExpectedBookRow[];
   ignoredItems?: ExpectedBookRow[];
+  ignoredItemsPreClassified?: boolean;
   ignoredTotal?: number;
   showIgnored?: boolean;
   ignoredPager?: {
@@ -48,6 +50,7 @@ function renderList({
       section={section}
       items={items}
       ignoredItems={ignoredItems}
+      ignoredItemsPreClassified={ignoredItemsPreClassified}
       ignoredTotal={ignoredTotal ?? ignoredItems.length}
       showIgnored={showIgnored}
       ignoredPager={ignoredPager}
@@ -274,6 +277,47 @@ describe("ExpectedBookList", () => {
 
     expect(screen.getByText("and 3 more ignored books...")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+  });
+
+  // Regression for the review finding: SeriesDetail's ignored lists arrive pre-classified and
+  // pre-paged by the server (each classification's own total, sliced with the server's UTC
+  // clock). The client must trust that placement instead of re-classifying the rows it receives -
+  // a re-filter using the local clock dropped exactly the boundary rows the pager still counted.
+  it("trusts pre-classified ignored items without re-classifying them", () => {
+    // The row's own data (a past year) would classify as Missing client-side, but the caller
+    // declared the Upcoming section's list pre-classified - the server put it where it put it.
+    const oddlyClassified = row({ id: 2, title: "Oddly Placed", isIgnored: true, year: 2000 });
+
+    renderList({
+      section: "upcoming",
+      items: [],
+      ignoredItems: [oddlyClassified],
+      ignoredItemsPreClassified: true,
+      showIgnored: true,
+    });
+
+    expect(screen.getByText("Oddly Placed")).toBeInTheDocument();
+  });
+
+  it("still re-classifies a mixed ignored list when no pre-classification is declared", () => {
+    const past = row({ id: 2, title: "Ignored Past Book", isIgnored: true, year: 2018 });
+    const future = row({
+      id: 3,
+      title: "Ignored Future Book",
+      isIgnored: true,
+      releaseDate: "2031-05-05",
+      year: null,
+    });
+
+    // AuthorDetail's shape: one in-memory mixed ignored list, split client-side per section.
+    renderList({
+      section: "upcoming",
+      items: [],
+      ignoredItems: [past, future],
+      showIgnored: true,
+    });
+    expect(screen.getByText("Ignored Future Book")).toBeInTheDocument();
+    expect(screen.queryByText("Ignored Past Book")).not.toBeInTheDocument();
   });
 });
 

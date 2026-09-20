@@ -721,6 +721,74 @@ describe("SeriesDetail", () => {
     });
   });
 
+  // Regression for the review finding: the server pre-splits each section's ignored list with its
+  // own UTC clock (DateOnly.FromDateTime(DateTime.UtcNow) - a release dated exactly today-UTC is
+  // "not upcoming"), and SeriesDetail trusts that placement. A re-classification with the
+  // browser's local clock disagreed at the UTC-vs-local day boundary and dropped the row from its
+  // section - the pager kept counting it, the section did not render it.
+  it("renders an ignored row dated exactly today-UTC in the Missing section the server placed it in", async () => {
+    // "Today" is computed from the UTC parts at test time, so the boundary assertion holds in
+    // whatever timezone the test runs under.
+    const now = new Date();
+    const todayUtcIso = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+    const detail = makeDetail([missingBook(20, "The Alloy of Law", "4")], 1);
+    detail.ignoredMissingBooks = {
+      items: [
+        {
+          id: 30,
+          title: "Released Today UTC",
+          position: null,
+          year: null,
+          releaseDate: todayUtcIso,
+          sourceUrl: null,
+          isIgnored: true,
+        },
+      ],
+      totalCount: 1,
+    };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/show ignored books \(1\)/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(1\)/ }));
+
+    expect(screen.getByText(/Released Today UTC/)).toBeInTheDocument();
+  });
+
+  // Regression for the review finding: SeriesDetail receives pre-classified per-section ignored
+  // lists and must not re-classify them. A row the server places in ignoredUpcomingBooks renders
+  // there even when its own data would classify as Missing under a fresh client-side pass - a
+  // re-filtering client dropped exactly those divergent rows while the pager kept counting them.
+  it("trusts the server's ignored-section placement instead of re-classifying locally", async () => {
+    const detail = makeDetail([], 0);
+    detail.ignoredUpcomingBooks = {
+      items: [
+        {
+          id: 31,
+          title: "Server Said Upcoming",
+          position: null,
+          year: 2000,
+          sourceUrl: null,
+          isIgnored: true,
+        },
+      ],
+      totalCount: 1,
+    };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/show ignored books \(1\)/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+
+    // The row only exists in the Upcoming section; a re-classifying client would have dropped it
+    // from the list entirely.
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming Books \(0\)/ }));
+    expect(screen.getByText(/Server Said Upcoming/)).toBeInTheDocument();
+  });
+
   // Regression for the review finding: the ignored sub-views' pager was scope-wide - both sections
   // shared one server page, one combined total and one cursor, so each pager claimed the combined
   // count and paging one section moved the other. The server now slices each classification

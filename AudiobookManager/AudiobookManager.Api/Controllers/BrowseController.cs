@@ -674,8 +674,22 @@ public class BrowseController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Persists the Hardcover match AND refreshes the author's roster under the shared
+    /// <see cref="IExpectedBookWriteGate"/>. Returns <see cref="AuthorRefreshResultDto"/> rather
+    /// than a bare okay because the two steps have different durability: the match is stored
+    /// FIRST, so when the refresh that follows fails - the source's daily budget exhausted, the
+    /// source cannot resolve the freshly-supplied id (deleted/merged upstream), or no
+    /// author-capable scraper is configured - the request still succeeds with
+    /// <c>Success=false</c> and the match stays persisted for the periodic sweep to pick the
+    /// roster up on its next tick. The client treats a 200 as "the match was accepted" either
+    /// way, invalidating the match/detail/upcoming caches and closing the dialog; only the
+    /// refresh's own known failures map to that outcome. The match step failing (unknown author,
+    /// malformed payload), a busy gate, or an unexpected error stays a rejection, because in
+    /// those cases nothing was persisted.
+    /// </summary>
     [HttpPost("authors/{authorId}/hardcover-match")]
-    public async Task<IActionResult> MatchAuthor(long authorId, [FromBody] MatchAuthorDto? dto)
+    public async Task<ActionResult<AuthorRefreshResultDto>> MatchAuthor(long authorId, [FromBody] MatchAuthorDto? dto)
     {
         if (dto is null || string.IsNullOrWhiteSpace(dto.SourceId) || string.IsNullOrWhiteSpace(dto.SourceName))
         {
@@ -694,32 +708,57 @@ public class BrowseController : ControllerBase
 
         try
         {
-            await _upcomingReleaseService.MatchAuthorAsync(authorId, dto.SourceId, dto.SourceName, dto.SourceUrl);
+            // Persist-first: the match is stored BEFORE the refresh. Only this step's failures
+            // reject the request - an author deleted under the dialog, or a malformed call - since
+            // the refresh step failing must not look like the match failed.
+            try
+            {
+                await _upcomingReleaseService.MatchAuthorAsync(authorId, dto.SourceId, dto.SourceName, dto.SourceUrl);
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (ArgumentException ex)
+            {
+                return this.InvalidRequest(ex.Message);
+            }
 
-            // Persist-first: the match is stored BEFORE the refresh, so a transient refresh
-            // failure (e.g. the source's daily budget) surfaces as this call's error while the
-            // match stays stored - the periodic sweep picks the roster up on its next tick.
-            await _upcomingReleaseService.RefreshAuthorRosterAsync(authorId);
-            return Ok();
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
-        catch (ArgumentException ex)
-        {
-            return this.InvalidRequest(ex.Message);
-        }
-        catch (HardcoverDailyLimitExceededException ex)
-        {
-            return this.InvalidRequest(ex.Message);
-        }
-        catch (AuthorNotFoundException ex)
-        {
-            // The source could not resolve the freshly-matched author - a caller-side problem
-            // with the id they just supplied, not a server failure; the match stays stored and
-            // the roster stays untouched (see RefreshAuthor's identical mapping).
-            return this.InvalidRequest(ex.Message);
+            // The match is stored at this point, so a refresh failure reports Success=false with a
+            // 200 instead of rejecting the request - the UI's "matched" state is true and only the
+            // roster scrape did not run (the periodic sweep picks it up on its next tick).
+            try
+            {
+                await _upcomingReleaseService.RefreshAuthorRosterAsync(authorId);
+                var person = await _personRepo.GetByIdAsync(authorId);
+                return new AuthorRefreshResultDto(true, person?.LastRefreshedAt);
+            }
+            catch (HardcoverDailyLimitExceededException ex)
+            {
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (AuthorNotFoundException ex)
+            {
+                // The source could not resolve the freshly-matched author - a caller-side problem
+                // with the id they just supplied; the match stays stored and the roster stays
+                // untouched (see RefreshAuthor's identical mapping).
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (ArgumentException ex)
+            {
+                // e.g. no author-capable scraper is configured - a refresh failure, not a match
+                // failure, and the match is already stored.
+                _logger.LogWarning("Roster refresh after matching author {AuthorId} failed: {Message}", authorId, ex.Message);
+                return new AuthorRefreshResultDto(false, null);
+            }
+            catch (KeyNotFoundException)
+            {
+                // The author row vanished between the match and the refresh - effectively a
+                // request-level 404, distinct from the refresh failures above.
+                return NotFound();
+            }
         }
         catch (Exception ex)
         {

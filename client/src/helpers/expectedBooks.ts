@@ -26,16 +26,32 @@ export interface ExpectedBookRow {
 export function isBookUpcoming(
   releaseDate: string | null | undefined,
   year: number | null | undefined,
-  today: Date = new Date(),
+  today: Date = utcToday(),
 ): boolean {
   if (releaseDate) {
-    const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
-      today.getDate(),
+    // today is anchored at UTC midnight (see utcToday), so its getUTC* parts ARE the UTC calendar
+    // date the backend's DateOnly compares against - reading them with the local getters would
+    // reintroduce the timezone of the anchor instant. getUTC* also keeps explicit `today` values
+    // passed into this helper unambiguous.
+    const isoToday = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      today.getUTCDate(),
     ).padStart(2, "0")}`;
     return releaseDate > isoToday;
   }
   if (year != null) {
-    return year > today.getFullYear();
+    return year > today.getUTCFullYear();
   }
   return false;
+}
+
+/** "Today" the same way the backend computes it: the UTC calendar date
+ * (DateOnly.FromDateTime(DateTime.UtcNow) in ExpectedBookClassifier), as a Date anchored at UTC
+ * midnight. The default classifier argument derives from this, so client-side classification can
+ * never disagree with the server at the UTC-vs-local date boundary - a release dated exactly
+ * today-UTC used to be classified by the server into one section and re-classified away
+ * client-side into none, dropping the row while the pager still counted it.
+ */
+export function utcToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }

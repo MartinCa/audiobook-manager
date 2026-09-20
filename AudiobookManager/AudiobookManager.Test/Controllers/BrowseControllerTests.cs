@@ -1,3 +1,4 @@
+using AudiobookManager.Api;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -744,7 +745,7 @@ public class BrowseControllerTests
     {
         var result = await _controller.MatchAuthor(7, new MatchAuthorDto("", "Hardcover", null));
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
         _upcomingReleaseService.Verify(
             s => s.MatchAuthorAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
             Times.Never);
@@ -755,15 +756,20 @@ public class BrowseControllerTests
     {
         var result = await _controller.MatchAuthor(7, null);
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "SourceId and SourceName are required.");
     }
 
     [TestMethod]
     public async Task MatchAuthor_ValidRequest_MatchesThenRefreshesTheRosterUnderTheSharedLock()
     {
+        var refreshedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson") { LastRefreshedAt = refreshedAt });
+
         var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", "https://hardcover.app/authors/123"));
 
-        Assert.IsInstanceOfType(result, typeof(OkResult));
+        var ok = result.Value!;
+        Assert.IsTrue(ok.Success);
+        Assert.AreEqual(refreshedAt, ok.LastRefreshedAt);
         _upcomingReleaseService.Verify(
             s => s.MatchAuthorAsync(7, "123", "Hardcover", "https://hardcover.app/authors/123"), Times.Once);
         // The match persists first; the roster refresh then runs under the same author-refresh
@@ -783,7 +789,7 @@ public class BrowseControllerTests
         {
             var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", null));
 
-            ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict, "An author-roster refresh is already in progress.");
+            ProblemAssert.HasDetail(result.Result, StatusCodes.Status409Conflict, "An author-roster refresh is already in progress.");
             _upcomingReleaseService.Verify(
                 s => s.MatchAuthorAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
                 Times.Never);
@@ -795,10 +801,15 @@ public class BrowseControllerTests
         }
     }
 
-    // Regression: the match must persist even when the refresh that follows fails (e.g. the
-    // source's daily budget) - the error surfaces, but the next periodic sweep picks the roster up.
+    // Regression (review finding): the match is persist-first - the match is stored BEFORE the
+    // refresh, so a refresh failure AFTER it was stored (e.g. the source's daily budget) must not
+    // reject the request as though the match had failed. The response is a 200 with
+    // Success=false, which the client treats as "matched, refresh pending": the dialog closes,
+    // the caches invalidate, and the next periodic sweep picks the roster up. The old behavior -
+    // a 400 rejection on these paths - left the UI showing the author as unmatched until a full
+    // reload and made every retry repeat the same refresh failure.
     [TestMethod]
-    public async Task MatchAuthor_RefreshFails_MatchStaysPersistedAndTheErrorSurfaces()
+    public async Task MatchAuthor_RefreshFails_MatchStaysPersisted_AndReturnsSuccessFalse()
     {
         _upcomingReleaseService
             .Setup(s => s.RefreshAuthorRosterAsync(7))
@@ -806,9 +817,30 @@ public class BrowseControllerTests
 
         var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", null));
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Hardcover daily request limit of 5000 requests has been reached for today (UTC). Further requests are blocked until the limit resets at UTC midnight.");
+        var ok = result.Value!;
+        Assert.IsFalse(ok.Success, "the match persisted, only the roster refresh failed");
+        Assert.IsNull(ok.LastRefreshedAt);
         _upcomingReleaseService.Verify(
             s => s.MatchAuthorAsync(7, "123", "Hardcover", null), Times.Once,
+            "the match is stored BEFORE the refresh is attempted");
+    }
+
+    // The refresh can also fail because the source cannot resolve the id the user JUST supplied
+    // (deleted/merged upstream or a transient response) - the same AuthorNotFoundException path,
+    // and the match stays stored, so it too reports Success=false rather than rejecting.
+    [TestMethod]
+    public async Task MatchAuthor_ScraperCannotResolveAuthor_MatchStaysPersisted_AndReturnsSuccessFalse()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.RefreshAuthorRosterAsync(7))
+            .ThrowsAsync(new AuthorNotFoundException("Could not parse \"nope\" as a numeric Hardcover author id."));
+
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("nope", "Hardcover", null));
+
+        var ok = result.Value!;
+        Assert.IsFalse(ok.Success);
+        _upcomingReleaseService.Verify(
+            s => s.MatchAuthorAsync(7, "nope", "Hardcover", null), Times.Once,
             "the match is stored BEFORE the refresh is attempted");
     }
 
@@ -821,28 +853,27 @@ public class BrowseControllerTests
 
         var result = await _controller.MatchAuthor(999, new MatchAuthorDto("123", "Hardcover", null));
 
-        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+        Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
         _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(It.IsAny<long>()), Times.Never);
     }
 
-    // Regression (review finding): the match-triggered refresh can fail because the source cannot
-    // resolve the id the user JUST supplied - same AuthorNotFoundException mapping as the
-    // explicit refresh, and the match stays stored (the periodic sweep picks the roster up once
-    // the source resolves the author again).
+    // Regression (review finding): only the KNOWN refresh failures map to a 200 Success=false.
+    // A genuine request-level failure - here an unexpected exception from the refresh step - must
+    // still reject with 500, so the client's error path (keep the dialog open, show the error)
+    // stays reachable and the fixed sentence never leaks internals.
     [TestMethod]
-    public async Task MatchAuthor_ScraperCannotResolveAuthor_ReturnsInvalidRequest()
+    public async Task MatchAuthor_UnexpectedRefreshFailure_StillRejectsWithUnexpectedError()
     {
         _upcomingReleaseService
             .Setup(s => s.RefreshAuthorRosterAsync(7))
-            .ThrowsAsync(new AuthorNotFoundException("Could not parse \"nope\" as a numeric Hardcover author id."));
+            .ThrowsAsync(new InvalidOperationException("boom"));
 
-        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("nope", "Hardcover", null));
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", null));
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest,
-            "Could not parse \"nope\" as a numeric Hardcover author id.");
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status500InternalServerError, ProblemResults.UnexpectedErrorDetail);
         _upcomingReleaseService.Verify(
-            s => s.MatchAuthorAsync(7, "nope", "Hardcover", null), Times.Once,
-            "the match is stored BEFORE the refresh is attempted");
+            s => s.MatchAuthorAsync(7, "123", "Hardcover", null), Times.Once,
+            "the match itself succeeded before the unexpected refresh failure");
     }
 
     [TestMethod]

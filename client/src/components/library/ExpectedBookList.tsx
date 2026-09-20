@@ -16,6 +16,14 @@ interface ExpectedBookListProps {
   /** Every ignored entry in the scope, rendered faded at the bottom of this list when
    *  `showIgnored` is on and the row classifies as this section. */
   ignoredItems: ExpectedBookRow[];
+  /** True when `ignoredItems` already arrive split by the server into THIS section's own ignored
+   *  classification (SeriesDetail's paged ignoredMissingBooks/ignoredUpcomingBooks are
+   *  pre-classified), so the per-row re-classification here is skipped. Re-filtering a
+   *  pre-classified list with the client's own clock disagreed with the server's UTC
+   *  classification at the day boundary and dropped the very rows the pager still counted.
+   *  AuthorDetail passes a single mixed in-memory ignored list and leaves this off - it keeps the
+   *  client-side classification, which is UTC-correct via isBookUpcoming's default today. */
+  ignoredItemsPreClassified?: boolean;
   /** Total ignored entries in the scope - drives the overflow note when the loaded ignored page
    *  does not carry all of them (and the pager's total when one is wired). */
   ignoredTotal: number;
@@ -52,6 +60,7 @@ export function ExpectedBookList({
   section,
   items,
   ignoredItems,
+  ignoredItemsPreClassified,
   ignoredTotal,
   showIgnored,
   ignoredPager,
@@ -61,10 +70,16 @@ export function ExpectedBookList({
   onUnignore,
   onFindInLibrary,
 }: ExpectedBookListProps) {
+  // A pre-classified ignored list (SeriesDetail) is trusted as-is: the server already disposed
+  // of the Missing-vs-Upcoming split with its own UTC clock, and re-classifying it here with the
+  // local one can drop boundary rows. Only the mixed in-memory list (AuthorDetail) needs the
+  // client-side split.
   const visibleIgnored = showIgnored
-    ? ignoredItems.filter(
-        (book) => isBookUpcoming(book.releaseDate, book.year) === (section === "upcoming"),
-      )
+    ? ignoredItemsPreClassified
+      ? ignoredItems
+      : ignoredItems.filter(
+          (book) => isBookUpcoming(book.releaseDate, book.year) === (section === "upcoming"),
+        )
     : [];
   const rows = [...items, ...visibleIgnored];
 

@@ -790,6 +790,10 @@ export function SeriesDetail() {
             section="missing"
             items={missingBooks}
             ignoredItems={ignoredMissingBooks}
+            // The server pre-splits and pages each ignored classification with its own UTC clock;
+            // re-classifying the rows here with the local one dropped boundary rows the pager
+            // still counted.
+            ignoredItemsPreClassified
             ignoredTotal={ignoredMissingSection.totalCount}
             ignoredPager={{
               currentPage: currentIgnoredMissingPage,
@@ -826,6 +830,7 @@ export function SeriesDetail() {
             section="upcoming"
             items={upcomingBooks}
             ignoredItems={ignoredUpcomingBooks}
+            ignoredItemsPreClassified
             ignoredTotal={ignoredUpcomingSection.totalCount}
             ignoredPager={{
               currentPage: currentIgnoredUpcomingPage,

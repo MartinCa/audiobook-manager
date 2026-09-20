@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
+using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
@@ -58,11 +59,16 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IExpectedBookRepository _expectedBookRepository;
+    private readonly ILogger<AuthorReconciliationProvider> _logger;
 
-    public AuthorReconciliationProvider(IAudiobookRepository audiobookRepository, IExpectedBookRepository expectedBookRepository)
+    public AuthorReconciliationProvider(
+        IAudiobookRepository audiobookRepository,
+        IExpectedBookRepository expectedBookRepository,
+        ILogger<AuthorReconciliationProvider> logger)
     {
         _audiobookRepository = audiobookRepository;
         _expectedBookRepository = expectedBookRepository;
+        _logger = logger;
     }
 
     public async Task<AuthorReconciliation> GetReconciliationAsync(long personId, bool includeMissingSeries = true)
@@ -156,11 +162,25 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
             .Where(g => g.Count() <= MaxReconciliationRosterEntries)
             .Select(g => g.Key)
             .ToList();
-        var totalKeyCap = (int)Math.Min(
-            (long)personIdsForOwnedKeys.Count * (MaxReconciliationOwnedKeys + 1),
-            int.MaxValue);
+
+        // The flat total cap is person count times the per-author cap plus one, computed in
+        // <see cref="long"/> because the intermediate product overflows an int already past
+        // ~107k authors - and the deliberate refusal below is why that matters. If the true total
+        // cannot be expressed as an int cap, the filter is refused up front (with a log) rather
+        // than clamped: the old clamp handed the repository an int.MaxValue cap whose
+        // Take(cap + 1) probe overflowed back, silently turning a genuinely enormous but
+        // per-author-legitimate roster into an empty/truncated read.
+        var computedCap = ComputeTotalKeyCap(personIdsForOwnedKeys.Count);
+        if (computedCap is null)
+        {
+            _logger.LogWarning(
+                "Refusing the bulk authors filter: the batched owned-key read for {PersonCount} rostered authors needs a flat total cap above the largest int the query can take.",
+                personIdsForOwnedKeys.Count);
+            return new AuthorBulkReconciliationResult(new HashSet<long>(), new HashSet<long>(), Refused: true);
+        }
+
         var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetOwnedKeysByAuthorsAsync(
-            personIdsForOwnedKeys, totalKeyCap);
+            personIdsForOwnedKeys, computedCap.Value);
         if (ownedOverflow)
         {
             return new AuthorBulkReconciliationResult(new HashSet<long>(), new HashSet<long>(), Refused: true);
@@ -213,6 +233,22 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
         }
 
         return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false);
+    }
+
+    /// <summary>
+    /// The flat total cap for the batched owned-key read
+    /// (<see cref="IAudiobookRepository.GetOwnedKeysByAuthorsAsync"/>): every requested author's
+    /// key set must be complete below it, so it is exactly the person count times the per-author
+    /// cap plus one - computed in <see cref="long"/> because the intermediate product overflows an
+    /// <see cref="int"/> already past ~107k rostered authors. Returns null when the true total
+    /// exceeds <c>int.MaxValue - 1</c>, the largest cap the repository's
+    /// <c>Take(cap + 1)</c> probe can express without overflowing back (its own bound is an int),
+    /// and the caller should refuse the filter deliberately rather than clamp to a truncated read.
+    /// </summary>
+    internal static int? ComputeTotalKeyCap(int rosterPersonCount)
+    {
+        var total = (long)rosterPersonCount * (MaxReconciliationOwnedKeys + 1);
+        return total > int.MaxValue - 1 ? null : (int)total;
     }
 
     // --- Matching -------------------------------------------------------------
