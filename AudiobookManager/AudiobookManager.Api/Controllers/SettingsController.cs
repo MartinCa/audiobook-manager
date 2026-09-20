@@ -90,6 +90,19 @@ public class SettingsController : ControllerBase
         // whole object, but the DTO deliberately made these fields optional so an older client
         // (or a narrow PUT) does not silently zero/disable them.
         var current = await _settingsService.GetLibrarySettings();
+
+        InitialsPunctuation parsedPunctuation;
+        if (dto.InitialsPunctuation is null)
+        {
+            parsedPunctuation = current.InitialsPunctuation;
+        }
+        else if (!Enum.TryParse(dto.InitialsPunctuation, ignoreCase: true, out parsedPunctuation))
+        {
+            return this.InvalidRequest(
+                $"'{dto.InitialsPunctuation}' is not a known initials punctuation. Use one of: " +
+                $"{string.Join(", ", Enum.GetNames<InitialsPunctuation>())}.");
+        }
+
         var delayMs = dto.MetadataRefreshDelayMs ?? current.MetadataRefreshDelayMs;
         if (delayMs < 0 || delayMs > 60_000)
         {
@@ -108,6 +121,7 @@ public class SettingsController : ControllerBase
         var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
         {
             InitialsSpacing = parsed,
+            InitialsPunctuation = parsedPunctuation,
             MetadataRefreshDelayMs = delayMs,
             UpcomingReleasesEnabled = upcomingReleasesEnabled,
             UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
@@ -127,6 +141,7 @@ public class SettingsController : ControllerBase
     private static LibrarySettingsDto ToDto(Domain.LibrarySettings settings) =>
         new(
             settings.InitialsSpacing.ToString(),
+            settings.InitialsPunctuation.ToString(),
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
             settings.UpcomingReleasesCronSchedule);

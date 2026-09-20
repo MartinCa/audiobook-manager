@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using DbInitialsSpacing = AudiobookManager.Database.Models.InitialsSpacing;
+using DbInitialsPunctuation = AudiobookManager.Database.Models.InitialsPunctuation;
 
 namespace AudiobookManager.Test.Repositories;
 
@@ -62,7 +63,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task GetOrCreateAsync_RowExists_ReturnsItWithoutInserting()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000, true, "0 3 * * *");
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
 
         var settings = await _repository.GetOrCreateAsync();
 
@@ -73,7 +74,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_NoRowYet_CreatesRowWithTheRequestedValue()
     {
-        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000, true, "0 3 * * *");
+        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
 
         Assert.AreEqual(DbInitialsSpacing.Spaced, settings.InitialsSpacing);
         using var freshContext = OpenNewContext();
@@ -83,8 +84,8 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_RowExists_UpdatesItInPlace()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, 1000, true, "0 3 * * *");
-        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, 1000, true, "0 3 * * *");
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
+        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
 
         Assert.AreEqual(1, await _db.LibrarySettings.CountAsync());
         Assert.AreEqual(DbInitialsSpacing.Unspaced, (await _repository.GetOrCreateAsync()).InitialsSpacing);
@@ -127,7 +128,8 @@ public class LibrarySettingsRepositoryTests
             using var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
             var repository = new LibrarySettingsRepository(context);
             return await repository.UpdateAsync(
-                i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced, 1000, true, "0 3 * * *");
+                i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced,
+                DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
         }));
 
         await Task.WhenAll(tasks);

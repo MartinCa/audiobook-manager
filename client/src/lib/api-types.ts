@@ -4960,6 +4960,7 @@ export interface components {
         };
         LibrarySettingsDto: {
             initialsSpacing?: string | null;
+            initialsPunctuation?: string | null;
             /** Format: int32 */
             metadataRefreshDelayMs?: number;
             upcomingReleasesEnabled?: boolean;
@@ -5418,6 +5419,7 @@ export interface components {
         };
         UpdateLibrarySettingsDto: {
             initialsSpacing?: string | null;
+            initialsPunctuation?: string | null;
             /** Format: int32 */
             metadataRefreshDelayMs?: number | null;
             upcomingReleasesEnabled?: boolean | null;

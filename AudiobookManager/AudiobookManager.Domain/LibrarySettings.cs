@@ -9,6 +9,8 @@ public class LibrarySettings
 {
     public InitialsSpacing InitialsSpacing { get; set; } = InitialsSpacing.Unspaced;
 
+    public InitialsPunctuation InitialsPunctuation { get; set; } = InitialsPunctuation.Dotted;
+
     /// <summary>
     /// Delay the bulk metadata-refresh loop waits between consecutive source requests
     /// (milliseconds). Applies to the bulk loop only; a single-book refresh never waits.

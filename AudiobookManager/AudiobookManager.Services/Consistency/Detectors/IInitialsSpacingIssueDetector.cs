@@ -14,5 +14,6 @@ namespace AudiobookManager.Services;
 /// </summary>
 public interface IInitialsSpacingIssueDetector
 {
-    IEnumerable<ConsistencyIssue> Detect(IReadOnlyList<DbAudiobook> audiobooks, Domain.InitialsSpacing spacing);
+    IEnumerable<ConsistencyIssue> Detect(
+        IReadOnlyList<DbAudiobook> audiobooks, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation);
 }

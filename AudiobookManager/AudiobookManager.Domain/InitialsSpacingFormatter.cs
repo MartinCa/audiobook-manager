@@ -3,26 +3,29 @@ using System.Text;
 namespace AudiobookManager.Domain;
 
 /// <summary>
-/// Re-spaces the run of dotted single-letter initials in a person name to follow a
-/// <see cref="InitialsSpacing"/> preference. The complement of the client-side typeahead fold in
-/// <c>similarValueMatcher.ts</c> (which only collapses dotted-initial spaces to make typing match
-/// stored names): this is the canonicalizer that defines what a *stored* library name should look
-/// like, and what the initials-spacing consistency check validates against.
+/// Re-spaces and re-punctuates the run of single-letter initials in a person name to follow
+/// <see cref="InitialsSpacing"/> and <see cref="InitialsPunctuation"/> preferences. The complement
+/// of the client-side typeahead fold in <c>similarValueMatcher.ts</c> (which only collapses dotted-
+/// initial spaces to make typing match stored names): this is the canonicalizer that defines what a
+/// *stored* library name should look like, and what the initials-spacing consistency check
+/// validates against.
 ///
-/// Only whitespace BETWEEN two adjacent dotted initials is governed ("J. K. Rowling" vs
-/// "J.K. Rowling"). The space between the last initial and the following word is always a single
-/// space, whatever the setting is: "J.K.Rowling" is never the canonical form.
+/// The two settings are independent: <see cref="InitialsSpacing"/> governs the whitespace BETWEEN
+/// adjacent initials, <see cref="InitialsPunctuation"/> governs whether each initial carries a
+/// trailing period. The space between the last initial and the following word is always a single
+/// space, whatever either setting is: "J.R.Tolkien" and "J R Tolkien" (no space before the
+/// surname) are never canonical forms.
 /// </summary>
 public static class InitialsSpacingFormatter
 {
     /// <summary>
-    /// Formats <paramref name="name"/> to the canonical form under <paramref name="spacing"/>.
-    /// A name with no dotted initials (or only one) round-trips unchanged.
+    /// Formats <paramref name="name"/> to the canonical form under <paramref name="spacing"/> and
+    /// <paramref name="punctuation"/>. A name with no initials round-trips unchanged.
     /// </summary>
-    public static string Format(string name, InitialsSpacing spacing)
+    public static string Format(string name, InitialsSpacing spacing, InitialsPunctuation punctuation)
     {
-        // Runs of adjacent dotted single-letter initials, e.g. ["J.", "K."] from "J. K. Rowling"
-        // or ["J.", "K."] parsed out of the single token "J.K.".
+        // Runs of adjacent single-letter initials, e.g. ["J", "K"] from "J. K. Rowling", "J K
+        // Rowling", or parsed out of a single concatenated token like "J.K." or "JK".
         var initialsRun = new List<string>();
         var result = new StringBuilder();
         var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -31,13 +34,11 @@ public static class InitialsSpacingFormatter
         {
             if (IsInitialToken(token))
             {
-                // Split a concatenated token ("J.K.") into its single initials; a token that is
-                // already a single initial ("J.") is its own split result.
                 initialsRun.AddRange(SplitInitialToken(token));
             }
             else
             {
-                FlushInitialsRun(result, initialsRun, spacing);
+                FlushInitialsRun(result, initialsRun, spacing, punctuation);
                 if (result.Length > 0)
                 {
                     result.Append(' ');
@@ -46,37 +47,76 @@ public static class InitialsSpacingFormatter
             }
         }
 
-        FlushInitialsRun(result, initialsRun, spacing);
+        FlushInitialsRun(result, initialsRun, spacing, punctuation);
         return result.ToString();
     }
 
-    /// <summary>True when <paramref name="name"/> already follows <paramref name="spacing"/>.</summary>
-    public static bool IsCompliant(string name, InitialsSpacing spacing) =>
-        string.Equals(Format(name, spacing), name, StringComparison.Ordinal);
+    /// <summary>
+    /// True when <paramref name="name"/> already follows <paramref name="spacing"/> and
+    /// <paramref name="punctuation"/>.
+    /// </summary>
+    public static bool IsCompliant(string name, InitialsSpacing spacing, InitialsPunctuation punctuation) =>
+        string.Equals(Format(name, spacing, punctuation), name, StringComparison.Ordinal);
 
     /// <summary>
-    /// An initial token is a chain of single letters each followed by a period, with no spaces:
-    /// "J.", "K.", "J.K.", "J.R.R.". Multi-letter dotless words ("Rowling", "St.", "Jr.") are not
-    /// initials: "St." is S-t-dot (two letters before the dot) and fails the single-letter rule.
+    /// An initial token is either a chain of single letters each followed by a period, with no
+    /// spaces ("J.", "K.", "J.K.", "J.R.R."), or a bare chain of single uppercase letters with no
+    /// periods ("J", "JK", "JRR"). Multi-letter dotless words ("Rowling", "St.", "Jr.") are not
+    /// initials: "St." is S-t-dot (two letters before the dot) and fails the dotted single-letter
+    /// rule, and "Rowling" fails the undotted all-uppercase rule.
+    ///
+    /// The undotted rule is a heuristic shared with the rest of this canonicalizer: an all-
+    /// uppercase word that happens to be a real surname or initialism (e.g. "NG") is
+    /// indistinguishable from a run of undotted initials without more context, and is treated as
+    /// initials here, same as the existing tradeoff for the dotted form.
     /// </summary>
-    private static bool IsInitialToken(string token) =>
-        token.Length >= 2
-        && token[^1] == '.'
-        && token
-            .Chunk(2)
-            .All(pair => pair.Length == 2 && char.IsLetter(pair[0]) && pair[1] == '.');
+    private static bool IsInitialToken(string token)
+    {
+        if (token.Length == 0)
+        {
+            return false;
+        }
 
-    /// <summary>"J.K." -> ["J.", "K."]. Only called on tokens <see cref="IsInitialToken"/> accepts.</summary>
+        if (token[^1] == '.')
+        {
+            return token.Length >= 2
+                && token
+                    .Chunk(2)
+                    .All(pair => pair.Length == 2 && char.IsLetter(pair[0]) && pair[1] == '.');
+        }
+
+        return token.All(char.IsUpper);
+    }
+
+    /// <summary>
+    /// "J.K." -> ["J", "K"]; "JK" -> ["J", "K"]. The bare letters, with any period stripped -
+    /// <see cref="FlushInitialsRun"/> re-applies punctuation per the configured setting. Only
+    /// called on tokens <see cref="IsInitialToken"/> accepts.
+    /// </summary>
     private static IEnumerable<string> SplitInitialToken(string token)
     {
-        for (var i = 0; i < token.Length; i += 2)
+        if (token[^1] == '.')
         {
-            yield return token.Substring(i, 2);
+            for (var i = 0; i < token.Length; i += 2)
+            {
+                yield return token[i].ToString();
+            }
+        }
+        else
+        {
+            foreach (var c in token)
+            {
+                yield return c.ToString();
+            }
         }
     }
 
-    /// <summary>Appends the accumulated initials joined by either nothing or a single space.</summary>
-    private static void FlushInitialsRun(StringBuilder result, List<string> run, InitialsSpacing spacing)
+    /// <summary>
+    /// Appends the accumulated initials, each punctuated per <paramref name="punctuation"/> and
+    /// joined by either nothing or a single space per <paramref name="spacing"/>.
+    /// </summary>
+    private static void FlushInitialsRun(
+        StringBuilder result, List<string> run, InitialsSpacing spacing, InitialsPunctuation punctuation)
     {
         if (run.Count == 0)
         {
@@ -88,7 +128,9 @@ public static class InitialsSpacingFormatter
             result.Append(' ');
         }
 
-        result.Append(string.Join(spacing == InitialsSpacing.Spaced ? " " : "", run));
+        var punctuated = run.Select(letter =>
+            punctuation == InitialsPunctuation.Dotted ? letter + "." : letter);
+        result.Append(string.Join(spacing == InitialsSpacing.Spaced ? " " : "", punctuated));
         run.Clear();
     }
 }

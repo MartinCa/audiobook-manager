@@ -45,6 +45,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
 
     public async Task<LibrarySettings> UpdateAsync(
         InitialsSpacing initialsSpacing,
+        InitialsPunctuation initialsPunctuation,
         int metadataRefreshDelayMs,
         bool upcomingReleasesEnabled,
         string upcomingReleasesCronSchedule)
@@ -55,6 +56,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             settings = new LibrarySettings(
                 LibrarySettings.SingletonId,
                 initialsSpacing,
+                initialsPunctuation,
                 metadataRefreshDelayMs,
                 upcomingReleasesEnabled,
                 upcomingReleasesCronSchedule);
@@ -63,6 +65,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         else
         {
             settings.InitialsSpacing = initialsSpacing;
+            settings.InitialsPunctuation = initialsPunctuation;
             settings.MetadataRefreshDelayMs = metadataRefreshDelayMs;
             settings.UpcomingReleasesEnabled = upcomingReleasesEnabled;
             settings.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
@@ -81,6 +84,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
 
             var winner = await _db.LibrarySettings.SingleAsync();
             winner.InitialsSpacing = initialsSpacing;
+            winner.InitialsPunctuation = initialsPunctuation;
             winner.MetadataRefreshDelayMs = metadataRefreshDelayMs;
             winner.UpcomingReleasesEnabled = upcomingReleasesEnabled;
             winner.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;

@@ -140,7 +140,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // so both library-level findings share the same cleared-table lifecycle.
         var librarySettings = await _librarySettingsRepository.GetOrCreateAsync();
         var initialsSpacingIssues = _initialsSpacingIssueDetector.Detect(
-            audiobooks, librarySettings.InitialsSpacing.ToDomain()).ToList();
+            audiobooks, librarySettings.InitialsSpacing.ToDomain(), librarySettings.InitialsPunctuation.ToDomain()).ToList();
         if (initialsSpacingIssues.Count > 0)
         {
             await _issueRepository.InsertRangeAsync(initialsSpacingIssues);

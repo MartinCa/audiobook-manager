@@ -13,7 +13,7 @@ namespace AudiobookManager.Services;
 public class InitialsSpacingIssueDetector : IInitialsSpacingIssueDetector
 {
     public IEnumerable<ConsistencyIssue> Detect(
-        IReadOnlyList<DbAudiobook> audiobooks, Domain.InitialsSpacing spacing)
+        IReadOnlyList<DbAudiobook> audiobooks, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
     {
         // name -> (representative audiobook id, book count)
         var persons = new Dictionary<string, (long AudiobookId, int Count)>(StringComparer.Ordinal);
@@ -43,20 +43,21 @@ public class InitialsSpacingIssueDetector : IInitialsSpacingIssueDetector
 
         foreach (var (name, (representativeAudiobookId, count)) in persons.OrderBy(p => p.Key, StringComparer.InvariantCulture))
         {
-            var canonical = InitialsSpacingFormatter.Format(name, spacing);
+            var canonical = InitialsSpacingFormatter.Format(name, spacing, punctuation);
             if (canonical == name)
             {
                 continue; // already compliant
             }
 
             var spacingLabel = spacing == Domain.InitialsSpacing.Spaced ? "spaced" : "unspaced";
+            var punctuationLabel = punctuation == Domain.InitialsPunctuation.Dotted ? "dotted" : "undotted";
             yield return new ConsistencyIssue
             {
                 AudiobookId = representativeAudiobookId,
                 IssueType = ConsistencyIssueType.InitialsSpacingMismatch,
                 Description =
                     $"'{name}' ({count} book{(count == 1 ? "" : "s")}) does not follow the configured "
-                    + $"{spacingLabel} initials style. Resolving renames it to '{canonical}' on every book.",
+                    + $"{spacingLabel}, {punctuationLabel} initials style. Resolving renames it to '{canonical}' on every book.",
                 ExpectedValue = canonical,
                 ActualValue = name,
                 DetectedAt = DateTime.UtcNow

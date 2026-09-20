@@ -39,6 +39,7 @@ function renderPage(
 function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings {
   return {
     initialsSpacing: "Unspaced",
+    initialsPunctuation: "Dotted",
     metadataRefreshDelayMs: 1000,
     upcomingReleasesEnabled: true,
     upcomingReleasesCronSchedule: "0 3 * * *",
@@ -46,18 +47,33 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
   };
 }
 
+// The spacing select is rendered before the punctuation select, so the first combobox is always
+// spacing and the second is always punctuation.
+async function findSpacingCombo() {
+  const [spacing] = await screen.findAllByRole("combobox");
+  if (!spacing) throw new Error("Expected the spacing combobox to be rendered");
+  return spacing;
+}
+
+async function findPunctuationCombo() {
+  const [, punctuation] = await screen.findAllByRole("combobox");
+  if (!punctuation) throw new Error("Expected the punctuation combobox to be rendered");
+  return punctuation;
+}
+
 describe("LibrarySettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("loads and displays the current initials spacing", async () => {
+  it("loads and displays the current initials spacing and punctuation", async () => {
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
 
     renderPage();
 
     expect(await screen.findByText("Library Settings")).toBeInTheDocument();
-    expect(await screen.findByRole("combobox")).toHaveTextContent("Unspaced (J.K. Rowling)");
+    expect(await findSpacingCombo()).toHaveTextContent("Unspaced (J.K. Rowling)");
+    expect(await findPunctuationCombo()).toHaveTextContent("Dotted (J. R. R. Tolkien)");
   });
 
   it("loads and displays the current upcoming-releases schedule", async () => {
@@ -81,7 +97,7 @@ describe("LibrarySettingsPage", () => {
 
     renderPage();
 
-    const comboBox = await screen.findByRole("combobox");
+    const comboBox = await findSpacingCombo();
     await user.click(comboBox);
     const spacedOption = (await screen.findAllByRole("option")).find(
       (el) => el.textContent === "Spaced (J. K. Rowling)",
@@ -94,6 +110,37 @@ describe("LibrarySettingsPage", () => {
     await waitFor(() => {
       expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith({
         initialsSpacing: "Spaced",
+        initialsPunctuation: "Dotted",
+        upcomingReleasesEnabled: true,
+        upcomingReleasesCronSchedule: "0 3 * * *",
+      });
+    });
+    expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
+  });
+
+  it("sends an update when a different punctuation is chosen", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ initialsPunctuation: "Undotted" }),
+    );
+
+    renderPage();
+
+    const comboBox = await findPunctuationCombo();
+    await user.click(comboBox);
+    const undottedOption = (await screen.findAllByRole("option")).find(
+      (el) => el.textContent === "Undotted (J R R Tolkien)",
+    );
+    expect(undottedOption).toBeDefined();
+    await user.click(undottedOption!);
+
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith({
+        initialsSpacing: "Unspaced",
+        initialsPunctuation: "Undotted",
         upcomingReleasesEnabled: true,
         upcomingReleasesCronSchedule: "0 3 * * *",
       });
@@ -118,6 +165,7 @@ describe("LibrarySettingsPage", () => {
     await waitFor(() => {
       expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith({
         initialsSpacing: "Unspaced",
+        initialsPunctuation: "Dotted",
         upcomingReleasesEnabled: false,
         upcomingReleasesCronSchedule: "0 5 * * *",
       });
@@ -155,7 +203,7 @@ describe("LibrarySettingsPage", () => {
 
     renderPage();
 
-    const comboBox = await screen.findByRole("combobox");
+    const comboBox = await findSpacingCombo();
     await user.click(comboBox);
     const spacedOption = (await screen.findAllByRole("option")).find(
       (el) => el.textContent === "Spaced (J. K. Rowling)",

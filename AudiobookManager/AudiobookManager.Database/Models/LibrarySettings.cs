@@ -25,6 +25,9 @@ public class LibrarySettings
     [Column("initials_spacing")]
     public InitialsSpacing InitialsSpacing { get; set; } = InitialsSpacing.Unspaced;
 
+    [Column("initials_punctuation")]
+    public InitialsPunctuation InitialsPunctuation { get; set; } = InitialsPunctuation.Dotted;
+
     /// <summary>
     /// Delay the bulk metadata-refresh loop waits between consecutive source requests. Exists to
     /// be kind to scrapers without a client-side rate limiter (Goodreads/Audible); Hardcover
@@ -51,12 +54,14 @@ public class LibrarySettings
     public LibrarySettings(
         long id,
         InitialsSpacing initialsSpacing,
+        InitialsPunctuation initialsPunctuation = InitialsPunctuation.Dotted,
         int metadataRefreshDelayMs = 1000,
         bool upcomingReleasesEnabled = true,
         string upcomingReleasesCronSchedule = "0 3 * * *")
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
+        InitialsPunctuation = initialsPunctuation;
         MetadataRefreshDelayMs = metadataRefreshDelayMs;
         UpcomingReleasesEnabled = upcomingReleasesEnabled;
         UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
