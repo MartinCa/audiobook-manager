@@ -25,19 +25,21 @@ public class Person
     public List<Audiobook> BooksNarrated { get; set; }
 
     /// <summary>
-    /// The source-specific author identifier this person is matched to (currently always a
-    /// Hardcover author id), or null when unmatched. Follows <see cref="Series.MatchedSourceId"/>'s
-    /// shape - a matched author is what lets the upcoming-releases worker poll a source for this
-    /// person's future books.
+    /// The metadata source this person is matched to (e.g. "Hardcover" - currently the only
+    /// source with author-lookup support, see IUpcomingReleaseService.AuthorLookupScraper), or
+    /// null when unmatched. Mirrors <see cref="Series.MatchedSourceName"/>'s shape - a matched
+    /// author is what lets the upcoming-releases worker poll that source for this person's
+    /// future books.
     /// </summary>
-    [Column("hardcover_author_id")]
-    public string? HardcoverAuthorId { get; set; }
+    [Column("matched_source_name")]
+    public string? MatchedSourceName { get; set; }
 
-    [Column("hardcover_author_name")]
-    public string? HardcoverAuthorName { get; set; }
+    /// <summary>The source-specific author identifier, e.g. a Hardcover author id.</summary>
+    [Column("matched_source_id")]
+    public string? MatchedSourceId { get; set; }
 
-    [Column("hardcover_author_url")]
-    public string? HardcoverAuthorUrl { get; set; }
+    [Column("matched_source_url")]
+    public string? MatchedSourceUrl { get; set; }
 
     /// <summary>
     /// When this author's standalone-books roster (<see cref="AuthorExpectedBook"/>) was last

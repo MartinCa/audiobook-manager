@@ -47,7 +47,7 @@ public class AuthorFollowRepository : IAuthorFollowRepository
     {
         return await _db.AuthorFollows
             .AsNoTracking()
-            .Where(f => f.Person.HardcoverAuthorId != null && f.Person.HardcoverAuthorId != "")
+            .Where(f => f.Person.MatchedSourceId != null && f.Person.MatchedSourceId != "")
             .Select(f => f.Person)
             .ToListAsync();
     }

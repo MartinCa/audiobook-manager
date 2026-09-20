@@ -8,7 +8,7 @@
 // The index signature lets these pass directly as EntityFilterBar's generic FilterValueMap
 // (the shared bar is written against string keys, not either page's specific field names).
 export interface EntityListFilters {
-  [key: string]: boolean | number | string | undefined;
+  [key: string]: boolean | number | string | string[] | undefined;
   followed?: boolean;
   matched?: boolean;
   hasMissingBooks?: boolean;
@@ -16,6 +16,7 @@ export interface EntityListFilters {
   refreshedAfter?: string;
   refreshedBefore?: string;
   neverRefreshed?: boolean;
+  sources?: string[];
 }
 
 export interface SeriesListFilters extends EntityListFilters {
@@ -26,6 +27,16 @@ export interface SeriesListFilters extends EntityListFilters {
 export interface AuthorListFilters extends EntityListFilters {
   minBookCount?: number;
   maxBookCount?: number;
+}
+
+/** The book-list filters BrowseController.GetAudiobooks/SearchAudiobooks accept. */
+export interface BookListFilters {
+  [key: string]: boolean | number | string | string[] | undefined;
+  sources?: string[];
+  genres?: string[];
+  languages?: string[];
+  minDurationInSeconds?: number;
+  maxDurationInSeconds?: number;
 }
 
 /** Whether any filter field is actually set - lets a caller skip sending an empty filter object. */

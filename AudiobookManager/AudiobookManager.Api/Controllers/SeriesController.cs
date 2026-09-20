@@ -127,7 +127,8 @@ public class SeriesController : ControllerBase
         [FromQuery] bool? hasUpcomingBooks = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? sources = null)
     {
         var pagingError = ValidatePageSelection(page, pageSize, "series");
         if (pagingError != null)
@@ -152,7 +153,7 @@ public class SeriesController : ControllerBase
 
         var filter = new SeriesOverviewFilter(
             followed, minOwnedBooks, maxOwnedBooks, hasMissingBooks, hasUpcomingBooks,
-            refreshedAfter, refreshedBefore, neverRefreshed);
+            refreshedAfter, refreshedBefore, neverRefreshed, sources);
 
         var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(
             page, pageSize, search, matched, authorId: null, filter: filter.IsEmpty ? null : filter);

@@ -55,6 +55,17 @@ public class Audiobook
     [Column("www")]
     public string? Www { get; set; }
 
+    /// <summary>
+    /// The metadata source <see cref="Www"/> belongs to (e.g. "Audible", "Goodreads",
+    /// "Hardcover"), or null when <see cref="Www"/> is empty or does not match a known source -
+    /// the "Unsupported" bucket the book-list source filter offers. Kept in sync with
+    /// <see cref="Www"/> on every save by <see cref="Search.AccentFoldedColumnsInterceptor"/>
+    /// (whatever write path changed it), the same way the *_folded shadow columns are - it is
+    /// never set directly from a request DTO.
+    /// </summary>
+    [Column("matched_source_name")]
+    public string? MatchedSourceName { get; set; }
+
     [Column("cover_file_path")]
     public string? CoverFilePath { get; set; }
 

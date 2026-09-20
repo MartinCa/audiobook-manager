@@ -283,8 +283,21 @@ public class PersonRepository : IPersonRepository
         if (filter?.Matched is not null)
         {
             dbQuery = filter.Matched == true
-                ? dbQuery.Where(p => p.HardcoverAuthorId != null && p.HardcoverAuthorId != "")
-                : dbQuery.Where(p => p.HardcoverAuthorId == null || p.HardcoverAuthorId == "");
+                ? dbQuery.Where(p => p.MatchedSourceId != null && p.MatchedSourceId != "")
+                : dbQuery.Where(p => p.MatchedSourceId == null || p.MatchedSourceId == "");
+        }
+
+        if (filter?.Sources is { Count: > 0 } sources)
+        {
+            // "Unsupported" (AuthorSummaryFilter.UnsupportedSource) is the synthetic bucket for
+            // an unmatched author - there is no real MatchedSourceName to compare against, so it
+            // is handled separately from the real source names in the set.
+            var wantsUnsupported = sources.Contains(AuthorSummaryFilter.UnsupportedSource);
+            var realSources = sources.Where(s => s != AuthorSummaryFilter.UnsupportedSource).ToList();
+
+            dbQuery = dbQuery.Where(p =>
+                (realSources.Count > 0 && p.MatchedSourceName != null && realSources.Contains(p.MatchedSourceName))
+                || (wantsUnsupported && (p.MatchedSourceName == null || p.MatchedSourceName == "")));
         }
 
         if (filter?.NeverRefreshed == true)
@@ -425,14 +438,14 @@ public class PersonRepository : IPersonRepository
     public Task<Person?> GetByIdAsync(long id) =>
         _db.Persons.FirstOrDefaultAsync(p => p.Id == id);
 
-    public async Task SetHardcoverMatchAsync(long personId, string? sourceId, string? sourceName, string? sourceUrl)
+    public async Task SetAuthorMatchAsync(long personId, string? matchedSourceName, string? sourceId, string? sourceUrl)
     {
         var person = await _db.Persons.FirstOrDefaultAsync(p => p.Id == personId)
             ?? throw new KeyNotFoundException($"Person {personId} not found");
 
-        person.HardcoverAuthorId = sourceId;
-        person.HardcoverAuthorName = sourceName;
-        person.HardcoverAuthorUrl = sourceUrl;
+        person.MatchedSourceName = matchedSourceName;
+        person.MatchedSourceId = sourceId;
+        person.MatchedSourceUrl = sourceUrl;
         await _db.SaveChangesAsync();
     }
 
@@ -492,7 +505,7 @@ public class PersonRepository : IPersonRepository
     {
         return await _db.Persons
             .AsNoTracking()
-            .Where(p => p.HardcoverAuthorId != null && p.HardcoverAuthorId != "")
+            .Where(p => p.MatchedSourceId != null && p.MatchedSourceId != "")
             .ToListAsync();
     }
 

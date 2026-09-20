@@ -13,12 +13,24 @@ export type FilterFieldDef =
       beforeKey: string;
       neverKey?: string;
       neverLabel?: string;
+    }
+  | {
+      type: "multiselect";
+      key: string;
+      label: string;
+      options: string[];
+      /**
+       * Display text per option value, for a field whose stored value isn't itself human-readable
+       * (e.g. a language filter storing ISO codes) - falls back to the raw value when absent or
+       * when a specific option has no entry.
+       */
+      optionLabels?: Record<string, string>;
     };
 
-/** Loosely typed so callers can pass their own (SeriesListFilters/AuthorListFilters) shape. */
-export type FilterValueMap = Record<string, boolean | number | string | undefined>;
+/** Loosely typed so callers can pass their own (SeriesListFilters/AuthorListFilters/BookListFilters) shape. */
+export type FilterValueMap = Record<string, boolean | number | string | string[] | undefined>;
 
-export function tristateValue(v: boolean | number | string | undefined): string {
+export function tristateValue(v: boolean | number | string | string[] | undefined): string {
   return v === true ? "true" : v === false ? "false" : "any";
 }
 
@@ -50,8 +62,10 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
         });
       }
     } else if (field.type === "numberRange") {
-      const min = values[field.minKey];
-      const max = values[field.maxKey];
+      // A numberRange field's values are always number|undefined - the wider FilterValueMap type
+      // (shared with tristate/multiselect fields) is narrowed back here.
+      const min = values[field.minKey] as number | undefined;
+      const max = values[field.maxKey] as number | undefined;
       if (min !== undefined || max !== undefined) {
         const label =
           min !== undefined && max !== undefined
@@ -63,6 +77,16 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
           key: field.minKey,
           label,
           clear: () => ({ ...values, [field.minKey]: undefined, [field.maxKey]: undefined }),
+        });
+      }
+    } else if (field.type === "multiselect") {
+      const selected = values[field.key];
+      if (Array.isArray(selected) && selected.length > 0) {
+        const displayed = selected.map((v) => field.optionLabels?.[v] ?? v);
+        chips.push({
+          key: field.key,
+          label: `${field.label}: ${displayed.join(", ")}`,
+          clear: () => ({ ...values, [field.key]: undefined }),
         });
       }
     } else {

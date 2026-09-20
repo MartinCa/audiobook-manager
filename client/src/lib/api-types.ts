@@ -396,6 +396,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/filter-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BrowseFilterOptionsDto"];
+                        "application/json": components["schemas"]["BrowseFilterOptionsDto"];
+                        "text/json": components["schemas"]["BrowseFilterOptionsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/audiobooks": {
         parameters: {
             query?: never;
@@ -408,6 +445,11 @@ export interface paths {
                 query?: {
                     limit?: number;
                     offset?: number;
+                    sources?: string[];
+                    genres?: string[];
+                    languages?: string[];
+                    minDurationInSeconds?: number;
+                    maxDurationInSeconds?: number;
                 };
                 header?: never;
                 path?: never;
@@ -489,6 +531,11 @@ export interface paths {
                     q?: string;
                     limit?: number;
                     offset?: number;
+                    sources?: string[];
+                    genres?: string[];
+                    languages?: string[];
+                    minDurationInSeconds?: number;
+                    maxDurationInSeconds?: number;
                 };
                 header?: never;
                 path?: never;
@@ -621,6 +668,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    sources?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -2868,6 +2916,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    sources?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -4740,6 +4789,11 @@ export interface components {
             /** Format: int32 */
             total?: number;
             items?: components["schemas"]["AuthorSummaryDto"][] | null;
+        };
+        BrowseFilterOptionsDto: {
+            sources?: string[] | null;
+            genres?: string[] | null;
+            languages?: string[] | null;
         };
         BulkEditAudiobooksRequestDto: {
             audiobookIds: number[];

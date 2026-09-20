@@ -12,4 +12,11 @@ public interface IGenreRepository
     /// the input collapse to the same instance).
     /// </summary>
     Task<Dictionary<string, Genre>> GetOrCreateGenres(IEnumerable<string> names);
+
+    /// <summary>
+    /// The genre names for the book-list genre filter's dropdown, sorted alphabetically and
+    /// capped at <see cref="GenreRepository.MaxGenreNames"/> (by book count, so the most-used
+    /// genres survive the cap) - see AGENTS.md's bounded-list-endpoint invariant.
+    /// </summary>
+    Task<List<string>> GetAllGenreNamesAsync();
 }

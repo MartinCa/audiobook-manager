@@ -233,7 +233,7 @@ public class PersonRepositoryTests
     public async Task GetAuthorSummariesPagedAsync_MatchedFilter_IncludesOnlyMatchedAuthors()
     {
         var matched = await SeedAuthorWithBooksAsync("Matched Author", 1);
-        matched.HardcoverAuthorId = "hc-1";
+        matched.MatchedSourceId = "hc-1";
         await SeedAuthorWithBooksAsync("Unmatched Author", 1);
         await _db.SaveChangesAsync();
 

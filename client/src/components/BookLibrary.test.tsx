@@ -14,6 +14,7 @@ vi.mock("@/services/api", () => ({
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
     getAuthors: vi.fn().mockResolvedValue([]),
     getAudiobookDetail: vi.fn(),
+    getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
   },
   consistencyApi: {
     getIssues: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
@@ -169,7 +170,7 @@ describe("BookLibrary", () => {
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
     expect(screen.getByText("Words of Radiance")).toBeInTheDocument();
-    expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0);
+    expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {});
   });
 
   it("shows a pending-refresh badge for books with a stored snapshot", async () => {
@@ -201,7 +202,7 @@ describe("BookLibrary", () => {
     expect(input).toHaveValue("Kings");
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
-    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0);
+    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {});
   });
 
   it("updates URL search query when user types in search input", async () => {
@@ -216,7 +217,7 @@ describe("BookLibrary", () => {
     });
 
     await waitFor(() => {
-      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0);
+      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {});
     });
   });
 
@@ -369,7 +370,7 @@ describe("BookLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 20);
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 20, {});
     });
 
     // The pick survived the page change: book 1's row (rendered again on this mocked page) is

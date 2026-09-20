@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Library, Search, X, RefreshCw } from "lucide-react";
@@ -10,10 +10,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BookListRow } from "./library/BookListRow";
 import { BookBulkActionBar } from "./library/BookBulkActionBar";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
-import { browseApi, consistencyApi, metadataRefreshApi } from "@/services/api";
+import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
+import { countActiveFilters } from "@/components/filters/filterUtils";
+import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { languageLabel } from "@/helpers/languages";
 import { Route } from "@/routes/library/index";
+import type { BookListFilters } from "@/types/EntityFilters";
 
 /** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
 const NO_ISSUE_COUNTS: Record<number, number> = {};
@@ -24,10 +29,81 @@ const NO_PENDING_IDS: number[] = [];
 export function BookLibrary() {
   const navigate = useNavigate();
   const selection = useBookSelection();
-  const { q = "", page = 1 } = Route.useSearch();
+  const { q = "", page = 1, ...filterSearch } = Route.useSearch();
+  const filters: BookListFilters = filterSearch;
   const [prevQ, setPrevQ] = useState(q);
   const [searchQuery, setSearchQuery] = useState(q);
   const pageSize = 20;
+
+  // Source options come from whichever scrapers are actually registered (see
+  // BrowseController.GetFilterOptions), and genre/language options from what's actually present
+  // in the library - never a hardcoded list.
+  const filterOptionsQuery = useQuery({
+    queryKey: queryKeys.browseFilterOptions(),
+    queryFn: () => browseApi.getFilterOptions(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Language filter options are the raw stored values (ISO codes, or an unrecognized verbatim
+  // value - see AGENTS.md's "Language is a managed value" section), so they're mapped through the
+  // same display-name lookup every other language UI in the app uses rather than shown as raw
+  // codes. The filter's own value stays the raw code; only the label changes.
+  const languagesQuery = useQuery({
+    queryKey: queryKeys.languages(),
+    queryFn: () => settingsApi.getLanguages(),
+  });
+
+  const FILTER_FIELDS: FilterFieldDef[] = useMemo(() => {
+    const languageOptions = filterOptionsQuery.data?.languages ?? [];
+    const languageLabels = Object.fromEntries(
+      languageOptions.map((code) => [
+        code,
+        languageLabel(code, languagesQuery.data?.languages ?? []),
+      ]),
+    );
+
+    return [
+      {
+        type: "multiselect",
+        key: "sources",
+        label: "Metadata source",
+        options: filterOptionsQuery.data?.sources ?? [],
+      },
+      {
+        type: "multiselect",
+        key: "genres",
+        label: "Genre",
+        options: filterOptionsQuery.data?.genres ?? [],
+      },
+      {
+        type: "multiselect",
+        key: "languages",
+        label: "Language",
+        options: languageOptions,
+        optionLabels: languageLabels,
+      },
+      {
+        type: "numberRange",
+        label: "Duration (seconds)",
+        minKey: "minDurationInSeconds",
+        maxKey: "maxDurationInSeconds",
+      },
+    ];
+  }, [filterOptionsQuery.data, languagesQuery.data]);
+
+  // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
+  // expanded so the list isn't filtered with no visible explanation.
+  const [filtersExpanded, setFiltersExpanded] = useState(
+    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
+  );
+
+  const handleFiltersChange = (next: BookListFilters) => {
+    void navigate({
+      to: "/library",
+      search: (prev) => ({ ...prev, ...next, page: undefined }),
+      replace: true,
+    });
+  };
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -59,13 +135,13 @@ export function BookLibrary() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.books.page(q, page, pageSize),
+    queryKey: queryKeys.books.page(q, page, pageSize, filters),
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
       const [browseRes, issuesRes, pendingIds] = await Promise.all([
         q.trim()
-          ? browseApi.searchAudiobooks(q.trim(), pageSize, offset)
-          : browseApi.getAudiobooks(pageSize, offset),
+          ? browseApi.searchAudiobooks(q.trim(), pageSize, offset, filters)
+          : browseApi.getAudiobooks(pageSize, offset, filters),
         // The summary endpoint, which counts per audiobook in the database. This used to fetch
         // every issue and count them here - the whole table, including the metadata.opf and
         // description bodies stored on each row, to render a badge number per book.
@@ -181,6 +257,13 @@ export function BookLibrary() {
           ) : null}
         </div>
 
+        <FilterToggleButton
+          expanded={filtersExpanded}
+          onToggle={() => setFiltersExpanded((prev) => !prev)}
+          activeCount={countActiveFilters(FILTER_FIELDS, filters)}
+          controls="books-filter-panel"
+        />
+
         <div className="flex items-center gap-3">
           <Checkbox
             id="select-page"
@@ -206,6 +289,12 @@ export function BookLibrary() {
           </div>
         </div>
       </div>
+
+      {filtersExpanded && (
+        <div id="books-filter-panel">
+          <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
+        </div>
+      )}
 
       {loading && books.length === 0 ? (
         <div role="status" aria-label="Loading library audiobooks..." className="space-y-2">

@@ -3,6 +3,7 @@ using System;
 using AudiobookManager.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    partial class DatabaseContextModelSnapshot : ModelSnapshot
+    [Migration("20260920052717_AddMatchedSourceFilters")]
+    partial class AddMatchedSourceFilters
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -146,9 +149,6 @@ namespace AudiobookManager.Database.Migrations
 
                     b.HasIndex(new[] { "FileInfoFullPath" }, "ix_audiobooks_file_info_full_path")
                         .HasDatabaseName("ix_audiobooks_file_info_full_path");
-
-                    b.HasIndex(new[] { "MatchedSourceName" }, "ix_audiobooks_matched_source_name")
-                        .HasDatabaseName("ix_audiobooks_matched_source_name");
 
                     b.HasIndex(new[] { "Series" }, "ix_audiobooks_series")
                         .HasDatabaseName("ix_audiobooks_series");

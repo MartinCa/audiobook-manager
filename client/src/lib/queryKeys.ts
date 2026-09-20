@@ -1,4 +1,4 @@
-import type { AuthorListFilters, SeriesListFilters } from "@/types/EntityFilters";
+import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
 
 /**
  * TanStack Query key factories, one family per cached resource.
@@ -15,6 +15,10 @@ export const queryKeys = {
   entryStatus: (valueType: string, value: string) => ["entryStatus", valueType, value] as const,
 
   languages: () => ["languages"] as const,
+
+  // The book/author/series source filter dropdown options (registered scrapers) plus the book
+  // list's genre/language filter options - see BrowseController.GetFilterOptions.
+  browseFilterOptions: () => ["browseFilterOptions"] as const,
 
   directoryContents: (path: string) => ["directoryContents", path] as const,
 
@@ -43,7 +47,8 @@ export const queryKeys = {
 
   books: {
     all: () => ["books"] as const,
-    page: (q: string, page: number, pageSize: number) => ["books", q, page, pageSize] as const,
+    page: (q: string, page: number, pageSize: number, filters: BookListFilters = {}) =>
+      ["books", q, page, pageSize, filters] as const,
   },
 
   tagMismatch: (issueId: number | undefined) => ["tag-mismatch", issueId] as const,

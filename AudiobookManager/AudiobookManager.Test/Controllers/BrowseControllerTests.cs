@@ -6,6 +6,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
+using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +24,7 @@ public class BrowseControllerTests
 {
     private Mock<IAudiobookRepository> _audiobookRepo = null!;
     private Mock<IPersonRepository> _personRepo = null!;
+    private Mock<IGenreRepository> _genreRepo = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
@@ -35,6 +37,7 @@ public class BrowseControllerTests
     {
         _audiobookRepo = new Mock<IAudiobookRepository>();
         _personRepo = new Mock<IPersonRepository>();
+        _genreRepo = new Mock<IGenreRepository>();
         _seriesService = new Mock<ISeriesService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
@@ -51,8 +54,8 @@ public class BrowseControllerTests
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
         _controller = new BrowseController(
-            _audiobookRepo.Object, _personRepo.Object, _seriesService.Object,
-            _upcomingReleaseService.Object, _authorReconciliation.Object,
+            _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
+            _upcomingReleaseService.Object, _authorReconciliation.Object, Array.Empty<IScraper>(),
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
     }
@@ -631,9 +634,9 @@ public class BrowseControllerTests
         _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
         _personRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson")
         {
-            HardcoverAuthorId = "123",
-            HardcoverAuthorName = "Hardcover",
-            HardcoverAuthorUrl = "https://hardcover.app/authors/123",
+            MatchedSourceId = "123",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceUrl = "https://hardcover.app/authors/123",
         });
 
         var result = await _controller.GetAuthorMatch(7);

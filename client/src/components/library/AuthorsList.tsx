@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react";
@@ -16,7 +16,7 @@ import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
 import type { AuthorListFilters } from "@/types/EntityFilters";
 
-const FILTER_FIELDS: FilterFieldDef[] = [
+const BASE_FILTER_FIELDS: FilterFieldDef[] = [
   {
     type: "tristate",
     key: "followed",
@@ -63,10 +63,33 @@ export function AuthorsList() {
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   const [page, setPage] = useState(0);
+
+  // The source options come from whichever scrapers are actually registered (see
+  // BrowseController.GetFilterOptions), not a hardcoded list - a source-capable author-matching
+  // scraper is currently just Hardcover, but this stays correct if that changes.
+  const filterOptionsQuery = useQuery({
+    queryKey: queryKeys.browseFilterOptions(),
+    queryFn: () => browseApi.getFilterOptions(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const FILTER_FIELDS: FilterFieldDef[] = useMemo(
+    () => [
+      ...BASE_FILTER_FIELDS,
+      {
+        type: "multiselect",
+        key: "sources",
+        label: "Matched source",
+        options: filterOptionsQuery.data?.sources ?? [],
+      },
+    ],
+    [filterOptionsQuery.data],
+  );
+
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
   // expanded so the list isn't filtered with no visible explanation.
   const [filtersExpanded, setFiltersExpanded] = useState(
-    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
+    () => countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 || (filters.sources?.length ?? 0) > 0,
   );
 
   if (prevQ !== q) {

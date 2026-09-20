@@ -516,4 +516,23 @@ public class AudiobookRepositorySeriesOverviewPagingTests
 
         Assert.AreEqual(0, counts.Count);
     }
+
+    [TestMethod]
+    public async Task GetSeriesValuesPageAsync_FilteredBySource_ReturnsOnlyMatchingSeries()
+    {
+        await SeedBookAsync("Book One", "Mistborn");
+        await SeedCatalogRowAsync("Mistborn", matched: true);
+        await SeedBookAsync("Book Two", "Untouched Series");
+
+        var (matchedItems, matchedTotal) = await _repository.GetSeriesValuesPageAsync(
+            null, null, 0, 20, filter: new SeriesOverviewFilter(Sources: new[] { "Hardcover" }));
+        Assert.AreEqual(1, matchedTotal);
+        Assert.AreEqual("Mistborn", matchedItems.Single());
+
+        var (unsupportedItems, unsupportedTotal) = await _repository.GetSeriesValuesPageAsync(
+            null, null, 0, 20,
+            filter: new SeriesOverviewFilter(Sources: new[] { SeriesOverviewFilter.UnsupportedSource }));
+        Assert.AreEqual(1, unsupportedTotal);
+        Assert.AreEqual("Untouched Series", unsupportedItems.Single());
+    }
 }

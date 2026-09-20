@@ -37,7 +37,7 @@ public class AuthorFollowRepositoryTests
 
     private async Task<long> SeedPersonAsync(string name, string? hardcoverAuthorId = null)
     {
-        var person = new Person(default, name) { HardcoverAuthorId = hardcoverAuthorId };
+        var person = new Person(default, name) { MatchedSourceId = hardcoverAuthorId };
         _db.Persons.Add(person);
         await _db.SaveChangesAsync();
         return person.Id;

@@ -45,6 +45,54 @@ public class GenreRepositoryTests
         Assert.AreEqual(3, await _db.Genres.CountAsync());
     }
 
+    [TestMethod]
+    public async Task GetAllGenreNamesAsync_ReturnsNamesSortedAlphabetically()
+    {
+        await _repository.GetOrCreateGenres(new[] { "Sci-Fi", "Fantasy", "Adventure" });
+
+        var names = await _repository.GetAllGenreNamesAsync();
+
+        CollectionAssert.AreEqual(new[] { "Adventure", "Fantasy", "Sci-Fi" }, names);
+    }
+
+    // Regression coverage for the bounded-list-endpoint invariant: with more genres than the cap,
+    // the ones actually used by a book must survive it - a book-count-agnostic cap (e.g. plain
+    // alphabetical Take) could just as easily drop every genre a book actually has in favor of
+    // one-off scraped values nothing owns.
+    [TestMethod]
+    public async Task GetAllGenreNamesAsync_MoreGenresThanCap_KeepsTheUsedOnesAndCapsTheCount()
+    {
+        await _db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO audiobooks (id, book_name, year, file_info_full_path, file_info_file_name, file_info_size_in_bytes) " +
+            "VALUES (1, 'Book', 2024, '/library/book.m4b', 'book.m4b', 1);");
+
+        const int usedCount = 5;
+        const int unusedCount = GenreRepository.MaxGenreNames - usedCount + 50;
+
+        for (var i = 0; i < usedCount; i++)
+        {
+            var genreId = i + 1;
+            var name = $"UsedGenre{i}";
+            await _db.Database.ExecuteSqlAsync($"INSERT INTO genres (id, name) VALUES ({genreId}, {name});");
+            await _db.Database.ExecuteSqlAsync($"INSERT INTO audiobook_genre (books_id, genres_id) VALUES (1, {genreId});");
+        }
+
+        for (var i = 0; i < unusedCount; i++)
+        {
+            var genreId = usedCount + i + 1;
+            var name = $"UnusedGenre{i:D4}";
+            await _db.Database.ExecuteSqlAsync($"INSERT INTO genres (id, name) VALUES ({genreId}, {name});");
+        }
+
+        var names = await _repository.GetAllGenreNamesAsync();
+
+        Assert.AreEqual(GenreRepository.MaxGenreNames, names.Count);
+        for (var i = 0; i < usedCount; i++)
+        {
+            CollectionAssert.Contains(names, $"UsedGenre{i}");
+        }
+    }
+
     // Regression: genres.name had no unique index and GetOrCreateGenres had none of the
     // read-then-insert race handling its PersonRepository twin has, so two concurrent organizes
     // that both saw a genre as missing each inserted their own row. The name is now unique, and

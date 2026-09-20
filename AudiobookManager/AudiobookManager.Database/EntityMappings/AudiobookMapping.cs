@@ -40,6 +40,12 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
         builder
             .HasIndex(a => a.Series, "ix_audiobooks_series");
 
+        // The book-list source filter (BookSummaryFilter.Sources) filters on this column, and
+        // the book/author/series source filters all page with a CountAsync alongside it - mirrors
+        // Series.MatchedSourceName's own index (ix_series_matched_source) for the same reason.
+        builder
+            .HasIndex(a => a.MatchedSourceName, "ix_audiobooks_matched_source_name");
+
         // BookNameFolded/SubtitleFolded/SeriesFolded/DescriptionFolded map by convention from
         // their [Column] attributes - see the comment on BookNameFolded (Audiobook model) for why
         // they exist and are deliberately not indexed.

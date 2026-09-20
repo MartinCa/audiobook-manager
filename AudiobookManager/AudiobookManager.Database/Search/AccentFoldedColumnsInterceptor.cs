@@ -6,9 +6,11 @@ namespace AudiobookManager.Database.Search;
 
 /// <summary>
 /// Keeps the accent-folded shadow columns (<c>Audiobook.BookNameFolded</c>/SubtitleFolded/
-/// SeriesFolded/DescriptionFolded, <c>Person.NameFolded</c>) in step with their source columns on
-/// every save, regardless of which repository - or which EF navigation-property cascade - put the
-/// entity in the change tracker.
+/// SeriesFolded/DescriptionFolded, <c>Person.NameFolded</c>) - and, the same way,
+/// <c>Audiobook.MatchedSourceName</c> derived from <c>Www</c> via
+/// <see cref="MetadataSourceResolution"/> - in step with their source columns on every save,
+/// regardless of which repository - or which EF navigation-property cascade - put the entity in
+/// the change tracker.
 ///
 /// This has to be a save interceptor rather than logic in AudiobookRepository.InsertAudiobook/
 /// UpdateAudiobookAsync and PersonRepository.GetOrCreatePerson(s): a new <c>Person</c> can enter
@@ -52,6 +54,7 @@ public sealed class AccentFoldedColumnsInterceptor : SaveChangesInterceptor
                 entry.Entity.SubtitleFolded = AccentFolding.FoldPlain(entry.Entity.Subtitle);
                 entry.Entity.SeriesFolded = AccentFolding.FoldPlain(entry.Entity.Series);
                 entry.Entity.DescriptionFolded = AccentFolding.FoldPlain(entry.Entity.Description);
+                entry.Entity.MatchedSourceName = MetadataSourceResolution.ResolvePlain(entry.Entity.Www);
             }
         }
 

@@ -13,6 +13,7 @@ const seriesSearchSchema = z.object({
   refreshedAfter: z.string().optional(),
   refreshedBefore: z.string().optional(),
   neverRefreshed: z.boolean().optional(),
+  sources: z.array(z.string()).optional(),
 });
 
 export const Route = createFileRoute("/library/series/")({
