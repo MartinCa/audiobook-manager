@@ -98,29 +98,51 @@ public class UpcomingReleasesController : ControllerBase
     /// backing <c>UpcomingRelease</c> row to <c>DELETE</c>, so this sets <c>IsIgnored</c> on the
     /// matching series/author roster entry instead, exactly like the series/author detail pages'
     /// own missing-books ignore action.
+    ///
+    /// The caller addresses the item by its most specific identity: the stable expected-book row
+    /// id (the <see cref="UpcomingReleaseDto.ExpectedBookId"/> the merged list exposes for a
+    /// roster item) first, then the source identity (<see cref="DismissRosterUpcomingReleaseDto.SourceName"/>
+    /// + <see cref="DismissRosterUpcomingReleaseDto.SourceBookId"/>), and finally the natural-key
+    /// title path (series name + position, or author id) kept for legacy callers.
     /// </summary>
     [HttpPost("dismiss-roster")]
     public async Task<IActionResult> DismissRosterUpcomingRelease([FromBody] DismissRosterUpcomingReleaseDto? dto)
     {
-        if (dto is null || string.IsNullOrWhiteSpace(dto.Title))
+        if (dto is null)
         {
-            return this.InvalidRequest("Title is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(dto.SeriesName) == (dto.AuthorId is null))
-        {
-            return this.InvalidRequest("Exactly one of seriesName or authorId must be set.");
+            return this.InvalidRequest("A request body is required.");
         }
 
         try
         {
-            if (dto.AuthorId is not null)
+            if (dto.ExpectedBookId is long expectedBookId)
             {
-                await _upcomingReleaseService.DismissAuthorRosterUpcomingAsync(dto.AuthorId.Value, dto.Title);
+                await _upcomingReleaseService.DismissAuthorRosterUpcomingByIdAsync(expectedBookId);
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.SourceName) && !string.IsNullOrWhiteSpace(dto.SourceBookId))
+            {
+                await _upcomingReleaseService.DismissRosterUpcomingBySourceAsync(dto.SourceName!, dto.SourceBookId!);
             }
             else
             {
-                await _upcomingReleaseService.DismissSeriesRosterUpcomingAsync(dto.SeriesName!, dto.SeriesPosition, dto.Title);
+                if (string.IsNullOrWhiteSpace(dto.Title))
+                {
+                    return this.InvalidRequest("Title is required.");
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.SeriesName) == (dto.AuthorId is null))
+                {
+                    return this.InvalidRequest("Exactly one of seriesName or authorId must be set.");
+                }
+
+                if (dto.AuthorId is not null)
+                {
+                    await _upcomingReleaseService.DismissAuthorRosterUpcomingAsync(dto.AuthorId.Value, dto.Title);
+                }
+                else
+                {
+                    await _upcomingReleaseService.DismissSeriesRosterUpcomingAsync(dto.SeriesName!, dto.SeriesPosition, dto.Title);
+                }
             }
 
             return Ok();
@@ -131,7 +153,8 @@ public class UpcomingReleasesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error dismissing roster-derived upcoming release (title {Title})", dto.Title);
+            _logger.LogError(ex, "Error dismissing roster-derived upcoming release (expectedBookId {ExpectedBookId}, title {Title})",
+                dto.ExpectedBookId, dto.Title);
             return this.UnexpectedError();
         }
     }
@@ -210,7 +233,9 @@ public class UpcomingReleasesController : ControllerBase
         i.SeriesId,
         i.SeriesName,
         i.SeriesPosition,
-        i.SourceName,
+        i.SourceName ?? string.Empty,
         i.SourceUrl,
-        i.ImageUrl);
+        i.ImageUrl,
+        i.ExpectedBookId,
+        i.SourceBookId);
 }

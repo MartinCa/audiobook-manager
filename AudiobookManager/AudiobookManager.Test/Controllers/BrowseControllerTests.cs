@@ -1,4 +1,3 @@
-using System.Reflection;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
@@ -30,6 +29,7 @@ public class BrowseControllerTests
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
+    private ExpectedBookWriteGate _expectedBookWriteGate = null!;
     private BrowseController _controller = null!;
 
     [TestInitialize]
@@ -41,11 +41,13 @@ public class BrowseControllerTests
         _seriesService = new Mock<ISeriesService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
-        _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>()))
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>(), It.IsAny<bool>()))
             .ReturnsAsync(new AuthorReconciliation(
-                new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), 0, 0));
+                new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(),
+                0, 0, new List<AuthorMissingSeriesInfo>()));
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
+        _expectedBookWriteGate = new ExpectedBookWriteGate();
 
         var mockScope = new Mock<IServiceScope>();
         var mockServiceProvider = new Mock<IServiceProvider>();
@@ -55,13 +57,14 @@ public class BrowseControllerTests
 
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
-            _upcomingReleaseService.Object, _authorReconciliation.Object, Array.Empty<IScraper>(),
+            _upcomingReleaseService.Object, _authorReconciliation.Object, _expectedBookWriteGate,
+            Array.Empty<IScraper>(),
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
     }
 
     // BackgroundOperationRunner calls statusRegistry.SetFinished(key) and THEN releases the
-    // static gate in its finally block - see SeriesControllerTests for the full rationale.
+    // gate in its finally block - see SeriesControllerTests for the full rationale.
     private Task RegisterFinishedWaiter(string operationKey)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -69,10 +72,10 @@ public class BrowseControllerTests
         return tcs.Task;
     }
 
-    private static async Task AwaitOperationFinished(Task finishedSignal)
+    private static async Task AwaitOperationFinished(Task finishedSignal, ExpectedBookWriteGate gate)
     {
         await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
-        await OperationGate.WaitUntilReleasedAsync(typeof(BrowseController));
+        await OperationGate.WaitUntilReleasedAsync(gate);
     }
 
     private static Audiobook MakeBook(long id, string bookName, string? series = null) =>
@@ -347,7 +350,8 @@ public class BrowseControllerTests
     {
         _authorReconciliation
             .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
-            .ReturnsAsync((new HashSet<long> { 1, 2 }, new HashSet<long> { 2, 3 }));
+            .ReturnsAsync(new AuthorBulkReconciliationResult(
+                new HashSet<long> { 1, 2 }, new HashSet<long> { 2, 3 }, Refused: false));
 
         _personRepo
             .Setup(r => r.GetAuthorSummariesPagedAsync(
@@ -370,7 +374,8 @@ public class BrowseControllerTests
     {
         _authorReconciliation
             .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
-            .ReturnsAsync((new HashSet<long> { 1, 2 }, new HashSet<long>()));
+            .ReturnsAsync(new AuthorBulkReconciliationResult(
+                new HashSet<long> { 1, 2 }, new HashSet<long>(), Refused: false));
 
         _personRepo
             .Setup(r => r.GetAuthorSummariesPagedAsync(
@@ -386,6 +391,28 @@ public class BrowseControllerTests
                 null, 50, 0, It.IsAny<AuthorSummaryFilter>(), null,
                 It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 1, 2 }))),
             Times.Once);
+    }
+
+    // The bulk classifier refuses (reports Refused) rather than truncating when the unified
+    // roster exceeds its bounded read; the list keeps every other filter and simply skips the
+    // missing/upcoming one instead of applying it to a wrong (truncated) set.
+    [TestMethod]
+    public async Task GetAuthors_ReconciliationRefused_AppliesTheRemainingFiltersWithoutTheMissingUpcomingOne()
+    {
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync(new AuthorBulkReconciliationResult(
+                new HashSet<long>(), new HashSet<long>(), Refused: true));
+
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, It.IsAny<AuthorSummaryFilter>(), null, null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(hasMissingBooks: true, followed: true);
+
+        Assert.IsNotNull(result.Value);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(null, 50, 0, It.IsAny<AuthorSummaryFilter>(), null, null), Times.Once);
     }
 
     [TestMethod]
@@ -731,13 +758,57 @@ public class BrowseControllerTests
     }
 
     [TestMethod]
-    public async Task MatchAuthor_ValidRequest_CallsTheServiceAndReturnsOk()
+    public async Task MatchAuthor_ValidRequest_MatchesThenRefreshesTheRosterUnderTheSharedLock()
     {
         var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", "https://hardcover.app/authors/123"));
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
         _upcomingReleaseService.Verify(
             s => s.MatchAuthorAsync(7, "123", "Hardcover", "https://hardcover.app/authors/123"), Times.Once);
+        // The match persists first; the roster refresh then runs under the same author-refresh
+        // lock as the explicit single/bulk refresh, so the newly-matched author's unified roster
+        // is populated immediately.
+        _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(7), Times.Once);
+    }
+
+    // Matching triggers a refresh, so a refresh-already-in-progress refuses the match with the
+    // same 409 the explicit refresh endpoints return - the match is NOT persisted in that case.
+    [TestMethod]
+    public async Task MatchAuthor_RefreshAlreadyRunning_ReturnsConflictWithoutMatching()
+    {
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire());
+
+        try
+        {
+            var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", null));
+
+            ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict, "An author-roster refresh is already in progress.");
+            _upcomingReleaseService.Verify(
+                s => s.MatchAuthorAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+                Times.Never);
+            _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(It.IsAny<long>()), Times.Never);
+        }
+        finally
+        {
+            _expectedBookWriteGate.Release();
+        }
+    }
+
+    // Regression: the match must persist even when the refresh that follows fails (e.g. the
+    // source's daily budget) - the error surfaces, but the next periodic sweep picks the roster up.
+    [TestMethod]
+    public async Task MatchAuthor_RefreshFails_MatchStaysPersistedAndTheErrorSurfaces()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.RefreshAuthorRosterAsync(7))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
+
+        var result = await _controller.MatchAuthor(7, new MatchAuthorDto("123", "Hardcover", null));
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Hardcover daily request limit of 5000 requests has been reached for today (UTC). Further requests are blocked until the limit resets at UTC midnight.");
+        _upcomingReleaseService.Verify(
+            s => s.MatchAuthorAsync(7, "123", "Hardcover", null), Times.Once,
+            "the match is stored BEFORE the refresh is attempted");
     }
 
     [TestMethod]
@@ -750,6 +821,7 @@ public class BrowseControllerTests
         var result = await _controller.MatchAuthor(999, new MatchAuthorDto("123", "Hardcover", null));
 
         Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+        _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(It.IsAny<long>()), Times.Never);
     }
 
     [TestMethod]
@@ -784,16 +856,13 @@ public class BrowseControllerTests
         _upcomingReleaseService.Verify(s => s.RefreshAuthorRosterAsync(7), Times.Once);
     }
 
-    // Review finding 1: the single-author refresh and the bulk sweep share a static gate, so a
+    // Review finding 1: the single-author refresh and the bulk sweep share a gate, so a
     // sweep already running refuses a second refresh with 409 instead of letting both mutate the
     // same author's roster concurrently.
     [TestMethod]
     public async Task RefreshAuthor_RefreshAlreadyRunning_ReturnsConflict()
     {
-        var refreshLock = (SemaphoreSlim)typeof(BrowseController)
-            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetValue(null)!;
-        Assert.IsTrue(refreshLock.Wait(0));
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire());
 
         try
         {
@@ -804,7 +873,7 @@ public class BrowseControllerTests
         }
         finally
         {
-            refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -815,11 +884,8 @@ public class BrowseControllerTests
 
         await _controller.RefreshAuthor(7);
 
-        var refreshLock = (SemaphoreSlim)typeof(BrowseController)
-            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetValue(null)!;
-        Assert.IsTrue(refreshLock.Wait(0), "a single refresh must not leave the gate held");
-        refreshLock.Release();
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire(), "a single refresh must not leave the gate held");
+        _expectedBookWriteGate.Release();
     }
 
     // Review finding 2: refresh-all used to run synchronously on the request thread (one
@@ -838,7 +904,7 @@ public class BrowseControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _upcomingReleaseService.Verify(s => s.RefreshAllAuthorRostersAsync(), Times.Once);
     }
@@ -862,7 +928,7 @@ public class BrowseControllerTests
 
         var finished = RegisterFinishedWaiter(BrowseController.RefreshAllOperationKey);
         release.SetResult();
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
     }
 
     // The single-author refresh and the bulk sweep take the SAME static gate, so a sweep already
@@ -886,41 +952,77 @@ public class BrowseControllerTests
 
         var finished = RegisterFinishedWaiter(BrowseController.RefreshAllOperationKey);
         release.SetResult();
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
     }
 
     [TestMethod]
-    public async Task IgnoreExpectedBook_BlankTitle_ReturnsInvalidRequest()
+    public async Task IgnoreExpectedBook_BlankTitleAndId_ReturnsInvalidRequest()
     {
         var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = " " });
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Title is required to identify the expected book.");
-        _personRepo.Verify(
-            r => r.SetAuthorExpectedBookIgnoredAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Expected book Id or Title is required to identify the expected book.");
+        _upcomingReleaseService.Verify(
+            s => s.DismissAuthorRosterUpcomingAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
     }
 
     [TestMethod]
-    public async Task IgnoreExpectedBook_ValidTitle_SetsIgnoredTrue()
+    public async Task IgnoreExpectedBook_ValidTitle_SetsIgnoredTrueOnTheSharedRow()
     {
         var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Elantris" });
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
-        _personRepo.Verify(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Elantris", true), Times.Once);
+        _upcomingReleaseService.Verify(s => s.DismissAuthorRosterUpcomingAsync(7, "Elantris"), Times.Once);
+    }
+
+    // The stable expected-book row id is the preferred addressing - a person can carry two
+    // same-titled roster entries, which the title route cannot tell apart. The id route is
+    // unconditional (no per-author title check) because the row id identifies the exact shared
+    // row.
+    [TestMethod]
+    public async Task IgnoreExpectedBook_ById_DismissesTheExactRow()
+    {
+        var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Id = 42, Title = "Elantris" });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(s => s.DismissAuthorRosterUpcomingByIdAsync(42), Times.Once);
+        _upcomingReleaseService.Verify(
+            s => s.DismissAuthorRosterUpcomingAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never,
+            "a body carrying the id must not fall back to the title route");
     }
 
     [TestMethod]
-    public async Task UnignoreExpectedBook_ValidTitle_SetsIgnoredFalse()
+    public async Task IgnoreExpectedBook_UnknownId_Returns404()
+    {
+        _upcomingReleaseService.Setup(s => s.DismissAuthorRosterUpcomingByIdAsync(999))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.IgnoreExpectedBook(7, new AuthorExpectedBookRefDto { Id = 999 });
+
+        Assert.IsInstanceOfType(result, typeof(NotFoundResult));
+    }
+
+    [TestMethod]
+    public async Task UnignoreExpectedBook_ValidTitle_SetsIgnoredFalseOnTheSharedRow()
     {
         var result = await _controller.UnignoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Elantris" });
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
-        _personRepo.Verify(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Elantris", false), Times.Once);
+        _upcomingReleaseService.Verify(s => s.RestoreAuthorRosterUpcomingAsync(7, "Elantris"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnignoreExpectedBook_ById_RestoresTheExactRow()
+    {
+        var result = await _controller.UnignoreExpectedBook(7, new AuthorExpectedBookRefDto { Id = 42 });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _upcomingReleaseService.Verify(s => s.RestoreAuthorRosterUpcomingByIdAsync(42), Times.Once);
     }
 
     [TestMethod]
     public async Task UnignoreExpectedBook_UnknownEntry_Returns404()
     {
-        _personRepo.Setup(r => r.SetAuthorExpectedBookIgnoredAsync(7, "Nonexistent", false))
+        _upcomingReleaseService.Setup(s => s.RestoreAuthorRosterUpcomingAsync(7, "Nonexistent"))
             .ThrowsAsync(new KeyNotFoundException());
 
         var result = await _controller.UnignoreExpectedBook(7, new AuthorExpectedBookRefDto { Title = "Nonexistent" });
@@ -936,18 +1038,211 @@ public class BrowseControllerTests
             .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
         _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
             .ReturnsAsync((new List<Audiobook>(), 0));
-        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7)).ReturnsAsync(
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7, It.IsAny<bool>())).ReturnsAsync(
             new AuthorReconciliation(
                 Missing: new List<AuthorExpectedBookInfo>(),
                 Upcoming: new List<AuthorExpectedBookInfo>(),
                 Ignored: new List<AuthorExpectedBookInfo> { new() { Id = 1, Title = "Warbreaker", IsIgnored = true } },
                 ExpectedBookCount: 0,
-                OwnedCount: 0));
+                OwnedCount: 0,
+                MissingSeries: new List<AuthorMissingSeriesInfo>()));
 
         var result = await _controller.GetAuthorDetail(7);
 
         var ignored = result.Value!.IgnoredBooks!.Single();
         Assert.AreEqual("Warbreaker", ignored.Title);
         Assert.IsTrue(ignored.IsIgnored);
+    }
+
+    // The missing-series section is opt-in: the reconciliation pass that computes it is per-author
+    // work the default detail call has no need for, so it is skipped unless the caller asks.
+    [TestMethod]
+    public async Task GetAuthorDetail_MissingSeries_NotComputedByDefault()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        var result = await _controller.GetAuthorDetail(7);
+
+        Assert.IsNotNull(result.Value);
+        Assert.IsNull(result.Value!.MissingSeries);
+        _authorReconciliation.Verify(r => r.GetReconciliationAsync(7, false), Times.Once,
+            "the default detail call must not pay for the missing-series reconciliation pass");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_MissingSeries_IncludedWhenRequested_WithCountsAndMappedFields()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7, true)).ReturnsAsync(
+            new AuthorReconciliation(
+                Missing: new List<AuthorExpectedBookInfo>(),
+                Upcoming: new List<AuthorExpectedBookInfo>(),
+                Ignored: new List<AuthorExpectedBookInfo>(),
+                ExpectedBookCount: 4,
+                OwnedCount: 2,
+                MissingSeries: new List<AuthorMissingSeriesInfo>
+                {
+                    new()
+                    {
+                        SourceName = "Hardcover",
+                        SourceSeriesId = "55",
+                        SourceSeriesName = "The Stormlight Archive",
+                        SeriesId = 9,
+                        SeriesName = "The Stormlight Archive",
+                        ExpectedCount = 5,
+                        MissingCount = 3,
+                        UpcomingCount = 2,
+                        OwnedCount = 0,
+                    },
+                    new()
+                    {
+                        SourceName = "Hardcover",
+                        SourceSeriesId = "99",
+                        SourceSeriesName = "Skyward",
+                        ExpectedCount = 1,
+                        MissingCount = 1,
+                        UpcomingCount = 0,
+                        OwnedCount = 0,
+                    },
+                }));
+
+        var result = await _controller.GetAuthorDetail(7, includeMissingSeries: true);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok.MissingSeries);
+        Assert.AreEqual(2, ok.MissingSeries.Total, "the total is the full group count, not the page");
+        Assert.AreEqual(2, ok.MissingSeries.Count);
+        var matched = ok.MissingSeries.Items[0];
+        Assert.AreEqual("Hardcover", matched.SourceName);
+        Assert.AreEqual("55", matched.SourceSeriesId);
+        Assert.AreEqual("The Stormlight Archive", matched.SourceSeriesName);
+        Assert.AreEqual(5, matched.ExpectedCount);
+        Assert.AreEqual(3, matched.MissingCount);
+        Assert.AreEqual(2, matched.UpcomingCount);
+        Assert.AreEqual(0, matched.OwnedBookCount);
+        Assert.AreEqual(9, matched.MatchedSeriesId);
+        Assert.AreEqual("The Stormlight Archive", matched.MatchedSeriesName);
+        Assert.IsNull(ok.MissingSeries.Items[1].MatchedSeriesId,
+            "an unmatched source series has no matched local series id");
+        _authorReconciliation.Verify(r => r.GetReconciliationAsync(7, true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_MissingSeries_AppliesItsOwnPagingParams()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7, true)).ReturnsAsync(
+            new AuthorReconciliation(
+                Missing: new List<AuthorExpectedBookInfo>(),
+                Upcoming: new List<AuthorExpectedBookInfo>(),
+                Ignored: new List<AuthorExpectedBookInfo>(),
+                ExpectedBookCount: 3,
+                OwnedCount: 0,
+                MissingSeries: new List<AuthorMissingSeriesInfo>
+                {
+                    new() { SourceName = "Hardcover", SourceSeriesId = "1", SourceSeriesName = "First", ExpectedCount = 1, MissingCount = 1, UpcomingCount = 0, OwnedCount = 0 },
+                    new() { SourceName = "Hardcover", SourceSeriesId = "2", SourceSeriesName = "Second", ExpectedCount = 1, MissingCount = 1, UpcomingCount = 0, OwnedCount = 0 },
+                    new() { SourceName = "Hardcover", SourceSeriesId = "3", SourceSeriesName = "Third", ExpectedCount = 1, MissingCount = 1, UpcomingCount = 0, OwnedCount = 0 },
+                }));
+
+        var result = await _controller.GetAuthorDetail(
+            authorId: 7,
+            includeMissingSeries: true,
+            missingSeriesLimit: 2,
+            missingSeriesOffset: 1);
+
+        var ok = result.Value!;
+        Assert.IsNotNull(ok.MissingSeries);
+        Assert.AreEqual(2, ok.MissingSeries.Count);
+        Assert.AreEqual(3, ok.MissingSeries.Total, "the total is the full group count, not the page");
+        Assert.AreEqual("Second", ok.MissingSeries.Items[0].SourceSeriesName, "the offset slices into the list");
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_AnOutOfRangeMissingSeriesLimit_IsRefused()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+
+        var result = await _controller.GetAuthorDetail(authorId: 7, missingSeriesLimit: 0);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+        _authorReconciliation.Verify(
+            r => r.GetReconciliationAsync(It.IsAny<long>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_AnOutOfRangeMissingSeriesOffset_IsRefused()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+
+        var result = await _controller.GetAuthorDetail(authorId: 7, missingSeriesOffset: 1_000_001);
+
+        Assert.AreEqual(400, ((ObjectResult)result.Result!).StatusCode);
+        _authorReconciliation.Verify(
+            r => r.GetReconciliationAsync(It.IsAny<long>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    // The unified roster rows now carry their series context onto the wire, so the author detail
+    // can render a series-linked bibliography entry with its position and matched/source series
+    // names without a second lookup.
+    [TestMethod]
+    public async Task GetAuthorDetail_MissingBooksSection_CarriesSeriesContext()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo.Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+        _authorReconciliation.Setup(r => r.GetReconciliationAsync(7, It.IsAny<bool>())).ReturnsAsync(
+            new AuthorReconciliation(
+                Missing: new List<AuthorExpectedBookInfo>
+                {
+                    new()
+                    {
+                        Id = 5,
+                        Title = "Words of Radiance",
+                        Year = 2030,
+                        SourceUrl = "https://hardcover.app/books/555",
+                        IsIgnored = false,
+                        ReleaseDate = new DateOnly(2030, 1, 1),
+                        SourceName = "Hardcover",
+                        SourceBookId = "555",
+                        ImageUrl = "https://covers.hardcover.app/words-of-radiance.jpg",
+                        Position = "2",
+                        SeriesId = 9,
+                        SeriesName = "The Stormlight Archive",
+                        SourceSeriesId = "55",
+                        SourceSeriesName = "The Stormlight Archive",
+                    },
+                },
+                Upcoming: new List<AuthorExpectedBookInfo>(),
+                Ignored: new List<AuthorExpectedBookInfo>(),
+                ExpectedBookCount: 1,
+                OwnedCount: 0,
+                MissingSeries: new List<AuthorMissingSeriesInfo>()));
+
+        var result = await _controller.GetAuthorDetail(7);
+
+        var book = result.Value!.MissingBooks!.Single();
+        Assert.AreEqual(5, book.Id);
+        Assert.AreEqual("2", book.Position);
+        Assert.AreEqual(9, book.SeriesId);
+        Assert.AreEqual("The Stormlight Archive", book.SeriesName);
+        Assert.AreEqual("The Stormlight Archive", book.SourceSeriesName);
+        Assert.AreEqual("Hardcover", book.SourceName);
+        Assert.AreEqual("555", book.SourceBookId);
+        Assert.AreEqual("https://covers.hardcover.app/words-of-radiance.jpg", book.ImageUrl);
     }
 }

@@ -124,6 +124,9 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
   const [query, setQuery] = useState(authorName);
   const [debouncedQuery, setDebouncedQuery] = useState(authorName);
   const [matching, setMatching] = useState(false);
+  // Which candidate is being applied - the match call runs a roster refresh server-side and can
+  // take seconds, so the clicked candidate keeps a spinner while every other row is disabled.
+  const [matchingSourceId, setMatchingSourceId] = useState<string | null>(null);
 
   // Debounced like AuthorsList's own filter: a fast typist must not enqueue a Hardcover search
   // request per keystroke through the shared 5000/day budget.
@@ -145,6 +148,7 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
 
   const handleMatch = async (candidate: AuthorMatchCandidate) => {
     setMatching(true);
+    setMatchingSourceId(candidate.sourceId);
     try {
       await browseApi.matchAuthorToHardcover(
         authorId,
@@ -152,13 +156,20 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
         candidate.sourceName,
         candidate.sourceUrl ?? undefined,
       );
+      // Matching persists the author's source link AND refreshes their roster (the backend does
+      // both in MatchAuthor, the refresh can take seconds), so the author detail and the
+      // upcoming-releases views pick up the newly-scraped books here rather than on the next
+      // periodic tick.
       await queryClient.invalidateQueries({ queryKey: queryKeys.authorHardcoverMatch(authorId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
       notifications.success(`Matched to ${candidate.sourceName}: ${candidate.name}`);
       onOpenChange(false);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {
       setMatching(false);
+      setMatchingSourceId(null);
     }
   };
 
@@ -208,11 +219,16 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
                   className="hover:bg-muted/50 flex w-full items-center justify-between gap-2 p-2.5 text-left transition-colors disabled:opacity-50"
                 >
                   <span className="font-medium">{candidate.name}</span>
-                  {candidate.bookCount != null && (
-                    <span className="text-muted-foreground text-xs">
-                      {candidate.bookCount} books
-                    </span>
-                  )}
+                  <span className="flex items-center gap-1.5">
+                    {matchingSourceId === candidate.sourceId && (
+                      <Loader2 className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
+                    )}
+                    {candidate.bookCount != null && (
+                      <span className="text-muted-foreground text-xs">
+                        {candidate.bookCount} books
+                      </span>
+                    )}
+                  </span>
                 </button>
               ))}
             </div>

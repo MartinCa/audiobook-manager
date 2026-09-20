@@ -23,6 +23,7 @@ public static class DependencyInjection
             .AddScoped<IAuthorFollowRepository, AuthorFollowRepository>()
             .AddScoped<ISeriesFollowRepository, SeriesFollowRepository>()
             .AddScoped<IUpcomingReleaseRepository, UpcomingReleaseRepository>()
+            .AddScoped<IExpectedBookRepository, ExpectedBookRepository>()
             .AddScoped<IScheduledTaskRunRepository, ScheduledTaskRunRepository>();
 
 }

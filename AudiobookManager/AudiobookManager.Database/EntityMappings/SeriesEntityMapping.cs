@@ -22,10 +22,9 @@ public class SeriesEntityMapping : IEntityTypeConfiguration<Series>
         builder
             .HasIndex(s => new { s.MatchedSourceName, s.MatchedSourceId }, "ix_series_matched_source");
 
-        builder
-            .HasMany(s => s.ExpectedBooks)
-            .WithOne(b => b.Series)
-            .HasForeignKey(b => b.SeriesId)
-            .OnDelete(DeleteBehavior.Cascade);
+        // The unified expected_books relationship (a Series has many ExpectedBook rows) is
+        // configured on ExpectedBookMapping with ON DELETE SET NULL - this type no longer
+        // configures any expected-book navigation. The legacy per-series roster table
+        // (series_expected_books) is long gone; its FK is not inferred anywhere anymore.
     }
 }

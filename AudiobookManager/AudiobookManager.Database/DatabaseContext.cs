@@ -62,11 +62,11 @@ public class DatabaseContext : DbContext
     public DbSet<PendingSeriesRefresh> PendingSeriesRefreshes { get; set; }
     public DbSet<OrphanDirectory> OrphanDirectories { get; set; }
     public DbSet<Series> Series { get; set; }
-    public DbSet<SeriesExpectedBook> SeriesExpectedBooks { get; set; }
     public DbSet<HardcoverRequestQuota> HardcoverRequestQuotas { get; set; }
     public DbSet<AuthorFollow> AuthorFollows { get; set; }
     public DbSet<SeriesFollow> SeriesFollows { get; set; }
     public DbSet<UpcomingRelease> UpcomingReleases { get; set; }
-    public DbSet<AuthorExpectedBook> AuthorExpectedBooks { get; set; }
+    public DbSet<ExpectedBook> ExpectedBooks { get; set; }
+    public DbSet<ExpectedBookAuthor> ExpectedBookAuthors { get; set; }
     public DbSet<ScheduledTaskRun> ScheduledTaskRuns { get; set; }
 }

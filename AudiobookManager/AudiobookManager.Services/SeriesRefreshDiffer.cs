@@ -14,8 +14,9 @@ namespace AudiobookManager.Services;
 /// roster/reconciliation's Missing/Upcoming sections (see <c>SeriesReconciliation</c>), so a
 /// refresh no longer re-surfaces it as a "pending change" to review. The enum member is kept only
 /// so a <c>PendingSeriesRefresh</c> row written before this change still deserializes; new rows
-/// never carry it. The ignore carry-across for missing entries still happens, but on the roster
-/// replace itself (see <c>SeriesService.MatchSeriesCoreAsync</c>), not here.</item>
+/// never carry it. An entry's ignore flag is preserved across refreshes by the in-place upsert
+/// itself (UpsertAsync never resets IsIgnored - see <c>SeriesService.MatchSeriesCoreAsync</c>),
+/// not here.</item>
 /// <item><see cref="SeriesRefreshChangeType.PartUpdate"/> - an owned book that matches a roster
 /// entry with a position, whose stored part agrees with none of its matched entries. The source
 /// renumbered the book (a book stored as part "01" that the source now positions at "02").</item>

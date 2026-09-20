@@ -97,6 +97,15 @@ public class SeriesExpectedBookInfo
     public DateOnly? ReleaseDate { get; set; }
     public string? SourceUrl { get; set; }
     public bool IsIgnored { get; set; }
+
+    /// <summary>The metadata source that reported this roster entry (e.g. "Hardcover").</summary>
+    public string? SourceName { get; set; }
+
+    /// <summary>The source's own book identifier, when it reported one - the dedup identity the author and series rosters share.</summary>
+    public string? SourceBookId { get; set; }
+
+    /// <summary>A cover image URL from the source, when one is stored for the unified row (see <see cref="ExpectedBook.ImageUrl"/>) - what the upcoming view renders for a roster-derived item.</summary>
+    public string? ImageUrl { get; set; }
 }
 
 /// <summary>

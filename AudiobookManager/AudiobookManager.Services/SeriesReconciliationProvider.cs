@@ -72,7 +72,7 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
                 $"Series '{seriesName}' has at least {MaxReconciliationRosterEntries + 1} roster entries, exceeding the {MaxReconciliationRosterEntries} the detail view reconciles.");
         }
 
-        var expected = catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>();
+        var expected = catalogRow?.ExpectedBooks ?? new List<ExpectedBook>();
 
         var (ownedKeys, ownedOverflow) = await _audiobookRepository.GetSeriesOwnedKeysAsync(
             seriesName, MaxReconciliationOwnedKeys);
@@ -133,20 +133,20 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
         // first. The parts are compared with the same equivalence the matching uses, so "2" vs
         // "2.0" is not a mismatch while "2" vs "" (or "7") is.
         var entries = active
-            .Where(e => !string.IsNullOrWhiteSpace(e.Position))
-            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.Position))
+            .Where(e => !string.IsNullOrWhiteSpace(e.SeriesPosition))
+            .OrderBy(e => SeriesRosterMatcher.PositionSortKey(e.SeriesPosition))
             .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Id)
             .ToList();
 
-        var matchesByBook = new Dictionary<long, List<SeriesExpectedBook>>();
+        var matchesByBook = new Dictionary<long, List<ExpectedBook>>();
         foreach (var entry in entries)
         {
-            foreach (var owned in ownedIndex.FindMatches(SeriesRosterMatcher.BookKey.From(entry.Position, entry.Title)))
+            foreach (var owned in ownedIndex.FindMatches(SeriesRosterMatcher.BookKey.From(entry.SeriesPosition, entry.Title)))
             {
                 if (!matchesByBook.TryGetValue(owned.AudiobookId, out var bookEntries))
                 {
-                    bookEntries = new List<SeriesExpectedBook>();
+                    bookEntries = new List<ExpectedBook>();
                     matchesByBook[owned.AudiobookId] = bookEntries;
                 }
 
@@ -163,7 +163,7 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
                 continue;
             }
 
-            if (matchesByBook[audiobookId].Any(e => SeriesRosterMatcher.PartsEquivalent(owned.SeriesPart, e.Position)))
+            if (matchesByBook[audiobookId].Any(e => SeriesRosterMatcher.PartsEquivalent(owned.SeriesPart, e.SeriesPosition)))
             {
                 continue;
             }
@@ -174,7 +174,7 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
                 AudiobookId = owned.AudiobookId,
                 BookName = owned.BookName,
                 StoredPart = owned.SeriesPart,
-                ExpectedPart = attributed.Position!,
+                ExpectedPart = attributed.SeriesPosition!,
                 RosterTitle = attributed.Title,
             });
         }
@@ -195,15 +195,18 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
             upcoming);
     }
 
-    internal static SeriesExpectedBookInfo ToExpectedInfo(SeriesExpectedBook book) => new()
+    internal static SeriesExpectedBookInfo ToExpectedInfo(ExpectedBook book) => new()
     {
         Id = book.Id,
         Title = book.Title,
-        Position = book.Position,
+        Position = book.SeriesPosition,
         Year = book.Year,
         ReleaseDate = book.ReleaseDate,
         SourceUrl = book.SourceUrl,
         IsIgnored = book.IsIgnored,
+        SourceName = book.SourceName,
+        SourceBookId = book.SourceBookId,
+        ImageUrl = book.ImageUrl,
     };
 
     /// <summary>
@@ -211,6 +214,6 @@ public class SeriesReconciliationProvider : ISeriesReconciliationProvider
     /// a source title byte-for-byte, so an exact position match counts, and otherwise titles
     /// are compared fuzzily - the shared rule in <see cref="SeriesRosterMatcher"/>.
     /// </summary>
-    internal static bool IsOwned(SeriesExpectedBook expected, SeriesRosterMatcher.OwnedBookIndex ownedBooks) =>
-        ownedBooks.Contains(SeriesRosterMatcher.BookKey.From(expected.Position, expected.Title));
+    internal static bool IsOwned(ExpectedBook expected, SeriesRosterMatcher.OwnedBookIndex ownedBooks) =>
+        ownedBooks.Contains(SeriesRosterMatcher.BookKey.From(expected.SeriesPosition, expected.Title));
 }

@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthorFollowSection } from "./AuthorFollowSection";
 import { browseApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type * as ApiModule from "@/services/api";
 
 vi.mock("@/services/api", async (importOriginal) => {
@@ -145,6 +146,44 @@ describe("AuthorFollowSection", () => {
         undefined,
       ),
     );
+  });
+
+  // The backend's MatchAuthor endpoint both persists the match AND refreshes the author's roster
+  // (which can take seconds), so a successful match must invalidate the author detail and the
+  // upcoming releases - otherwise the freshly-scraped books wait for the next periodic tick.
+  it("invalidates the author detail and upcoming-release queries after a successful match", async () => {
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockResolvedValue([
+      {
+        sourceId: "123",
+        sourceName: "Hardcover",
+        name: "Brandon Sanderson",
+        sourceUrl: null,
+        bookCount: 40,
+      },
+    ]);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthorFollowSection authorId={7} authorName="Brandon Sanderson" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /match to hardcover/i }));
+    const candidateButton = await screen.findByRole("button", { name: /brandon sanderson/i });
+    fireEvent.click(candidateButton);
+
+    await waitFor(() => {
+      const invalidatedKeys = invalidate.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(invalidatedKeys).toEqual(
+        expect.arrayContaining([
+          queryKeys.author.all(),
+          queryKeys.upcomingReleases.all(),
+          queryKeys.authorHardcoverMatch(7),
+        ]),
+      );
+    });
   });
 
   it("shows a minimum-length hint before searching", async () => {

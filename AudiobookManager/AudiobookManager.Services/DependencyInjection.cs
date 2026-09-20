@@ -12,6 +12,10 @@ public static class DependencyInjection
         // Singleton, and backed by process-static state: the per-audiobook save gate has to
         // exclude across request scopes, which is the whole point of it.
         .AddSingleton<IAudiobookSaveGate, AudiobookSaveGate>()
+        // Singleton: the expected-book write gate serializes every mutation of the unified
+        // expected_books roster across the author and series controllers, so every caller -
+        // request-scoped controller instance or background task - must see the same instance.
+        .AddSingleton<IExpectedBookWriteGate, ExpectedBookWriteGate>()
         // Singletons: the near-duplicate group cache and the per-series detail reconciliation
         // cache are shared across requests (that is what makes their computations bounded), and
         // both sit behind a TTL plus explicit invalidation.

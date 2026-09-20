@@ -8,10 +8,10 @@ import {
   BookOpen,
   Loader2,
   ExternalLink,
-  EyeOff,
-  Eye,
   RefreshCw,
   CheckCircle2,
+  ChevronRight,
+  Unplug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,17 +23,17 @@ import { BookBulkActionBar } from "./BookBulkActionBar";
 import { SeriesListEntry } from "./SeriesListEntry";
 import { AuthorFollowSection } from "./AuthorFollowSection";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
+import { ExpectedBookList, SectionPager } from "./ExpectedBookList";
 import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
-import { formatDate } from "@/helpers/formatHelpers";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
-import type { AuthorExpectedBook } from "@/types/AuthorDetail";
+import type { AuthorExpectedBook, AuthorMissingSeries } from "@/types/AuthorDetail";
 import { Route } from "@/routes/library/authors/$authorId";
 
 export function AuthorDetail() {
@@ -41,13 +41,17 @@ export function AuthorDetail() {
   const id = Number(authorId);
   const queryClient = useQueryClient();
 
-  // Each section pages server-side; one has its own page state so paging series books doesn't
-  // move the standalone list. The unpaged version sent an author's entire catalogue at once.
+  // Each section pages server-side; each has its own page state so paging one section doesn't
+  // move the others. The unpaged version sent an author's entire catalogue at once. The
+  // missing-series section is opt-in on the endpoint (includeMissingSeries) - the backend only
+  // pays for its reconciliation pass when a caller wants the section.
   const [seriesPage, setSeriesPage] = useState(0);
   const [standalonePage, setStandalonePage] = useState(0);
+  const [missingSeriesPage, setMissingSeriesPage] = useState(0);
   const selection = useBookSelection();
   const [refreshing, setRefreshing] = useState(false);
-  const [ignoringTitle, setIgnoringTitle] = useState<string | null>(null);
+  const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
+  const [showIgnored, setShowIgnored] = useState(false);
 
   // Navigating between authors must not carry a previous author's page cursor along. Adjusted
   // during render (React's documented pattern) rather than in an effect: the query key below
@@ -58,6 +62,8 @@ export function AuthorDetail() {
     setPrevId(id);
     setSeriesPage(0);
     setStandalonePage(0);
+    setMissingSeriesPage(0);
+    setShowIgnored(false);
     selection.clear();
   }
 
@@ -66,13 +72,16 @@ export function AuthorDetail() {
   // change issue an extra backend call whose other section (computed with default paging) was
   // thrown away. keepPreviousData keeps both sections rendered while one of them pages.
   const detailQuery = useQuery({
-    queryKey: queryKeys.author.detail(id, seriesPage, standalonePage),
+    queryKey: queryKeys.author.detail(id, seriesPage, standalonePage, missingSeriesPage),
     queryFn: () =>
       browseApi.getAuthorDetail(id, {
         seriesLimit: PAGE_SIZE,
         seriesOffset: seriesPage * PAGE_SIZE,
         standaloneLimit: PAGE_SIZE,
         standaloneOffset: standalonePage * PAGE_SIZE,
+        includeMissingSeries: true,
+        missingSeriesLimit: PAGE_SIZE,
+        missingSeriesOffset: missingSeriesPage * PAGE_SIZE,
       }),
     enabled: Boolean(id),
     placeholderData: keepPreviousData,
@@ -84,18 +93,22 @@ export function AuthorDetail() {
   const missingBooks = detailQuery.data?.missingBooks ?? [];
   const upcomingBooks = detailQuery.data?.upcomingBooks ?? [];
   const ignoredBooks = detailQuery.data?.ignoredBooks ?? [];
+  const missingSeriesSection = detailQuery.data?.missingSeries ?? { items: [], total: 0 };
 
   const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / PAGE_SIZE));
   const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / PAGE_SIZE));
+  const missingSeriesPageCount = Math.max(1, Math.ceil(missingSeriesSection.total / PAGE_SIZE));
   // Clamped so the fetched and the displayed page can never disagree.
   const currentSeriesPage = Math.min(seriesPage, seriesPageCount - 1);
   const currentStandalonePage = Math.min(standalonePage, standalonePageCount - 1);
+  const currentMissingSeriesPage = Math.min(missingSeriesPage, missingSeriesPageCount - 1);
 
   // And the raw page states are pulled back into range once a response shows a section shrank
   // under them (e.g. books moved between sections from another tab), so the next fetch - not
   // just the display - lands on a valid page.
   useClampedPage(seriesPage, seriesPageCount, setSeriesPage);
   useClampedPage(standalonePage, standalonePageCount, setStandalonePage);
+  useClampedPage(missingSeriesPage, missingSeriesPageCount, setMissingSeriesPage);
 
   // The Hardcover match, for the management section's badge - the author's own follow/match
   // dialog lives in AuthorFollowSection; this is a read-only display of the same match.
@@ -114,7 +127,7 @@ export function AuthorDetail() {
     setRefreshing(true);
     try {
       await browseApi.refreshAuthor(id);
-      notifications.success("Refreshed standalone books from source");
+      notifications.success("Refreshed bibliography from source");
       invalidateDetail();
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -123,23 +136,28 @@ export function AuthorDetail() {
     }
   };
 
-  // Mirrors SeriesDetail's ignore/unignore pair: an author's standalone-books roster entry can
-  // now be unignored from the Ignored Books section below, so a misclick is recoverable.
+  // Mirrors SeriesDetail's ignore/unignore pair: an author's roster entry can now be unignored
+  // from the same list (the "show ignored" toggle), so a misclick is recoverable. The stable
+  // expected-book row id (book.id) names the exact shared row - the title route cannot tell two
+  // same-titled entries apart.
   const handleSetIgnored = async (book: AuthorExpectedBook, ignored: boolean) => {
-    setIgnoringTitle(book.title);
+    setIgnoringBookId(book.id);
     try {
       if (ignored) {
-        await browseApi.ignoreAuthorExpectedBook(id, book.title);
+        await browseApi.ignoreAuthorExpectedBook(id, { id: book.id });
         notifications.success(`Ignored "${book.title}"`);
       } else {
-        await browseApi.unignoreAuthorExpectedBook(id, book.title);
+        await browseApi.unignoreAuthorExpectedBook(id, { id: book.id });
         notifications.success(`Unignored "${book.title}"`);
       }
       invalidateDetail();
+      // The upcoming-releases view renders the same shared row with the flag applied, so a
+      // dismissal there must not keep a stale entry for the query cache's TTL.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {
-      setIgnoringTitle(null);
+      setIgnoringBookId(null);
     }
   };
 
@@ -309,28 +327,67 @@ export function AuthorDetail() {
         </div>
       )}
 
+      {missingSeriesSection.total > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
+            <BookMarked className="text-primary h-5 w-5" />
+            Missing Series ({missingSeriesSection.total})
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            Series from this author's matched bibliography that your library owns no book in yet.
+          </p>
+          <div className="space-y-2">
+            {missingSeriesSection.items.map((ms) => (
+              <MissingSeriesRow
+                key={`${ms.sourceName}:${ms.sourceSeriesId}`}
+                series={ms}
+                authorId={author.id}
+              />
+            ))}
+          </div>
+          {missingSeriesPageCount > 1 && (
+            <SectionPager
+              currentPage={currentMissingSeriesPage}
+              pageCount={missingSeriesPageCount}
+              totalCount={missingSeriesSection.total}
+              onPageChange={setMissingSeriesPage}
+            />
+          )}
+        </div>
+      )}
+
+      {ignoredBooks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Checkbox
+            id="show-ignored-books"
+            checked={showIgnored}
+            onCheckedChange={(checked) => setShowIgnored(Boolean(checked))}
+          />
+          <label
+            htmlFor="show-ignored-books"
+            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
+          >
+            Show ignored books ({ignoredBooks.length})
+          </label>
+        </div>
+      )}
+
       <CollapsibleCountSection
         label="Missing Books"
         count={missingBooks.length}
         labelClassName="text-amber-600 dark:text-amber-400"
       >
-        {missingBooks.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No missing standalone books detected for this author.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {missingBooks.map((mb) => (
-              <AuthorExpectedBookRow
-                key={mb.id}
-                book={mb}
-                tone="amber"
-                ignoringTitle={ignoringTitle}
-                onIgnore={() => void handleSetIgnored(mb, true)}
-              />
-            ))}
-          </div>
-        )}
+        <ExpectedBookList
+          section="missing"
+          items={missingBooks}
+          ignoredItems={ignoredBooks}
+          ignoredTotal={ignoredBooks.length}
+          showIgnored={showIgnored}
+          busyBookId={ignoringBookId}
+          emptyMessage="No missing books detected for this author."
+          onIgnore={(book) => void handleSetIgnored(book, true)}
+          onUnignore={(book) => void handleSetIgnored(book, false)}
+        />
       </CollapsibleCountSection>
 
       <CollapsibleCountSection
@@ -338,65 +395,17 @@ export function AuthorDetail() {
         count={upcomingBooks.length}
         labelClassName="text-muted-foreground"
       >
-        {upcomingBooks.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No upcoming standalone books detected for this author.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {upcomingBooks.map((ub) => (
-              <AuthorExpectedBookRow
-                key={ub.id}
-                book={ub}
-                tone="muted"
-                ignoringTitle={ignoringTitle}
-                onIgnore={() => void handleSetIgnored(ub, true)}
-              />
-            ))}
-          </div>
-        )}
-      </CollapsibleCountSection>
-
-      <CollapsibleCountSection
-        label="Ignored Books"
-        count={ignoredBooks.length}
-        labelClassName="text-muted-foreground"
-      >
-        {ignoredBooks.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No ignored standalone books for this author.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {ignoredBooks.map((ib) => (
-              <div
-                key={ib.id}
-                className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs opacity-75 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-muted-foreground break-words">{ib.title}</span>
-                  {ib.year && <span className="text-muted-foreground"> ({ib.year})</span>}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 self-end text-[11px] sm:self-center"
-                  disabled={ignoringTitle === ib.title}
-                  onClick={() => {
-                    void handleSetIgnored(ib, false);
-                  }}
-                >
-                  {ignoringTitle === ib.title ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Eye className="mr-1 h-3 w-3" />
-                  )}
-                  Unignore
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ExpectedBookList
+          section="upcoming"
+          items={upcomingBooks}
+          ignoredItems={ignoredBooks}
+          ignoredTotal={ignoredBooks.length}
+          showIgnored={showIgnored}
+          busyBookId={ignoringBookId}
+          emptyMessage="No upcoming books detected for this author."
+          onIgnore={(book) => void handleSetIgnored(book, true)}
+          onUnignore={(book) => void handleSetIgnored(book, false)}
+        />
       </CollapsibleCountSection>
 
       {/* Management & Settings: mirrors SeriesDetail's card, minus mapping-pattern CRUD and the
@@ -452,7 +461,7 @@ export function AuthorDetail() {
             ) : (
               <p className="text-muted-foreground">
                 Not matched to an online metadata provider yet. Use "Match to Hardcover" above to
-                associate this author and enable refreshing their standalone-books roster.
+                associate this author and enable refreshing their expected-book roster.
               </p>
             )}
           </div>
@@ -462,60 +471,61 @@ export function AuthorDetail() {
   );
 }
 
-/** One row of an author's Missing/Upcoming standalone-books sections - mirrors SeriesDetail's
- * ExpectedBookRow, minus the series-only position field and the "Find in Library" action (the
- * author roster has no per-book candidate-matching endpoint, unlike series' expected-books flow).
- * Ignoring is recoverable via the Ignored Books section's Unignore action below. */
-function AuthorExpectedBookRow({
-  book,
-  tone,
-  ignoringTitle,
-  onIgnore,
-}: {
-  book: AuthorExpectedBook;
-  tone: "amber" | "muted";
-  ignoringTitle: string | null;
-  onIgnore: () => void;
-}) {
-  const toneClasses =
-    tone === "amber" ? "border-amber-500/20 bg-amber-500/5" : "border-border bg-card";
+/** One row of the author detail's Missing Series section: the series name (the matched local
+ * name, or the source's spelling while unmatched), its missing/upcoming/owned counts, and a link
+ * to the local series detail once a series is matched. An unmatched series has no optics here
+ * for matching it - the series match flow lives on the series' own detail page (SeriesDetail's
+ * management card is not reusable as a per-row dialog), so the row renders a disabled hint
+ * instead, pointing there. */
+function MissingSeriesRow({ series, authorId }: { series: AuthorMissingSeries; authorId: number }) {
+  const displayName = series.matchedSeriesName ?? series.sourceSeriesName;
   return (
-    <div
-      className={`flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs sm:flex-row sm:items-center ${toneClasses}`}
-    >
+    <div className="border-border bg-card flex flex-col justify-between gap-2 rounded-lg border p-3 text-xs sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
-        <span className="text-foreground font-semibold break-words">{book.title}</span>
-        {book.year && <span className="text-muted-foreground"> ({book.year})</span>}
-        {book.releaseDate && (
-          <span className="text-muted-foreground"> · releases {formatDate(book.releaseDate)}</span>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-foreground font-semibold break-words">
+            {displayName || "Unknown series"}
+          </span>
+          {series.matchedSeriesId != null && (
+            <Badge
+              variant="secondary"
+              className="gap-1 bg-emerald-500/15 text-[11px] text-emerald-600 dark:text-emerald-400"
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              {series.sourceName}
+            </Badge>
+          )}
+        </div>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-[11px]">
+          <span className="font-medium text-amber-600 dark:text-amber-400">
+            {series.missingCount} missing
+          </span>
+          <span>&middot;</span>
+          <span>{series.upcomingCount} upcoming</span>
+          <span>&middot;</span>
+          <span>{series.ownedBookCount} owned</span>
+        </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-        {book.sourceUrl && (
-          <a
-            href={book.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+        {series.matchedSeriesName ? (
+          <Link
+            to="/library/series/$seriesName"
+            params={{ seriesName: series.matchedSeriesName }}
+            search={{ authorId }}
             className="text-primary flex items-center hover:underline"
           >
-            <ExternalLink className="mr-1 h-3 w-3" />
-            Source
-          </a>
+            View series
+            <ChevronRight className="ml-1 h-3 w-3" />
+          </Link>
+        ) : (
+          <span
+            className="text-muted-foreground flex items-center"
+            title="Matching a series to a metadata source happens on the series' own page"
+          >
+            <Unplug className="mr-1 h-3 w-3" />
+            Match series
+          </span>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 text-[11px]"
-          disabled={ignoringTitle === book.title}
-          onClick={onIgnore}
-        >
-          {ignoringTitle === book.title ? (
-            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-          ) : (
-            <EyeOff className="mr-1 h-3 w-3" />
-          )}
-          Ignore
-        </Button>
       </div>
     </div>
   );

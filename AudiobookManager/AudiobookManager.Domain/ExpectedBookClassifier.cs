@@ -1,9 +1,9 @@
 namespace AudiobookManager.Domain;
 
 /// <summary>
-/// Shared Missing-vs-Upcoming classification for a roster entry (a <c>SeriesExpectedBook</c> or
-/// the author-roster equivalent) that no owned book matches. Both rosters store an optional
-/// precise <c>ReleaseDate</c> alongside the looser <c>Year</c> the source has always reported -
+/// Shared Missing-vs-Upcoming classification for an unmatched expected-book roster entry on the
+/// unified roster table. Both author- and series-discovered rows store an optional precise
+/// <c>ReleaseDate</c> alongside the looser <c>Year</c> the source has always reported -
 /// see the design note at AudiobookManager/UPCOMING_RELEASES_DESIGN.md for why both exist and how
 /// they classify.
 ///

@@ -667,6 +667,48 @@ describe("SeriesDetail", () => {
     });
   });
 
+  // The dismissed rows no longer live in a standalone Ignored Books section: the shared list
+  // renders them faded inside the section they classify to, behind the "show ignored" toggle.
+  it("shows ignored books faded in the series sections and unignores through the shared list", async () => {
+    const detail = makeDetail([missingBook(20, "The Alloy of Law", "4")], 1);
+    detail.ignoredBooks = {
+      items: [
+        {
+          id: 30,
+          title: "The Lost Metal",
+          position: "5",
+          year: null,
+          sourceUrl: null,
+          isIgnored: true,
+        },
+      ],
+      totalCount: 1,
+    };
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(detail);
+    const unignore = vi.spyOn(seriesApi, "unignoreExpectedBook").mockResolvedValue(undefined);
+
+    renderWithProviders();
+
+    // The toggle only appears once the series has ignored entries, and the dismissed row stays
+    // hidden until it is switched on.
+    expect(await screen.findByText(/show ignored books \(1\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/The Lost Metal/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Missing Books \(1\)/ }));
+
+    // No release date and no future year: the ignored row classifies as Missing and renders with
+    // the low-emphasis title treatment, unlike the active row beside it.
+    expect(screen.getByText(/Part 5 — The Lost Metal/)).toHaveClass("text-muted-foreground");
+    expect(screen.getByText(/The Alloy of Law/)).not.toHaveClass("text-muted-foreground");
+
+    fireEvent.click(screen.getByRole("button", { name: "Unignore" }));
+
+    await waitFor(() => {
+      expect(unignore).toHaveBeenCalledWith("Mistborn", "5", "The Lost Metal");
+    });
+  });
+
   // --- Series mapping patterns (owned by this series, managed in the Management section) ---
 
   it("renders the series' mapping patterns in the management section", async () => {

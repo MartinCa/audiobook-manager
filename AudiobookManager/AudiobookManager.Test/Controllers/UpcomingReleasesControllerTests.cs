@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
+using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -117,7 +118,7 @@ public class UpcomingReleasesControllerTests
     {
         var item = new UpcomingReleaseItem(
             UpcomingReleaseSource.Legacy, 1, "The Stormlight Archive 6", new DateOnly(2030, 1, 1), 2030,
-            7, "Brandon Sanderson", null, null, null, "Hardcover", null, null);
+            7, "Brandon Sanderson", null, null, null, "Hardcover", null, null, "999");
         _upcomingReleaseService
             .Setup(s => s.GetUpcomingReleasesAsync(7, null, 50, 0))
             .ReturnsAsync((new List<UpcomingReleaseItem> { item }, 1));
@@ -149,6 +150,136 @@ public class UpcomingReleasesControllerTests
         var result = await _controller.RemoveUpcomingRelease(5);
 
         Assert.IsInstanceOfType<NotFoundResult>(result);
+    }
+
+    // --- Dismiss-roster addressing -------------------------------------------
+
+    // The id route is preferred: a roster-derived item carries its stable expected-book row id,
+    // which names the exact shared row - no scope or title ambiguity.
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_ById_DismissesTheExactRow()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            ExpectedBookId = 42,
+            SourceName = "Hardcover",
+            SourceBookId = "555",
+            Title = "Words of Radiance",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(s => s.DismissAuthorRosterUpcomingByIdAsync(42), Times.Once);
+        _upcomingReleaseService.Verify(
+            s => s.DismissRosterUpcomingBySourceAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never,
+            "the id route wins over the source identity and the title fallback");
+        _upcomingReleaseService.Verify(
+            s => s.DismissAuthorRosterUpcomingAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+        _upcomingReleaseService.Verify(
+            s => s.DismissSeriesRosterUpcomingAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_ById_UnknownRow_Returns404()
+    {
+        _upcomingReleaseService.Setup(s => s.DismissAuthorRosterUpcomingByIdAsync(999))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            ExpectedBookId = 999,
+        });
+
+        Assert.IsInstanceOfType<NotFoundResult>(result);
+    }
+
+    // A client that only carries the source identity (the dedup key the merged item exposes) can
+    // dismiss the exact row it came from without the id.
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_BySourceIdentity_DismissesTheMatchingRow()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            SourceName = "Hardcover",
+            SourceBookId = "555",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(
+            s => s.DismissRosterUpcomingBySourceAsync("Hardcover", "555"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_BySourceIdentity_UnknownIdentity_Returns404()
+    {
+        _upcomingReleaseService
+            .Setup(s => s.DismissRosterUpcomingBySourceAsync("Hardcover", "nope"))
+            .ThrowsAsync(new KeyNotFoundException());
+
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            SourceName = "Hardcover",
+            SourceBookId = "nope",
+        });
+
+        Assert.IsInstanceOfType<NotFoundResult>(result);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_NullBody_ReturnsInvalidRequest()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(null);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "A request body is required.");
+    }
+
+    // Legacy callers keep the title path: series scope by name+position, author scope by id.
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_SeriesTitleFallback_StillWorks()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            SeriesName = "Mistborn",
+            SeriesPosition = "5",
+            Title = "The Lost Metal",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(
+            s => s.DismissSeriesRosterUpcomingAsync("Mistborn", "5", "The Lost Metal"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_AuthorTitleFallback_StillWorks()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            AuthorId = 9,
+            Title = "Standalone Novella",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _upcomingReleaseService.Verify(s => s.DismissAuthorRosterUpcomingAsync(9, "Standalone Novella"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_NoIdentityAndBlankTitle_ReturnsInvalidRequest()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto());
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Title is required.");
+        _upcomingReleaseService.Verify(
+            s => s.DismissAuthorRosterUpcomingAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DismissRosterUpcomingRelease_NoScope_ReturnsInvalidRequest()
+    {
+        var result = await _controller.DismissRosterUpcomingRelease(new DismissRosterUpcomingReleaseDto
+        {
+            Title = "The Lost Metal",
+        });
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Exactly one of seriesName or authorId must be set.");
     }
 
     [TestMethod]

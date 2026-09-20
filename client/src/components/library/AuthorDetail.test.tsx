@@ -28,6 +28,7 @@ function makeDetail(
     missingBooks?: AuthorDetail["missingBooks"];
     upcomingBooks?: AuthorDetail["upcomingBooks"];
     ignoredBooks?: AuthorDetail["ignoredBooks"];
+    missingSeries?: AuthorDetail["missingSeries"];
   } = {},
 ): AuthorDetail {
   const authorId = opts.authorId ?? 7;
@@ -75,6 +76,9 @@ function makeDetail(
     missingBooks: opts.missingBooks ?? [],
     upcomingBooks: opts.upcomingBooks ?? [],
     ignoredBooks: opts.ignoredBooks ?? [],
+    // Defaults to null (section not computed): the opt-in flag is always sent now, so a test
+    // that wants the Missing Series section passes a real page here.
+    missingSeries: opts.missingSeries ?? null,
   };
 }
 
@@ -127,6 +131,9 @@ describe("AuthorDetail", () => {
       seriesOffset: 0,
       standaloneLimit: 50,
       standaloneOffset: 0,
+      includeMissingSeries: true,
+      missingSeriesLimit: 50,
+      missingSeriesOffset: 0,
     });
   });
 
@@ -167,6 +174,9 @@ describe("AuthorDetail", () => {
         seriesOffset: 50,
         standaloneLimit: 50,
         standaloneOffset: 0,
+        includeMissingSeries: true,
+        missingSeriesLimit: 50,
+        missingSeriesOffset: 0,
       });
     });
   });
@@ -233,6 +243,9 @@ describe("AuthorDetail", () => {
         seriesOffset: 0,
         standaloneLimit: 50,
         standaloneOffset: 0,
+        includeMissingSeries: true,
+        missingSeriesLimit: 50,
+        missingSeriesOffset: 0,
       });
     });
 
@@ -311,7 +324,7 @@ describe("AuthorDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
 
     await waitFor(() => {
-      expect(ignore).toHaveBeenCalledWith(7, "Warbreaker 2");
+      expect(ignore).toHaveBeenCalledWith(7, { id: 1 });
     });
   });
 
@@ -329,13 +342,181 @@ describe("AuthorDetail", () => {
 
     renderWithProviders();
 
-    await screen.findByText("Ignored Books (1)");
-    fireEvent.click(screen.getByRole("button", { name: "Ignored Books (1)" }));
+    // The dismissed book no longer has its own Ignored section - it renders faded inside the
+    // Missing list once the "show ignored" toggle (which carries the count) is switched on.
+    expect(await screen.findByText(/show ignored books \(1\)/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unignore" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Missing Books (0)" }));
+    expect(screen.getByRole("button", { name: "Unignore" })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Unignore" }));
 
     await waitFor(() => {
-      expect(unignore).toHaveBeenCalledWith(7, "Warbreaker 2");
+      expect(unignore).toHaveBeenCalledWith(7, { id: 1 });
     });
+  });
+
+  // --- Show-ignored: dismissed entries render faded inside the section they classify to ---
+
+  it("shows ignored books faded inside the section they classify to when the toggle is on", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        missingBooks: [
+          { id: 1, title: "Missing Active", isIgnored: false, year: 2019, sourceUrl: null },
+        ],
+        upcomingBooks: [
+          {
+            id: 2,
+            title: "Upcoming Active",
+            isIgnored: false,
+            year: null,
+            sourceUrl: null,
+            releaseDate: "2030-01-01",
+          },
+        ],
+        ignoredBooks: [
+          { id: 3, title: "Ignored Past Book", isIgnored: true, year: 2018, sourceUrl: null },
+          {
+            id: 4,
+            title: "Ignored Future Book",
+            isIgnored: true,
+            year: null,
+            sourceUrl: null,
+            releaseDate: "2031-05-05",
+          },
+        ],
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+
+    renderWithProviders();
+
+    // Both sections name their counts from the active rows only; the toggle carries the ignored
+    // count, and the dismissed rows stay hidden until it is switched on.
+    expect(await screen.findByText(/Missing Books \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Upcoming Books \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/show ignored books \(2\)/i)).toBeInTheDocument();
+    expect(screen.queryByText("Ignored Past Book")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ignored Future Book")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /show ignored books/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Missing Books (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upcoming Books (1)" }));
+
+    // The past-dated ignored row belongs to Missing, the future-dated one to Upcoming, and both
+    // render in the low-emphasis (muted title) style - unlike the active rows beside them.
+    const pastRow = screen.getByText("Ignored Past Book");
+    expect(pastRow).toHaveClass("text-muted-foreground");
+    const futureRow = screen.getByText("Ignored Future Book");
+    expect(futureRow).toHaveClass("text-muted-foreground");
+    expect(screen.getByText("Missing Active")).not.toHaveClass("text-muted-foreground");
+    expect(screen.getByText("Upcoming Active")).not.toHaveClass("text-muted-foreground");
+  });
+
+  // --- Missing Series: the paged opt-in section ---
+
+  it("renders Missing Series with counts, a link to a matched series, and a disabled hint when unmatched", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(
+      makeDetail(0, 0, {
+        missingSeries: {
+          count: 2,
+          total: 2,
+          items: [
+            {
+              sourceName: "Hardcover",
+              sourceSeriesId: "101",
+              sourceSeriesName: "Stormlight Archive",
+              expectedCount: 3,
+              missingCount: 2,
+              upcomingCount: 1,
+              ownedBookCount: 1,
+              matchedSeriesId: 1,
+              matchedSeriesName: "The Stormlight Archive",
+            },
+            {
+              sourceName: "Hardcover",
+              sourceSeriesId: "102",
+              sourceSeriesName: "Unmatched Saga",
+              expectedCount: 3,
+              missingCount: 3,
+              upcomingCount: 0,
+              ownedBookCount: 0,
+              matchedSeriesId: null,
+              matchedSeriesName: null,
+            },
+          ],
+        },
+      }),
+    );
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/Missing Series \(2\)/)).toBeInTheDocument();
+
+    // Matched series: the matched local name is shown, the badges carry the counts, and the row
+    // links to the series detail with this author's id so "Back to Author" still works.
+    expect(screen.getByText("The Stormlight Archive")).toBeInTheDocument();
+    expect(screen.getByText("2 missing")).toBeInTheDocument();
+    expect(screen.getByText("1 upcoming")).toBeInTheDocument();
+    expect(screen.getByText("1 owned")).toBeInTheDocument();
+    const seriesLink = screen.getByRole("link", { name: /View series/ });
+    expect(seriesLink).toHaveAttribute(
+      "href",
+      "/library/series/The%20Stormlight%20Archive?authorId=7",
+    );
+
+    // Unmatched series: the source's series name is shown and the row renders the disabled
+    // "Match series" hint in place of an actionable link (matching belongs on the series page).
+    expect(screen.getByText("Unmatched Saga")).toBeInTheDocument();
+    expect(screen.queryAllByRole("link", { name: /View series/ })).toHaveLength(1);
+    expect(screen.getByText("Match series")).toBeInTheDocument();
+  });
+
+  it("pages the Missing Series section through the same combined detail call", async () => {
+    const getAuthorDetail = vi.spyOn(browseApi, "getAuthorDetail");
+    getAuthorDetail.mockImplementation((_id, params) => {
+      const firstPage = params?.missingSeriesOffset === 0;
+      return Promise.resolve(
+        makeDetail(0, 0, {
+          missingSeries: {
+            count: firstPage ? 50 : 1,
+            total: 51,
+            items: Array.from({ length: firstPage ? 50 : 1 }, (_, i) => ({
+              sourceName: "Hardcover",
+              sourceSeriesId: String(firstPage ? i + 1 : 51),
+              sourceSeriesName: `Source Series ${firstPage ? i + 1 : 51}`,
+              expectedCount: 2,
+              missingCount: 1,
+              upcomingCount: 1,
+              ownedBookCount: 0,
+              matchedSeriesId: firstPage ? i + 1 : 51,
+              matchedSeriesName: `Matched Series ${firstPage ? i + 1 : 51}`,
+            })),
+          },
+        }),
+      );
+    });
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+
+    renderWithProviders();
+
+    await screen.findByText(/Missing Series \(51\)/);
+    expect(screen.getByText("Matched Series 1")).toBeInTheDocument();
+
+    // With no series/standalone sections, this is the only pager on the page.
+    screen.getByRole("button", { name: "Next" }).click();
+
+    await waitFor(() => {
+      const last = getAuthorDetail.mock.calls.at(-1)!;
+      expect(last[1]?.missingSeriesOffset).toBe(50);
+    });
+    expect(await screen.findByText("Matched Series 51")).toBeInTheDocument();
   });
 
   // --- Management & Settings: matched-source badge, last-refreshed hint, refresh action ---

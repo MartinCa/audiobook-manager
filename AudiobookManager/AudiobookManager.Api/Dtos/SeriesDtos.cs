@@ -28,7 +28,11 @@ public record SeriesExpectedBookDto(
     int? Year,
     string? SourceUrl,
     bool IsIgnored,
-    DateOnly? ReleaseDate = null
+    DateOnly? ReleaseDate = null,
+    /// <summary>The metadata source that reported this roster entry (e.g. "Hardcover"), when known.</summary>
+    string? SourceName = null,
+    /// <summary>The source's own book identifier - the dedup identity the author and series rosters share, when the source gave one.</summary>
+    string? SourceBookId = null
 );
 
 public record SeriesOwnedBookDto(
@@ -142,8 +146,13 @@ public class IncludeOmnibusEditionsDto
 }
 
 /// <summary>
-/// Addresses a roster entry by its natural key. Row ids are not stable across a re-match or
-/// refresh, so the ignore endpoints take position and/or title instead.
+/// Addresses a roster entry by its natural key - the series-scoped API's pre-unification
+/// compatibility surface, taking only what the source reported (position and/or title, the pair
+/// the client's missing/mismatch flows carry). The unified expected-book row keeps a stable id
+/// across refreshes (rows are refreshed in place, never re-created), which is why the
+/// id-addressed dismissal routes (the author detail's <c>AuthorExpectedBookRefDto</c>) are
+/// preferred for callers that know an id; this route stays on the natural key as the original
+/// series contract.
 /// </summary>
 public class ExpectedBookRefDto
 {
@@ -154,7 +163,7 @@ public class ExpectedBookRefDto
 /// <summary>
 /// Applies a missing expected book to a chosen library audiobook: the audiobook receives the
 /// series name and the roster entry's position. The roster entry is addressed by its natural key
-/// like <see cref="ExpectedBookRefDto"/> - row ids are not stable across a re-match or refresh.
+/// like <see cref="ExpectedBookRefDto"/> - the pair the source reports, not a row id.
 /// </summary>
 public class ApplyExpectedBookDto
 {

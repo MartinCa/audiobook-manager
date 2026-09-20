@@ -31,7 +31,8 @@ export type SeriesCounts = Require<
 >;
 
 // id/title/isIgnored are non-nullable; position/year/sourceUrl/releaseDate are genuinely
-// nullable.
+// nullable, and the paging-phase source identity (sourceName/sourceBookId) is genuinely nullable
+// too - an old roster row or a source that reports no book id carries neither.
 export type SeriesExpectedBook = Require<
   components["schemas"]["SeriesExpectedBookDto"],
   "id" | "title" | "isIgnored"

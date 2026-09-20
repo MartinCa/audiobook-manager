@@ -156,49 +156,6 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("audiobooks", (string)null);
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.AuthorExpectedBook", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<bool>("IsIgnored")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_ignored");
-
-                    b.Property<long>("PersonId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("person_id");
-
-                    b.Property<DateOnly?>("ReleaseDate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("release_date");
-
-                    b.Property<string>("SourceUrl")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_url");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("title");
-
-                    b.Property<int?>("Year")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("year");
-
-                    b.HasKey("Id")
-                        .HasName("pk_author_expected_books");
-
-                    b.HasIndex(new[] { "PersonId" }, "ix_author_expected_books_person_id")
-                        .HasDatabaseName("ix_author_expected_books_person_id");
-
-                    b.ToTable("author_expected_books", (string)null);
-                });
-
             modelBuilder.Entity("AudiobookManager.Database.Models.AuthorFollow", b =>
                 {
                     b.Property<long>("Id")
@@ -362,6 +319,128 @@ namespace AudiobookManager.Database.Migrations
                         .HasDatabaseName("ix_discovered_audiobooks_file_info_full_path");
 
                     b.ToTable("discovered_audiobooks", (string)null);
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.ExpectedBook", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("first_seen_at");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("image_url");
+
+                    b.Property<bool>("IsCompilation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_compilation");
+
+                    b.Property<bool>("IsIgnored")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_ignored");
+
+                    b.Property<DateTime>("LastRefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_refreshed_at");
+
+                    b.Property<DateOnly?>("ReleaseDate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("release_date");
+
+                    b.Property<long?>("SeriesId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("series_id");
+
+                    b.Property<string>("SeriesPosition")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("series_position");
+
+                    b.Property<string>("SourceBookId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_book_id");
+
+                    b.Property<string>("SourceName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_name");
+
+                    b.Property<string>("SourceSeriesId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_series_id");
+
+                    b.Property<string>("SourceSeriesName")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_series_name");
+
+                    b.Property<string>("SourceUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_url");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
+
+                    b.Property<int?>("Year")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("year");
+
+                    b.HasKey("Id")
+                        .HasName("pk_expected_books");
+
+                    b.HasIndex(new[] { "SeriesId" }, "ix_expected_books_series_id")
+                        .HasDatabaseName("ix_expected_books_series_id");
+
+                    b.HasIndex(new[] { "SourceName", "SourceBookId" }, "ix_expected_books_source")
+                        .IsUnique()
+                        .HasDatabaseName("ix_expected_books_source_name_source_book_id")
+                        .HasFilter("source_book_id IS NOT NULL");
+
+                    b.HasIndex(new[] { "SourceSeriesId" }, "ix_expected_books_source_series_id")
+                        .HasDatabaseName("ix_expected_books_source_series_id");
+
+                    b.ToTable("expected_books", (string)null);
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.ExpectedBookAuthor", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("author_name");
+
+                    b.Property<long>("ExpectedBookId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("expected_book_id");
+
+                    b.Property<long?>("PersonId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("person_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_expected_book_authors");
+
+                    b.HasIndex(new[] { "ExpectedBookId" }, "ix_expected_book_authors_expected_book_id")
+                        .HasDatabaseName("ix_expected_book_authors_expected_book_id");
+
+                    b.HasIndex(new[] { "PersonId" }, "ix_expected_book_authors_person_id")
+                        .HasDatabaseName("ix_expected_book_authors_person_id");
+
+                    b.ToTable("expected_book_authors", (string)null);
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.Genre", b =>
@@ -696,57 +775,6 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("series", (string)null);
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.SeriesExpectedBook", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<bool>("IsCompilation")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("is_compilation");
-
-                    b.Property<bool>("IsIgnored")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_ignored");
-
-                    b.Property<string>("Position")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("position");
-
-                    b.Property<DateOnly?>("ReleaseDate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("release_date");
-
-                    b.Property<long>("SeriesId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("series_id");
-
-                    b.Property<string>("SourceUrl")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_url");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("title");
-
-                    b.Property<int?>("Year")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("year");
-
-                    b.HasKey("Id")
-                        .HasName("pk_series_expected_books");
-
-                    b.HasIndex(new[] { "SeriesId" }, "ix_series_expected_books_series_id")
-                        .HasDatabaseName("ix_series_expected_books_series_id");
-
-                    b.ToTable("series_expected_books", (string)null);
-                });
-
             modelBuilder.Entity("AudiobookManager.Database.Models.SeriesFollow", b =>
                 {
                     b.Property<long>("Id")
@@ -926,18 +954,6 @@ namespace AudiobookManager.Database.Migrations
                         .HasConstraintName("fk_audiobook_genre_genres_genres_id");
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.AuthorExpectedBook", b =>
-                {
-                    b.HasOne("AudiobookManager.Database.Models.Person", "Person")
-                        .WithMany("ExpectedBooks")
-                        .HasForeignKey("PersonId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_author_expected_books_persons_person_id");
-
-                    b.Navigation("Person");
-                });
-
             modelBuilder.Entity("AudiobookManager.Database.Models.AuthorFollow", b =>
                 {
                     b.HasOne("AudiobookManager.Database.Models.Person", "Person")
@@ -962,6 +978,37 @@ namespace AudiobookManager.Database.Migrations
                     b.Navigation("Audiobook");
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.ExpectedBook", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.Series", "Series")
+                        .WithMany("ExpectedBooks")
+                        .HasForeignKey("SeriesId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_expected_books_series_series_id");
+
+                    b.Navigation("Series");
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.ExpectedBookAuthor", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.ExpectedBook", "ExpectedBook")
+                        .WithMany("AuthorLinks")
+                        .HasForeignKey("ExpectedBookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_expected_book_authors_expected_books_expected_book_id");
+
+                    b.HasOne("AudiobookManager.Database.Models.Person", "Person")
+                        .WithMany()
+                        .HasForeignKey("PersonId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_expected_book_authors_persons_person_id");
+
+                    b.Navigation("ExpectedBook");
+
+                    b.Navigation("Person");
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.PendingMetadataRefresh", b =>
                 {
                     b.HasOne("AudiobookManager.Database.Models.Audiobook", "Audiobook")
@@ -972,18 +1019,6 @@ namespace AudiobookManager.Database.Migrations
                         .HasConstraintName("fk_pending_metadata_refresh_audiobooks_audiobook_id");
 
                     b.Navigation("Audiobook");
-                });
-
-            modelBuilder.Entity("AudiobookManager.Database.Models.SeriesExpectedBook", b =>
-                {
-                    b.HasOne("AudiobookManager.Database.Models.Series", "Series")
-                        .WithMany("ExpectedBooks")
-                        .HasForeignKey("SeriesId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_series_expected_books_series_series_id");
-
-                    b.Navigation("Series");
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.SeriesFollow", b =>
@@ -1063,9 +1098,9 @@ namespace AudiobookManager.Database.Migrations
                         .HasConstraintName("fk_audiobooks_narrators_persons_persons_narrators_id");
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.Person", b =>
+            modelBuilder.Entity("AudiobookManager.Database.Models.ExpectedBook", b =>
                 {
-                    b.Navigation("ExpectedBooks");
+                    b.Navigation("AuthorLinks");
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.Series", b =>

@@ -2,9 +2,9 @@ namespace AudiobookManager.Scraping.Models;
 
 /// <summary>
 /// One book of an author's full bibliography, as reported by a metadata source's author lookup -
-/// backs the author standalone-books roster (<see cref="Database.Models.AuthorExpectedBook"/>).
-/// Unlike <see cref="UpcomingReleaseResult"/> this is not filtered to not-yet-released books: the
-/// roster needs the author's whole catalog to compute both missing and upcoming standalone books.
+/// backs the unified expected-books roster. Unlike <see cref="UpcomingReleaseResult"/> this is not
+/// filtered to not-yet-released books: the roster needs the author's whole catalog to compute both
+/// missing and upcoming books.
 /// </summary>
 public class AuthorBookResult
 {
@@ -20,13 +20,17 @@ public class AuthorBookResult
 
     public string? SourceUrl { get; set; }
 
-    /// <summary>
-    /// Whether the source lists this book under any series. A book with a series is deliberately
-    /// left out of the author's standalone roster - it is already rostered (and refreshed)
-    /// through that series' own <see cref="Database.Models.SeriesExpectedBook"/> roster, so
-    /// including it here too would double-count it (see the design note this feature ships with).
-    /// </summary>
-    public bool HasSeries { get; set; }
+    /// <summary>A cover image URL from the source, when it reports one.</summary>
+    public string? ImageUrl { get; set; }
+
+    /// <summary>The source-specific series identifier of the book's first series, if any.</summary>
+    public string? SeriesSourceId { get; set; }
+
+    /// <summary>The series name of the book's first series, if any.</summary>
+    public string? SeriesName { get; set; }
+
+    /// <summary>The position of the book within its first series, if any.</summary>
+    public string? SeriesPosition { get; set; }
 
     public AuthorBookResult(string sourceBookId, string title)
     {

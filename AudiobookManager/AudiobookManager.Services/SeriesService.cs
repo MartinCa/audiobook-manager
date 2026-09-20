@@ -54,6 +54,8 @@ public class SeriesService : ISeriesService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly ISeriesRepository _seriesRepository;
+    private readonly IPersonRepository _personRepository;
+    private readonly IExpectedBookRepository _expectedBookRepository;
     private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly ISeriesMappingRepository _seriesMappingRepository;
     private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
@@ -69,6 +71,8 @@ public class SeriesService : ISeriesService
     public SeriesService(
         IAudiobookRepository audiobookRepository,
         ISeriesRepository seriesRepository,
+        IPersonRepository personRepository,
+        IExpectedBookRepository expectedBookRepository,
         ISeriesFollowRepository seriesFollowRepository,
         ISeriesMappingRepository seriesMappingRepository,
         IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
@@ -83,6 +87,8 @@ public class SeriesService : ISeriesService
     {
         _audiobookRepository = audiobookRepository;
         _seriesRepository = seriesRepository;
+        _personRepository = personRepository;
+        _expectedBookRepository = expectedBookRepository;
         _seriesFollowRepository = seriesFollowRepository;
         _seriesMappingRepository = seriesMappingRepository;
         _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
@@ -490,10 +496,12 @@ public class SeriesService : ISeriesService
     }
 
     /// <summary>
-    /// Matches the series to a source and replaces its stored roster, returning the catalog
-    /// row. Does no read-side projection work. A caller that already fetched the roster (the
-    /// refresh path needs it to compute its diff) passes it in via <paramref name="fetched"/>
-    /// so the source is not hit twice.
+    /// Matches the series to a source and stores its roster on the unified expected-books table
+    /// (<see cref="IExpectedBookRepository.UpsertManyAsync"/>), returning the catalog row. A
+    /// caller that already fetched the roster (the refresh path needs it to compute its diff)
+    /// passes it in via <paramref name="fetched"/> so the source is not hit twice. Books the
+    /// source no longer reports are unlinked from the series (their rows survive, author-linked
+    /// or other-series-linked) and the resulting orphans are deleted.
     /// </summary>
     private async Task<Series> MatchSeriesCoreAsync(
         string seriesName,
@@ -501,7 +509,6 @@ public class SeriesService : ISeriesService
         string sourceSeriesId,
         double? confidence,
         bool includeOmnibusEditions,
-        Series? existingRow = null,
         SeriesSearchResult? fetched = null)
     {
         var scraper = SeriesCapableScrapers.FirstOrDefault(s => s.IsSource(sourceName))
@@ -510,11 +517,6 @@ public class SeriesService : ISeriesService
         var roster = fetched
             ?? await scraper.GetSeriesBooks(sourceSeriesId)
             ?? throw new Exception($"Source {sourceName} returned no series for id {sourceSeriesId}");
-
-        // A caller that already read this row (RefreshManyAsync checks it is matched before
-        // getting here) passes it in, so refreshing N series costs N reads rather than 2N -
-        // each one pulling a full roster.
-        var existing = existingRow ?? await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
 
         var saved = await _seriesRepository.UpsertSeriesAsync(new Series
         {
@@ -528,35 +530,49 @@ public class SeriesService : ISeriesService
             IncludeOmnibusEditions = includeOmnibusEditions,
         });
 
-        // Normalize the previously-ignored titles once rather than once per roster entry.
-        var previouslyIgnored = (existing?.ExpectedBooks ?? new List<SeriesExpectedBook>())
-            .Where(p => p.IsIgnored)
-            .Select(p => SeriesRosterMatcher.BookKey.From(p.Position, p.Title))
+        // The roster entries' author names are source spellings. They are resolved against the
+        // library's existing Person rows so an author-linked book can be found by both scopes -
+        // but never created from scrape data: an unknown name stays a name-only link.
+        var rosterAuthorNames = roster.Books
+            .SelectMany(b => b.Authors)
+            .Distinct(StringComparer.Ordinal)
             .ToList();
+        var personsByName = new Dictionary<string, Database.Models.Person?>();
+        foreach (var name in rosterAuthorNames)
+        {
+            personsByName[name] = await _personRepository.GetByNameAsync(name);
+        }
 
         // The full roster is always stored, compilations included - IncludeOmnibusEditions only
         // controls what SeriesService treats as visible when reading it back, so toggling it
-        // later doesn't require re-fetching from the source.
-        var newExpected = roster.Books.Select(b =>
-        {
-            var key = SeriesRosterMatcher.BookKey.From(b.Position, b.Title);
-            return new SeriesExpectedBook
-            {
-                Position = b.Position,
-                Title = b.Title,
-                Year = b.Year,
-                ReleaseDate = b.ReleaseDate,
-                SourceUrl = b.SourceUrl,
-                IsCompilation = b.IsCompilation,
-                // Re-matching or refreshing replaces the roster wholesale, so carry the user's
-                // ignore decisions across for entries that are recognisably the same book.
-                IsIgnored = previouslyIgnored.Any(p => SeriesRosterMatcher.IsSameBook(p, key)),
-            };
-        }).ToList();
+        // later doesn't require re-fetching from the source. Ignore decisions are NOT carried
+        // here: UpsertAsync refreshes an existing row in place and never resets IsIgnored, so a
+        // user's dismissals survive the re-match/refresh automatically.
+        var upserts = roster.Books.Select(b => new ExpectedBookUpsert(
+            SourceName: scraper.SourceName,
+            SourceBookId: b.SourceBookId,
+            Title: b.Title,
+            Year: b.Year,
+            ReleaseDate: b.ReleaseDate,
+            SourceUrl: b.SourceUrl,
+            ImageUrl: b.ImageUrl,
+            SeriesId: saved.Id,
+            SourceSeriesId: sourceSeriesId,
+            SourceSeriesName: roster.SeriesName,
+            SeriesPosition: b.Position,
+            // Series-shaped: the source's compilation flag is authoritative for the row.
+            IsCompilation: b.IsCompilation,
+            Authors: b.Authors.Select(name => new ExpectedBookAuthorLink(personsByName[name]?.Id, name)).ToList()))
+            .ToList();
 
-        await _seriesRepository.ReplaceExpectedBooksAsync(saved.Id, newExpected);
+        var ids = await _expectedBookRepository.UpsertManyAsync(upserts);
 
-        // The roster was just replaced wholesale - the reconciled detail is stale by definition.
+        // Detach rows the source no longer reports from this series, then delete the ones that
+        // no other scope links to - an author-linked book discovered by an author refresh stays.
+        await _expectedBookRepository.UnlinkSeriesBooksAsync(saved.Id, ids);
+        await _expectedBookRepository.DeleteOrphanExpectedBooksAsync();
+
+        // The roster was just re-stored - the reconciled detail is stale by definition.
         _reconciliationCache.Invalidate(seriesName);
 
         return saved;
@@ -614,10 +630,10 @@ public class SeriesService : ISeriesService
     /// </summary>
     public async Task<SeriesRefreshResult> RefreshSeriesAsync(string seriesName)
     {
-        // Loaded WITH the roster (GetByNameWithExpectedBooksAsync), the same shape the bulk
-        // refresh reads: MatchSeriesCoreAsync re-stores the roster wholesale and carries the
-        // user's ignore decisions across from the row passed in, so a roster-less row would
-        // silently clear every ignored entry on the next single-series refresh.
+        // The roster itself is not read here - MatchSeriesCoreAsync re-fetches and re-stores it
+        // from the source - but the catalog row is still loaded via GetByNameWithExpectedBooksAsync
+        // so it reports the same shape as the bulk sweep below. The user's ignore decisions need
+        // no carrying: UpsertAsync refreshes each row in place and never resets IsIgnored.
         var row = await _seriesRepository.GetByNameWithExpectedBooksAsync(seriesName);
         if (row is null || string.IsNullOrEmpty(row.MatchedSourceName) || string.IsNullOrEmpty(row.MatchedSourceId))
         {
@@ -642,7 +658,8 @@ public class SeriesService : ISeriesService
 
     public async Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored)
     {
-        await _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, ignored);
+        await _seriesRepository.SetExpectedBookIgnoredAsync(
+            seriesName, position, title, ignored, SeriesReconciliationProvider.MaxReconciliationRosterEntries);
         _reconciliationCache.Invalidate(seriesName);
     }
 
@@ -766,7 +783,7 @@ public class SeriesService : ISeriesService
         // relocation it implies), the sidecars and the database all update together, per the
         // binding invariant. A roster entry with no position clears the part.
         audiobook.Series = seriesName;
-        audiobook.SeriesPart = expected.Position;
+        audiobook.SeriesPart = expected.SeriesPosition;
 
         await _audiobookService.UpdateAudiobook(audiobookId, audiobook);
     }
@@ -818,10 +835,11 @@ public class SeriesService : ISeriesService
     /// <summary>
     /// The one-series refresh workload shared by the synchronous single refresh and the bulk
     /// sweep: re-fetch the roster from the matched source, store it (stamping
-    /// <c>LastRefreshedAt</c> and carrying ignore decisions across like a re-match), then diff
-    /// the fresh roster against the series' owned books and keep the pending snapshot in step -
-    /// upserted when the refresh found explicit changes, deleted when it found none, so a
-    /// no-change bulk item never appears in the pending list.
+    /// <c>LastRefreshedAt</c> - the user's ignore decisions survive automatically because
+    /// UpsertAsync refreshes rows in place), then diff the fresh roster against the series' owned
+    /// books and keep the pending snapshot in step - upserted when the refresh found explicit
+    /// changes, deleted when it found none, so a no-change bulk item never appears in the pending
+    /// list.
     /// </summary>
     private async Task<(bool HasChanges, int ChangeCount, string? SourceName)> RefreshOneSeriesCoreAsync(
         string seriesName, Series row)
@@ -850,7 +868,7 @@ public class SeriesService : ISeriesService
 
         await MatchSeriesCoreAsync(
             seriesName, row.MatchedSourceName!, row.MatchedSourceId!,
-            row.MatchConfidence, row.IncludeOmnibusEditions, row, roster);
+            row.MatchConfidence, row.IncludeOmnibusEditions, roster);
 
         await PersistPendingChangesAsync(seriesName, scraper.SourceName, roster, changes);
 
@@ -1460,7 +1478,7 @@ public class SeriesService : ISeriesService
     private static SeriesOverview BuildOverview(string seriesName, List<SeriesGroupingBook> ownedBooks, Series? catalogRow)
     {
         var includeOmnibusEditions = catalogRow?.IncludeOmnibusEditions ?? false;
-        var expected = (catalogRow?.ExpectedBooks ?? new List<SeriesExpectedBook>())
+        var expected = (catalogRow?.ExpectedBooks ?? new List<ExpectedBook>())
             .Where(e => includeOmnibusEditions || !e.IsCompilation)
             .ToList();
         var active = expected.Where(e => !e.IsIgnored).ToList();

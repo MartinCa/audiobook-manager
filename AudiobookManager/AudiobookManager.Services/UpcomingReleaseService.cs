@@ -14,6 +14,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     private readonly IAuthorFollowRepository _authorFollowRepository;
     private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly IUpcomingReleaseRepository _upcomingReleaseRepository;
+    private readonly IExpectedBookRepository _expectedBookRepository;
     private readonly ISeriesReconciliationProvider _seriesReconciliationProvider;
     private readonly IAuthorReconciliationProvider _authorReconciliationProvider;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
@@ -26,6 +27,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         IAuthorFollowRepository authorFollowRepository,
         ISeriesFollowRepository seriesFollowRepository,
         IUpcomingReleaseRepository upcomingReleaseRepository,
+        IExpectedBookRepository expectedBookRepository,
         ISeriesReconciliationProvider seriesReconciliationProvider,
         IAuthorReconciliationProvider authorReconciliationProvider,
         ISeriesReconciliationCache seriesReconciliationCache,
@@ -37,6 +39,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _authorFollowRepository = authorFollowRepository;
         _seriesFollowRepository = seriesFollowRepository;
         _upcomingReleaseRepository = upcomingReleaseRepository;
+        _expectedBookRepository = expectedBookRepository;
         _seriesReconciliationProvider = seriesReconciliationProvider;
         _authorReconciliationProvider = authorReconciliationProvider;
         _seriesReconciliationCache = seriesReconciliationCache;
@@ -82,6 +85,13 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         return results.ToList();
     }
 
+    /// <summary>
+    /// Persists the author's match. The immediate roster refresh that follows lives in the
+    /// controller under the shared expected-book write gate (<see cref="IExpectedBookWriteGate"/>,
+    /// in <c>BrowseController.MatchAuthor</c>), because this service does not own that gate - the
+    /// match must persist even when the refresh fails transiently, and the periodic sweep then
+    /// picks the roster up on its next tick.
+    /// </summary>
     public async Task MatchAuthorAsync(long personId, string sourceId, string sourceName, string? sourceUrl)
     {
         _ = await _personRepository.GetByIdAsync(personId)
@@ -139,37 +149,111 @@ public class UpcomingReleaseService : IUpcomingReleaseService
 
     public Task<bool> RemoveUpcomingReleaseAsync(long id) => _upcomingReleaseRepository.DeleteAsync(id);
 
+    /// <summary>
+    /// Dismisses a roster-derived upcoming release for a followed author by setting
+    /// <c>IsIgnored</c> on the shared unified expected-book row (the same row a series refresh
+    /// or another author may link to), so the book drops out of every scope's view at once -
+    /// the global-ignore behavior the unified roster gives for free. A title-addressed dismissal
+    /// is the compatibility fallback; new callers should use
+    /// <see cref="DismissAuthorRosterUpcomingByIdAsync"/> since one author can carry two
+    /// rows with the same title. Also invalidates the cache of any local series the row is
+    /// linked to, whose view changes with the flag.
+    /// </summary>
     public async Task DismissAuthorRosterUpcomingAsync(long personId, string title) =>
-        await _personRepository.SetAuthorExpectedBookIgnoredAsync(personId, title, true);
+        await InvalidateSeriesOfIgnoredRowAsync(
+            await _expectedBookRepository.SetExpectedBookIgnoredByPersonAsync(
+                personId, title, true, AuthorReconciliationProvider.MaxReconciliationRosterEntries));
+
+    /// <summary>Un-dismissal counterpart of <see cref="DismissAuthorRosterUpcomingAsync"/>.</summary>
+    public async Task RestoreAuthorRosterUpcomingAsync(long personId, string title) =>
+        await InvalidateSeriesOfIgnoredRowAsync(
+            await _expectedBookRepository.SetExpectedBookIgnoredByPersonAsync(
+                personId, title, false, AuthorReconciliationProvider.MaxReconciliationRosterEntries));
+
+    /// <inheritdoc cref="IUpcomingReleaseService.DismissAuthorRosterUpcomingByIdAsync"/>
+    public async Task DismissAuthorRosterUpcomingByIdAsync(long expectedBookId) =>
+        await SetIgnoredByIdAsync(expectedBookId, true);
+
+    /// <inheritdoc cref="IUpcomingReleaseService.RestoreAuthorRosterUpcomingByIdAsync"/>
+    public async Task RestoreAuthorRosterUpcomingByIdAsync(long expectedBookId) =>
+        await SetIgnoredByIdAsync(expectedBookId, false);
+
+    /// <inheritdoc cref="IUpcomingReleaseService.DismissRosterUpcomingBySourceAsync"/>
+    public async Task DismissRosterUpcomingBySourceAsync(string sourceName, string sourceBookId)
+    {
+        var book = await _expectedBookRepository.GetBySourceAsync(sourceName, sourceBookId)
+            ?? throw new KeyNotFoundException($"Expected book (source '{sourceName}', id '{sourceBookId}') not found");
+
+        await _expectedBookRepository.SetIgnoredByIdAsync(book.Id, true);
+        await InvalidateSeriesOfIgnoredRowAsync(book.SeriesId);
+    }
+
+    private async Task SetIgnoredByIdAsync(long expectedBookId, bool ignored)
+    {
+        var book = await _expectedBookRepository.GetByIdAsync(expectedBookId)
+            ?? throw new KeyNotFoundException($"Expected book {expectedBookId} not found");
+
+        await _expectedBookRepository.SetIgnoredByIdAsync(expectedBookId, ignored);
+        await InvalidateSeriesOfIgnoredRowAsync(book.SeriesId);
+    }
+
+    /// <summary>
+    /// Drops the <see cref="ISeriesReconciliationCache"/> entry of the local series a changed
+    /// ignore flag belongs to (a no-op for a standalone row): a shared row's series view renders
+    /// from that cache, and a dismissal/restore through the author scope must not leave it stale
+    /// for the cache's whole TTL.
+    /// </summary>
+    private async Task InvalidateSeriesOfIgnoredRowAsync(long? seriesId)
+    {
+        if (seriesId is not long id)
+        {
+            return;
+        }
+
+        var seriesName = await _seriesRepository.GetNameByIdAsync(id);
+        if (seriesName is not null)
+        {
+            _seriesReconciliationCache.Invalidate(seriesName);
+        }
+    }
 
     public async Task DismissSeriesRosterUpcomingAsync(string seriesName, string? position, string title)
     {
-        await _seriesRepository.SetExpectedBookIgnoredAsync(seriesName, position, title, true);
+        await _seriesRepository.SetExpectedBookIgnoredAsync(
+            seriesName, position, title, true, SeriesReconciliationProvider.MaxReconciliationRosterEntries);
         _seriesReconciliationCache.Invalidate(seriesName);
     }
 
     /// <summary>
     /// Unions the legacy scrape-and-store table with every followed-and-matched series'/author's
-    /// roster entries classified <c>Upcoming</c>, de-duplicated by (scope, normalized title) so
-    /// the same upcoming book does not appear twice just because both pipelines know about it -
-    /// the roster-derived entry wins a duplicate, since it is the one that can actually be
-    /// dismissed (see <see cref="UpcomingReleaseSource"/>). The candidate set is bounded by the
-    /// number of followed-and-matched authors/series, which <see cref="RefreshUpcomingReleasesAsync"/>
-    /// already treats as small enough to poll synchronously, so building the whole set in memory
-    /// before sorting/paging is the same tradeoff that method already makes.
+    /// roster entries classified <c>Upcoming</c>, de-duplicated by the roster entry's source
+    /// identity (<see cref="ExpectedBook.SourceName"/> + <see cref="ExpectedBook.SourceBookId"/> -
+    /// the unified row's dedup identity, so the same book discovered by an author refresh and by
+    /// the series it belongs to is ONE row) with a scope + normalized-title fallback for rows
+    /// without a source id. The candidate set is bounded by the number of followed-and-matched
+    /// authors/series, which <see cref="RefreshUpcomingReleasesAsync"/> already treats as small
+    /// enough to poll synchronously, so building the whole set in memory before sorting/paging is
+    /// the same tradeoff that method already makes.
+    ///
+    /// A followed author's upcoming book always appears, series books included, whether or not
+    /// its series is followed - the author's roster now spans the whole bibliography, so the
+    /// author scope carries those books itself.
     ///
     /// The dedup key set also includes each series'/author's <c>Ignored</c> roster entries (not
     /// just <c>Upcoming</c>) for the same reason: once a roster-derived entry is dismissed, it
     /// must keep suppressing its legacy-table duplicate, or the same book reappears immediately
     /// as a fresh "Legacy" row the moment its "Upcoming" entry is ignored. An ignored entry
-    /// contributes only to <c>rosterKeys</c>, never to <c>items</c> - it stays invisible, it just
-    /// keeps suppressing the legacy duplicate.
+    /// contributes only to the key sets, never to <c>items</c> - it stays invisible, it just
+    /// keeps suppressing the legacy duplicate. Dismissing the shared row (from either scope)
+    /// hides it from both, which is why one key set covers both scopes.
     /// </summary>
     private async Task<List<UpcomingReleaseItem>> BuildMergedItemsAsync(long? personId, long? seriesId)
     {
         var legacy = await _upcomingReleaseRepository.GetAllAsync(personId, seriesId);
-        var items = new List<UpcomingReleaseItem>(legacy.Count);
-        var rosterKeys = new HashSet<(string Scope, string Title)>();
+
+        var rosterItems = new List<UpcomingReleaseItem>();
+        var rosterSourceKeys = new HashSet<(string SourceName, string SourceBookId)>();
+        var rosterScopeTitleKeys = new HashSet<(string Scope, string Title)>();
 
         if (seriesId is null)
         {
@@ -179,23 +263,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
 
             foreach (var series in followedSeries)
             {
-                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
-                foreach (var entry in reconciliation.Upcoming)
-                {
-                    var key = ($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title));
-                    rosterKeys.Add(key);
-                    items.Add(new UpcomingReleaseItem(
-                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
-                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
-                }
-
-                // An ignored roster entry has no visible item, but must still suppress its legacy
-                // duplicate - otherwise dismissing a roster-derived "upcoming" entry immediately
-                // resurrects the same book as a fresh "Legacy" row. See UPCOMING_RELEASES_DESIGN.md.
-                foreach (var entry in reconciliation.Ignored)
-                {
-                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                }
+                await CollectSeriesRoster(series, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
         }
         else
@@ -204,19 +272,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             if (series is not null && await _seriesFollowRepository.IsFollowedAsync(series.Id)
                 && !string.IsNullOrEmpty(series.MatchedSourceId))
             {
-                var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
-                foreach (var entry in reconciliation.Upcoming)
-                {
-                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                    items.Add(new UpcomingReleaseItem(
-                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
-                        null, null, series.Id, series.Name, entry.Position, "roster", entry.SourceUrl, null));
-                }
-
-                foreach (var entry in reconciliation.Ignored)
-                {
-                    rosterKeys.Add(($"series:{series.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                }
+                await CollectSeriesRoster(series, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
         }
 
@@ -228,19 +284,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
 
             foreach (var author in followedAuthorsScope)
             {
-                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(author.Id);
-                foreach (var entry in reconciliation.Upcoming)
-                {
-                    rosterKeys.Add(($"author:{author.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                    items.Add(new UpcomingReleaseItem(
-                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
-                        author.Id, author.Name, null, null, null, "roster", entry.SourceUrl, null));
-                }
-
-                foreach (var entry in reconciliation.Ignored)
-                {
-                    rosterKeys.Add(($"author:{author.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                }
+                await CollectAuthorRoster(author, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
         }
         else
@@ -249,26 +293,28 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             if (person is not null && await _authorFollowRepository.IsFollowedAsync(person.Id)
                 && !string.IsNullOrEmpty(person.MatchedSourceId))
             {
-                var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(person.Id);
-                foreach (var entry in reconciliation.Upcoming)
-                {
-                    rosterKeys.Add(($"author:{person.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                    items.Add(new UpcomingReleaseItem(
-                        UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
-                        person.Id, person.Name, null, null, null, "roster", entry.SourceUrl, null));
-                }
-
-                foreach (var entry in reconciliation.Ignored)
-                {
-                    rosterKeys.Add(($"author:{person.Id}", NormalizeTitleForCarryOver(entry.Title)));
-                }
+                await CollectAuthorRoster(person, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
         }
+
+        var items = new List<UpcomingReleaseItem>(legacy.Count + rosterItems.Count);
+        var dedupedRoster = DedupeRosterItems(rosterItems);
+        foreach (var item in dedupedRoster)
+        {
+            // The merged item's keys are the union of both scopes' keys, so its legacy duplicate
+            // is suppressed whichever scope the legacy row was recorded under.
+            AddRosterDedupKeys(item, rosterSourceKeys, rosterScopeTitleKeys);
+        }
+
+        items.AddRange(dedupedRoster);
 
         foreach (var r in legacy)
         {
             var scope = r.SeriesId is not null ? $"series:{r.SeriesId}" : r.PersonId is not null ? $"author:{r.PersonId}" : null;
-            if (scope is not null && rosterKeys.Contains((scope, NormalizeTitleForCarryOver(r.Title))))
+            var suppressed = (r.SourceBookId is not null && rosterSourceKeys.Contains((r.SourceName, r.SourceBookId!)))
+                || (scope is not null && rosterScopeTitleKeys.Contains((scope, NormalizeTitleForCarryOver(r.Title))));
+
+            if (suppressed)
             {
                 // The roster-derived entry for this same book already represents it.
                 continue;
@@ -277,7 +323,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             items.Add(new UpcomingReleaseItem(
                 UpcomingReleaseSource.Legacy, r.Id, r.Title, r.ReleaseDate, r.ReleaseDate.Year,
                 r.PersonId, r.Person?.Name, r.SeriesId, r.Series?.Name, r.SeriesPosition,
-                r.SourceName, r.SourceUrl, r.ImageUrl));
+                r.SourceName, r.SourceUrl, r.ImageUrl, r.SourceBookId));
         }
 
         return items
@@ -286,6 +332,173 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             .ThenBy(i => i.Source)
             .ThenBy(i => i.Id ?? long.MaxValue)
             .ToList();
+    }
+
+    private async Task CollectSeriesRoster(
+        Series series,
+        List<UpcomingReleaseItem> rosterItems,
+        HashSet<(string SourceName, string SourceBookId)> sourceKeys,
+        HashSet<(string Scope, string Title)> scopeTitleKeys)
+    {
+        var reconciliation = await _seriesReconciliationProvider.GetReconciliationAsync(series.Name);
+        foreach (var entry in reconciliation.Upcoming)
+        {
+            rosterItems.Add(new UpcomingReleaseItem(
+                UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                null, null, series.Id, series.Name, entry.Position,
+                entry.SourceName, entry.SourceUrl, entry.ImageUrl, entry.SourceBookId, entry.Id));
+        }
+
+        AddIgnoredDedupKeys($"series:{series.Id}", reconciliation.Ignored.Select(i => (i.SourceName, i.SourceBookId, i.Title)).ToList(),
+            sourceKeys, scopeTitleKeys);
+    }
+
+    private async Task CollectAuthorRoster(
+        Person author,
+        List<UpcomingReleaseItem> rosterItems,
+        HashSet<(string SourceName, string SourceBookId)> sourceKeys,
+        HashSet<(string Scope, string Title)> scopeTitleKeys)
+    {
+        // The upcoming view only classifies the roster; the missing-series groups the author
+        // detail renders are not needed here (and must not fail this page over a pathological
+        // group set - see IAuthorReconciliationProvider.GetReconciliationAsync).
+        var reconciliation = await _authorReconciliationProvider.GetReconciliationAsync(
+            author.Id, includeMissingSeries: false);
+        foreach (var entry in reconciliation.Upcoming)
+        {
+            rosterItems.Add(new UpcomingReleaseItem(
+                UpcomingReleaseSource.Roster, null, entry.Title, entry.ReleaseDate, entry.Year,
+                author.Id, author.Name, entry.SeriesId, entry.SeriesName, entry.Position,
+                entry.SourceName, entry.SourceUrl, entry.ImageUrl, entry.SourceBookId, entry.Id));
+        }
+
+        AddIgnoredDedupKeys($"author:{author.Id}", reconciliation.Ignored.Select(i => (i.SourceName, i.SourceBookId, i.Title)).ToList(),
+            sourceKeys, scopeTitleKeys);
+    }
+
+    private static void AddIgnoredDedupKeys(
+        string scope,
+        IReadOnlyList<(string? SourceName, string? SourceBookId, string Title)> ignored,
+        HashSet<(string SourceName, string SourceBookId)> sourceKeys,
+        HashSet<(string Scope, string Title)> scopeTitleKeys)
+    {
+        foreach (var entry in ignored)
+        {
+            if (!string.IsNullOrEmpty(entry.SourceBookId))
+            {
+                sourceKeys.Add((entry.SourceName ?? string.Empty, entry.SourceBookId!));
+            }
+
+            scopeTitleKeys.Add((scope, NormalizeTitleForCarryOver(entry.Title)));
+        }
+    }
+
+    private static void AddRosterDedupKeys(
+        UpcomingReleaseItem item,
+        HashSet<(string SourceName, string SourceBookId)> sourceKeys,
+        HashSet<(string Scope, string Title)> scopeTitleKeys)
+    {
+        if (!string.IsNullOrEmpty(item.SourceBookId))
+        {
+            sourceKeys.Add((item.SourceName ?? string.Empty, item.SourceBookId!));
+        }
+
+        var title = NormalizeTitleForCarryOver(item.Title);
+        if (item.SeriesId is not null)
+        {
+            scopeTitleKeys.Add(($"series:{item.SeriesId}", title));
+        }
+
+        if (item.AuthorId is not null)
+        {
+            scopeTitleKeys.Add(($"author:{item.AuthorId}", title));
+        }
+    }
+
+    /// <summary>
+    /// Collapses roster-derived items that denote the same source book. The primary key is the
+    /// source identity (source name + source book id - the unified expected-book row's dedup
+    /// identity); an entry without one falls back to scope + normalized title, the same key the
+    /// legacy rows dedup on. When the same identity surfaces through both an author and a series
+    /// scope, one item is emitted that prefers the series-linked representation (it carries the
+    /// position/series metadata the series view renders) while keeping the author id so an
+    /// author-scoped query and the author-routed dismissal still work on the shared book. Two
+    /// author-scoped entries for the same identity (a coauthored book followed through both
+    /// authors) keep the first one.
+    /// </summary>
+    private static List<UpcomingReleaseItem> DedupeRosterItems(List<UpcomingReleaseItem> rosterItems)
+    {
+        if (rosterItems.Count <= 1)
+        {
+            return rosterItems;
+        }
+
+        var bySourceIdentity = new Dictionary<(string SourceName, string SourceBookId), List<UpcomingReleaseItem>>();
+        var kept = new List<UpcomingReleaseItem>(rosterItems.Count);
+        var identityLessScopeKeys = new HashSet<(string Scope, string Title)>();
+
+        foreach (var item in rosterItems)
+        {
+            if (!string.IsNullOrEmpty(item.SourceBookId))
+            {
+                var sourceKey = (item.SourceName ?? string.Empty, item.SourceBookId!);
+                if (!bySourceIdentity.TryGetValue(sourceKey, out var identityGroup))
+                {
+                    identityGroup = new List<UpcomingReleaseItem>();
+                    bySourceIdentity[sourceKey] = identityGroup;
+                }
+
+                identityGroup.Add(item);
+                continue;
+            }
+
+            var scope = item.SeriesId is not null ? $"series:{item.SeriesId}" : item.AuthorId is not null ? $"author:{item.AuthorId}" : null;
+            if (scope is null)
+            {
+                kept.Add(item);
+                continue;
+            }
+
+            var scopeKey = (scope, NormalizeTitleForCarryOver(item.Title));
+            if (identityLessScopeKeys.Contains(scopeKey))
+            {
+                continue;
+            }
+
+            identityLessScopeKeys.Add(scopeKey);
+            kept.Add(item);
+        }
+
+        foreach (var group in bySourceIdentity.Values)
+        {
+            kept.Add(MergeRosterGroup(group));
+        }
+
+        return kept;
+    }
+
+    private static UpcomingReleaseItem MergeRosterGroup(List<UpcomingReleaseItem> group)
+    {
+        if (group.Count == 1)
+        {
+            return group.Single();
+        }
+
+        var seriesEntry = group.FirstOrDefault(i => i.SeriesId is not null);
+        var authorEntry = group.FirstOrDefault(i => i.AuthorId is not null);
+        if (seriesEntry is not null)
+        {
+            return new UpcomingReleaseItem(
+                UpcomingReleaseSource.Roster, null,
+                seriesEntry.Title, seriesEntry.ReleaseDate ?? authorEntry?.ReleaseDate, seriesEntry.Year ?? authorEntry?.Year,
+                authorEntry?.AuthorId ?? seriesEntry.AuthorId, authorEntry?.AuthorName ?? seriesEntry.AuthorName,
+                seriesEntry.SeriesId, seriesEntry.SeriesName, seriesEntry.SeriesPosition,
+                seriesEntry.SourceName, seriesEntry.SourceUrl ?? authorEntry?.SourceUrl, seriesEntry.ImageUrl ?? authorEntry?.ImageUrl,
+                seriesEntry.SourceBookId,
+                seriesEntry.ExpectedBookId ?? authorEntry?.ExpectedBookId);
+        }
+
+        return group.First();
     }
 
     public async Task RefreshUpcomingReleasesAsync()
@@ -393,12 +606,13 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             return (0, 0, 0, "No author-capable metadata source is configured.");
         }
 
-        // Concurrency between this sweep, the single-author refresh, and a second direct call to
-        // either is gated by BrowseController's shared static _refreshLock (mirrors
-        // SeriesController's _refreshLock over RefreshSeries/RefreshAllSeries) - both endpoints
-        // that reach RefreshAuthorRosterCoreAsync take it before calling into this service, so
+        // Concurrency between this sweep, the single-author refresh, and the refresh triggered by
+        // matching an author is gated by BrowseController's shared <see cref="IExpectedBookWriteGate"/>
+        // (the same process-wide gate every series-side roster mutation holds) - every endpoint
+        // that reaches RefreshAuthorRosterCoreAsync takes it before calling into this service, so
         // two callers can never both read the ignore set and then both replace the same author's
-        // roster. See the concurrency note on RefreshAuthorRosterCoreAsync.
+        // links (and an author refresh can never race a series refresh rewriting shared rows). See
+        // the concurrency note on RefreshAuthorRosterCoreAsync.
         var authors = await _personRepository.GetMatchedAuthorsAsync();
         var processed = 0;
         var succeeded = 0;
@@ -424,7 +638,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             catch (Exception ex)
             {
                 failed++;
-                _logger.LogWarning(ex, "Failed to refresh the standalone-books roster for author {PersonId}", author.Id);
+                _logger.LogWarning(ex, "Failed to refresh the roster for author {PersonId}", author.Id);
             }
         }
 
@@ -432,47 +646,133 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     }
 
     /// <summary>
-    /// The one-author workload shared by the single and bulk refresh: fetch the author's full
-    /// bibliography, drop anything that belongs to a series (already rostered/refreshed through
-    /// that series' own roster - see the design note this feature ships with), replace the
-    /// stored roster wholesale (carrying ignore decisions across for entries recognisably the
-    /// same book, by normalized title - the author roster has no position to match on), and
-    /// stamp LastRefreshedAt.
+    /// The one-author workload shared by the single, bulk and match-triggered refresh: fetch the
+    /// author's full bibliography from the matched source - series books INCLUDED, since the
+    /// unified <see cref="ExpectedBook"/> roster attributes every book to its author here while
+    /// the series' own refresh stores its series placement, and one row serves both scopes - then
+    /// upsert every book (resolving each book's source series to the matched local catalog row
+    /// when one exists, by the exact (source name, source series id) pair, while unmatched source
+    /// series keep their source-series fields for a later match to link), prune THIS author's
+    /// links to exactly the fetched set, delete the orphans the prune leaves behind, and stamp
+    /// <c>LastRefreshedAt</c>. The upsert carries no compilation data (author-shaped), so a
+    /// series-linked row keeps the <c>IsCompilation</c> a series refresh established.
     ///
-    /// This method is reachable concurrently from two controller endpoints
-    /// (<c>BrowseController.RefreshAuthor</c>/<c>RefreshAllAuthors</c>) and does not itself gate
-    /// against that - the concurrency invariant is enforced by the caller. Both endpoints take
-    /// the SAME static <c>BrowseController._refreshLock</c> (mirroring
-    /// <c>SeriesController._refreshLock</c> over <c>RefreshSeries</c>/<c>RefreshAllSeries</c>)
-    /// before reaching this method, so a single-author refresh can never race the bulk sweep (or
-    /// another single-author refresh) into a read-then-delete-then-insert on the same author's
-    /// roster, and a dismissal made between the ignore-set read and the replace can never be lost
-    /// to a concurrent re-insert of the stale flag.
+    /// The user's ignore decisions are preserved by the upsert itself: a refresh finds the
+    /// existing unified row by its source identity (or adopts a legacy-copied row by natural key)
+    /// and refreshes it in place, never resetting <see cref="ExpectedBook.IsIgnored"/> - there is
+    /// no separate title-based carry-over anymore; the unified row is stable across refreshes.
+    ///
+    /// Because the refresh rewrites shared rows, it can change what a series' reconciliation
+    /// renders (titles, release dates, series placements, or outright unlinking when the source
+    /// stops reporting a book in a series). The cached reconciliation of EVERY local series the
+    /// refresh touches - the author's rows before the rewrite and the rows the fetched books are
+    /// (re)linked to - is invalidated, so the series detail never serves a stale view for the
+    /// cache's whole TTL.
+    ///
+    /// This method is reachable concurrently from the controller's endpoints
+    /// (<c>BrowseController.RefreshAuthor</c>, <c>RefreshAllAuthors</c> and the match-triggered
+    /// refresh in <c>MatchAuthor</c>) and does not itself gate against that - the concurrency
+    /// invariant is enforced by the caller. Every endpoint that reaches this REWRITE takes the
+    /// SAME <see cref="IExpectedBookWriteGate"/> (mirroring <c>SeriesController</c>'s roster
+    /// mutations) before calling in, so an author refresh can never race a series
+    /// match/refresh/delete - or the bulk sweep - into a read-then-upsert-then-prune on the same
+    /// unified rows, and a dismissal made between the upsert and the prune can never be lost.
+    /// The single-row ignore-flag dismissals themselves take no gate (they are set-based single
+    /// statements - see <see cref="IExpectedBookWriteGate"/>), which is safe here too: the
+    /// dismissal resolves the row and writes its flag in one update, so the prune's set-based
+    /// deletes serialize with it in SQLite instead of racing a tracked read-modify-write.
     /// </summary>
     private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
     {
+        // The local series names this refresh can change, collected up front and invalidated at
+        // the end: the rows about to be rewritten (which may be unlinked or re-placed) plus the
+        // matched lineages the fetched books land on. The read is the same bounded roster fetch
+        // the reconciliation uses; an author past that pathological ceiling still gets as much
+        // invalidation as the bounded reads saw, like every other best-effort cache.
+        var touchedSeries = await CollectTouchedSeriesNamesAsync(person.Id);
+
         var books = await scraper.GetAuthorBooks(person.MatchedSourceId!);
-        var standalone = books.Where(b => !b.HasSeries).ToList();
 
-        var (existing, _) = await _personRepository.GetByIdWithExpectedBooksBoundedAsync(
-            person.Id, AuthorReconciliationProvider.MaxReconciliationRosterEntries);
-        var previouslyIgnoredTitles = new HashSet<string>(
-            (existing?.ExpectedBooks ?? new List<AuthorExpectedBook>())
-                .Where(b => b.IsIgnored)
-                .Select(b => NormalizeTitleForCarryOver(b.Title)),
-            StringComparer.Ordinal);
+        // Resolve each book's source series to a local matched catalog row once per distinct
+        // (source name, source series id) pair - a bibliography with many entries of one series
+        // must not repeat the lookup per book.
+        var matchedSeriesBySourceKey = new Dictionary<(string SourceName, string SourceSeriesId), Series?>();
 
-        var newExpected = standalone.Select(b => new AuthorExpectedBook
+        var upserts = new List<ExpectedBookUpsert>(books.Count);
+        foreach (var book in books)
         {
-            Title = b.Title,
-            Year = b.Year,
-            ReleaseDate = b.ReleaseDate,
-            SourceUrl = b.SourceUrl,
-            IsIgnored = previouslyIgnoredTitles.Contains(NormalizeTitleForCarryOver(b.Title)),
-        }).ToList();
+            long? seriesId = null;
+            if (!string.IsNullOrEmpty(book.SeriesSourceId))
+            {
+                var sourceKey = (scraper.SourceName, book.SeriesSourceId!);
+                if (!matchedSeriesBySourceKey.TryGetValue(sourceKey, out var matchedSeries))
+                {
+                    matchedSeries = await _seriesRepository.GetByMatchedSourceIdAsync(scraper.SourceName, book.SeriesSourceId!);
+                    matchedSeriesBySourceKey[sourceKey] = matchedSeries;
+                }
 
-        await _personRepository.ReplaceAuthorExpectedBooksAsync(person.Id, newExpected);
+                seriesId = matchedSeries?.Id;
+                if (matchedSeries is not null)
+                {
+                    touchedSeries.Add(matchedSeries.Name);
+                }
+            }
+
+            upserts.Add(new ExpectedBookUpsert(
+                SourceName: scraper.SourceName,
+                SourceBookId: book.SourceBookId,
+                Title: book.Title,
+                Year: book.Year,
+                ReleaseDate: book.ReleaseDate,
+                SourceUrl: book.SourceUrl,
+                ImageUrl: book.ImageUrl,
+                SeriesId: seriesId,
+                SourceSeriesId: book.SeriesSourceId,
+                SourceSeriesName: book.SeriesName,
+                SeriesPosition: book.SeriesPosition,
+                // Author-shaped: the bibliography feed reports no compilation flag, so the poll
+                // must not clear whatever a series refresh established on the same row.
+                IsCompilation: null,
+                Authors: new[] { new ExpectedBookAuthorLink(person.Id, person.Name) }));
+        }
+
+        var ids = await _expectedBookRepository.UpsertManyAsync(upserts);
+
+        // Prune THIS author's links to exactly the fetched set. Other authors' links and any
+        // other scope's series link keep their books alive; an empty bibliography prunes this
+        // author's links to none and deletes only the books that are left with no author and no
+        // series at all.
+        await _expectedBookRepository.PruneAuthorLinksAsync(person.Id, ids);
+        await _expectedBookRepository.DeleteOrphanExpectedBooksAsync();
+
         await _personRepository.SetLastRefreshedAtAsync(person.Id, DateTime.UtcNow);
+
+        foreach (var seriesName in touchedSeries)
+        {
+            _seriesReconciliationCache.Invalidate(seriesName);
+        }
+    }
+
+    /// <summary>
+    /// The names of every local series the author's current roster rows are linked to - captured
+    /// BEFORE a refresh rewrites them, so a series placement the rewrite is about to change, and
+    /// a series it is about to unlink from, are both invalidated. Read through the same bounded
+    /// <see cref="IExpectedBookRepository.GetByAuthorBoundedAsync"/> the reconciliation uses.
+    /// </summary>
+    private async Task<HashSet<string>> CollectTouchedSeriesNamesAsync(long personId)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var (expected, _) = await _expectedBookRepository.GetByAuthorBoundedAsync(
+            personId, AuthorReconciliationProvider.MaxReconciliationRosterEntries);
+        foreach (var book in expected)
+        {
+            if (book.Series?.Name is { Length: > 0 } name)
+            {
+                names.Add(name);
+            }
+        }
+
+        return names;
     }
 
     private static string NormalizeTitleForCarryOver(string title) => title.Trim().ToLowerInvariant();

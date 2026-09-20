@@ -28,6 +28,7 @@ public class SeriesControllerTests
     private AudiobookSaveGate _saveGate = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
+    private ExpectedBookWriteGate _expectedBookWriteGate = null!;
     private Mock<ILogger<SeriesController>> _logger = null!;
     private SeriesController _controller = null!;
 
@@ -82,6 +83,7 @@ public class SeriesControllerTests
         _saveGate = new AudiobookSaveGate();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
+        _expectedBookWriteGate = new ExpectedBookWriteGate();
         _logger = new Mock<ILogger<SeriesController>>();
 
         var mockScope = new Mock<IServiceScope>();
@@ -99,12 +101,13 @@ public class SeriesControllerTests
             _saveGate,
             _libraryConsistencyService.Object,
             _upcomingReleaseService.Object,
+            _expectedBookWriteGate,
             Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
     }
 
     // BackgroundOperationRunner calls statusRegistry.SetFinished(key) and THEN releases the
-    // static gate in its finally block, so waiting for SetFinished alone can race the gate
+    // gate in its finally block, so waiting for SetFinished alone can race the gate
     // release (especially since Moq callbacks and TaskCompletionSource can resume our
     // continuation synchronously, inline with the SetFinished call, before the runner's very
     // next statement executes). RunContinuationsAsynchronously keeps that resumption off the
@@ -116,7 +119,15 @@ public class SeriesControllerTests
         return tcs.Task;
     }
 
-    private static async Task AwaitOperationFinished(Task finishedSignal)
+    private static async Task AwaitOperationFinished(Task finishedSignal, ExpectedBookWriteGate gate)
+    {
+        await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
+        await OperationGate.WaitUntilReleasedAsync(gate);
+    }
+
+    // The bulk missing-book apply stays behind SeriesController's static _missingBookApplyLock
+    // (it does not mutate the shared roster), so the reflection-based gate waiter applies there.
+    private static async Task AwaitMissingBookApplyFinished(Task finishedSignal)
     {
         await finishedSignal.WaitAsync(TimeSpan.FromSeconds(5));
         await OperationGate.WaitUntilReleasedAsync(typeof(SeriesController));
@@ -265,7 +276,7 @@ public class SeriesControllerTests
                 OwnedBookTotal = 3,
                 MissingBooks = new List<SeriesExpectedBookInfo>
                 {
-                    new SeriesExpectedBookInfo { Id = 10, Title = "Missing Book", Position = "4" }
+                    new SeriesExpectedBookInfo { Id = 10, Title = "Missing Book", Position = "4", SourceName = "Hardcover", SourceBookId = "444" }
                 },
                 MissingBookTotal = 7,
                 IgnoredBooks = new List<SeriesExpectedBookInfo>(),
@@ -289,6 +300,9 @@ public class SeriesControllerTests
         Assert.AreEqual(0, dto.IgnoredBooks.Items.Count);
         Assert.AreEqual(2, dto.IgnoredBooks.TotalCount);
         Assert.AreEqual("Missing Book", dto.MissingBooks.Items[0].Title);
+        Assert.AreEqual("Hardcover", dto.MissingBooks.Items[0].SourceName,
+            "the roster entry's source identity is exposed so the missing section can address it by source");
+        Assert.AreEqual("444", dto.MissingBooks.Items[0].SourceBookId);
         Assert.AreEqual(1, dto.PartMismatches.Items.Count);
         Assert.AreEqual(5, dto.PartMismatches.TotalCount, "the total is the full mismatch count, not the page");
         var mismatch = dto.PartMismatches.Items[0];
@@ -556,7 +570,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesMatchProgress(It.Is<SeriesMatchProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
         _clientProxy.Verify(c => c.SeriesMatchComplete(It.Is<SeriesMatchComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0)), Times.Once);
@@ -610,10 +624,7 @@ public class SeriesControllerTests
     [TestMethod]
     public async Task RefreshSeries_RefreshAlreadyRunning_ReturnsConflict()
     {
-        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
-            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetValue(null)!;
-        Assert.IsTrue(refreshLock.Wait(0));
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire());
 
         try
         {
@@ -624,7 +635,7 @@ public class SeriesControllerTests
         }
         finally
         {
-            refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -637,10 +648,7 @@ public class SeriesControllerTests
     [TestMethod]
     public async Task DismissPending_RefreshOrApplyAlreadyRunning_ReturnsConflict()
     {
-        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
-            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetValue(null)!;
-        Assert.IsTrue(refreshLock.Wait(0));
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire());
 
         try
         {
@@ -651,7 +659,7 @@ public class SeriesControllerTests
         }
         finally
         {
-            refreshLock.Release();
+            _expectedBookWriteGate.Release();
         }
     }
 
@@ -663,11 +671,8 @@ public class SeriesControllerTests
 
         await _controller.DismissPending("Mistborn");
 
-        var refreshLock = (SemaphoreSlim)typeof(SeriesController)
-            .GetField("_refreshLock", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetValue(null)!;
-        Assert.IsTrue(refreshLock.Wait(0), "the dismiss must not leave the refresh gate held");
-        refreshLock.Release();
+        Assert.IsTrue(_expectedBookWriteGate.TryAcquire(), "the dismiss must not leave the refresh gate held");
+        _expectedBookWriteGate.Release();
     }
 
     [TestMethod]
@@ -705,7 +710,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesRefreshComplete(It.Is<SeriesRefreshComplete>(p => p.TotalSucceeded == 3)), Times.Once);
     }
@@ -729,7 +734,7 @@ public class SeriesControllerTests
 
         var finished = RegisterFinishedWaiter(SeriesController.RefreshOperationKey);
         release.SetResult();
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
     }
 
     [TestMethod]
@@ -758,7 +763,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesDeleteProgress(It.Is<SeriesDeleteProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
         _clientProxy.Verify(c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(p => p.TotalSucceeded == 1 && p.TotalFailed == 0 && !p.Errored)), Times.Once);
@@ -783,7 +788,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(
             c => c.SeriesDeleteComplete(It.Is<SeriesDeleteComplete>(
@@ -810,7 +815,7 @@ public class SeriesControllerTests
 
         var finished = RegisterFinishedWaiter(SeriesController.DeleteOperationKey);
         release.SetResult();
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
     }
 
     private static AudiobookManager.Domain.PendingSeriesRefresh MakePendingRefresh() =>
@@ -1033,7 +1038,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyProgress(It.Is<SeriesRefreshApplyProgress>(p => p.Processed == 1 && p.Total == 1)), Times.Once);
         _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.SeriesName == "Mistborn" && p.TotalSucceeded == 1 && p.TotalFailed == 0 && p.EffectiveSeriesName == null)), Times.Once);
@@ -1066,7 +1071,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p => p.SeriesName == "Mistborn" && p.EffectiveSeriesName == "Mistborn Saga")), Times.Once);
     }
@@ -1103,7 +1108,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p =>
             p.SeriesName == "Mistborn" && p.EffectiveSeriesName == null)), Times.Once);
@@ -1135,7 +1140,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitOperationFinished(finished, _expectedBookWriteGate);
 
         _clientProxy.Verify(c => c.SeriesRefreshApplyComplete(It.Is<SeriesRefreshApplyComplete>(p =>
             p.TotalProcessed == 0 && p.TotalSucceeded == 0 && p.TotalFailed == 0 && p.SeriesName == "Mistborn" && p.EffectiveSeriesName == null)), Times.Once);
@@ -1411,7 +1416,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitMissingBookApplyFinished(finished);
 
         _seriesService.Verify(s => s.ApplyMissingBookAsync("Mistborn", "2", "The Well of Ascension", 5), Times.Once);
         _seriesService.Verify(s => s.ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 6), Times.Once);
@@ -1443,7 +1448,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitMissingBookApplyFinished(finished);
 
         _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalProcessed == 2 && p.TotalSucceeded == 1 && p.TotalFailed == 1)), Times.Once);
         _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Never, "a failed apply must not be rechecked");
@@ -1468,7 +1473,7 @@ public class SeriesControllerTests
 
             Assert.IsInstanceOfType(result, typeof(OkResult));
 
-            await AwaitOperationFinished(finished);
+            await AwaitMissingBookApplyFinished(finished);
 
             _clientProxy.Verify(c => c.SeriesMissingBookApplyComplete(It.Is<SeriesMissingBookApplyComplete>(p => p.TotalProcessed == 2 && p.TotalSucceeded == 1 && p.TotalFailed == 1)), Times.Once);
             _libraryConsistencyService.Verify(c => c.RecheckAudiobookAsync(5), Times.Never, "a book another operation holds must not be touched");
@@ -1495,7 +1500,7 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType(result, typeof(OkResult));
 
-        await AwaitOperationFinished(finished);
+        await AwaitMissingBookApplyFinished(finished);
 
         // Mirrors the interactive apply: the assignment itself succeeded, so a recheck bug must
         // not turn it into a counted failure.

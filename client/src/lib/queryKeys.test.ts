@@ -73,7 +73,7 @@ describe("queryKeys", () => {
       expect(queryKeys.author.all()).not.toEqual(queryKeys.authors.all());
       // authors.all() must not be a prefix of an author.detail() key, or invalidating the
       // authors list would also invalidate every open author-detail page.
-      const detail = queryKeys.author.detail(1, 0, 0);
+      const detail = queryKeys.author.detail(1, 0, 0, 0);
       expect(detail.slice(0, 1)).not.toEqual(queryKeys.authors.all());
     });
   });

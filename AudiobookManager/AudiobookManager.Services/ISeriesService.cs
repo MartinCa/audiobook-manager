@@ -135,9 +135,10 @@ public interface ISeriesService
 
     /// <summary>
     /// Flips the ignore flag on a roster entry, addressed by its natural key (series name
-    /// plus position and/or title) rather than its row id: matching and refreshing delete and
-    /// re-insert the roster, so a row id a client cached earlier can refer to a different
-    /// book by the time the call arrives.
+    /// plus position and/or title) - the series-side compatibility surface that takes only
+    /// what the source reported. The unified expected-book row keeps a stable id across
+    /// refreshes (the dismissal routes prefer it), but a row id can still change when a book
+    /// is unlinked and later re-attributed, so this route stays on the natural key.
     /// </summary>
     Task IgnoreExpectedBookAsync(string seriesName, string? position, string? title, bool ignored);
 

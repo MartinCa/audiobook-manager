@@ -1,3 +1,4 @@
+using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AudiobookManager.Api.Async;
@@ -11,6 +12,41 @@ namespace AudiobookManager.Api.Async;
 /// </summary>
 public static class BackgroundOperationRunner
 {
+    /// <summary>
+    /// Fire-and-forget variant for the expected-books roster mutations. They must be mutually
+    /// exclusive with every OTHER roster mutation too - an author refresh and a series refresh
+    /// rewrite the same unified rows, so the per-controller semaphores they used to hold cannot
+    /// guard one scope against the other (see <see cref="IExpectedBookWriteGate"/>). The gate is
+    /// the shared singleton, acquired here and released in the finally, so a busy roster mutation
+    /// - a synchronous refresh or another background operation - returns the same 409 this
+    /// overload's <see cref="SemaphoreSlim"/> twin produces.
+    /// </summary>
+    public static IActionResult Start(
+        IExpectedBookWriteGate gate,
+        IServiceScopeFactory scopeFactory,
+        ILogger logger,
+        IOperationStatusRegistry statusRegistry,
+        string operationKey,
+        Func<IServiceProvider, Task> work,
+        Func<Task> onError,
+        CancellationToken applicationStopping = default)
+    {
+        if (!gate.TryAcquire())
+        {
+            return Conflict();
+        }
+
+        return Start(
+            scopeFactory,
+            logger,
+            statusRegistry,
+            operationKey,
+            work,
+            onError,
+            () => gate.Release(),
+            applicationStopping);
+    }
+
     public static IActionResult Start(
         SemaphoreSlim gate,
         IServiceScopeFactory scopeFactory,
@@ -23,21 +59,30 @@ public static class BackgroundOperationRunner
     {
         if (!gate.Wait(0))
         {
-            // ProblemDetails rather than a bare string: this is not a controller, so
-            // ControllerBase.Problem() is not available, but the shape has to match what every
-            // other error returns or the client drops the message (it parses a body only when
-            // the content type says json).
-            return new ObjectResult(new ProblemDetails
-            {
-                Title = "Operation in progress",
-                Detail = "An operation is already in progress.",
-                Status = StatusCodes.Status409Conflict,
-            })
-            {
-                StatusCode = StatusCodes.Status409Conflict,
-            };
+            return Conflict();
         }
 
+        return Start(
+            scopeFactory,
+            logger,
+            statusRegistry,
+            operationKey,
+            work,
+            onError,
+            () => gate.Release(),
+            applicationStopping);
+    }
+
+    private static IActionResult Start(
+        IServiceScopeFactory scopeFactory,
+        ILogger logger,
+        IOperationStatusRegistry statusRegistry,
+        string operationKey,
+        Func<IServiceProvider, Task> work,
+        Func<Task> onError,
+        Action releaseGate,
+        CancellationToken applicationStopping)
+    {
         statusRegistry.SetRunning(operationKey);
 
         // The fire-and-forget work below doesn't (yet) thread a CancellationToken into `work`
@@ -76,10 +121,24 @@ public static class BackgroundOperationRunner
             {
                 shutdownRegistration?.Dispose();
                 statusRegistry.SetFinished(operationKey);
-                gate.Release();
+                releaseGate();
             }
         });
 
         return new OkResult();
     }
+
+    // ProblemDetails rather than a bare string: this is not a controller, so
+    // ControllerBase.Problem() is not available, but the shape has to match what every
+    // other error returns or the client drops the message (it parses a body only when
+    // the content type says json).
+    private static IActionResult Conflict() => new ObjectResult(new ProblemDetails
+    {
+        Title = "Operation in progress",
+        Detail = "An operation is already in progress.",
+        Status = StatusCodes.Status409Conflict,
+    })
+    {
+        StatusCode = StatusCodes.Status409Conflict,
+    };
 }

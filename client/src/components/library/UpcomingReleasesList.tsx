@@ -52,13 +52,23 @@ export function UpcomingReleasesList({
 
   // "Legacy" rows have a real UpcomingRelease row to DELETE; "Roster" rows have none (they're a
   // series/author roster entry classified Upcoming) and are dismissed by setting IsIgnored on
-  // that entry instead - addressed by series name+position or by author id, matching whichever
-  // roster it came from (AudiobookManager/UPCOMING_RELEASES_DESIGN.md).
+  // that entry instead - addressed by the shared row's identity first (AudiobookManager/
+  // UPCOMING_RELEASES_DESIGN.md): the stable expected-book id, then the source's book id, and
+  // only as the legacy fallback by series name+position or author id plus title.
   const handleRemove = async (release: UpcomingRelease) => {
     try {
       if (release.source === "Legacy") {
         if (release.id == null) return;
         await upcomingReleasesApi.removeUpcomingRelease(release.id);
+      } else if (release.expectedBookId != null) {
+        await upcomingReleasesApi.dismissRosterUpcomingRelease({
+          expectedBookId: release.expectedBookId,
+        });
+      } else if (release.sourceName && release.sourceBookId) {
+        await upcomingReleasesApi.dismissRosterUpcomingRelease({
+          sourceName: release.sourceName,
+          sourceBookId: release.sourceBookId,
+        });
       } else if (release.seriesName) {
         await upcomingReleasesApi.dismissRosterUpcomingRelease({
           seriesName: release.seriesName,
@@ -79,18 +89,16 @@ export function UpcomingReleasesList({
     }
   };
 
-  // A "Roster" row carries no stable id (roster ids are not stable across a refresh - see the
-  // design doc), so the key has to be built from whatever does identify it uniquely on the page:
-  // its source scope (author or series+position) plus its title. Title isn't guaranteed unique
-  // within one roster (two entries could legitimately share a normalized title in the same
-  // author/series scope), so the index within this render's page is appended as a tie-breaker -
-  // stable within one fetch, which is all a React key needs. This is a display-key-only fix: the
-  // dismiss-by-title backend lookup still addresses by title alone (an accepted, low-likelihood
-  // limitation - see the review this line came from).
+  // A "Legacy" row is keyed by its row id; a "Roster" row by the stable expected-book id it
+  // always carries (the same id the dismiss-by-id action uses), with the old scope+title+index
+  // composite kept only for legacy rows that carry no source identity at all - so a refetch that
+  // turns a fallback-keyed row into an identity-keyed one settles on one key instead of churning.
   const releaseKey = (release: UpcomingRelease, index: number): string =>
     release.source === "Legacy"
       ? `legacy-${release.id}`
-      : `roster-${release.authorId ?? ""}-${release.seriesName ?? ""}-${release.seriesPosition ?? ""}-${release.title}-${index}`;
+      : release.expectedBookId != null
+        ? `roster-${release.expectedBookId}`
+        : `roster-${release.authorId ?? ""}-${release.seriesName ?? ""}-${release.seriesPosition ?? ""}-${release.title}-${index}`;
 
   if (query.isLoading) {
     return (
@@ -175,7 +183,7 @@ export function UpcomingReleasesList({
                     )}
                   </>
                 )}
-                {showSource && release.seriesName && (
+                {!seriesId && release.seriesName && (showSource || authorId != null) && (
                   <>
                     <span>&middot;</span>
                     <Link

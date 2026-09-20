@@ -60,8 +60,8 @@ export const queryKeys = {
 
   author: {
     all: () => ["author"] as const,
-    detail: (id: number, seriesPage: number, standalonePage: number) =>
-      ["author", id, seriesPage, standalonePage] as const,
+    detail: (id: number, seriesPage: number, standalonePage: number, missingSeriesPage: number) =>
+      ["author", id, seriesPage, standalonePage, missingSeriesPage] as const,
   },
 
   // Deliberately a separate family from "author" above (the singular detail page) - a shared

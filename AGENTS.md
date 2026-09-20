@@ -344,10 +344,14 @@ to issue one statement per id. But they **bypass the change tracker**, which has
    *newly inserted* row can be handed an id a ghost still holds, and EF resolves it back to the
    stale entity. After a set-based delete, detach the affected entries (see
    `ConsistencyIssueRepository.DetachTracked`), and read with `AsNoTracking()`.
-2. **Do not use them where the entity has an inverse navigation the caller holds.**
-   `SeriesRepository.ReplaceExpectedBooksAsync` deliberately stays on the tracked
-   `RemoveRange` path, because callers hold a tracked `Series` whose `ExpectedBooks` collection EF
-   keeps fixed up — a set-based delete would leave the deleted rows in that collection.
+2. **Do not use them where the entity has an inverse navigation the caller holds.** The
+   roster's old delete-and-reinsert whole-roster path (`SeriesRepository.ReplaceExpectedBooksAsync`,
+   a tracked `RemoveRange` over a `Series`' `ExpectedBooks` collection) is gone — the unified
+   `expected_books` rows are upserted/pruned in place, and the one remaining set-based delete
+   (`ExpectedBookRepository.DeleteOrphanExpectedBooksAsync`) only deletes rows no caller-held
+   collection can contain (orphans have `SeriesId = null`, so no `Series.ExpectedBooks` includes
+   them). The rule still matters for any future clear of a tracked collection: a set-based delete
+   would leave the deleted rows in it.
 
 **A read-then-insert on a uniquely-indexed column needs the same treatment.** Repositories that
 resolve "get this row or create it" span an `await` on a request-scoped context, so two callers

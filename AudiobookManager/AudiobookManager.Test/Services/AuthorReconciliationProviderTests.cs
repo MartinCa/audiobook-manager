@@ -11,39 +11,72 @@ namespace AudiobookManager.Test.Services;
 /// its matching/classification is exercised indirectly through <c>SeriesServiceTests</c> and
 /// <c>LibraryConsistencyServiceTests</c>). Mocks the two repositories directly rather than going
 /// through SQLite - the property under test is the reconciliation's own matching/classification
-/// logic, not the repositories' queries (which have their own bounded-fetch/overflow tests, see
-/// <c>PersonRepositoryTests</c>/<c>AudiobookRepositoryStandaloneOwnedKeysTests</c>).
+/// logic over the unified expected-book rows, not the repositories' queries (which have their own
+/// bounded-fetch/overflow tests, see <c>ExpectedBookRepositoryTests</c>/
+/// <c>AudiobookRepositoryAuthorOwnedKeysTests</c>).
 /// </summary>
 [TestClass]
 public class AuthorReconciliationProviderTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
-    private Mock<IPersonRepository> _personRepository = null!;
+    private Mock<IExpectedBookRepository> _expectedBookRepository = null!;
     private AuthorReconciliationProvider _provider = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
-        _personRepository = new Mock<IPersonRepository>();
-        _provider = new AuthorReconciliationProvider(_audiobookRepository.Object, _personRepository.Object);
+        _expectedBookRepository = new Mock<IExpectedBookRepository>();
+        _provider = new AuthorReconciliationProvider(_audiobookRepository.Object, _expectedBookRepository.Object);
 
         _audiobookRepository
-            .Setup(r => r.GetStandaloneOwnedKeysByAuthorAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(It.IsAny<long>(), It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), false));
     }
 
-    private void SetupPerson(long personId, List<AuthorExpectedBook> expectedBooks) =>
-        _personRepository
-            .Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(personId, It.IsAny<int>()))
-            .ReturnsAsync((new Person(personId, "Author") { ExpectedBooks = expectedBooks }, false));
+    private void SetupRoster(long personId, List<ExpectedBook> expectedBooks) =>
+        _expectedBookRepository
+            .Setup(r => r.GetByAuthorBoundedAsync(personId, It.IsAny<int>()))
+            .ReturnsAsync((expectedBooks, false));
+
+    private static Series? MakeSeries(long? seriesId, string? seriesName) =>
+        seriesId is long id ? new Series { Id = id, Name = seriesName ?? string.Empty } : null;
+
+    private static ExpectedBook MakeBook(
+        long id, string title, int? year = null, DateOnly? releaseDate = null,
+        long? seriesId = null, string? seriesName = null,
+        string? sourceSeriesId = null, string? sourceSeriesName = null,
+        string? position = null, bool isIgnored = false) => new()
+    {
+        Id = id,
+        SourceName = "Hardcover",
+        SourceBookId = $"sb-{id}",
+        Title = title,
+        Year = year,
+        ReleaseDate = releaseDate,
+        SeriesId = seriesId,
+        Series = MakeSeries(seriesId, seriesName),
+        SourceSeriesId = sourceSeriesId,
+        SourceSeriesName = sourceSeriesName,
+        SeriesPosition = position,
+        IsIgnored = isIgnored,
+        FirstSeenAt = DateTime.UtcNow,
+        LastRefreshedAt = DateTime.UtcNow,
+    };
+
+    private void SetupOwned(long personId, List<SeriesOwnedKey> owned)
+    {
+        _audiobookRepository
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(personId, It.IsAny<int>()))
+            .ReturnsAsync((owned, false));
+    }
 
     [TestMethod]
     public async Task GetReconciliationAsync_UnmatchedEntryPastRelease_IsMissing()
     {
-        SetupPerson(7, new List<AuthorExpectedBook>
+        SetupRoster(7, new List<ExpectedBook>
         {
-            new() { Id = 1, Title = "Elantris", Year = 2005 },
+            MakeBook(1, "Elantris", year: 2005),
         });
 
         var result = await _provider.GetReconciliationAsync(7);
@@ -57,9 +90,9 @@ public class AuthorReconciliationProviderTests
     [TestMethod]
     public async Task GetReconciliationAsync_UnmatchedEntryWithFutureYear_IsUpcoming()
     {
-        SetupPerson(7, new List<AuthorExpectedBook>
+        SetupRoster(7, new List<ExpectedBook>
         {
-            new() { Id = 1, Title = "Future Novel", Year = DateTime.UtcNow.Year + 1 },
+            MakeBook(1, "Future Novel", year: DateTime.UtcNow.Year + 1),
         });
 
         var result = await _provider.GetReconciliationAsync(7);
@@ -72,13 +105,11 @@ public class AuthorReconciliationProviderTests
     [TestMethod]
     public async Task GetReconciliationAsync_EntryMatchingAnOwnedBook_IsNeitherMissingNorUpcoming()
     {
-        SetupPerson(7, new List<AuthorExpectedBook>
+        SetupRoster(7, new List<ExpectedBook>
         {
-            new() { Id = 1, Title = "Elantris", Year = 2005 },
+            MakeBook(1, "Elantris", year: 2005),
         });
-        _audiobookRepository
-            .Setup(r => r.GetStandaloneOwnedKeysByAuthorAsync(7, It.IsAny<int>()))
-            .ReturnsAsync((new List<SeriesOwnedKey> { new(101, null, "Elantris") }, false));
+        SetupOwned(7, new List<SeriesOwnedKey> { new(101, null, "Elantris", null) });
 
         var result = await _provider.GetReconciliationAsync(7);
 
@@ -87,13 +118,31 @@ public class AuthorReconciliationProviderTests
         Assert.AreEqual(1, result.OwnedCount);
     }
 
+    // Regression: an owned book that the library filed under a series must still satisfy a
+    // standalone roster entry with the same title - the source having no series placement for a
+    // book the user owns (in whatever series) must not report it missing.
+    [TestMethod]
+    public async Task GetReconciliationAsync_StandaloneEntry_MatchesAnOwnedBookAnySeries()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            MakeBook(1, "The Way of Kings", year: 2010),
+        });
+        SetupOwned(7, new List<SeriesOwnedKey> { new(101, "1", "The Way of Kings", "The Stormlight Archive") });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(0, result.Missing.Count, "a book already owned must never appear missing");
+        Assert.AreEqual(0, result.Upcoming.Count);
+    }
+
     [TestMethod]
     public async Task GetReconciliationAsync_IgnoredEntry_IsExcludedFromMissingAndUpcomingButListedInIgnored()
     {
-        SetupPerson(7, new List<AuthorExpectedBook>
+        SetupRoster(7, new List<ExpectedBook>
         {
-            new() { Id = 1, Title = "Elantris", Year = 2005, IsIgnored = true },
-            new() { Id = 2, Title = "Warbreaker", Year = 2009 },
+            MakeBook(1, "Elantris", year: 2005, isIgnored: true),
+            MakeBook(2, "Warbreaker", year: 2009),
         });
 
         var result = await _provider.GetReconciliationAsync(7);
@@ -108,12 +157,76 @@ public class AuthorReconciliationProviderTests
         Assert.AreEqual(1, result.ExpectedBookCount);
     }
 
+    // The unified roster spans the whole bibliography: a book that belongs to a source series is
+    // retained by the author refresh instead of being dropped, so the reconciliation must include
+    // and classify it too.
+    [TestMethod]
+    public async Task GetReconciliationAsync_SeriesLinkedEntry_IsClassified()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            MakeBook(1, "The Way of Kings", year: 2010,
+                seriesId: 3, seriesName: "The Stormlight Archive", sourceSeriesId: "55", position: "1"),
+        });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(1, result.Missing.Count);
+        Assert.AreEqual("The Way of Kings", result.Missing[0].Title);
+        Assert.AreEqual(3, result.Missing[0].SeriesId);
+        Assert.AreEqual("The Stormlight Archive", result.Missing[0].SeriesName);
+        Assert.AreEqual("1", result.Missing[0].Position);
+        Assert.AreEqual("55", result.Missing[0].SourceSeriesId);
+    }
+
+    // A series entry with a known local series is owned when the author owns a book of that same
+    // series with a matching position/title - and a same-titled book in a DIFFERENT series must
+    // not satisfy it.
+    [TestMethod]
+    public async Task GetReconciliationAsync_SeriesLinkedEntry_MatchesOwnedBookOfTheSameLocalSeries()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            MakeBook(1, "Words of Radiance", year: 2014,
+                seriesId: 3, seriesName: "The Stormlight Archive", sourceSeriesId: "55", position: "2"),
+        });
+        SetupOwned(7, new List<SeriesOwnedKey>
+        {
+            new(101, "2", "Words of Radiance", "The Stormlight Archive"),
+        });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(0, result.Missing.Count);
+        Assert.AreEqual(0, result.Upcoming.Count);
+        Assert.AreEqual(1, result.OwnedCount);
+    }
+
+    [TestMethod]
+    public async Task GetReconciliationAsync_SeriesLinkedEntry_DoesNotMatchOwnedBookOfAnotherSeries()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            MakeBook(1, "Words of Radiance", year: 2014,
+                seriesId: 3, seriesName: "The Stormlight Archive", sourceSeriesId: "55", position: "2"),
+        });
+        // Same title, same position - but in a different local series.
+        SetupOwned(7, new List<SeriesOwnedKey>
+        {
+            new(101, "2", "Words of Radiance", "Another Series"),
+        });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(1, result.Missing.Count, "a book of a different series is not the same book");
+    }
+
     [TestMethod]
     public async Task GetReconciliationAsync_RosterOverflow_Throws()
     {
-        _personRepository
-            .Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(7, It.IsAny<int>()))
-            .ReturnsAsync((new Person(7, "Author"), true));
+        _expectedBookRepository
+            .Setup(r => r.GetByAuthorBoundedAsync(7, It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBook>(), true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _provider.GetReconciliationAsync(7));
     }
@@ -121,20 +234,18 @@ public class AuthorReconciliationProviderTests
     [TestMethod]
     public async Task GetReconciliationAsync_OwnedKeysOverflow_Throws()
     {
-        SetupPerson(7, new List<AuthorExpectedBook> { new() { Id = 1, Title = "Elantris" } });
+        SetupRoster(7, new List<ExpectedBook> { MakeBook(1, "Elantris") });
         _audiobookRepository
-            .Setup(r => r.GetStandaloneOwnedKeysByAuthorAsync(7, It.IsAny<int>()))
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(7, It.IsAny<int>()))
             .ReturnsAsync((new List<SeriesOwnedKey>(), true));
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _provider.GetReconciliationAsync(7));
     }
 
     [TestMethod]
-    public async Task GetReconciliationAsync_NoPerson_ReturnsEmptyReconciliation()
+    public async Task GetReconciliationAsync_NoRoster_ReturnsEmptyReconciliation()
     {
-        _personRepository
-            .Setup(r => r.GetByIdWithExpectedBooksBoundedAsync(999, It.IsAny<int>()))
-            .ReturnsAsync(((Person?)null, false));
+        SetupRoster(999, new List<ExpectedBook>());
 
         var result = await _provider.GetReconciliationAsync(999);
 
@@ -142,27 +253,148 @@ public class AuthorReconciliationProviderTests
         Assert.AreEqual(0, result.Upcoming.Count);
         Assert.AreEqual(0, result.Ignored.Count);
         Assert.AreEqual(0, result.ExpectedBookCount);
+        Assert.AreEqual(0, result.MissingSeries.Count);
     }
+
+    // --- Missing series ------------------------------------------------------
+
+    [TestMethod]
+    public async Task GetReconciliationAsync_UnmatchedSourceSeriesWithZeroOwnedBooks_IsListedAsMissingSeries()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            MakeBook(1, "Forward", year: 2008, sourceSeriesId: "55", sourceSeriesName: "Skyward", position: "1"),
+            MakeBook(2, "Starsight", year: 2019, sourceSeriesId: "55", sourceSeriesName: "Skyward", position: "2"),
+        });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(1, result.MissingSeries.Count);
+        var missingSeries = result.MissingSeries.Single();
+        Assert.AreEqual("Hardcover", missingSeries.SourceName);
+        Assert.AreEqual("55", missingSeries.SourceSeriesId);
+        Assert.AreEqual("Skyward", missingSeries.SourceSeriesName);
+        Assert.IsNull(missingSeries.SeriesId, "an unmatched source series has no local series yet");
+        Assert.AreEqual(2, missingSeries.ExpectedCount);
+        Assert.AreEqual(2, missingSeries.MissingCount);
+        Assert.AreEqual(0, missingSeries.UpcomingCount);
+        Assert.AreEqual(0, missingSeries.OwnedCount);
+    }
+
+    // A series with some owned books is NOT a missing series - but its unmatched books still
+    // surface in the author's Missing/Upcoming lists.
+    [TestMethod]
+    public async Task GetReconciliationAsync_PartiallyOwnedSeries_IsNotMissingSeriesButMissingBooksRemain()
+    {
+        SetupRoster(7, new List<ExpectedBook>
+        {
+            // book 1 is owned locally...
+            MakeBook(1, "The Way of Kings", year: 2010,
+                seriesId: 3, seriesName: "The Stormlight Archive", sourceSeriesId: "55", position: "1"),
+            // ...book 3 is not.
+            MakeBook(2, "Oathbringer", year: 2017,
+                seriesId: 3, seriesName: "The Stormlight Archive", sourceSeriesId: "55", position: "3"),
+        });
+        SetupOwned(7, new List<SeriesOwnedKey>
+        {
+            new(101, "1", "The Way of Kings", "The Stormlight Archive"),
+        });
+
+        var result = await _provider.GetReconciliationAsync(7);
+
+        Assert.AreEqual(0, result.MissingSeries.Count, "a series with some owned books is not missing");
+        Assert.AreEqual(1, result.Missing.Count);
+        Assert.AreEqual("Oathbringer", result.Missing[0].Title, "the unowned book stays visible in the author's missing list");
+    }
+
+    [TestMethod]
+    public async Task GetReconciliationAsync_MoreSourceSeriesGroupsThanTheCap_Throws()
+    {
+        var oversized = Enumerable
+            .Range(1, AuthorReconciliationProvider.MaxAuthorSeriesGroups + 1)
+            .Select(i => MakeBook((long)i, $"Book {i}", year: 2005, sourceSeriesId: $"ss-{i}"))
+            .ToList();
+        SetupRoster(7, oversized);
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _provider.GetReconciliationAsync(7));
+    }
+
+    // Review finding: the global upcoming view only needs the Missing/Upcoming classification, so
+    // it can omit the bounded missing-series computation - a pathological group set that refuses
+    // the author-detail computation must not take the whole upcoming page down. The cap/refusal
+    // still applies when the detail asks for the groups (includeMissingSeries defaults to true).
+    [TestMethod]
+    public async Task GetReconciliationAsync_IncludeMissingSeriesFalse_OmitsTheGroupComputationEntirely()
+    {
+        var oversized = Enumerable
+            .Range(1, AuthorReconciliationProvider.MaxAuthorSeriesGroups + 1)
+            .Select(i => MakeBook((long)i, $"Book {i}", year: 2005, sourceSeriesId: $"ss-{i}"))
+            .ToList();
+        SetupRoster(7, oversized);
+
+        var result = await _provider.GetReconciliationAsync(7, includeMissingSeries: false);
+
+        Assert.AreEqual(0, result.MissingSeries.Count);
+        Assert.AreEqual(oversized.Count, result.Missing.Count,
+            "the missing/upcoming classification itself still runs");
+    }
+
+    // --- Bulk filter ---------------------------------------------------------
+
+    private static ExpectedBookAuthorBookRef MakeRef(
+        long personId, long bookId, string title, int? year = null, DateOnly? releaseDate = null,
+        string? seriesName = null, string? sourceSeriesId = null, string? seriesPart = null) =>
+        new(personId, bookId, title, year, releaseDate, seriesName, sourceSeriesId, seriesPart);
 
     [TestMethod]
     public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_ClassifiesEachAuthorSeparately()
     {
-        _personRepository
-            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
-            .ReturnsAsync(new List<AuthorExpectedBookRef>
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBookAuthorBookRef>
             {
-                new(1, "Elantris", 2005, null), // author 1: missing (past year, not owned)
-                new(2, "Warbreaker", DateTime.UtcNow.Year + 1, null), // author 2: upcoming
-                new(3, "Mistborn", 2006, null), // author 3: owned, neither
-            });
+                MakeRef(1, 1, "Elantris", 2005), // author 1: missing (past year, not owned)
+                MakeRef(2, 2, "Warbreaker", DateTime.UtcNow.Year + 1), // author 2: upcoming
+                MakeRef(3, 3, "Mistborn", 2006), // author 3: owned, neither
+            }, false));
         _audiobookRepository
-            .Setup(r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-            .ReturnsAsync(new Dictionary<long, List<string>> { [3] = new List<string> { "Mistborn" } });
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(3, It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey> { new(101, null, "Mistborn", null) }, false));
 
-        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
 
-        CollectionAssert.AreEquivalent(new long[] { 1 }, missing.ToList());
-        CollectionAssert.AreEquivalent(new long[] { 2 }, upcoming.ToList());
+        Assert.IsFalse(result.Refused);
+        CollectionAssert.AreEquivalent(new long[] { 1 }, result.HasMissingBooks.ToList());
+        CollectionAssert.AreEquivalent(new long[] { 2 }, result.HasUpcomingBooks.ToList());
+    }
+
+    // The bulk classifier matches series-linked refs with the same series-scoped semantics as the
+    // detail view: a ref linked to a local series is only owned by a book of that series.
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_SeriesScopedMatching()
+    {
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBookAuthorBookRef>
+            {
+                // Same title/part, but in DIFFERENT series - the ref is from Stormlight, the
+                // owned book from another series, so the ref is still missing.
+                MakeRef(1, 1, "Words of Radiance", 2014, seriesName: "The Stormlight Archive", sourceSeriesId: "55", seriesPart: "2"),
+                // This one IS owned in its own series.
+                MakeRef(1, 2, "The Hero of Ages", 2008, seriesName: "Mistborn", sourceSeriesId: "56", seriesPart: "3"),
+            }, false));
+        _audiobookRepository
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(1, It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>
+            {
+                new(101, "3", "The Hero of Ages", "Mistborn"),
+            }, false));
+
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        Assert.IsFalse(result.Refused);
+        CollectionAssert.AreEquivalent(new long[] { 1 }, result.HasMissingBooks.ToList());
+        CollectionAssert.DoesNotContain(result.HasUpcomingBooks.ToList(), 1L);
     }
 
     // Regression: GetReconciliationAsync refuses (throws) an author whose roster exceeds
@@ -177,36 +409,58 @@ public class AuthorReconciliationProviderTests
     {
         var oversizedRoster = Enumerable
             .Range(1, AuthorReconciliationProvider.MaxReconciliationRosterEntries + 1)
-            .Select(i => new AuthorExpectedBookRef(1, $"Book {i}", 2005, null))
-            .Append(new AuthorExpectedBookRef(2, "Warbreaker", DateTime.UtcNow.Year + 1, null))
+            .Select(i => MakeRef(1, (long)i, $"Book {i}", 2005))
+            .Append(MakeRef(2, 5001, "Warbreaker", DateTime.UtcNow.Year + 1))
             .ToList();
 
-        _personRepository
-            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
-            .ReturnsAsync(oversizedRoster);
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((oversizedRoster, false));
         _audiobookRepository
-            .Setup(r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-            .ReturnsAsync(new Dictionary<long, List<string>>());
+            .Setup(r => r.GetOwnedKeysByAuthorAsync(2, It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
 
-        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
 
-        CollectionAssert.DoesNotContain(missing.ToList(), 1L);
-        CollectionAssert.DoesNotContain(upcoming.ToList(), 1L);
-        CollectionAssert.AreEquivalent(new long[] { 2 }, upcoming.ToList());
+        Assert.IsFalse(result.Refused);
+        CollectionAssert.DoesNotContain(result.HasMissingBooks.ToList(), 1L);
+        CollectionAssert.DoesNotContain(result.HasUpcomingBooks.ToList(), 1L);
+        CollectionAssert.AreEquivalent(new long[] { 2 }, result.HasUpcomingBooks.ToList());
     }
 
     [TestMethod]
     public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_NoActiveExpectedBooks_ReturnsEmptySets()
     {
-        _personRepository
-            .Setup(r => r.GetAllActiveAuthorExpectedBooksAsync())
-            .ReturnsAsync(new List<AuthorExpectedBookRef>());
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBookAuthorBookRef>(), false));
 
-        var (missing, upcoming) = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
 
-        Assert.AreEqual(0, missing.Count);
-        Assert.AreEqual(0, upcoming.Count);
+        Assert.IsFalse(result.Refused);
+        Assert.AreEqual(0, result.HasMissingBooks.Count);
+        Assert.AreEqual(0, result.HasUpcomingBooks.Count);
         _audiobookRepository.Verify(
-            r => r.GetStandaloneOwnedTitlesByAuthorsAsync(It.IsAny<IReadOnlyCollection<long>>()), Times.Never);
+            r => r.GetOwnedKeysByAuthorAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+    }
+
+    // Regression guard for the bounded-read contract: the whole-library refs set is read
+    // capped+1 with an overflow flag, and an overflow must REFUSE the filter - never silently
+    // truncate into a wrong result.
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_RefsOverflow_RefusesTheFilter()
+    {
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBookAuthorBookRef>(), true));
+
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        Assert.IsTrue(result.Refused,
+            "a library past the bulk classification's bounded read must refuse the filter, not silently truncate it");
+        Assert.AreEqual(0, result.HasMissingBooks.Count);
+        Assert.AreEqual(0, result.HasUpcomingBooks.Count);
+        _audiobookRepository.Verify(
+            r => r.GetOwnedKeysByAuthorAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
     }
 }

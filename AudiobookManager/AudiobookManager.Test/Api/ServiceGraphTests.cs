@@ -100,6 +100,7 @@ public class ServiceGraphTests
         foreach (var controllerType in new[]
                  {
                      typeof(SeriesController),
+                     typeof(BrowseController),
                      typeof(ConsistencyController),
                      typeof(LibraryController),
                      typeof(AudiobookController),
@@ -109,5 +110,38 @@ public class ServiceGraphTests
                 ActivatorUtilities.CreateInstance(scope.ServiceProvider, controllerType),
                 $"{controllerType.Name} must be constructible from the real container");
         }
+    }
+
+    /// <summary>
+    /// The expected-book write gate is what serializes author-side and series-side roster
+    /// mutations against each other - if two constructions ever got different instances, an
+    /// author refresh could still race a series refresh. The container must hand every caller the
+    /// same singleton, and that one instance must actually exclude: one acquire prevents a second
+    /// until released.
+    /// </summary>
+    [TestMethod]
+    public void ServiceGraph_TheExpectedBookWriteGate_IsOneSharedExcludingInstance()
+    {
+        using var provider = BuildRealContainer();
+        using var scope = provider.CreateScope();
+
+        var first = scope.ServiceProvider.GetRequiredService<IExpectedBookWriteGate>();
+        var second = scope.ServiceProvider.GetRequiredService<IExpectedBookWriteGate>();
+
+        Assert.AreSame(first, second, "the gate must be a single process-wide singleton");
+
+        Assert.IsTrue(first.TryAcquire());
+        try
+        {
+            Assert.IsFalse(second.TryAcquire(),
+                "a second acquire through the same (single) instance fails while the first is held");
+        }
+        finally
+        {
+            first.Release();
+        }
+
+        Assert.IsTrue(second.TryAcquire(), "the singleton is usable again after the holder releases");
+        second.Release();
     }
 }
