@@ -16,7 +16,7 @@ public class SettingsControllerTests
     [TestInitialize]
     public void Setup()
     {
-        _controller = new SettingsController(Mock.Of<ISettingsService>());
+        _controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>());
     }
 
     [TestMethod]
@@ -101,7 +101,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.GetLibrarySettings())
             .ReturnsAsync(new Domain.LibrarySettings { InitialsSpacing = DomainInitialsSpacing.Spaced });
-        var controller = new SettingsController(service.Object);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.GetLibrarySettings();
 
@@ -115,11 +115,14 @@ public class SettingsControllerTests
     {
         var service = new Mock<ISettingsService>();
         service
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings());
+        service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", 1000));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", 1000, null, null));
 
         Assert.IsNotNull(result);
         service.Verify(s => s.UpdateLibrarySettings(
@@ -130,9 +133,9 @@ public class SettingsControllerTests
     public async Task UpdateLibrarySettings_UnknownValue_ReturnsProblemDetailsWithoutCallingService()
     {
         var service = new Mock<ISettingsService>();
-        var controller = new SettingsController(service.Object);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", 1000));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", 1000, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -145,11 +148,97 @@ public class SettingsControllerTests
     public async Task UpdateLibrarySettings_MissingValue_ReturnsProblemDetails()
     {
         var service = new Mock<ISettingsService>();
-        var controller = new SettingsController(service.Object);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, 1000));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, 1000, null, null));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_InvalidCron_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", 1000, true, "not a cron expression"));
+
+        ProblemAssert.HasStatus(result.Result, 400);
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_ValidCron_RoundTripsTheScheduleFields()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", 1000, false, "0 4 * * *"));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
+        Assert.IsFalse(dto.UpcomingReleasesEnabled);
+        Assert.AreEqual("0 4 * * *", dto.UpcomingReleasesCronSchedule);
+        service.Verify(s => s.UpdateLibrarySettings(
+            It.Is<Domain.LibrarySettings>(v =>
+                v.UpcomingReleasesEnabled == false && v.UpcomingReleasesCronSchedule == "0 4 * * *")),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OmittedScheduleFields_KeepTheStoredValues()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings
+            {
+                UpcomingReleasesEnabled = false,
+                UpcomingReleasesCronSchedule = "0 5 * * *",
+            });
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", 1000, null, null));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
+        Assert.IsFalse(dto.UpcomingReleasesEnabled);
+        Assert.AreEqual("0 5 * * *", dto.UpcomingReleasesCronSchedule);
+    }
+
+    [TestMethod]
+    public async Task GetScheduledTasks_ServesTheServiceValueAsDtos()
+    {
+        var scheduledTaskService = new Mock<IScheduledTaskService>();
+        var nextRun = DateTime.UtcNow.AddHours(1);
+        scheduledTaskService
+            .Setup(s => s.GetScheduledTasksAsync())
+            .ReturnsAsync(new List<Domain.ScheduledTask>
+            {
+                new(ScheduledTaskKeys.UpcomingReleasesRefresh, "Upcoming Releases Refresh", "0 3 * * *", true, null, null, null, nextRun),
+            });
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), scheduledTaskService.Object);
+
+        var result = await controller.GetScheduledTasks();
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        var dtos = Assert.IsInstanceOfType<List<ScheduledTaskDto>>(ok.Value);
+        Assert.AreEqual(1, dtos.Count);
+        Assert.AreEqual(ScheduledTaskKeys.UpcomingReleasesRefresh, dtos[0].Key);
+        Assert.AreEqual("Upcoming Releases Refresh", dtos[0].Name);
+        Assert.AreEqual("0 3 * * *", dtos[0].CronSchedule);
+        Assert.IsTrue(dtos[0].Enabled);
+        Assert.AreEqual(nextRun, dtos[0].NextRunAt);
     }
 }

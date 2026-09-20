@@ -29,6 +29,8 @@ export const queryKeys = {
 
   librarySettings: () => ["librarySettings"] as const,
 
+  scheduledTasks: () => ["scheduledTasks"] as const,
+
   systemInfo: () => ["systemInfo"] as const,
 
   metadataServices: () => ["metadataServices"] as const,

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Database.Models;
@@ -157,8 +158,42 @@ public class UpcomingReleasesController : ControllerBase
             RefreshOperationKey,
             async sp =>
             {
-                var upcomingReleaseService = sp.GetRequiredService<IUpcomingReleaseService>();
-                await upcomingReleaseService.RefreshUpcomingReleasesAsync();
+                // Shares UpcomingReleasesController.RefreshGate/RefreshOperationKey with
+                // UpcomingReleasesWorker's scheduled tick, so both write into the same
+                // scheduled_task_runs row - a user who always triggers refreshes manually should
+                // still see an accurate "last run" on the Settings Tasks page, not "never run".
+                var startedAt = DateTime.UtcNow;
+                var stopwatch = Stopwatch.StartNew();
+                string? error = null;
+                try
+                {
+                    var upcomingReleaseService = sp.GetRequiredService<IUpcomingReleaseService>();
+                    await upcomingReleaseService.RefreshUpcomingReleasesAsync();
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    throw;
+                }
+                finally
+                {
+                    stopwatch.Stop();
+
+                    // Swallow a failure writing this bookkeeping row (logged, not rethrown) so it
+                    // can never replace/mask the sweep's own exception above - BackgroundOperationRunner
+                    // reports whatever this delegate throws as the operation's failure, and that
+                    // must stay the sweep's real error, not an unrelated DB write failure.
+                    try
+                    {
+                        var scheduledTaskService = sp.GetRequiredService<IScheduledTaskService>();
+                        await scheduledTaskService.RecordTaskRunAsync(
+                            ScheduledTaskKeys.UpcomingReleasesRefresh, startedAt, stopwatch.Elapsed, error is null, error);
+                    }
+                    catch (Exception recordEx)
+                    {
+                        _logger.LogError(recordEx, "Error recording upcoming-releases task run");
+                    }
+                }
             },
             () => Task.CompletedTask,
             _appLifetime.ApplicationStopping);

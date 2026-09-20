@@ -59,7 +59,8 @@ export function RootLayout() {
   const isSettingsActive =
     pathname === "/settings" ||
     pathname === "/settings/" ||
-    pathname.startsWith("/settings/library");
+    pathname.startsWith("/settings/library") ||
+    pathname.startsWith("/settings/tasks");
 
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
@@ -231,6 +232,15 @@ export function RootLayout() {
                     <SettingsIcon className="text-primary mr-2 h-4 w-4" />
                     <span>Library Settings</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/settings/tasks" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <CalendarClock className="text-primary mr-2 h-4 w-4" />
+                    <span>Tasks</span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </nav>
@@ -396,6 +406,15 @@ export function RootLayout() {
                   >
                     <SettingsIcon className="text-primary mr-2 h-4 w-4" />
                     <span>Library Settings</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/settings/tasks" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <CalendarClock className="text-primary mr-2 h-4 w-4" />
+                    <span>Tasks</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 

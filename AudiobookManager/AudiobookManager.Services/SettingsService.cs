@@ -20,7 +20,11 @@ public class SettingsService : ISettingsService
 
     public async Task<Domain.LibrarySettings> UpdateLibrarySettings(Domain.LibrarySettings settings)
     {
-        var dbSettings = await _librarySettingsRepository.UpdateAsync(settings.InitialsSpacing.ToDb(), settings.MetadataRefreshDelayMs);
+        var dbSettings = await _librarySettingsRepository.UpdateAsync(
+            settings.InitialsSpacing.ToDb(),
+            settings.MetadataRefreshDelayMs,
+            settings.UpcomingReleasesEnabled,
+            settings.UpcomingReleasesCronSchedule);
         return dbSettings.ToDomain();
     }
 }

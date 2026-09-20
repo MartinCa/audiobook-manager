@@ -3993,6 +3993,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ScheduledTaskDto"][];
+                        "application/json": components["schemas"]["ScheduledTaskDto"][];
+                        "text/json": components["schemas"]["ScheduledTaskDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/similar-values/similar-authors": {
         parameters: {
             query?: never;
@@ -4925,6 +4962,8 @@ export interface components {
             initialsSpacing?: string | null;
             /** Format: int32 */
             metadataRefreshDelayMs?: number;
+            upcomingReleasesEnabled?: boolean;
+            upcomingReleasesCronSchedule?: string | null;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -5111,6 +5150,19 @@ export interface components {
             fieldValues: {
                 [key: string]: string | null;
             };
+        };
+        ScheduledTaskDto: {
+            key?: string | null;
+            name?: string | null;
+            cronSchedule?: string | null;
+            enabled?: boolean;
+            /** Format: date-time */
+            lastRunAt?: string | null;
+            /** Format: int32 */
+            lastRunDurationMs?: number | null;
+            lastRunStatus?: string | null;
+            /** Format: date-time */
+            nextRunAt?: string | null;
         };
         SeriesBookCandidateDto: {
             /** Format: int64 */
@@ -5368,6 +5420,8 @@ export interface components {
             initialsSpacing?: string | null;
             /** Format: int32 */
             metadataRefreshDelayMs?: number | null;
+            upcomingReleasesEnabled?: boolean | null;
+            upcomingReleasesCronSchedule?: string | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

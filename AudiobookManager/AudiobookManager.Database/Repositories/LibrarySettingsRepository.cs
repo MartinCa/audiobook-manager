@@ -43,18 +43,29 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         }
     }
 
-    public async Task<LibrarySettings> UpdateAsync(InitialsSpacing initialsSpacing, int metadataRefreshDelayMs)
+    public async Task<LibrarySettings> UpdateAsync(
+        InitialsSpacing initialsSpacing,
+        int metadataRefreshDelayMs,
+        bool upcomingReleasesEnabled,
+        string upcomingReleasesCronSchedule)
     {
         var settings = await _db.LibrarySettings.SingleOrDefaultAsync();
         if (settings == null)
         {
-            settings = new LibrarySettings(LibrarySettings.SingletonId, initialsSpacing, metadataRefreshDelayMs);
+            settings = new LibrarySettings(
+                LibrarySettings.SingletonId,
+                initialsSpacing,
+                metadataRefreshDelayMs,
+                upcomingReleasesEnabled,
+                upcomingReleasesCronSchedule);
             _db.LibrarySettings.Add(settings);
         }
         else
         {
             settings.InitialsSpacing = initialsSpacing;
             settings.MetadataRefreshDelayMs = metadataRefreshDelayMs;
+            settings.UpcomingReleasesEnabled = upcomingReleasesEnabled;
+            settings.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
         }
 
         try
@@ -71,6 +82,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             var winner = await _db.LibrarySettings.SingleAsync();
             winner.InitialsSpacing = initialsSpacing;
             winner.MetadataRefreshDelayMs = metadataRefreshDelayMs;
+            winner.UpcomingReleasesEnabled = upcomingReleasesEnabled;
+            winner.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
             await _db.SaveChangesAsync();
             return winner;
         }

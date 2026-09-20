@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
+using Cronos;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AudiobookManager.Api.Controllers;
@@ -11,10 +12,12 @@ namespace AudiobookManager.Api.Controllers;
 public class SettingsController : ControllerBase
 {
     private readonly ISettingsService _settingsService;
+    private readonly IScheduledTaskService _scheduledTaskService;
 
-    public SettingsController(ISettingsService settingsService)
+    public SettingsController(ISettingsService settingsService, IScheduledTaskService scheduledTaskService)
     {
         _settingsService = settingsService;
+        _scheduledTaskService = scheduledTaskService;
     }
 
     [HttpGet("system_info")]
@@ -84,19 +87,47 @@ public class SettingsController : ControllerBase
         }
 
         // Omitted keeps the stored value rather than resetting it: the settings page sends the
-        // whole object, but the DTO deliberately made the new field optional so an older client
-        // (or a narrow PUT) does not silently zero the delay.
-        var delayMs = dto.MetadataRefreshDelayMs ?? (await _settingsService.GetLibrarySettings()).MetadataRefreshDelayMs;
+        // whole object, but the DTO deliberately made these fields optional so an older client
+        // (or a narrow PUT) does not silently zero/disable them.
+        var current = await _settingsService.GetLibrarySettings();
+        var delayMs = dto.MetadataRefreshDelayMs ?? current.MetadataRefreshDelayMs;
         if (delayMs < 0 || delayMs > 60_000)
         {
             return this.InvalidRequest("MetadataRefreshDelayMs must be between 0 and 60000 milliseconds.");
         }
 
-        var updated = await _settingsService.UpdateLibrarySettings(
-            new Domain.LibrarySettings { InitialsSpacing = parsed, MetadataRefreshDelayMs = delayMs });
+        var upcomingReleasesEnabled = dto.UpcomingReleasesEnabled ?? current.UpcomingReleasesEnabled;
+        var upcomingReleasesCronSchedule = dto.UpcomingReleasesCronSchedule ?? current.UpcomingReleasesCronSchedule;
+        if (!CronExpression.TryParse(upcomingReleasesCronSchedule, CronFormat.Standard, out _))
+        {
+            return this.InvalidRequest(
+                $"'{upcomingReleasesCronSchedule}' is not a valid standard 5-field cron expression " +
+                "(minute hour day month weekday).");
+        }
+
+        var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
+        {
+            InitialsSpacing = parsed,
+            MetadataRefreshDelayMs = delayMs,
+            UpcomingReleasesEnabled = upcomingReleasesEnabled,
+            UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
+        });
         return Ok(ToDto(updated));
     }
 
+    /// <summary>Every registered scheduled task, for the Settings "Tasks" page.</summary>
+    [HttpGet("tasks")]
+    public async Task<ActionResult<List<ScheduledTaskDto>>> GetScheduledTasks()
+    {
+        var tasks = await _scheduledTaskService.GetScheduledTasksAsync();
+        return Ok(tasks.Select(t => new ScheduledTaskDto(
+            t.Key, t.Name, t.CronSchedule, t.Enabled, t.LastRunAt, t.LastRunDurationMs, t.LastRunStatus, t.NextRunAt)).ToList());
+    }
+
     private static LibrarySettingsDto ToDto(Domain.LibrarySettings settings) =>
-        new(settings.InitialsSpacing.ToString(), settings.MetadataRefreshDelayMs);
+        new(
+            settings.InitialsSpacing.ToString(),
+            settings.MetadataRefreshDelayMs,
+            settings.UpcomingReleasesEnabled,
+            settings.UpcomingReleasesCronSchedule);
 }

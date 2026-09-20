@@ -47,19 +47,26 @@ public class SettingsServiceTests
         foreach (var spacing in new[] { DomainInitialsSpacing.Spaced, DomainInitialsSpacing.Unspaced })
         {
             _librarySettingsRepository
-                .Setup(r => r.UpdateAsync(It.IsAny<DbInitialsSpacing>(), It.IsAny<int>()))
-                .ReturnsAsync((DbInitialsSpacing s, int delayMs) => new DbLibrarySettings(1, s, delayMs));
+                .Setup(r => r.UpdateAsync(It.IsAny<DbInitialsSpacing>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>()))
+                .ReturnsAsync((DbInitialsSpacing s, int delayMs, bool enabled, string cron) =>
+                    new DbLibrarySettings(1, s, delayMs, enabled, cron));
 
             var result = await _service.UpdateLibrarySettings(
-                new DomainLibrarySettings { InitialsSpacing = spacing, MetadataRefreshDelayMs = 2500 });
+                new DomainLibrarySettings
+                {
+                    InitialsSpacing = spacing,
+                    MetadataRefreshDelayMs = 2500,
+                    UpcomingReleasesEnabled = true,
+                    UpcomingReleasesCronSchedule = "0 3 * * *",
+                });
 
             Assert.AreEqual(spacing, result.InitialsSpacing);
         }
 
         // The delay rides along with the spacing through the same update - not a second write path.
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Spaced, 2500), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Spaced, 2500, true, "0 3 * * *"), Times.Once);
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, 2500), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, 2500, true, "0 3 * * *"), Times.Once);
     }
 }

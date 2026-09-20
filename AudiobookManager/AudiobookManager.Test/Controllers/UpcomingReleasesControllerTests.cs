@@ -18,6 +18,7 @@ public class UpcomingReleasesControllerTests
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
+    private Mock<IScheduledTaskService> _scheduledTaskService = null!;
     private UpcomingReleasesController _controller = null!;
 
     [TestInitialize]
@@ -26,12 +27,16 @@ public class UpcomingReleasesControllerTests
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
+        _scheduledTaskService = new Mock<IScheduledTaskService>();
 
         var scope = new Mock<IServiceScope>();
         var serviceProvider = new Mock<IServiceProvider>();
         serviceProvider
             .Setup(sp => sp.GetService(typeof(IUpcomingReleaseService)))
             .Returns(_upcomingReleaseService.Object);
+        serviceProvider
+            .Setup(sp => sp.GetService(typeof(IScheduledTaskService)))
+            .Returns(_scheduledTaskService.Object);
         scope.Setup(s => s.ServiceProvider).Returns(serviceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
 
@@ -157,6 +162,28 @@ public class UpcomingReleasesControllerTests
         Assert.IsInstanceOfType<OkResult>(result);
         await finished.WaitAsync(TimeSpan.FromSeconds(5));
         _upcomingReleaseService.Verify(s => s.RefreshUpcomingReleasesAsync(), Times.Once);
+    }
+
+    // Shares the same scheduled_task_runs row as UpcomingReleasesWorker's own tick - a user who
+    // always triggers refreshes manually should still see an accurate "last run" on the Settings
+    // Tasks page, not "never run".
+    [TestMethod]
+    public async Task RefreshUpcomingReleases_RecordsTheRunOnTheSharedScheduledTaskKey()
+    {
+        var finished = RegisterFinishedWaiter();
+        _upcomingReleaseService.Setup(s => s.RefreshUpcomingReleasesAsync()).Returns(Task.CompletedTask);
+
+        _controller.RefreshUpcomingReleases();
+        await finished.WaitAsync(TimeSpan.FromSeconds(5));
+
+        _scheduledTaskService.Verify(
+            s => s.RecordTaskRunAsync(
+                ScheduledTaskKeys.UpcomingReleasesRefresh,
+                It.IsAny<DateTime>(),
+                It.IsAny<TimeSpan>(),
+                true,
+                null),
+            Times.Once);
     }
 
     [TestMethod]

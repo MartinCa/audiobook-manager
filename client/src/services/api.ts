@@ -49,6 +49,7 @@ import type {
 } from "@/types/SeriesRefresh";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
+import type { ScheduledTask } from "@/types/ScheduledTask";
 import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
@@ -769,6 +770,8 @@ export const settingsApi = {
 
   updateLibrarySettings: (settings: UpdateLibrarySettings) =>
     api.put<LibrarySettings>("/settings/library", settings),
+
+  getScheduledTasks: () => api.get<ScheduledTask[]>("/settings/tasks"),
 };
 
 // Files

@@ -30,6 +30,10 @@ export function Settings() {
           <Link to="/settings/library" className="text-primary hover:underline">
             Library Settings
           </Link>{" "}
+          page, and every scheduled background task's schedule and run history is on the{" "}
+          <Link to="/settings/tasks" className="text-primary hover:underline">
+            Tasks
+          </Link>{" "}
           page.
         </p>
       </div>
