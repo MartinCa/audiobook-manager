@@ -21,6 +21,18 @@ const FIELDS: FilterFieldDef[] = [
   },
 ];
 
+const MULTISELECT_FIELDS: FilterFieldDef[] = [
+  {
+    type: "multiselect",
+    key: "languages",
+    label: "Language",
+    options: ["en", "da", "unrecognized"],
+    // "unrecognized" deliberately has no entry - covers the raw-value fallback (e.g. a language
+    // the backend's GET /api/settings/languages doesn't know about).
+    optionLabels: { en: "English", da: "Danish" },
+  },
+];
+
 describe("EntityFilterBar", () => {
   it("renders no chips when no filter is set", () => {
     render(<EntityFilterBar fields={FIELDS} values={{}} onChange={vi.fn()} />);
@@ -103,6 +115,39 @@ describe("EntityFilterBar", () => {
 
     expect(screen.getByLabelText("Last refreshed after")).toBeDisabled();
     expect(screen.getByText("Last refreshed: Never refreshed")).toBeInTheDocument();
+  });
+
+  it("renders multiselect options using optionLabels, falling back to the raw value when absent", () => {
+    render(<EntityFilterBar fields={MULTISELECT_FIELDS} values={{}} onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Any" }));
+
+    expect(screen.getByText("English")).toBeInTheDocument();
+    expect(screen.getByText("Danish")).toBeInTheDocument();
+    expect(screen.getByText("unrecognized")).toBeInTheDocument();
+  });
+
+  it("selecting a multiselect option reports the raw value, not its display label", () => {
+    const onChange = vi.fn();
+    render(<EntityFilterBar fields={MULTISELECT_FIELDS} values={{}} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Any" }));
+    fireEvent.click(screen.getByText("English"));
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ languages: ["en"] }));
+  });
+
+  it("shows the display label, not the raw value, in the trigger and the active-filter chip", () => {
+    render(
+      <EntityFilterBar
+        fields={MULTISELECT_FIELDS}
+        values={{ languages: ["en"] }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
+    expect(screen.getByText("Language: English")).toBeInTheDocument();
   });
 
   it("clear all resets every field to undefined", () => {
