@@ -314,4 +314,42 @@ describe("AuthorFollowSection", () => {
     );
     expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledTimes(1);
   });
+
+  // Regression: AuthorFollowSection is rendered once per author-detail page with no `key`, and
+  // the route does not remount the component tree on a param-only navigation (only $authorId
+  // changes), so this same component instance is reused across authors. Before the fix, the
+  // dialog's `query`/`debouncedQuery` state was seeded via a plain `useState(authorName)`, which
+  // only runs on first mount - so navigating from one author's page to another's while the dialog
+  // instance survives (and reopening it, or - as simulated here - having its props change while
+  // it is already open) left the previous author's typed search text behind instead of showing
+  // the new author's name.
+  it("resets the match dialog's search text when the same instance is reused for a different author", async () => {
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockResolvedValue([]);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <AuthorFollowSection authorId={7} authorName="Brandon Sanderson" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /match to hardcover/i }));
+    const input = await screen.findByPlaceholderText(/search hardcover authors/i);
+    await waitFor(() => expect(input).toHaveValue("Brandon Sanderson"));
+
+    fireEvent.change(input, { target: { value: "Stale search text" } });
+    expect(input).toHaveValue("Stale search text");
+
+    // Simulate navigating to a different author's detail page while this component instance is
+    // reused (TanStack Router does not remount on a param-only navigation - see AuthorDetail.tsx
+    // rendering AuthorFollowSection without a `key`).
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <AuthorFollowSection authorId={9} authorName="Patrick Rothfuss" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(input).toHaveValue("Patrick Rothfuss"));
+    expect(input).not.toHaveValue("Stale search text");
+  });
 });
