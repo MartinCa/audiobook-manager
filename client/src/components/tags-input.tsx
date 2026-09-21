@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AlertCircle, GripVertical, X } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import {
   dragAndDrop,
   isDragState,
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
 import { useServerSuggestions } from "@/hooks/useServerSuggestions";
+import { SuggestionFetchErrorNote } from "@/components/SuggestionFetchErrorNote";
 
 export interface TagsInputProps {
   value: string[];
@@ -555,20 +556,6 @@ export function TagsInput({
         )}
       </div>
     </div>
-  );
-}
-
-/** Shown in place of the suggestion dropdown once a fetch (and its retry) both fail - a
- * transient failure must not look identical to "no matches" (see useServerSuggestions). */
-function SuggestionFetchErrorNote() {
-  return (
-    <p
-      role="alert"
-      className="border-border bg-popover text-status-error absolute top-full left-0 z-50 mt-1 flex w-max items-center gap-1 rounded-md border px-3 py-2 text-xs shadow-md"
-    >
-      <AlertCircle className="h-3 w-3 shrink-0" />
-      <span>Couldn't load suggestions.</span>
-    </p>
   );
 }
 

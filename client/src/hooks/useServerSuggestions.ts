@@ -25,8 +25,18 @@ export function useServerSuggestions(
 
   useEffect(() => {
     if (!fetchSuggestions) return;
+
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // A fresh query starts clean - a failure note from the previous query must not linger over
+    // what could well be a successful fetch for this one. Cleared on the next tick rather than
+    // inside the debounce timer below (so it disappears near-instantly, not up to debounceMs
+    // later) and rather than synchronously in the effect body, which react-hooks/set-state-in-
+    // effect flags as a cascading-render risk.
+    const clearStaleErrorTimer = setTimeout(() => {
+      if (!cancelled) setIsError(false);
+    }, 0);
 
     const attempt = (isRetry: boolean) => {
       fetchSuggestions(query)
@@ -48,23 +58,19 @@ export function useServerSuggestions(
 
     const timer = setTimeout(() => {
       if (!query) {
-        // Nothing to look up; clear the previous lookup and any stale error so a later
-        // keystroke cannot resurrect either. Done inside the timer (async), never
-        // synchronously in the effect.
-        if (!cancelled) {
-          setSuggestions([]);
-          setIsError(false);
-        }
+        // Nothing to look up; clear the previous lookup so a later keystroke cannot resurrect
+        // it. Done inside the timer (async), never synchronously in the effect - unlike the
+        // error flag above, an empty suggestion list is the correct steady state for a blank
+        // query and does not need to jump ahead of the debounce.
+        if (!cancelled) setSuggestions([]);
         return;
       }
-      // A fresh query starts clean - a failure note from the previous query must not linger
-      // over what could well be a successful fetch for this one.
-      if (!cancelled) setIsError(false);
       attempt(false);
     }, debounceMs);
 
     return () => {
       cancelled = true;
+      clearTimeout(clearStaleErrorTimer);
       clearTimeout(timer);
       if (retryTimer) clearTimeout(retryTimer);
     };

@@ -39,13 +39,19 @@ export function EntryStatusHint({ status, isError = false, onUseMatch }: EntrySt
   }
 
   if (status.status === "exact" && status.exactMatch) {
-    // The match is case/accent-insensitive (see EntryValueStatus), so "exact" covers both a
-    // literal match and one that only differs in casing (e.g. "the murderbot diaries" vs the
-    // library's "The Murderbot Diaries"). The latter is worth flagging - saving as typed would
-    // create a second, differently-cased value alongside the existing one - so it gets the same
-    // actionable "similar" treatment instead of the plain success note.
+    // The match is case/accent-insensitive (see EntryValueStatus), so "exact" covers a literal
+    // match, a casing-only difference (e.g. "the murderbot diaries" vs the library's "The
+    // Murderbot Diaries"), and an accent-only one (e.g. "rene" vs "René"). Any of the latter two
+    // is worth flagging - saving as typed would create a second, differently-spelled value
+    // alongside the existing one - so it gets the same actionable "similar" treatment instead of
+    // the plain success note. The two are worded separately so "click to fix casing" never
+    // claims to fix an accent it isn't touching (and vice versa).
     if (status.exactMatch.name !== status.value) {
-      const hint = `Existing entry has different casing: "${status.exactMatch.name}"`;
+      const isCasingOnly = status.exactMatch.name.toLowerCase() === status.value.toLowerCase();
+      const hint = isCasingOnly
+        ? `Existing entry has different casing: "${status.exactMatch.name}"`
+        : `Existing entry is spelled differently: "${status.exactMatch.name}"`;
+      const action = isCasingOnly ? "click to fix casing" : "click to use it";
       if (onUseMatch) {
         return (
           <button
@@ -54,7 +60,7 @@ export function EntryStatusHint({ status, isError = false, onUseMatch }: EntrySt
             onClick={() => onUseMatch(status.exactMatch!.name)}
           >
             <Sparkles className="mr-1 inline h-3 w-3" />
-            {hint} — click to fix casing
+            {hint} — {action}
           </button>
         );
       }

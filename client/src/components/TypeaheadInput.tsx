@@ -6,8 +6,8 @@ import {
   type FocusEvent,
   type KeyboardEvent,
 } from "react";
-import { AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { SuggestionFetchErrorNote } from "@/components/SuggestionFetchErrorNote";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
 import { useServerSuggestions } from "@/hooks/useServerSuggestions";
@@ -179,10 +179,7 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
         )}
 
         {isOpen && fetchFailed && activeQuery && suggestions.length === 0 && (
-          <p role="alert" className="text-status-error mt-1 flex items-center gap-1 text-xs">
-            <AlertCircle className="h-3 w-3 shrink-0" />
-            <span>Couldn't load suggestions.</span>
-          </p>
+          <SuggestionFetchErrorNote />
         )}
       </div>
     );

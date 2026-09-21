@@ -73,6 +73,28 @@ describe("EntryStatusHint", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  // The exact match is case *and accent* insensitive (see EntryValueStatus), so "exact" also
+  // covers an accent-only difference (e.g. "rene" vs "René"). That must not be mislabeled as a
+  // casing difference, since "click to fix casing" would be wrong about what the click changes.
+  it("flags an accent-only mismatch as a spelling difference, not a casing one", () => {
+    const onUseMatch = vi.fn();
+    render(
+      <EntryStatusHint
+        status={makeStatus({
+          value: "rene",
+          status: "exact",
+          exactMatch: { id: 5, name: "René" },
+        })}
+        onUseMatch={onUseMatch}
+      />,
+    );
+
+    const hint = screen.getByRole("button", { name: /spelled differently.*click to use it/i });
+    fireEvent.click(hint);
+    expect(onUseMatch).toHaveBeenCalledWith("René");
+    expect(screen.queryByText(/different casing/i)).not.toBeInTheDocument();
+  });
+
   it("offers the similar candidate as a click-to-use hint", () => {
     const onUseMatch = vi.fn();
     render(
