@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { useState } from "react";
 import { TagsInput, type TagsInputProps } from "./tags-input";
+import { TYPEAHEAD_RETRY_DELAY_MS } from "@/constants/paging";
 
 type ControlledTagsInputProps = {
   initial?: string[];
@@ -237,6 +238,52 @@ describe("TagsInput", () => {
         });
 
         expect(provider).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // A transient failure (a dropped mobile connection, a request that outlives a
+    // backgrounded-tab network suspension) must not leave the dropdown silently empty with no
+    // explanation - see useServerSuggestions, which this exercises through the real
+    // suggestionsProvider wiring, for both the trailing "add a new entry" draft and an in-place
+    // chip edit.
+    it("shows an error note in the draft dropdown once the fetch and its retry both fail", async () => {
+      vi.useFakeTimers();
+      try {
+        const provider = vi.fn().mockRejectedValue(new Error("network down"));
+        render(<ControlledTagsInput suggestionsProvider={provider} />);
+
+        const draftInput = screen.getByRole("textbox");
+        fireEvent.focus(draftInput);
+        fireEvent.change(draftInput, { target: { value: "Mar" } });
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(150 + TYPEAHEAD_RETRY_DELAY_MS);
+        });
+
+        expect(screen.getByText(/couldn't load suggestions/i)).toBeInTheDocument();
+        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows an error note in the edit dropdown once the fetch and its retry both fail", async () => {
+      vi.useFakeTimers();
+      try {
+        const provider = vi.fn().mockRejectedValue(new Error("network down"));
+        render(<ControlledTagsInput initial={["Old Author"]} suggestionsProvider={provider} />);
+
+        fireEvent.click(screen.getByLabelText("Edit Old Author"));
+        const editInput = screen.getByDisplayValue("Old Author");
+        fireEvent.change(editInput, { target: { value: "New" } });
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(150 + TYPEAHEAD_RETRY_DELAY_MS);
+        });
+
+        expect(screen.getByText(/couldn't load suggestions/i)).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }

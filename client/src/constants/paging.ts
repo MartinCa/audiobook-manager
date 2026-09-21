@@ -26,3 +26,10 @@ export const TYPEAHEAD_LIMIT = 5;
 
 /** How many type-ahead suggestions the client renders for a typed query. */
 export const TYPEAHEAD_SUGGESTION_COUNT = 6;
+
+/**
+ * Delay before retrying a failed server-side type-ahead/suggestion fetch, once. A transient
+ * failure (a dropped mobile connection, a request that outlives a backgrounded-tab network
+ * suspension) should not need the user to retype to get suggestions back.
+ */
+export const TYPEAHEAD_RETRY_DELAY_MS = 500;

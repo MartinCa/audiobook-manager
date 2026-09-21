@@ -136,4 +136,20 @@ describe("SeriesField", () => {
       await screen.findByRole("option", { name: "The Stormlight Archive" }),
     ).toBeInTheDocument();
   });
+
+  // A transient failure (a dropped mobile connection, a request that outlives a backgrounded
+  // tab's network suspension) must not leave the dropdown silently empty with no explanation -
+  // see useServerSuggestions, which this exercises through the real fetchCandidates wiring.
+  it("shows an error note once the candidate fetch and its retry both fail", async () => {
+    vi.mocked(similarValuesApi.getAutocomplete).mockRejectedValue(new Error("network down"));
+    renderField({ value: "Storm" });
+
+    const input = screen.getByPlaceholderText("Series name");
+    fireEvent.focus(input);
+
+    expect(
+      await screen.findByText(/couldn't load suggestions/i, {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
 });

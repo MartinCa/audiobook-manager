@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { GripVertical, X } from "lucide-react";
+import { AlertCircle, GripVertical, X } from "lucide-react";
 import {
   dragAndDrop,
   isDragState,
@@ -13,6 +13,7 @@ import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
+import { useServerSuggestions } from "@/hooks/useServerSuggestions";
 
 export interface TagsInputProps {
   value: string[];
@@ -31,8 +32,9 @@ export interface TagsInputProps {
    * When present, the suggestions shown while typing come from this bounded server-side lookup
    * (query + server-side limit) instead of a preloaded list - the type-ahead for fields whose
    * candidate list is too large to ship whole (the entry fields). Called debounced with the
-   * draft text; errors fall back to an empty list. Mutually advisory with `suggestions`; when
-   * both are present the provider wins.
+   * draft text; a failure is retried once before showing an error note instead of silently
+   * looking like "no matches" (see useServerSuggestions). Mutually advisory with `suggestions`;
+   * when both are present the provider wins.
    */
   suggestionsProvider?: (query: string) => Promise<string[]>;
   /**
@@ -119,36 +121,17 @@ export function TagsInput({
   const [editDraft, setEditDraft] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editHighlightedIndex, setEditHighlightedIndex] = useState(-1);
-  const [serverSuggestions, setServerSuggestions] = useState<string[]>([]);
 
   // When a provider is given, the candidate list is fetched server-side, bounded by the typed
-  // query, rather than preloaded whole. Debounced so a keystroke does not fire one request per
-  // character; the fetch is only for the active draft (new-entry or in-place edit). Errors
-  // degrade to an empty list - a broken type-ahead must not block committing a value.
-  useEffect(() => {
-    if (!suggestionsProvider) return;
-    const query = (draft || editDraft || "").trim();
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!query) {
-        // Nothing to look up; clear the previous lookup so a later keystroke cannot resurrect
-        // it. Done inside the timer (async), never synchronously in the effect itself.
-        if (!cancelled) setServerSuggestions([]);
-        return;
-      }
-      suggestionsProvider(query)
-        .then((names) => {
-          if (!cancelled) setServerSuggestions(names);
-        })
-        .catch(() => {
-          if (!cancelled) setServerSuggestions([]);
-        });
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [draft, editDraft, suggestionsProvider]);
+  // query, rather than preloaded whole - debounced, with one retry before falling back to an
+  // error note (see useServerSuggestions) so a transient failure (a dropped mobile connection,
+  // a request that outlives a backgrounded-tab network suspension) does not look identical to
+  // "no matches" and does not block committing a value either way. The fetch is only for the
+  // active draft (new-entry or in-place edit) - the two never overlap, so one query suffices.
+  const { suggestions: serverSuggestions, isError: suggestionsFetchFailed } = useServerSuggestions(
+    (draft || editDraft || "").trim(),
+    suggestionsProvider,
+  );
 
   const suggestionSource = suggestionsProvider ? serverSuggestions : suggestions;
 
@@ -504,6 +487,9 @@ export function TagsInput({
             onSelect={applyEditSuggestion}
           />
         )}
+        {isEditOpen && editSuggestions.length === 0 && suggestionsFetchFailed && editDraft.trim() && (
+          <SuggestionFetchErrorNote />
+        )}
       </div>
     ) : (
       <TagChip
@@ -563,8 +549,25 @@ export function TagsInput({
             onSelect={applySuggestion}
           />
         )}
+        {isDraftOpen && draftSuggestions.length === 0 && suggestionsFetchFailed && draft.trim() && (
+          <SuggestionFetchErrorNote />
+        )}
       </div>
     </div>
+  );
+}
+
+/** Shown in place of the suggestion dropdown once a fetch (and its retry) both fail - a
+ * transient failure must not look identical to "no matches" (see useServerSuggestions). */
+function SuggestionFetchErrorNote() {
+  return (
+    <p
+      role="alert"
+      className="border-border bg-popover text-status-error absolute top-full left-0 z-50 mt-1 flex w-max items-center gap-1 rounded-md border px-3 py-2 text-xs shadow-md"
+    >
+      <AlertCircle className="h-3 w-3 shrink-0" />
+      <span>Couldn't load suggestions.</span>
+    </p>
   );
 }
 

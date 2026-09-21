@@ -1,15 +1,16 @@
 import {
   useState,
-  useEffect,
   useMemo,
   forwardRef,
   type ComponentProps,
   type FocusEvent,
   type KeyboardEvent,
 } from "react";
+import { AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
+import { useServerSuggestions } from "@/hooks/useServerSuggestions";
 import { cn } from "@/lib/utils";
 
 export interface TypeaheadInputProps extends Omit<ComponentProps<"input">, "onChange" | "value"> {
@@ -19,7 +20,8 @@ export interface TypeaheadInputProps extends Omit<ComponentProps<"input">, "onCh
   /**
    * When present, the candidate list is a bounded server-side lookup of the active query
    * (debounced) instead of a preloaded list - the type-ahead for fields whose candidate set is
-   * too large to ship whole. Errors degrade to an empty list.
+   * too large to ship whole. A failure is retried once (see useServerSuggestions); if that also
+   * fails, the dropdown shows an error note instead of silently looking like "no matches".
    */
   fetchCandidates?: (query: string) => Promise<string[]>;
   multiValue?: boolean;
@@ -45,7 +47,6 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
   ) => {
     const [isOpen, setIsOpen] = useState(false);
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
-    const [serverCandidates, setServerCandidates] = useState<string[]>([]);
 
     const activeQuery = useMemo(() => {
       if (!multiValue) return value.trim();
@@ -54,31 +55,12 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
     }, [value, multiValue]);
 
     // Bounded server-side candidate fetch for the active query, debounced so a keystroke does not
-    // fire one request per character. Errors degrade to an empty list.
-    useEffect(() => {
-      if (!fetchCandidates) return;
-      const query = activeQuery;
-      let cancelled = false;
-      const timer = setTimeout(() => {
-        if (!query) {
-          // Nothing to look up; clear the previous lookup so a later keystroke cannot
-          // resurrect it. Done inside the timer (async), never synchronously in the effect.
-          if (!cancelled) setServerCandidates([]);
-          return;
-        }
-        fetchCandidates(query)
-          .then((names) => {
-            if (!cancelled) setServerCandidates(names);
-          })
-          .catch(() => {
-            if (!cancelled) setServerCandidates([]);
-          });
-      }, 150);
-      return () => {
-        cancelled = true;
-        clearTimeout(timer);
-      };
-    }, [activeQuery, fetchCandidates]);
+    // fire one request per character, with one retry before falling back to an error note (see
+    // useServerSuggestions) - a transient failure must not look identical to "no matches".
+    const { suggestions: serverCandidates, isError: fetchFailed } = useServerSuggestions(
+      activeQuery,
+      fetchCandidates,
+    );
 
     const sourceCandidates = fetchCandidates ? serverCandidates : candidates;
 
@@ -194,6 +176,13 @@ export const TypeaheadInput = forwardRef<HTMLInputElement, TypeaheadInputProps>(
               </li>
             ))}
           </ul>
+        )}
+
+        {isOpen && fetchFailed && activeQuery && suggestions.length === 0 && (
+          <p role="alert" className="text-status-error mt-1 flex items-center gap-1 text-xs">
+            <AlertCircle className="h-3 w-3 shrink-0" />
+            <span>Couldn't load suggestions.</span>
+          </p>
         )}
       </div>
     );
