@@ -390,6 +390,29 @@ describe("BookDetail", () => {
     });
   });
 
+  // Regression: a single-book save (e.g. editing just SeriesPart) used to invalidate only
+  // bookDetail and the metadata-refresh keys, leaving the series detail page's owned-books
+  // roster (a separate query family) stale for its 30s staleTime - a series part edited here
+  // did not show up on the series page until a manual refresh.
+  it("invalidates series-detail queries after a single-book save completes", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(keys).toContainEqual(["seriesDetail"]);
+    });
+  });
+
   it("invalidates consistency and books queries after resolving an issue", async () => {
     vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
       {
