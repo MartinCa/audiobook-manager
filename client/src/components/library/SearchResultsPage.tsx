@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { OwnedBookList } from "./OwnedBookList";
+import { SectionPager } from "./SectionPager";
 import { BROWSE_PAGE_SIZE, SEARCH_PREVIEW_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -64,46 +65,6 @@ function SeriesRow({ series }: { series: LibrarySeriesHit }) {
 
       <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4" />
     </Link>
-  );
-}
-
-function Pager({
-  page,
-  totalPages,
-  onPageChange,
-  disabled,
-}: {
-  page: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-  disabled: boolean;
-}) {
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="border-border flex items-center justify-between border-t pt-4">
-      <div className="text-muted-foreground text-xs">
-        Page {page} of {totalPages}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1 || disabled}
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page >= totalPages || disabled}
-          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
   );
 }
 
@@ -481,12 +442,16 @@ export function SearchResultsPage() {
                 {authors.map((author) => (
                   <AuthorRow key={author.id} author={author} />
                 ))}
-                <Pager
-                  page={page}
-                  totalPages={authorsTotalPages}
-                  onPageChange={handlePageChange}
-                  disabled={authorsQuery.isFetching}
-                />
+                {authorsTotalPages > 1 && (
+                  <SectionPager
+                    currentPage={page - 1}
+                    pageCount={authorsTotalPages}
+                    totalCount={authorsTotal}
+                    pageSize={BROWSE_PAGE_SIZE}
+                    disabled={authorsQuery.isFetching}
+                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  />
+                )}
               </div>
             ))}
 
@@ -502,12 +467,16 @@ export function SearchResultsPage() {
                 {series.map((s) => (
                   <SeriesRow key={s.name} series={s} />
                 ))}
-                <Pager
-                  page={page}
-                  totalPages={seriesTotalPages}
-                  onPageChange={handlePageChange}
-                  disabled={seriesQuery.isFetching}
-                />
+                {seriesTotalPages > 1 && (
+                  <SectionPager
+                    currentPage={page - 1}
+                    pageCount={seriesTotalPages}
+                    totalCount={seriesTotal}
+                    pageSize={BROWSE_PAGE_SIZE}
+                    disabled={seriesQuery.isFetching}
+                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  />
+                )}
               </div>
             ))}
           {/* The books tab's OwnedBookList already renders its own bulk-action bar; a second one

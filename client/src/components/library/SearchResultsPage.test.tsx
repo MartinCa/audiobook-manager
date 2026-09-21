@@ -212,6 +212,45 @@ describe("SearchResultsPage", () => {
     });
   });
 
+  // Scope addition: the authors and series tabs' pagers were the last two hand-rolled pagers in
+  // this file (the books tab was already unified onto SectionPager via OwnedBookList) - they now
+  // share the same SectionPager component/labels/behavior instead of a bespoke Pager.
+  it("pages the authors tab through the shared SectionPager", async () => {
+    vi.mocked(browseApi.searchAuthors).mockResolvedValue(makePage(sampleAuthors, 45));
+    const { router } = renderWithRouter("/library/search?q=mist&tab=authors");
+
+    await screen.findByText("Brandon Sanderson");
+    expect(browseApi.searchAuthors).toHaveBeenCalledWith("mist", 20, 0);
+    expect(screen.getByText("Showing 1–20 of 45")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ tab: "authors", page: 2 });
+    });
+    await waitFor(() => {
+      expect(browseApi.searchAuthors).toHaveBeenCalledWith("mist", 20, 20);
+    });
+  });
+
+  it("pages the series tab through the shared SectionPager", async () => {
+    vi.mocked(browseApi.searchSeries).mockResolvedValue(makePage(sampleSeries, 45));
+    const { router } = renderWithRouter("/library/search?q=mist&tab=series");
+
+    await screen.findByText("Mistborn");
+    expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 20, 0);
+    expect(screen.getByText("Showing 1–20 of 45")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ tab: "series", page: 2 });
+    });
+    await waitFor(() => {
+      expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 20, 20);
+    });
+  });
+
   // Bug 8 unification: the books tab gets the same option filters the library list has. The tab
   // already has its own page-level search box (q, shared across every tab), so OwnedBookList's
   // own search input is hidden here rather than shown twice.

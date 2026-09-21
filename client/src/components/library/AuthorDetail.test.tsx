@@ -151,6 +151,18 @@ describe("AuthorDetail", () => {
     expect(backBtn).toHaveAttribute("href", "/library/authors");
   });
 
+  // Scope addition: the series section's pager used to hand-roll its own "Showing X-Y of Z" +
+  // Previous/Next markup; it now shares SectionPager (same component the standalone-books
+  // section and every other paged list use).
+  it("renders the series section's pager through the shared SectionPager", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(90, 0));
+
+    renderWithProviders();
+
+    await screen.findByText("Series 01");
+    expect(screen.getByText("Showing 1–50 of 90")).toBeInTheDocument();
+  });
+
   it("pages one section through the same combined call, keeping the other section's page", async () => {
     const getAuthorDetail = vi.spyOn(browseApi, "getAuthorDetail");
     getAuthorDetail.mockResolvedValueOnce(makeDetail(90, 65)).mockResolvedValueOnce(

@@ -259,31 +259,13 @@ export function AuthorDetail() {
             ))}
           </div>
           {seriesPageCount > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-muted-foreground text-xs">
-                Showing {currentSeriesPage * PAGE_SIZE + 1}–
-                {Math.min((currentSeriesPage + 1) * PAGE_SIZE, seriesSection.total)} of{" "}
-                {seriesSection.total}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentSeriesPage === 0}
-                  onClick={() => setSeriesPage(currentSeriesPage - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentSeriesPage >= seriesPageCount - 1}
-                  onClick={() => setSeriesPage(currentSeriesPage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+            <SectionPager
+              currentPage={currentSeriesPage}
+              pageCount={seriesPageCount}
+              totalCount={seriesSection.total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setSeriesPage}
+            />
           )}
         </div>
       )}
