@@ -1,9 +1,9 @@
 import { BookPlus, ExternalLink, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PAGE_SIZE } from "@/constants/paging";
 import { cn } from "cn";
 import { formatDate } from "@/helpers/formatHelpers";
 import { isBookUpcoming } from "@/helpers/expectedBooks";
+import { SectionPager } from "./SectionPager";
 import type { ExpectedBookRow } from "@/helpers/expectedBooks";
 
 interface ExpectedBookListProps {
@@ -224,47 +224,6 @@ function ExpectedBookRowView({
             Ignore
           </Button>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** The clamped pager each paged section renders, in the CleanBookUrls shape. Shared by the
- * series detail's paged sections and the author detail's missing-series section. */
-export function SectionPager({
-  currentPage,
-  pageCount,
-  totalCount,
-  onPageChange,
-}: {
-  currentPage: number;
-  pageCount: number;
-  totalCount: number;
-  onPageChange: (page: number) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-      <span className="text-muted-foreground text-xs">
-        Showing {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, totalCount)}{" "}
-        of {totalCount}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={currentPage === 0}
-          onClick={() => onPageChange(currentPage - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={currentPage >= pageCount - 1}
-          onClick={() => onPageChange(currentPage + 1)}
-        >
-          Next
-        </Button>
       </div>
     </div>
   );

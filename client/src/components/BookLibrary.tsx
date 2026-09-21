@@ -1,115 +1,24 @@
-import { useState, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Library, Search, X, RefreshCw } from "lucide-react";
+import { Library, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/ui/skeleton";
-import { BookListRow } from "./library/BookListRow";
-import { BookBulkActionBar } from "./library/BookBulkActionBar";
+import { OwnedBookList } from "./library/OwnedBookList";
 import { LibraryViewTabs } from "./library/LibraryViewTabs";
-import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
-import { countActiveFilters } from "@/components/filters/filterUtils";
-import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
-import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
+import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
-import { languageLabel } from "@/helpers/languages";
 import { Route } from "@/routes/library/index";
-import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { BookListFilters } from "@/types/EntityFilters";
 
-// The duration filter is entered/displayed in minutes but stored (filter/URL state, and the
-// backend's minDurationInSeconds/maxDurationInSeconds query params - see BookSummaryFilter and
-// AudiobookRepository.ApplyBookSummaryFilter) in seconds, which is the correct wire contract and
-// deliberately does not change (Bug 7). Rounding on toDisplay covers a value that arrived from a
-// hand-edited/older URL and isn't an exact multiple of 60.
-const DURATION_FILTER_UNIT = {
-  toDisplay: (storedSeconds: number) => Math.round(storedSeconds / 60),
-  toStored: (displayMinutes: number) => displayMinutes * 60,
-};
-
-/** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
-const NO_ISSUE_COUNTS: Record<number, number> = {};
-
-/** Pending-metadata ids only gain members through a refresh; an empty set is the safe fallback. */
-const NO_PENDING_IDS: number[] = [];
+const PAGE_SIZE = 20;
 
 export function BookLibrary() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const selection = useBookSelection();
   const { q = "", page = 1, ...filterSearch } = Route.useSearch();
   const filters: BookListFilters = filterSearch;
-  const [prevQ, setPrevQ] = useState(q);
-  const [searchQuery, setSearchQuery] = useState(q);
-  const pageSize = 20;
-
-  // Source options come from whichever scrapers are actually registered (see
-  // BrowseController.GetFilterOptions), and genre/language options from what's actually present
-  // in the library - never a hardcoded list.
-  const filterOptionsQuery = useQuery({
-    queryKey: queryKeys.browseFilterOptions(),
-    queryFn: () => browseApi.getFilterOptions(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Language filter options are the raw stored values (ISO codes, or an unrecognized verbatim
-  // value - see AGENTS.md's "Language is a managed value" section), so they're mapped through the
-  // same display-name lookup every other language UI in the app uses rather than shown as raw
-  // codes. The filter's own value stays the raw code; only the label changes.
-  const languagesQuery = useQuery({
-    queryKey: queryKeys.languages(),
-    queryFn: () => settingsApi.getLanguages(),
-  });
-
-  const FILTER_FIELDS: FilterFieldDef[] = useMemo(() => {
-    const languageOptions = filterOptionsQuery.data?.languages ?? [];
-    const languageLabels = Object.fromEntries(
-      languageOptions.map((code) => [
-        code,
-        languageLabel(code, languagesQuery.data?.languages ?? []),
-      ]),
-    );
-
-    return [
-      {
-        type: "multiselect",
-        key: "sources",
-        label: "Metadata source",
-        options: filterOptionsQuery.data?.sources ?? [],
-        optionLabels: SOURCE_OPTION_LABELS,
-        selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
-      },
-      {
-        type: "multiselect",
-        key: "genres",
-        label: "Genre",
-        options: filterOptionsQuery.data?.genres ?? [],
-      },
-      {
-        type: "multiselect",
-        key: "languages",
-        label: "Language",
-        options: languageOptions,
-        optionLabels: languageLabels,
-      },
-      {
-        type: "numberRange",
-        label: "Duration (minutes)",
-        minKey: "minDurationInSeconds",
-        maxKey: "maxDurationInSeconds",
-        unit: DURATION_FILTER_UNIT,
-      },
-    ];
-  }, [filterOptionsQuery.data, languagesQuery.data]);
-
-  // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
-  // expanded so the list isn't filtered with no visible explanation.
-  const [filtersExpanded, setFiltersExpanded] = useState(
-    () => countActiveFilters(FILTER_FIELDS, filters) > 0,
-  );
 
   const handleFiltersChange = (next: BookListFilters) => {
     void navigate({
@@ -119,61 +28,31 @@ export function BookLibrary() {
     });
   };
 
-  if (prevQ !== q) {
-    setPrevQ(q);
-    if (searchQuery.trim() !== q) {
-      setSearchQuery(q);
-    }
-  }
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const trimmed = searchQuery.trim();
-      if (trimmed !== q) {
-        void navigate({
-          to: "/library",
-          search: (prev) => ({
-            ...prev,
-            q: trimmed || undefined,
-            page: undefined,
-          }),
-          replace: true,
-        });
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, q, navigate]);
+  const handleSearchChange = (next: string) => {
+    void navigate({
+      to: "/library",
+      search: (prev) => ({ ...prev, q: next || undefined, page: undefined }),
+      replace: true,
+    });
+  };
 
   const {
     data,
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.books.page(q, page, pageSize, filters),
+    queryKey: queryKeys.books.page(q, page, PAGE_SIZE, filters),
     queryFn: async () => {
-      const offset = (page - 1) * pageSize;
-      const [browseRes, issuesRes, pendingIds] = await Promise.all([
-        q.trim()
-          ? browseApi.searchAudiobooks(q.trim(), pageSize, offset, filters)
-          : browseApi.getAudiobooks(pageSize, offset, filters),
-        // The summary endpoint, which counts per audiobook in the database. This used to fetch
-        // every issue and count them here - the whole table, including the metadata.opf and
-        // description bodies stored on each row, to render a badge number per book.
-        consistencyApi.getIssueSummary().catch(() => NO_ISSUE_COUNTS),
-        // Sparse id list of books with a pending metadata-refresh snapshot, for a soft badge.
-        metadataRefreshApi.getPendingSummary().catch(() => NO_PENDING_IDS),
-      ]);
-
-      return {
-        books: browseRes.items,
-        totalCount: browseRes.total,
-        issueSummary: issuesRes,
-        pendingRefreshIds: new Set(pendingIds),
-      };
+      const offset = (page - 1) * PAGE_SIZE;
+      const browseRes = q.trim()
+        ? await browseApi.searchAudiobooks(q.trim(), PAGE_SIZE, offset, filters)
+        : await browseApi.getAudiobooks(PAGE_SIZE, offset, filters);
+      return { books: browseRes.items, totalCount: browseRes.total };
     },
   });
 
-  const handlePageChange = (newPage: number) => {
+  const handlePageChange = (newPage0Indexed: number) => {
+    const newPage = newPage0Indexed + 1;
     void navigate({
       to: "/library",
       search: (prev) => ({
@@ -183,26 +62,18 @@ export function BookLibrary() {
     });
   };
 
-  const handleClearSearch = () => {
-    setSearchQuery("");
-    if (q) {
-      void navigate({
-        to: "/library",
-        search: (prev) => ({
-          ...prev,
-          q: undefined,
-          page: undefined,
-        }),
-        replace: true,
-      });
-    }
-  };
-
   const books = data?.books ?? [];
   const totalCount = data?.totalCount ?? 0;
-  const issueSummary = data?.issueSummary ?? {};
-  const pendingRefreshIds = data?.pendingRefreshIds ?? new Set<number>();
-  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const pageCount = Math.ceil(totalCount / PAGE_SIZE) || 1;
+
+  const handleReload = () => {
+    void refetch();
+    // The issue-count/pending-refresh badges are separate cached queries owned by OwnedBookList
+    // now, so Reload has to invalidate them explicitly or a stale badge survives a consistency
+    // check/refresh that this page's own refetch() doesn't touch.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.issueSummary() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+  };
 
   return (
     <div className="space-y-6">
@@ -210,14 +81,7 @@ export function BookLibrary() {
         <LibraryViewTabs activeTab="books" />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void refetch();
-            }}
-            disabled={loading}
-          >
+          <Button variant="outline" size="sm" onClick={handleReload} disabled={loading}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Reload
           </Button>
@@ -234,156 +98,33 @@ export function BookLibrary() {
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-md flex-1">
-          <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-          <Input
-            placeholder="Search title, author, series, narrator..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const trimmed = searchQuery.trim();
-                if (trimmed !== q) {
-                  void navigate({
-                    to: "/library",
-                    search: (prev) => ({
-                      ...prev,
-                      q: trimmed || undefined,
-                      page: undefined,
-                    }),
-                    replace: true,
-                  });
-                }
-              }
-            }}
-            className="pr-9 pl-9"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              onClick={handleClearSearch}
-              aria-label="Clear search"
-              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-
-        <FilterToggleButton
-          expanded={filtersExpanded}
-          onToggle={() => setFiltersExpanded((prev) => !prev)}
-          activeCount={countActiveFilters(FILTER_FIELDS, filters)}
-          controls="books-filter-panel"
-        />
-
-        <div className="flex items-center gap-3">
-          <Checkbox
-            id="select-page"
-            disabled={books.length === 0}
-            checked={books.length > 0 && selection.pageAllSelected(books)}
-            indeterminate={books.length > 0 && selection.pageSomeSelected(books)}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                selection.selectPage(books);
-              } else {
-                selection.deselectPage(books);
-              }
-            }}
-          />
-          <label
-            htmlFor="select-page"
-            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
-          >
-            Select page
-          </label>
-          <div className="text-muted-foreground text-xs">
-            Showing {books.length} of {totalCount} audiobooks
-          </div>
-        </div>
-      </div>
-
-      {filtersExpanded && (
-        <div id="books-filter-panel">
-          <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
-        </div>
-      )}
-
-      {loading && books.length === 0 ? (
-        <div role="status" aria-label="Loading library audiobooks..." className="space-y-2">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div
-              key={i}
-              className="border-border bg-card flex items-center gap-3 rounded-lg border p-3"
-            >
-              <Skeleton className="size-4 shrink-0 rounded-[4px]" />
-              <Skeleton className="h-12 w-12 shrink-0 rounded" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <Skeleton className="h-4 w-1/2 max-w-80" />
-                <Skeleton className="h-3 w-2/3 max-w-96" />
-              </div>
-              <Skeleton className="size-4 shrink-0" />
-            </div>
-          ))}
-        </div>
-      ) : books.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Library className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
-          <h3 className="text-foreground text-lg font-medium">No audiobooks found</h3>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {q
-              ? "No audiobooks matched your query."
-              : "No audiobooks have been organized yet. Check your organize queue or import discovered files."}
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {books.map((book) => {
-            const issueCount = issueSummary[book.id] ?? 0;
-            const hasPendingRefresh = pendingRefreshIds.has(book.id);
-            return (
-              <BookListRow
-                key={book.id}
-                book={book}
-                issueCount={issueCount}
-                hasPendingRefresh={hasPendingRefresh}
-                selectable
-                selected={selection.isSelected(book.id)}
-                onSelectedChange={() => selection.toggle(book)}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      <BookBulkActionBar selection={selection} />
-
-      {totalPages > 1 && (
-        <div className="border-border flex items-center justify-between border-t pt-4">
-          <div className="text-muted-foreground text-xs">
-            Page {page} of {totalPages}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => handlePageChange(Math.max(1, page - 1))}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <OwnedBookList
+        books={books}
+        totalCount={totalCount}
+        loading={loading}
+        loadingLabel="Loading library audiobooks..."
+        emptyState={
+          <Card className="p-12 text-center">
+            <Library className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
+            <h3 className="text-foreground text-lg font-medium">No audiobooks found</h3>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {q
+                ? "No audiobooks matched your query."
+                : "No audiobooks have been organized yet. Check your organize queue or import discovered files."}
+            </p>
+          </Card>
+        }
+        selection={selection}
+        search={q}
+        onSearchChange={handleSearchChange}
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        page={page - 1}
+        pageCount={pageCount}
+        pageSize={PAGE_SIZE}
+        pagerDisabled={loading}
+        onPageChange={handlePageChange}
+      />
     </div>
   );
 }

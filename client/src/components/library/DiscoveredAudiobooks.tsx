@@ -35,6 +35,7 @@ import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { LinkButton } from "../LinkButton";
+import { SectionPager } from "./SectionPager";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
@@ -866,29 +867,14 @@ export function DiscoveredAudiobooks() {
       </Dialog>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-muted-foreground text-xs">
-            Page {page} of {totalPages} ({totalCount} total)
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <SectionPager
+          currentPage={page - 1}
+          pageCount={totalPages}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          disabled={loading}
+          onPageChange={(next) => setPage(next + 1)}
+        />
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { PAGE_SIZE } from "@/constants/paging";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { SeriesRefreshPendingDialog } from "@/components/library/SeriesRefreshPendingDialog";
+import { SectionPager } from "./SectionPager";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import type { SeriesRefreshPendingListItem } from "@/types/SeriesRefresh";
@@ -102,30 +103,12 @@ export function SeriesRefreshPendingList() {
           {/* Stays rendered even if this page comes back empty while the count is non-zero, so
               the user can page back instead of staring at a dead-end heading. */}
           {pageCount > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <span className="text-muted-foreground text-xs">
-                Showing {currentPage * PAGE_SIZE + 1}–
-                {Math.min((currentPage + 1) * PAGE_SIZE, count)} of {count}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage === 0}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage >= pageCount - 1}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+            <SectionPager
+              currentPage={currentPage}
+              pageCount={pageCount}
+              totalCount={count}
+              onPageChange={setPage}
+            />
           )}
         </div>
       )}

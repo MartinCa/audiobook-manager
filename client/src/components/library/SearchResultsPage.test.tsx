@@ -16,18 +16,20 @@ vi.mock("@/services/api", () => ({
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
     getAuthors: vi.fn().mockResolvedValue([]),
     getAudiobookDetail: vi.fn(),
+    getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
   },
   consistencyApi: {
     getIssues: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
     getIssueSummary: vi.fn().mockResolvedValue({}),
     getIssuesByAudiobook: vi.fn().mockResolvedValue([]),
     getConsistencyStatus: vi.fn().mockResolvedValue({ isRunning: false }),
+    checkSelected: vi.fn().mockResolvedValue(undefined),
   },
   libraryApi: {
     getScanStatus: vi.fn().mockResolvedValue({ isRunning: false }),
   },
   operationsApi: {
-    getStatus: vi.fn().mockResolvedValue({ isRunning: false }),
+    getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
   },
   seriesApi: {
     getAllSeries: vi.fn().mockResolvedValue([]),
@@ -56,6 +58,7 @@ vi.mock("@/services/api", () => ({
     getPendingSummary: vi.fn().mockResolvedValue([]),
     getPendingForAudiobook: vi.fn(),
     dismissPending: vi.fn().mockResolvedValue(undefined),
+    refreshSelected: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -170,7 +173,7 @@ describe("SearchResultsPage", () => {
     expect(screen.getByText("Brandon Sanderson")).toBeInTheDocument();
     expect(screen.getAllByText("Mistborn").length).toBeGreaterThan(0);
 
-    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 5, 0);
+    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 5, 0, {});
     expect(browseApi.searchAuthors).toHaveBeenCalledWith("mist", 5, 0);
     expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 5, 0);
   });
@@ -182,7 +185,7 @@ describe("SearchResultsPage", () => {
     fireEvent.click(viewAllBooks);
 
     await waitFor(() => {
-      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 0);
+      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 0, {});
     });
     // The books tab is now the active tab, showing the full page-sized list.
     expect(screen.getByRole("tab", { name: /Books \(8\)/i })).toHaveAttribute(
@@ -196,7 +199,7 @@ describe("SearchResultsPage", () => {
     const { router } = renderWithRouter("/library/search?q=mist&tab=books");
 
     await screen.findByText("Mistborn: The Final Empire");
-    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 0);
+    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 0, {});
 
     const nextButton = screen.getByRole("button", { name: "Next" });
     fireEvent.click(nextButton);
@@ -205,7 +208,70 @@ describe("SearchResultsPage", () => {
       expect(router.state.location.search).toMatchObject({ tab: "books", page: 2 });
     });
     await waitFor(() => {
-      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 20);
+      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("mist", 20, 20, {});
+    });
+  });
+
+  // Scope addition: the authors and series tabs' pagers were the last two hand-rolled pagers in
+  // this file (the books tab was already unified onto SectionPager via OwnedBookList) - they now
+  // share the same SectionPager component/labels/behavior instead of a bespoke Pager.
+  it("pages the authors tab through the shared SectionPager", async () => {
+    vi.mocked(browseApi.searchAuthors).mockResolvedValue(makePage(sampleAuthors, 45));
+    const { router } = renderWithRouter("/library/search?q=mist&tab=authors");
+
+    await screen.findByText("Brandon Sanderson");
+    expect(browseApi.searchAuthors).toHaveBeenCalledWith("mist", 20, 0);
+    expect(screen.getByText("Showing 1–20 of 45")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ tab: "authors", page: 2 });
+    });
+    await waitFor(() => {
+      expect(browseApi.searchAuthors).toHaveBeenCalledWith("mist", 20, 20);
+    });
+  });
+
+  it("pages the series tab through the shared SectionPager", async () => {
+    vi.mocked(browseApi.searchSeries).mockResolvedValue(makePage(sampleSeries, 45));
+    const { router } = renderWithRouter("/library/search?q=mist&tab=series");
+
+    await screen.findByText("Mistborn");
+    expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 20, 0);
+    expect(screen.getByText("Showing 1–20 of 45")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ tab: "series", page: 2 });
+    });
+    await waitFor(() => {
+      expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 20, 20);
+    });
+  });
+
+  // Bug 8 unification: the books tab gets the same option filters the library list has. The tab
+  // already has its own page-level search box (q, shared across every tab), so OwnedBookList's
+  // own search input is hidden here rather than shown twice.
+  it("applies option filters on the books tab and shows no duplicate search box", async () => {
+    vi.mocked(browseApi.searchAudiobooks).mockResolvedValue(makePage(sampleBooks, 45));
+    renderWithRouter("/library/search?q=mist&tab=books");
+
+    await screen.findByText("Mistborn: The Final Empire");
+    expect(
+      screen.queryByPlaceholderText(/Search title, author, series, narrator/i),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Duration (minutes) minimum"), {
+      target: { value: "10" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.searchAudiobooks).toHaveBeenLastCalledWith("mist", 20, 0, {
+        minDurationInSeconds: 600,
+      });
     });
   });
 

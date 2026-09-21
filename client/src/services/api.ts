@@ -218,6 +218,10 @@ export const browseApi = {
   // to have them all sent and rendered. Pass each section's own limit/offset. The missing-series
   // section is opt-in (includeMissingSeries=true) - the backend only pays for its reconciliation
   // pass when asked, and leaves it null otherwise.
+  //
+  // standaloneSearch/standaloneFilters (Bug 8 unification): the same text search and
+  // BookSummaryFilter fields getAudiobooks/searchAudiobooks accept, scoped to the standalone
+  // (non-series) section only.
   getAuthorDetail: (
     authorId: number,
     params: {
@@ -228,6 +232,8 @@ export const browseApi = {
       includeMissingSeries?: boolean;
       missingSeriesLimit?: number;
       missingSeriesOffset?: number;
+      standaloneSearch?: string;
+      standaloneFilters?: BookListFilters;
     } = {},
   ) =>
     api.get<AuthorDetail>(`/browse/authors/${authorId}`, {
@@ -239,6 +245,8 @@ export const browseApi = {
         includeMissingSeries: params.includeMissingSeries,
         missingSeriesLimit: params.missingSeriesLimit,
         missingSeriesOffset: params.missingSeriesOffset,
+        q: params.standaloneSearch || undefined,
+        ...params.standaloneFilters,
       },
     }),
 
@@ -536,6 +544,8 @@ export const seriesApi = {
   /** Total/matched/unmatched series for the overview header badges, independent of any page. */
   getSeriesCounts: () => api.get<SeriesCounts>("/series/counts"),
 
+  // ownedSearch/ownedFilters (Bug 8 unification): the same text search and BookSummaryFilter
+  // fields getAudiobooks/searchAudiobooks accept, scoped to the owned-books section only.
   getSeriesDetail: (
     seriesName: string,
     params: {
@@ -551,11 +561,20 @@ export const seriesApi = {
       partMismatchPageSize?: number;
       upcomingPage?: number;
       upcomingPageSize?: number;
+      ownedSearch?: string;
+      ownedFilters?: BookListFilters;
     } = {},
-  ) =>
-    api.get<SeriesDetail>("/series/detail", {
-      query: { seriesName, ...params },
-    }),
+  ) => {
+    const { ownedSearch, ownedFilters, ...pagingParams } = params;
+    return api.get<SeriesDetail>("/series/detail", {
+      query: {
+        seriesName,
+        ...pagingParams,
+        q: ownedSearch || undefined,
+        ...ownedFilters,
+      },
+    });
+  },
 
   getMatchCandidates: (seriesName: string) =>
     api.get<SeriesMatchCandidate[]>("/series/match-candidates", {

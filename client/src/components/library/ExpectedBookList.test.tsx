@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ExpectedBookList, SectionPager } from "./ExpectedBookList";
+import { ExpectedBookList } from "./ExpectedBookList";
 import type { ExpectedBookRow } from "@/helpers/expectedBooks";
 
 function row(overrides: Partial<ExpectedBookRow> = {}): ExpectedBookRow {
@@ -318,26 +318,5 @@ describe("ExpectedBookList", () => {
     });
     expect(screen.getByText("Ignored Future Book")).toBeInTheDocument();
     expect(screen.queryByText("Ignored Past Book")).not.toBeInTheDocument();
-  });
-});
-
-describe("SectionPager", () => {
-  it("clamps the previous/next buttons and reports the requested page", () => {
-    const onPageChange = vi.fn();
-    const { rerender } = render(
-      <SectionPager currentPage={0} pageCount={3} totalCount={120} onPageChange={onPageChange} />,
-    );
-
-    expect(screen.getByText("Showing 1–50 of 120")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(onPageChange).toHaveBeenCalledWith(1);
-
-    rerender(
-      <SectionPager currentPage={2} pageCount={3} totalCount={120} onPageChange={onPageChange} />,
-    );
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
-    expect(onPageChange).toHaveBeenCalledWith(1);
   });
 });

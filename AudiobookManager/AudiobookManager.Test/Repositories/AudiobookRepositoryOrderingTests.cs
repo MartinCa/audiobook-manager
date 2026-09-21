@@ -44,13 +44,15 @@ public class AudiobookRepositoryOrderingTests
     // rather than constructing a fresh one per seed.
     private Person? _defaultAuthor;
 
-    private async Task SeedAsync(string bookName, string? series, Person? author = null, string? seriesPart = null)
+    private async Task SeedAsync(
+        string bookName, string? series, Person? author = null, string? seriesPart = null,
+        int? durationInSeconds = null, string? www = null)
     {
         _defaultAuthor ??= new Person(default, "An Author");
 
         var audiobook = new Audiobook(
             default, bookName, null, series, seriesPart, 2024,
-            null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, www, null, durationInSeconds,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = new List<Person> { author ?? _defaultAuthor }
@@ -104,6 +106,52 @@ public class AudiobookRepositoryOrderingTests
         Assert.AreSequenceEqual(
             new List<string> { "Emile book", "Zebra book", "apple book" },
             books.Select(b => b.BookName).ToList());
+    }
+
+    // Bug 8 (unified owned-book list): the author detail's standalone section gets the same text
+    // search and BookSummaryFilter the whole-library book list offers, scoped to the author.
+    [TestMethod]
+    public async Task GetStandaloneBooksByAuthorAsync_Search_NarrowsToMatchingBooksOnly()
+    {
+        var author = new Person(default, "Search Author");
+        await SeedAsync("The Final Empire", null, author);
+        await SeedAsync("The Well of Ascension", null, author);
+
+        var (books, total) = await _repository.GetStandaloneBooksByAuthorAsync(
+            author.Id, limit: 10, offset: 0, search: "final empire");
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("The Final Empire", books.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task GetStandaloneBooksByAuthorAsync_Filter_NarrowsByDurationRange()
+    {
+        var author = new Person(default, "Filter Author");
+        await SeedAsync("Short Book", null, author, durationInSeconds: 1800);
+        await SeedAsync("Long Book", null, author, durationInSeconds: 36000);
+
+        var (books, total) = await _repository.GetStandaloneBooksByAuthorAsync(
+            author.Id, limit: 10, offset: 0,
+            filter: new BookSummaryFilter(MaxDurationInSeconds: 3600));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Short Book", books.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task GetStandaloneBooksByAuthorAsync_Filter_NarrowsBySource()
+    {
+        var author = new Person(default, "Source Author");
+        await SeedAsync("Matched Book", null, author, www: "https://hardcover.app/books/matched");
+        await SeedAsync("Unmatched Book", null, author);
+
+        var (books, total) = await _repository.GetStandaloneBooksByAuthorAsync(
+            author.Id, limit: 10, offset: 0,
+            filter: new BookSummaryFilter(Sources: new[] { "Hardcover" }));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Matched Book", books.Single().BookName);
     }
 
     // Regression: Genres is a many-to-many with no position column, so nothing about the join

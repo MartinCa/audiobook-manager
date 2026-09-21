@@ -43,7 +43,9 @@ public record SeriesOwnedBookDto(
     List<string> Authors,
     List<string> Narrators,
     int? DurationInSeconds,
-    string? CoverFilePath
+    string? CoverFilePath,
+    bool IsMatched = false,
+    string? MatchedSourceName = null
 );
 
 public record SeriesDetailDto(

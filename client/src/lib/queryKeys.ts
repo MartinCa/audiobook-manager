@@ -43,6 +43,9 @@ export const queryKeys = {
     all: () => ["consistency"] as const,
     overview: () => ["consistency", "overview"] as const,
     page: (issueType: string, page: number) => ["consistency", "page", issueType, page] as const,
+    // Issue count per audiobook id, for OwnedBookList's badges - shared across every owned-book
+    // list (Bug 8 unification) rather than folded into each surface's own page query.
+    issueSummary: () => ["consistency", "issueSummary"] as const,
   },
 
   books: {
@@ -60,8 +63,25 @@ export const queryKeys = {
 
   author: {
     all: () => ["author"] as const,
-    detail: (id: number, seriesPage: number, standalonePage: number, missingSeriesPage: number) =>
-      ["author", id, seriesPage, standalonePage, missingSeriesPage] as const,
+    // standaloneSearch/standaloneFilters (Bug 8 unification) are included so a filter/search
+    // change on the standalone-books section refetches instead of reusing a stale cache entry.
+    detail: (
+      id: number,
+      seriesPage: number,
+      standalonePage: number,
+      missingSeriesPage: number,
+      standaloneSearch: string = "",
+      standaloneFilters: BookListFilters = {},
+    ) =>
+      [
+        "author",
+        id,
+        seriesPage,
+        standalonePage,
+        missingSeriesPage,
+        standaloneSearch,
+        standaloneFilters,
+      ] as const,
   },
 
   // Deliberately a separate family from "author" above (the singular detail page) - a shared
@@ -87,6 +107,8 @@ export const queryKeys = {
     bySeries: (seriesName: string) => ["seriesDetail", seriesName] as const,
     byAuthor: (seriesName: string, authorId: number | undefined) =>
       ["seriesDetail", seriesName, authorId] as const,
+    // ownedSearch/ownedFilters (Bug 8 unification) are included so a filter/search change on the
+    // owned-books section refetches instead of reusing a stale cache entry.
     detail: (
       seriesName: string,
       authorId: number | undefined,
@@ -96,6 +118,8 @@ export const queryKeys = {
       partMismatchPage: number,
       upcomingPage: number,
       ignoredUpcomingPage: number,
+      ownedSearch: string = "",
+      ownedFilters: BookListFilters = {},
     ) =>
       [
         "seriesDetail",
@@ -107,6 +131,8 @@ export const queryKeys = {
         partMismatchPage,
         upcomingPage,
         ignoredUpcomingPage,
+        ownedSearch,
+        ownedFilters,
       ] as const,
   },
 
@@ -158,8 +184,15 @@ export const queryKeys = {
     ["seriesPartConflicts", bookId, series, part] as const,
 
   searchResults: {
-    books: (q: string, page: number, limit: number, offset: number) =>
-      ["searchResults", "books", q, page, limit, offset] as const,
+    // filters (Bug 8 unification) defaults to {} so existing call sites that page/limit/offset
+    // only (the "all" tab's preview query) keep a stable key.
+    books: (
+      q: string,
+      page: number,
+      limit: number,
+      offset: number,
+      filters: BookListFilters = {},
+    ) => ["searchResults", "books", q, page, limit, offset, filters] as const,
     authors: (q: string, page: number, limit: number, offset: number) =>
       ["searchResults", "authors", q, page, limit, offset] as const,
     series: (q: string, page: number, limit: number, offset: number) =>

@@ -333,7 +333,16 @@ public class BrowseController : ControllerBase
         int standaloneOffset = 0,
         [FromQuery] bool includeMissingSeries = false,
         [FromQuery] int missingSeriesLimit = PagingLimits.DefaultPageSize,
-        [FromQuery] int missingSeriesOffset = 0)
+        [FromQuery] int missingSeriesOffset = 0,
+        // The standalone-books section's text search and BookSummaryFilter (Bug 8 unification):
+        // the same fields the whole-library book list and the series detail's owned section
+        // accept, scoped to this author's standalone (non-series) books only.
+        [FromQuery] string? q = null,
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? genres = null,
+        [FromQuery] List<string>? languages = null,
+        [FromQuery] int? minDurationInSeconds = null,
+        [FromQuery] int? maxDurationInSeconds = null)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
             ?? ValidateSearchPaging(standaloneLimit, standaloneOffset)
@@ -366,8 +375,11 @@ public class BrowseController : ControllerBase
             search: null,
             matched: null,
             authorId: authorId);
+        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
-            authorId, standaloneLimit, standaloneOffset);
+            authorId, standaloneLimit, standaloneOffset,
+            string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+            standaloneFilter.IsEmpty ? null : standaloneFilter);
 
         var summary = ToAuthorSummaryDto(author);
         var seriesDtos = seriesPage.Items.Select(SeriesOverviewMapper.ToDto).ToList();

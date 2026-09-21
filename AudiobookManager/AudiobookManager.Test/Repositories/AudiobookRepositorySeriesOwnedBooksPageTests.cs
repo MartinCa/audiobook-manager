@@ -55,11 +55,13 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
         string series,
         string? seriesPart = null,
         int year = 2024,
-        string? coverFilePath = null)
+        string? coverFilePath = null,
+        string? www = null,
+        int? durationInSeconds = 7200)
     {
         var audiobook = new Audiobook(
             default, bookName, null, series, seriesPart, year,
-            null, null, null, null, null, null, null, coverFilePath, 7200,
+            null, null, null, null, null, null, www, coverFilePath, durationInSeconds,
             $"/library/{series}/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
             Authors = new List<Person> { _author },
@@ -242,5 +244,64 @@ public class AudiobookRepositorySeriesOwnedBooksPageTests
 
         Assert.IsFalse(overflow, "exactly-at-cap is a normal size");
         Assert.AreEqual(10, keys.Count, "the count is exact, so it can serve as the owned count");
+    }
+
+    // Bug 8 (unified owned-book list): the series detail's owned section gets the same text
+    // search the whole-library book list offers, scoped to the series.
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_Search_NarrowsToMatchingBooksOnly()
+    {
+        var match = await SeedBookAsync("The Final Empire", "Mistborn");
+        await SeedBookAsync("The Well of Ascension", "Mistborn");
+
+        var (items, total) = await _repository.GetSeriesOwnedBooksPageAsync(
+            "Mistborn", skip: 0, take: 10, search: "final empire");
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual(match.Id, items.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_Search_IsAccentInsensitive()
+    {
+        var match = await SeedBookAsync("René's Journey", "Mistborn");
+
+        var (items, total) = await _repository.GetSeriesOwnedBooksPageAsync(
+            "Mistborn", skip: 0, take: 10, search: "Rene");
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual(match.Id, items.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_Filter_NarrowsByDurationRange()
+    {
+        var shortBook = await SeedBookAsync("Short Book", "Mistborn", durationInSeconds: 1800);
+        await SeedBookAsync("Long Book", "Mistborn", durationInSeconds: 36000);
+
+        var (items, total) = await _repository.GetSeriesOwnedBooksPageAsync(
+            "Mistborn", skip: 0, take: 10,
+            filter: new BookSummaryFilter(MaxDurationInSeconds: 3600));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual(shortBook.Id, items.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOwnedBooksPageAsync_ProjectsIsMatchedAndMatchedSourceName()
+    {
+        // MatchedSourceName is derived from Www by AccentFoldedColumnsInterceptor
+        // (MetadataSourceResolution) on save - it is never set directly.
+        await SeedBookAsync("Matched Book", "Mistborn", www: "https://hardcover.app/books/the-final-empire");
+        await SeedBookAsync("Unmatched Book", "Mistborn");
+
+        var (items, _) = await _repository.GetSeriesOwnedBooksPageAsync("Mistborn", skip: 0, take: 10);
+
+        var matched = items.Single(r => r.BookName == "Matched Book");
+        var unmatched = items.Single(r => r.BookName == "Unmatched Book");
+        Assert.IsTrue(matched.IsMatched);
+        Assert.AreEqual("Hardcover", matched.MatchedSourceName);
+        Assert.IsFalse(unmatched.IsMatched);
+        Assert.IsNull(unmatched.MatchedSourceName);
     }
 }

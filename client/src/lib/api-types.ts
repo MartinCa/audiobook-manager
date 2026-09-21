@@ -714,6 +714,12 @@ export interface paths {
                     includeMissingSeries?: boolean;
                     missingSeriesLimit?: number;
                     missingSeriesOffset?: number;
+                    q?: string;
+                    sources?: string[];
+                    genres?: string[];
+                    languages?: string[];
+                    minDurationInSeconds?: number;
+                    maxDurationInSeconds?: number;
                 };
                 header?: never;
                 path: {
@@ -2998,6 +3004,12 @@ export interface paths {
                     partMismatchPageSize?: number;
                     upcomingPage?: number;
                     upcomingPageSize?: number;
+                    q?: string;
+                    sources?: string[];
+                    genres?: string[];
+                    languages?: string[];
+                    minDurationInSeconds?: number;
+                    maxDurationInSeconds?: number;
                 };
                 header?: never;
                 path?: never;
@@ -5365,6 +5377,8 @@ export interface components {
             /** Format: int32 */
             durationInSeconds?: number | null;
             coverFilePath?: string | null;
+            isMatched?: boolean;
+            matchedSourceName?: string | null;
         };
         SeriesOwnedBookPageDto: {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;

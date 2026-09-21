@@ -9,12 +9,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
+import { OwnedBookList } from "./OwnedBookList";
+import { SectionPager } from "./SectionPager";
 import { BROWSE_PAGE_SIZE, SEARCH_PREVIEW_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { LibrarySeriesHit } from "@/types/LibrarySearchResult";
+import type { BookListFilters } from "@/types/EntityFilters";
 import { Route } from "@/routes/library/search";
 
 type SearchTab = "all" | "books" | "authors" | "series";
@@ -65,52 +68,26 @@ function SeriesRow({ series }: { series: LibrarySeriesHit }) {
   );
 }
 
-function Pager({
-  page,
-  totalPages,
-  onPageChange,
-  disabled,
-}: {
-  page: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-  disabled: boolean;
-}) {
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="border-border flex items-center justify-between border-t pt-4">
-      <div className="text-muted-foreground text-xs">
-        Page {page} of {totalPages}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1 || disabled}
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page >= totalPages || disabled}
-          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function SearchResultsPage() {
   const navigate = useNavigate();
   const selection = useBookSelection();
   const { q = "", tab = "all", page = 1 } = Route.useSearch();
   const [prevQ, setPrevQ] = useState(q);
   const [searchQuery, setSearchQuery] = useState(q);
+  // Books-tab option filters (Bug 8 unification): local component state rather than a route
+  // search param, since only the books tab uses them and the page's `q` already drives every tab.
+  const [booksFilters, setBooksFilters] = useState<BookListFilters>({});
+
+  const handleBooksFiltersChange = (next: BookListFilters) => {
+    setBooksFilters(next);
+    if (page !== 1) {
+      void navigate({
+        to: "/library/search",
+        search: (prev) => ({ ...prev, page: undefined }),
+        replace: true,
+      });
+    }
+  };
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -183,9 +160,19 @@ export function SearchResultsPage() {
   const seriesLimit = tab === "series" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
   const seriesOffset = tab === "series" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
 
+  // Books-tab option filters must not leak into the "All" tab's books preview, which has no
+  // filter UI to explain or clear them.
+  const effectiveBooksFilters = tab === "books" ? booksFilters : {};
+
   const booksQuery = useQuery({
-    queryKey: queryKeys.searchResults.books(q, tab === "books" ? page : 1, booksLimit, booksOffset),
-    queryFn: () => browseApi.searchAudiobooks(q, booksLimit, booksOffset),
+    queryKey: queryKeys.searchResults.books(
+      q,
+      tab === "books" ? page : 1,
+      booksLimit,
+      booksOffset,
+      effectiveBooksFilters,
+    ),
+    queryFn: () => browseApi.searchAudiobooks(q, booksLimit, booksOffset, effectiveBooksFilters),
     enabled: Boolean(q),
     placeholderData: keepPreviousData,
   });
@@ -418,53 +405,30 @@ export function SearchResultsPage() {
             </div>
           )}
 
-          {tab === "books" &&
-            (books.length === 0 ? (
-              <Card className="p-12 text-center">
-                <BookOpen className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
-                <h3 className="text-foreground text-lg font-medium">No books found</h3>
-                <p className="text-muted-foreground mt-1 text-sm">No books matched your query.</p>
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="select-books-page"
-                    disabled={books.length === 0}
-                    checked={books.length > 0 && selection.pageAllSelected(books)}
-                    indeterminate={books.length > 0 && selection.pageSomeSelected(books)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        selection.selectPage(books);
-                      } else {
-                        selection.deselectPage(books);
-                      }
-                    }}
-                  />
-                  <label
-                    htmlFor="select-books-page"
-                    className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
-                  >
-                    Select page
-                  </label>
-                </div>
-                {books.map((book) => (
-                  <BookListRow
-                    key={book.id}
-                    book={book}
-                    selectable
-                    selected={selection.isSelected(book.id)}
-                    onSelectedChange={() => selection.toggle(book)}
-                  />
-                ))}
-                <Pager
-                  page={page}
-                  totalPages={booksTotalPages}
-                  onPageChange={handlePageChange}
-                  disabled={booksQuery.isFetching}
-                />
-              </div>
-            ))}
+          {tab === "books" && (
+            <OwnedBookList
+              books={books}
+              totalCount={booksTotal}
+              emptyState={
+                <Card className="p-12 text-center">
+                  <BookOpen className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
+                  <h3 className="text-foreground text-lg font-medium">No books found</h3>
+                  <p className="text-muted-foreground mt-1 text-sm">No books matched your query.</p>
+                </Card>
+              }
+              selection={selection}
+              search={q}
+              onSearchChange={() => {}}
+              showSearchBox={false}
+              filters={booksFilters}
+              onFiltersChange={handleBooksFiltersChange}
+              page={page - 1}
+              pageCount={booksTotalPages}
+              pageSize={BROWSE_PAGE_SIZE}
+              pagerDisabled={booksQuery.isFetching}
+              onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+            />
+          )}
 
           {tab === "authors" &&
             (authors.length === 0 ? (
@@ -478,12 +442,16 @@ export function SearchResultsPage() {
                 {authors.map((author) => (
                   <AuthorRow key={author.id} author={author} />
                 ))}
-                <Pager
-                  page={page}
-                  totalPages={authorsTotalPages}
-                  onPageChange={handlePageChange}
-                  disabled={authorsQuery.isFetching}
-                />
+                {authorsTotalPages > 1 && (
+                  <SectionPager
+                    currentPage={page - 1}
+                    pageCount={authorsTotalPages}
+                    totalCount={authorsTotal}
+                    pageSize={BROWSE_PAGE_SIZE}
+                    disabled={authorsQuery.isFetching}
+                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  />
+                )}
               </div>
             ))}
 
@@ -499,15 +467,21 @@ export function SearchResultsPage() {
                 {series.map((s) => (
                   <SeriesRow key={s.name} series={s} />
                 ))}
-                <Pager
-                  page={page}
-                  totalPages={seriesTotalPages}
-                  onPageChange={handlePageChange}
-                  disabled={seriesQuery.isFetching}
-                />
+                {seriesTotalPages > 1 && (
+                  <SectionPager
+                    currentPage={page - 1}
+                    pageCount={seriesTotalPages}
+                    totalCount={seriesTotal}
+                    pageSize={BROWSE_PAGE_SIZE}
+                    disabled={seriesQuery.isFetching}
+                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  />
+                )}
               </div>
             ))}
-          <BookBulkActionBar selection={selection} />
+          {/* The books tab's OwnedBookList already renders its own bulk-action bar; a second one
+              here would duplicate SignalR listeners, progress bars, and completion toasts. */}
+          {tab !== "books" && <BookBulkActionBar selection={selection} />}
         </>
       )}
     </div>

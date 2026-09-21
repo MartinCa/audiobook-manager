@@ -145,6 +145,31 @@ public class AudiobookRepository : IAudiobookRepository
     }
 
     /// <summary>
+    /// The same accent-folded free-text match <see cref="SearchAsync"/> applies (book name,
+    /// subtitle, series, author name, description - OR'd, all folded), reused by the series-owned
+    /// and author-standalone owned-book pages so a scoped list's search box behaves exactly like
+    /// the whole-library one. A null/blank <paramref name="search"/> applies no constraint.
+    /// </summary>
+    private static IQueryable<Audiobook> ApplyOwnedBookTextSearch(IQueryable<Audiobook> query, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return query;
+        }
+
+        var folded = AccentFolding.FoldPlain(search);
+        var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+
+        return query.Where(a =>
+            EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter) ||
+            EF.Functions.Like(a.SubtitleFolded, pattern, LikePatterns.EscapeCharacter) ||
+            EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
+            a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
+            EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
+        );
+    }
+
+    /// <summary>
     /// Shared narrowing for <see cref="GetAllAsync"/>/<see cref="SearchAsync"/> - every field on
     /// <see cref="BookSummaryFilter"/> is independent, see its doc.
     /// </summary>
@@ -324,14 +349,21 @@ public class AudiobookRepository : IAudiobookRepository
     /// ordered for a reader (numeric parts by value, non-numeric parts after, blank parts last,
     /// via <see cref="SeriesPartSortKey"/>), then the book name, then id - so paging stays stable
     /// while the library grows. This replaced a per-section read of every owned book with its
-    /// Genres and Description for a view that shows a page at a time.
+    /// Genres and Description for a view that shows a page at a time. <paramref name="search"/>
+    /// and <paramref name="filter"/> apply the same text search and <see cref="BookSummaryFilter"/>
+    /// as the whole-library list, scoped to this series (see <see cref="ApplyOwnedBookTextSearch"/>/
+    /// <see cref="ApplyBookSummaryFilter"/>), so the series detail's owned section filters exactly
+    /// like the library and author views.
     /// </summary>
     public async Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(
-        string seriesName, int skip, int take)
+        string seriesName, int skip, int take, string? search = null, BookSummaryFilter? filter = null)
     {
         var query = _db.Audiobooks
             .AsNoTracking()
             .Where(a => a.Series == seriesName);
+
+        query = ApplyOwnedBookTextSearch(query, search);
+        query = ApplyBookSummaryFilter(query, filter);
 
         var total = await query.CountAsync();
 
@@ -353,7 +385,9 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Authors.Select(p => p.Name).ToList(),
                 a.Narrators.Select(p => p.Name).ToList(),
                 a.DurationInSeconds,
-                a.CoverFilePath))
+                a.CoverFilePath,
+                a.MatchedSourceName != null && a.MatchedSourceName != "",
+                a.MatchedSourceName))
             .ToListAsync();
 
         return (items, total);
@@ -464,13 +498,22 @@ public class AudiobookRepository : IAudiobookRepository
             .ToList(), rows.Count > maxTotalKeys);
     }
 
-    /// <summary>One page of the author's books that belong to no series, plus the full total.</summary>
+    /// <summary>
+    /// One page of the author's books that belong to no series, plus the full total.
+    /// <paramref name="search"/> and <paramref name="filter"/> apply the same text search and
+    /// <see cref="BookSummaryFilter"/> as the whole-library list, scoped to this author's
+    /// standalone books, so the author detail's standalone section filters exactly like the
+    /// library and series views.
+    /// </summary>
     public async Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
-        long authorId, int limit, int offset)
+        long authorId, int limit, int offset, string? search = null, BookSummaryFilter? filter = null)
     {
         var matching = _db.Audiobooks
             .AsNoTracking()
             .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId));
+
+        matching = ApplyOwnedBookTextSearch(matching, search);
+        matching = ApplyBookSummaryFilter(matching, filter);
 
         var total = await matching.CountAsync();
 

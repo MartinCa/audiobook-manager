@@ -16,9 +16,13 @@ public interface IAudiobookRepository
     /// One page of a series' owned books plus the full total, for the series detail's owned
     /// section. Only the fields that section renders are projected, and the page is computed in
     /// SQL with a total order (blank series parts last, then the part, then the book name, then
-    /// id) so paging stays stable.
+    /// id) so paging stays stable. <paramref name="search"/> and <paramref name="filter"/> are
+    /// the same accent-folded text search and <see cref="BookSummaryFilter"/> the whole-library
+    /// book list applies, scoped to this series' owned books, so the series detail's owned
+    /// section gets the same filtering the library and author views offer.
     /// </summary>
-    Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(string seriesName, int skip, int take);
+    Task<(List<SeriesOwnedBookRow> Items, int Total)> GetSeriesOwnedBooksPageAsync(
+        string seriesName, int skip, int take, string? search = null, BookSummaryFilter? filter = null);
 
     /// <summary>
     /// Every owned book of one series reduced to its (series part, book name) keys, for the fuzzy
@@ -117,7 +121,16 @@ public interface IAudiobookRepository
 
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);
-    Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(long authorId, int limit, int offset);
+
+    /// <summary>
+    /// One page of the author's books that belong to no series, plus the full total.
+    /// <paramref name="search"/> and <paramref name="filter"/> are the same accent-folded text
+    /// search and <see cref="BookSummaryFilter"/> the whole-library book list applies, scoped to
+    /// this author's standalone books, so the author detail's standalone section gets the same
+    /// filtering the library and series views offer.
+    /// </summary>
+    Task<(List<Audiobook> Items, int Total)> GetStandaloneBooksByAuthorAsync(
+        long authorId, int limit, int offset, string? search = null, BookSummaryFilter? filter = null);
 
     /// <summary>
     /// Every owned book of one author reduced to its (series value, series part, book name, id)

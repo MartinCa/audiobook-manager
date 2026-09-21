@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
+import { SectionPager } from "./SectionPager";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { seriesApi } from "@/services/api";
@@ -418,31 +419,13 @@ export function BulkMissingBookMatchDialog({
               })}
 
               {pageCount > 1 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                  <span className="text-muted-foreground text-xs">
-                    Showing {currentPage * PAGE_SIZE + 1}–
-                    {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount} missing
-                    books
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={currentPage === 0 || applying}
-                      onClick={() => setPage(currentPage - 1)}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={currentPage >= pageCount - 1 || applying}
-                      onClick={() => setPage(currentPage + 1)}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
+                <SectionPager
+                  currentPage={currentPage}
+                  pageCount={pageCount}
+                  totalCount={totalCount}
+                  onPageChange={setPage}
+                  disabled={applying}
+                />
               )}
             </div>
           )}

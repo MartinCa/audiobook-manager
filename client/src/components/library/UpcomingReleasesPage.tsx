@@ -6,6 +6,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
+import { SectionPager } from "./SectionPager";
 import { operationsApi, upcomingReleasesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -127,30 +128,12 @@ export function UpcomingReleasesPage() {
       />
 
       {pageCount > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">
-            Showing {currentPage * PAGE_SIZE + 1}–
-            {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => setPage(currentPage + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
+        <SectionPager
+          currentPage={currentPage}
+          pageCount={pageCount}
+          totalCount={totalCount}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

@@ -188,7 +188,16 @@ public class SeriesController : ControllerBase
         [FromQuery] int partMismatchPage = 0,
         [FromQuery] int partMismatchPageSize = PagingLimits.DefaultPageSize,
         [FromQuery] int upcomingPage = 0,
-        [FromQuery] int upcomingPageSize = PagingLimits.DefaultPageSize)
+        [FromQuery] int upcomingPageSize = PagingLimits.DefaultPageSize,
+        // The owned-books section's text search and BookSummaryFilter (Bug 8 unification): the
+        // same fields the whole-library book list and the author detail's standalone section
+        // accept, scoped to this series' owned books only - the other sections are unaffected.
+        [FromQuery] string? q = null,
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? genres = null,
+        [FromQuery] List<string>? languages = null,
+        [FromQuery] int? minDurationInSeconds = null,
+        [FromQuery] int? maxDurationInSeconds = null)
     {
         foreach (var check in new[]
         {
@@ -206,6 +215,7 @@ public class SeriesController : ControllerBase
             }
         }
 
+        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         var detail = await _seriesService.GetSeriesDetailPageAsync(
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,
@@ -213,7 +223,9 @@ public class SeriesController : ControllerBase
             ignoredMissingSkip: (int)((long)ignoredMissingPage * ignoredMissingPageSize), ignoredMissingTake: ignoredMissingPageSize,
             ignoredUpcomingSkip: (int)((long)ignoredUpcomingPage * ignoredUpcomingPageSize), ignoredUpcomingTake: ignoredUpcomingPageSize,
             partMismatchSkip: (int)((long)partMismatchPage * partMismatchPageSize), partMismatchTake: partMismatchPageSize,
-            upcomingSkip: (int)((long)upcomingPage * upcomingPageSize), upcomingTake: upcomingPageSize);
+            upcomingSkip: (int)((long)upcomingPage * upcomingPageSize), upcomingTake: upcomingPageSize,
+            ownedSearch: string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
+            ownedFilter: ownedFilter.IsEmpty ? null : ownedFilter);
         if (detail is null)
         {
             return NotFound();
@@ -222,7 +234,8 @@ public class SeriesController : ControllerBase
         return new SeriesDetailDto(
             SeriesOverviewMapper.ToDto(detail.Overview),
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
-                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath)).ToList(), detail.OwnedBookTotal),
+                b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath,
+                b.IsMatched, b.MatchedSourceName)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredMissingBooks.Select(ToDto).ToList(), detail.IgnoredMissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredUpcomingBooks.Select(ToDto).ToList(), detail.IgnoredUpcomingBookTotal),
