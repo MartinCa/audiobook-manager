@@ -255,6 +255,20 @@ describe("EntityFilterBar", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minDurationInSeconds: 600 }));
   });
 
+  it("converts a fractional typed minutes value to seconds without flooring it first", () => {
+    // Regression: toIntFilterValue used to truncate the raw parsed value BEFORE applying the
+    // unit conversion, so 2.5 minutes floored to 2 minutes and only then converted to 120s -
+    // silently dropping the 30s. Converting first preserves it: 2.5 min -> 150s.
+    const onChange = vi.fn();
+    render(<EntityFilterBar fields={DURATION_FIELDS} values={{}} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Duration (minutes) minimum"), {
+      target: { value: "2.5" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minDurationInSeconds: 150 }));
+  });
+
   it("shows a stored duration range chip converted to minutes, not raw seconds", () => {
     render(
       <EntityFilterBar

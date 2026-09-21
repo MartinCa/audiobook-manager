@@ -72,7 +72,7 @@ export function toIntFilterValue(
   if (raw === "") {
     return undefined;
   }
-  const parsed = Math.trunc(Number(raw));
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.trunc(toStored(parsed)) : undefined;
 }
 
