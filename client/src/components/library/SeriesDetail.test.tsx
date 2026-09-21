@@ -7,7 +7,7 @@ import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
-import { operationsApi, seriesApi } from "@/services/api";
+import { operationsApi, seriesApi, upcomingReleasesApi } from "@/services/api";
 import type {
   SeriesDetail,
   SeriesExpectedBook,
@@ -1321,5 +1321,60 @@ describe("SeriesDetail", () => {
     screen.getByText(/Review it before it is written to your books/);
     expect(screen.queryByText(/0 pending changes/)).toBeNull();
     expect(screen.getByRole("button", { name: "Review Changes" })).toBeDefined();
+  });
+
+  // --- Upcoming Releases: the whole section (heading included) hides when empty ---
+
+  it("hides the Upcoming Releases section entirely once loaded with no releases", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(upcomingReleasesApi, "getUpcomingReleases").mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+
+    renderWithProviders();
+
+    await screen.findByRole("heading", { name: "Mistborn" });
+    await waitFor(() => {
+      expect(upcomingReleasesApi.getUpcomingReleases).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Upcoming Releases" })).not.toBeInTheDocument();
+    });
+  });
+
+  // Regression for the matched-but-unfollowed backend fix: once the roster returns entries for a
+  // matched-but-unfollowed series, the section must render with its heading, not stay hidden.
+  it("shows the Upcoming Releases section when the roster has entries", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(upcomingReleasesApi, "getUpcomingReleases").mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        {
+          source: "Roster",
+          id: null,
+          expectedBookId: 42,
+          title: "The Lost Metal",
+          releaseDate: "2031-01-01",
+          year: 2031,
+          sourceName: "Hardcover",
+          sourceUrl: null,
+          sourceBookId: "999",
+          imageUrl: null,
+          authorId: null,
+          authorName: null,
+          seriesId: 1,
+          seriesName: "Mistborn",
+          seriesPosition: "8",
+        },
+      ],
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
+    expect(await screen.findByText("The Lost Metal")).toBeInTheDocument();
   });
 });

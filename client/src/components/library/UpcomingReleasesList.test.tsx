@@ -355,4 +355,90 @@ describe("UpcomingReleasesList", () => {
 
     expect(await screen.findByText("2027")).toBeInTheDocument();
   });
+
+  // --- sectionTitle: the caller-owned "hide the whole section when empty" mode -----------------
+
+  it("without sectionTitle, renders the empty message with no heading of its own when there are no releases", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+
+    const { container } = renderList({ emptyMessage: "Nothing tracked yet." });
+
+    expect(await screen.findByText("Nothing tracked yet.")).toBeInTheDocument();
+    expect(container.querySelector("h2")).toBeNull();
+  });
+
+  // Bug 3 regression: a caller that hands over the heading via sectionTitle must have the WHOLE
+  // section - heading included - disappear once the query resolves with zero releases, not just
+  // the empty-state text under an always-visible heading.
+  it("with sectionTitle, renders nothing at all once loaded with zero releases", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+
+    const { container } = renderList({
+      sectionTitle: "Upcoming Releases",
+      emptyMessage: "Nothing tracked yet.",
+    });
+
+    await waitFor(() => {
+      expect(upcomingReleasesApi.getUpcomingReleases).toHaveBeenCalled();
+    });
+    // Give the resolved query a tick to flush into the render.
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(screen.queryByText("Nothing tracked yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Upcoming Releases")).not.toBeInTheDocument();
+  });
+
+  it("with sectionTitle, renders the heading together with the list when there are releases", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release()],
+    });
+
+    renderList({ sectionTitle: "Upcoming Releases" });
+
+    expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
+    expect(await screen.findByText("The Stormlight Archive 6")).toBeInTheDocument();
+  });
+
+  // The heading must not flicker away while the initial fetch is still in flight - only a
+  // resolved, confirmed-empty result hides the section.
+  it("with sectionTitle, keeps the heading visible while loading", async () => {
+    let resolveFetch!: (value: { count: number; total: number; items: UpcomingRelease[] }) => void;
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    renderList({ sectionTitle: "Upcoming Releases" });
+
+    expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
+    expect(screen.getByText("Loading upcoming releases...")).toBeInTheDocument();
+
+    resolveFetch({ count: 0, total: 0, items: [] });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Upcoming Releases" })).not.toBeInTheDocument();
+    });
+  });
+
+  // Same reasoning for a failed fetch: the caller must still see the heading with the error text
+  // beneath it, not a section that vanished because of a network failure.
+  it("with sectionTitle, keeps the heading visible alongside an error", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockRejectedValue(
+      new Error("Network error"),
+    );
+
+    renderList({ sectionTitle: "Upcoming Releases" });
+
+    expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
+    expect(await screen.findByText("Network error")).toBeInTheDocument();
+  });
 });
