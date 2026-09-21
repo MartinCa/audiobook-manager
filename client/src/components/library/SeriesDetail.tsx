@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -112,9 +112,20 @@ export function SeriesDetail() {
     selection.clear();
   }
 
-  // Programmatic "leave this series" used only when the series is deleted in the background (a
-  // real link cannot do that); the visible back control above is a real link with a stable href.
-  const navigateBack = () => {
+  // The "did this series exist" tracker the navigate-away effect below reads. A ref (not state):
+  // it exists only for that effect to read, and writing it must happen in an effect, not during
+  // render (react-hooks/refs) - unlike the selection reset above, which affects what THIS render
+  // shows and so has to be synchronous.
+  const hadOverviewRef = useRef(false);
+  useEffect(() => {
+    hadOverviewRef.current = false;
+  }, [seriesName]);
+
+  // Programmatic "leave this series" used when the series stops existing out from under the open
+  // page - an explicit delete (SeriesDeleteComplete below), or a bulk edit that moved every owned
+  // book of an unmatched series elsewhere (see the seriesDetailQuery effect below). Neither case
+  // can be a real link, unlike the visible back control above, which has a stable href.
+  const navigateBack = useCallback(() => {
     if (router.history.canGoBack()) {
       router.history.back();
     } else if (authorId) {
@@ -125,7 +136,7 @@ export function SeriesDetail() {
     } else {
       void navigate({ to: "/library/series" });
     }
-  };
+  }, [router, authorId, navigate]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -210,6 +221,38 @@ export function SeriesDetail() {
   });
 
   const overview = seriesDetailQuery.data?.overview;
+  // Remembers, for the navigate-away effect below, that this series was real at some point since
+  // the last seriesName change (the reset effect above). A plain ref write, so it never triggers
+  // its own re-render.
+  useEffect(() => {
+    if (overview) {
+      hadOverviewRef.current = true;
+    }
+  }, [overview]);
+
+  // A bulk edit (or any other write) can move every owned book of an UNMATCHED series elsewhere,
+  // at which point the backend's GetSeriesDetailPageAsync returns null and this endpoint 404s
+  // (SeriesController.GetSeriesDetail) - the series has stopped existing, not just emptied. The
+  // invalidation that follows such a write (BookBulkActionBar's BulkEditComplete handler
+  // invalidates queryKeys.seriesDetail.all(), and BookDetail's AudiobookSaveComplete does the
+  // same for a single-book edit) refetches this query in place; without this effect the page just
+  // re-rendered in place on the same now-dead URL. Checked via isError/error rather than
+  // "!overview": TanStack Query keeps the LAST successful data cached through a failed background
+  // refetch (data does not go back to undefined just because the current fetch attempt errored),
+  // so overview alone would never observe the 404. Only navigate away for a series that was
+  // actually here before (hadOverviewRef) - a bad URL typed directly, or a series that never
+  // existed, must keep showing "Series not found" with its own link back, not bounce the user
+  // through history. A MATCHED series with zero owned books is not "gone" (it still has a catalog
+  // row and possibly missing/upcoming books) and never 404s, so it never trips this.
+  useEffect(() => {
+    if (!hadOverviewRef.current || !seriesDetailQuery.isError) {
+      return;
+    }
+    if (handleApiError(seriesDetailQuery.error).status === 404) {
+      navigateBack();
+    }
+  }, [seriesDetailQuery.isError, seriesDetailQuery.error, navigateBack]);
+
   const ownedSection = seriesDetailQuery.data?.ownedBooks ?? {
     items: [] as SeriesOwnedBook[],
     totalCount: 0,

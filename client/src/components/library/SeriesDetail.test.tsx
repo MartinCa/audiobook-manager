@@ -7,6 +7,7 @@ import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SignalREvents, OperationKeys } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
+import { ApiError } from "@/lib/api";
 import { operationsApi, seriesApi } from "@/services/api";
 import type {
   SeriesDetail,
@@ -1164,6 +1165,77 @@ describe("SeriesDetail", () => {
       expect(within(dialog).getByRole("button", { name: "Delete Series" })).toBeEnabled();
     });
     expect(getStatus).toHaveBeenCalledWith(OperationKeys.seriesDelete);
+  });
+
+  // --- Bulk-editing every owned book out of the currently-viewed series ---
+
+  function bulkEditCompleteHandler(): (data: {
+    processed: number;
+    succeeded: number;
+    failed: number;
+  }) => void {
+    const call = [...mockSignalRValue.on.mock.calls]
+      .reverse()
+      .find(([name]) => name === SignalREvents.BulkEditComplete);
+    expect(call, "a BulkEditComplete handler was registered").toBeDefined();
+    return call![1] as (data: { processed: number; succeeded: number; failed: number }) => void;
+  }
+
+  // Regression: bulk-editing every book on this page out of the series leaves an unmatched
+  // series with zero owned books, which the backend treats as no longer existing (SeriesService
+  // returns null; the controller 404s). The BulkEditComplete handler in the nested
+  // BookBulkActionBar invalidates queryKeys.seriesDetail.all(), which refetches this same
+  // series-detail query in place - the page must leave the now-dead URL instead of re-rendering
+  // "not found" on it.
+  it("navigates away when a bulk edit empties the currently-viewed series", async () => {
+    let seriesGone = false;
+    const getSeriesDetail = vi.spyOn(seriesApi, "getSeriesDetail").mockImplementation(() => {
+      if (seriesGone) {
+        return Promise.reject(new ApiError(404, {}));
+      }
+      return Promise.resolve(makeDetail([], 0, [defaultOwned]));
+    });
+
+    const { router } = renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    // The bulk edit moved this page's only owned book to a different series; the refetch the
+    // completion event triggers now 404s.
+    seriesGone = true;
+    bulkEditCompleteHandler()({ processed: 1, succeeded: 1, failed: 0 });
+
+    await waitFor(() => {
+      expect(getSeriesDetail.mock.calls.length).toBeGreaterThan(1);
+    });
+    // No back-stack entry and no authorId in this URL: navigateBack falls through to the series
+    // list, the same target the visible "Back to Series" link uses.
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/series");
+    });
+  });
+
+  // A MATCHED series with zero owned books still has a catalog row (and possibly missing/
+  // upcoming books), so GetSeriesDetailPageAsync does not return null for it - the page must
+  // stay put and simply render the now-empty owned section, not bounce the user away.
+  it("stays on a matched series that a bulk edit emptied of owned books", async () => {
+    let ownedItems = [defaultOwned];
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockImplementation(() => Promise.resolve(makeDetail([], 0, ownedItems)));
+
+    const { router } = renderWithProviders();
+    await screen.findByRole("heading", { name: "Mistborn" });
+
+    ownedItems = [];
+    bulkEditCompleteHandler()({ processed: 1, succeeded: 1, failed: 0 });
+
+    await waitFor(() => {
+      expect(getSeriesDetail.mock.calls.length).toBeGreaterThan(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByText("No books owned.")).toBeInTheDocument();
+    });
+    expect(router.state.location.pathname).toBe("/library/series/Mistborn");
   });
 
   // --- Back navigation is a real link with a stable href, not a history-dependent button ---
