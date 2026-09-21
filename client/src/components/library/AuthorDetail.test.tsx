@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { browseApi } from "@/services/api";
+import { browseApi, upcomingReleasesApi } from "@/services/api";
 import type { AuthorDetail } from "@/types/AuthorDetail";
 
 const mockSignalRValue = {
@@ -416,6 +416,65 @@ describe("AuthorDetail", () => {
     expect(screen.getByText("Upcoming Active")).not.toHaveClass("text-muted-foreground");
   });
 
+  // --- Upcoming Releases: the whole section (heading included) hides when empty ---
+
+  it("hides the Upcoming Releases section entirely once loaded with no releases", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 0));
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+    vi.spyOn(upcomingReleasesApi, "getUpcomingReleases").mockResolvedValue({
+      count: 0,
+      total: 0,
+      items: [],
+    });
+
+    renderWithProviders();
+
+    await screen.findByText("Brandon Sanderson");
+    await waitFor(() => {
+      expect(upcomingReleasesApi.getUpcomingReleases).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Upcoming Releases/ })).not.toBeInTheDocument();
+    });
+  });
+
+  // Regression for the matched-but-unfollowed backend fix: once the roster returns entries for a
+  // matched-but-unfollowed author, the section must render with its heading, not stay hidden.
+  it("shows the Upcoming Releases section when the roster has entries", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 0));
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({});
+    vi.spyOn(upcomingReleasesApi, "getUpcomingReleases").mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        {
+          source: "Roster",
+          id: null,
+          expectedBookId: 42,
+          title: "Stormlight 6",
+          releaseDate: "2031-01-01",
+          year: 2031,
+          sourceName: "Hardcover",
+          sourceUrl: null,
+          sourceBookId: "999",
+          imageUrl: null,
+          authorId: 7,
+          authorName: "Brandon Sanderson",
+          seriesId: null,
+          seriesName: null,
+          seriesPosition: null,
+        },
+      ],
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByRole("heading", { name: /Upcoming Releases/ })).toBeInTheDocument();
+    expect(screen.getByText("Stormlight 6")).toBeInTheDocument();
+  });
+
   // --- Missing Series: the paged opt-in section ---
 
   it("renders Missing Series with counts, a link to a matched series, and a disabled hint when unmatched", async () => {
@@ -457,6 +516,12 @@ describe("AuthorDetail", () => {
     renderWithProviders();
 
     expect(await screen.findByText(/Missing Series \(2\)/)).toBeInTheDocument();
+
+    // Collapsed by default, mirroring Missing/Upcoming Books - only the label and count show
+    // until the user expands it.
+    expect(screen.queryByText("The Stormlight Archive")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Missing Series (2)" }));
 
     // Matched series: the matched local name is shown, the badges carry the counts, and the row
     // links to the series detail with this author's id so "Back to Author" still works.
@@ -507,6 +572,7 @@ describe("AuthorDetail", () => {
     renderWithProviders();
 
     await screen.findByText(/Missing Series \(51\)/);
+    fireEvent.click(screen.getByRole("button", { name: "Missing Series (51)" }));
     expect(screen.getByText("Matched Series 1")).toBeInTheDocument();
 
     // With no series/standalone sections, this is the only pager on the page.
