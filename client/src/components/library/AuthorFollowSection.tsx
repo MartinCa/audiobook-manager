@@ -138,10 +138,9 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
   const [prevOpen, setPrevOpen] = useState(open);
   const [prevAuthorId, setPrevAuthorId] = useState(authorId);
   if (open !== prevOpen || authorId !== prevAuthorId) {
-    const shouldReset = open && (open !== prevOpen || authorId !== prevAuthorId);
     setPrevOpen(open);
     setPrevAuthorId(authorId);
-    if (shouldReset) {
+    if (open) {
       setQuery(authorName);
       setDebouncedQuery(authorName);
       setMatching(false);
