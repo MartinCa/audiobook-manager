@@ -27,13 +27,13 @@ import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
-import { BookListRow } from "./BookListRow";
-import { BookBulkActionBar } from "./BookBulkActionBar";
+import { OwnedBookList } from "./OwnedBookList";
 import { SeriesFollowButton } from "./SeriesFollowButton";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
-import { ExpectedBookList, SectionPager } from "./ExpectedBookList";
+import { ExpectedBookList } from "./ExpectedBookList";
+import { SectionPager } from "./SectionPager";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
@@ -52,12 +52,13 @@ import type {
   SeriesPartMismatch,
 } from "@/types/Series";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
+import type { BookListFilters } from "@/types/EntityFilters";
 import { Route } from "@/routes/library/series/$seriesName";
 
 // SeriesOwnedBookDto omits some summary-row fields BookListRow renders through its
 // ManagedAudiobook prop (no series, no genres); fill the gaps with the values the owned row
-// actually shows. The cover path is carried through so rows render their cover like the library
-// and author views do.
+// actually shows. The cover path and match-source fields are carried through so rows render their
+// cover and matched-source badge like the library and author views do (Bug 8 unification).
 function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
   return {
     id: b.id,
@@ -69,6 +70,8 @@ function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
     genres: [],
     durationInSeconds: b.durationInSeconds ?? undefined,
     coverFilePath: b.coverFilePath ?? undefined,
+    isMatched: b.isMatched,
+    matchedSourceName: b.matchedSourceName ?? undefined,
   };
 }
 
@@ -101,15 +104,22 @@ export function SeriesDetail() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const selection = useBookSelection();
+  // Owned-books text search and option filters (Bug 8 unification): local component state rather
+  // than a route search param, since this section's filtering is scoped to one series' page and
+  // never needs to be shareable via URL the way the library list's does.
+  const [ownedSearch, setOwnedSearch] = useState("");
+  const [ownedFilters, setOwnedFilters] = useState<BookListFilters>({});
 
-  // A series change means a whole new roster of owned books; the selection must not carry a
-  // previous series' picks across the navigation. Reset during render so a stale selection can
-  // never render for the rows of a different series (the component stays mounted across param
+  // A series change means a whole new roster of owned books; the selection, search and filters
+  // must not carry a previous series' state across the navigation. Reset during render so stale
+  // state can never render for a different series (the component stays mounted across param
   // changes).
   const [prevSeriesName, setPrevSeriesName] = useState(seriesName);
   if (prevSeriesName !== seriesName) {
     setPrevSeriesName(seriesName);
     selection.clear();
+    setOwnedSearch("");
+    setOwnedFilters({});
   }
 
   // The "did this series exist" tracker the navigate-away effect below reads. A ref (not state):
@@ -189,6 +199,8 @@ export function SeriesDetail() {
       partMismatchPage,
       upcomingPage,
       ignoredUpcomingPage,
+      ownedSearch,
+      ownedFilters,
     ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
@@ -204,10 +216,22 @@ export function SeriesDetail() {
         partMismatchPageSize: PAGE_SIZE,
         upcomingPage,
         upcomingPageSize: PAGE_SIZE,
+        ownedSearch,
+        ownedFilters,
       }),
     enabled: Boolean(seriesName),
     placeholderData: keepPreviousData,
   });
+
+  const handleOwnedSearchChange = (next: string) => {
+    setOwnedSearch(next);
+    setOwnedPage(0);
+  };
+
+  const handleOwnedFiltersChange = (next: BookListFilters) => {
+    setOwnedFilters(next);
+    setOwnedPage(0);
+  };
 
   // The regex patterns owned by this series, for the management section's mapping list. They are
   // fetched even for an unmatched series - a pattern may be the very reason it is about to be
@@ -739,58 +763,26 @@ export function SeriesDetail() {
       )}
 
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-foreground text-lg font-bold">
-            Owned Books ({ownedSection.totalCount})
-          </h2>
-          <Checkbox
-            id="select-owned-page"
-            disabled={ownedManagedBooks.length === 0}
-            checked={ownedManagedBooks.length > 0 && selection.pageAllSelected(ownedManagedBooks)}
-            indeterminate={
-              ownedManagedBooks.length > 0 && selection.pageSomeSelected(ownedManagedBooks)
-            }
-            onCheckedChange={(checked) => {
-              if (checked) {
-                selection.selectPage(ownedManagedBooks);
-              } else {
-                selection.deselectPage(ownedManagedBooks);
-              }
-            }}
-          />
-          <label
-            htmlFor="select-owned-page"
-            className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
-          >
-            Select page
-          </label>
-        </div>
-        {ownedManagedBooks.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No books owned.</p>
-        ) : (
-          <div className="space-y-2">
-            {ownedManagedBooks.map((b) => (
-              <BookListRow
-                key={b.id}
-                book={b}
-                showSeriesPart
-                hideSeries
-                selectable
-                selected={selection.isSelected(b.id)}
-                onSelectedChange={() => selection.toggle(b)}
-              />
-            ))}
-          </div>
-        )}
-        <BookBulkActionBar selection={selection} />
-        {ownedPageCount > 1 && (
-          <SectionPager
-            currentPage={currentOwnedPage}
-            pageCount={ownedPageCount}
-            totalCount={ownedSection.totalCount}
-            onPageChange={setOwnedPage}
-          />
-        )}
+        <h2 className="text-foreground text-lg font-bold">
+          Owned Books ({ownedSection.totalCount})
+        </h2>
+        <OwnedBookList
+          books={ownedManagedBooks}
+          totalCount={ownedSection.totalCount}
+          emptyState={<p className="text-muted-foreground text-sm">No books owned.</p>}
+          selection={selection}
+          search={ownedSearch}
+          onSearchChange={handleOwnedSearchChange}
+          filters={ownedFilters}
+          onFiltersChange={handleOwnedFiltersChange}
+          page={currentOwnedPage}
+          pageCount={ownedPageCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={setOwnedPage}
+          showSeriesPart
+          hideSeries
+          itemNoun="books"
+        />
       </div>
 
       {overview.isMatched && ignoredTotal > 0 && (

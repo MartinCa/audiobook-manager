@@ -85,6 +85,10 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
+    // OwnedBookList's shared issue-count badge (Bug 8 unification): every owned-book list reads
+    // this one cache entry, so it must be invalidated here too, not just the library list's own
+    // page query as before.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
   };
 
   // Recover each in-flight operation (started here or elsewhere, or events missed while

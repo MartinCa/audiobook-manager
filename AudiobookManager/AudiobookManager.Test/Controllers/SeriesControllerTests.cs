@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Linq;
 using System.Reflection;
 
 namespace AudiobookManager.Test.Controllers;
@@ -388,6 +389,94 @@ public class SeriesControllerTests
         var result = await _controller.GetSeriesDetail("Unknown");
 
         Assert.IsInstanceOfType(result.Result, typeof(NotFoundResult));
+    }
+
+    // Bug 8 unification: the owned-books section gets the same text search / BookSummaryFilter
+    // the whole-library list and the author detail's standalone section already accept, so a
+    // shared list component can filter it the same way everywhere.
+    [TestMethod]
+    public async Task GetSeriesDetail_PassesOwnedSearchAndFilterThrough()
+    {
+        // BookSummaryFilter is a record but its collection members compare by reference (List<T>
+        // has no value equality), so a matcher predicate is used instead of an equal instance.
+        // (An expression tree, which Setup/Verify build, cannot reference a local function, so the
+        // predicate is inlined at each call site.)
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50,
+                ownedSearch: "final empire", ownedFilter: It.Is<BookSummaryFilter?>(f =>
+                    f != null && f.Sources!.SequenceEqual(new[] { "Hardcover" }) &&
+                    f.Genres == null && f.Languages == null &&
+                    f.MinDurationInSeconds == 1800 && f.MaxDurationInSeconds == null)))
+            .ReturnsAsync(new SeriesDetailPage
+            {
+                Overview = MakeOverview(),
+                OwnedBooks = new List<SeriesOwnedBook>(),
+                OwnedBookTotal = 0,
+                MissingBooks = new List<SeriesExpectedBookInfo>(),
+                MissingBookTotal = 0,
+                IgnoredMissingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredMissingBookTotal = 0,
+                IgnoredUpcomingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredUpcomingBookTotal = 0
+            });
+
+        var result = await _controller.GetSeriesDetail(
+            "Mistborn", q: " final empire ",
+            sources: new List<string> { "Hardcover" }, minDurationInSeconds: 1800);
+
+        Assert.IsNotNull(result.Value);
+        _seriesService.Verify(
+            s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50,
+                ownedSearch: "final empire", ownedFilter: It.Is<BookSummaryFilter?>(f =>
+                    f != null && f.Sources!.SequenceEqual(new[] { "Hardcover" }) &&
+                    f.Genres == null && f.Languages == null &&
+                    f.MinDurationInSeconds == 1800 && f.MaxDurationInSeconds == null)),
+            Times.Once);
+    }
+
+    // The owned DTO must carry the same match-source data the other three book lists show, so
+    // the shared row component can render the same badge everywhere.
+    [TestMethod]
+    public async Task GetSeriesDetail_OwnedBookDtoCarriesIsMatchedAndMatchedSourceName()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50))
+            .ReturnsAsync(new SeriesDetailPage
+            {
+                Overview = MakeOverview(),
+                OwnedBooks = new List<SeriesOwnedBook>
+                {
+                    new SeriesOwnedBook
+                    {
+                        Id = 1, BookName = "The Final Empire", Year = 2006,
+                        Authors = new List<string> { "Brandon Sanderson" }, Narrators = new List<string>(),
+                        IsMatched = true, MatchedSourceName = "Hardcover"
+                    }
+                },
+                OwnedBookTotal = 1,
+                MissingBooks = new List<SeriesExpectedBookInfo>(),
+                MissingBookTotal = 0,
+                IgnoredMissingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredMissingBookTotal = 0,
+                IgnoredUpcomingBooks = new List<SeriesExpectedBookInfo>(),
+                IgnoredUpcomingBookTotal = 0
+            });
+
+        var result = await _controller.GetSeriesDetail("Mistborn");
+
+        Assert.IsNotNull(result.Value);
+        var book = result.Value!.OwnedBooks.Items.Single();
+        Assert.IsTrue(book.IsMatched);
+        Assert.AreEqual("Hardcover", book.MatchedSourceName);
     }
 
     [TestMethod]

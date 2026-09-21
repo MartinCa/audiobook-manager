@@ -47,6 +47,11 @@ export type SeriesExpectedBookPage = Require<
 
 // id/bookName/year/authors/narrators are non-nullable; seriesPart, durationInSeconds and
 // coverFilePath are genuinely nullable.
+//
+// isMatched is ALSO non-nullable on the DTO (Bug 8 unification added it, alongside
+// matchedSourceName, so the series detail's owned rows can show the same match-source badge the
+// other book lists do) but is deliberately left out of this Require<> list, matching
+// ManagedAudiobook's isMatched: BookListRow.tsx already treats a missing value as unmatched.
 export type SeriesOwnedBook = Require<
   components["schemas"]["SeriesOwnedBookDto"],
   "id" | "bookName" | "year" | "authors" | "narrators"

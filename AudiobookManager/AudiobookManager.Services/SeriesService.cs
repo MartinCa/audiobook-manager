@@ -193,16 +193,23 @@ public class SeriesService : ISeriesService
         int ignoredMissingSkip, int ignoredMissingTake,
         int ignoredUpcomingSkip, int ignoredUpcomingTake,
         int partMismatchSkip, int partMismatchTake,
-        int upcomingSkip = 0, int upcomingTake = int.MaxValue)
+        int upcomingSkip = 0, int upcomingTake = int.MaxValue,
+        string? ownedSearch = null, BookSummaryFilter? ownedFilter = null)
     {
         // The per-request reads are bounded: one catalog metadata row, one SQL page of owned
         // books, and the cached reconciliation. The reconciliation itself - which classifies the
         // whole roster against the series' owned keys via the fuzzy matcher - is computed once
         // per series per change, never per page request (see GetReconciliationAsync).
         var catalogRow = await _seriesRepository.GetByNameAsync(seriesName);
-        var ownedPage = await _audiobookRepository.GetSeriesOwnedBooksPageAsync(seriesName, ownedSkip, ownedTake);
+        var ownedPage = await _audiobookRepository.GetSeriesOwnedBooksPageAsync(
+            seriesName, ownedSkip, ownedTake, ownedSearch, ownedFilter);
 
-        if (ownedPage.Total == 0 && catalogRow is null)
+        // An owned-section text search/filter can legitimately empty the page of a series that
+        // still has unfiltered owned books (and so must not be reported "not found"): only an
+        // UNFILTERED zero owned count, together with no catalog row, means the series itself is
+        // gone. A filtered/searched miss falls through to the normal "0 of N" empty state below.
+        var ownedScopeIsUnfiltered = string.IsNullOrWhiteSpace(ownedSearch) && (ownedFilter is null || ownedFilter.IsEmpty);
+        if (ownedPage.Total == 0 && catalogRow is null && ownedScopeIsUnfiltered)
         {
             return null;
         }
@@ -223,6 +230,8 @@ public class SeriesService : ISeriesService
                     Narrators = b.Narrators,
                     DurationInSeconds = b.DurationInSeconds,
                     CoverFilePath = b.CoverFilePath,
+                    IsMatched = b.IsMatched,
+                    MatchedSourceName = b.MatchedSourceName,
                 })
                 .ToList(),
             OwnedBookTotal = ownedPage.Total,

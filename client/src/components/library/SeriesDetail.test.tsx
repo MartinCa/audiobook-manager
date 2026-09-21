@@ -343,6 +343,57 @@ describe("SeriesDetail", () => {
       partMismatchPageSize: 50,
       upcomingPage: 0,
       upcomingPageSize: 50,
+      ownedSearch: "",
+      ownedFilters: {},
+    });
+  });
+
+  // Bug 8 unification: the owned-books section gets the same search box the library list has,
+  // wired through to the backend's ownedSearch query param.
+  it("debounces the owned-books search box into a getSeriesDetail call", async () => {
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+    await screen.findByText(/The Final Empire/);
+
+    const input = screen.getByPlaceholderText(/Search title, author/i);
+    fireEvent.change(input, { target: { value: "final empire" } });
+
+    await waitFor(
+      () => {
+        expect(getSeriesDetail).toHaveBeenLastCalledWith(
+          "Mistborn",
+          expect.objectContaining({ ownedSearch: "final empire" }),
+        );
+      },
+      { timeout: 1000 },
+    );
+  });
+
+  // Bug 8 unification: the owned-books section gets the same option filters the library list has.
+  it("passes owned-book option filters through to getSeriesDetail and resets the owned page", async () => {
+    const getSeriesDetail = vi
+      .spyOn(seriesApi, "getSeriesDetail")
+      .mockResolvedValue(makeDetail([], 0));
+
+    renderWithProviders();
+    await screen.findByText(/The Final Empire/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Duration (minutes) minimum"), {
+      target: { value: "10" },
+    });
+
+    await waitFor(() => {
+      expect(getSeriesDetail).toHaveBeenLastCalledWith(
+        "Mistborn",
+        expect.objectContaining({
+          ownedPage: 0,
+          ownedFilters: { minDurationInSeconds: 600 },
+        }),
+      );
     });
   });
 
@@ -593,6 +644,8 @@ describe("SeriesDetail", () => {
       partMismatchPageSize: 50,
       upcomingPage: 0,
       upcomingPageSize: 50,
+      ownedSearch: "",
+      ownedFilters: {},
     });
   });
 

@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Linq;
 using SeriesOverview = AudiobookManager.Domain.SeriesOverview;
 using SeriesOverviewPage = AudiobookManager.Domain.SeriesOverviewPage;
 
@@ -588,6 +589,41 @@ public class BrowseControllerTests
         _seriesService.Verify(s => s.GetSeriesOverviewPageAsync(2, 25, null, null, 7), Times.Once,
             "seriesLimit/seriesOffset map to the service's page/pageSize (offset / limit)");
         _audiobookRepo.Verify(r => r.GetStandaloneBooksByAuthorAsync(7, 10, 20), Times.Once);
+    }
+
+    // Bug 8 unification: the standalone-books section gets the same text search /
+    // BookSummaryFilter the whole-library list and the series detail's owned section accept, so
+    // a shared list component can filter it the same way everywhere.
+    [TestMethod]
+    public async Task GetAuthorDetail_PassesStandaloneSearchAndFilterThrough()
+    {
+        // BookSummaryFilter is a record but its collection members compare by reference (List<T>
+        // has no value equality), so a matcher predicate is used instead of an equal instance.
+        // (An expression tree, which Setup/Verify build, cannot reference a local function, so the
+        // predicate is inlined at each call site.)
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo
+            .Setup(r => r.GetStandaloneBooksByAuthorAsync(
+                7, 50, 0, "final empire", It.Is<BookSummaryFilter?>(f =>
+                    f != null && f.Sources!.SequenceEqual(new[] { "Hardcover" }) &&
+                    f.Genres == null && f.Languages == null &&
+                    f.MinDurationInSeconds == 1800 && f.MaxDurationInSeconds == null)))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        var result = await _controller.GetAuthorDetail(
+            authorId: 7, q: " final empire ",
+            sources: new List<string> { "Hardcover" }, minDurationInSeconds: 1800);
+
+        Assert.IsNotNull(result.Value);
+        _audiobookRepo.Verify(
+            r => r.GetStandaloneBooksByAuthorAsync(
+                7, 50, 0, "final empire", It.Is<BookSummaryFilter?>(f =>
+                    f != null && f.Sources!.SequenceEqual(new[] { "Hardcover" }) &&
+                    f.Genres == null && f.Languages == null &&
+                    f.MinDurationInSeconds == 1800 && f.MaxDurationInSeconds == null)),
+            Times.Once);
     }
 
     [TestMethod]

@@ -95,6 +95,8 @@ public class SeriesOwnedBook
     public List<string> Narrators { get; set; } = new();
     public int? DurationInSeconds { get; set; }
     public string? CoverFilePath { get; set; }
+    public bool IsMatched { get; set; }
+    public string? MatchedSourceName { get; set; }
 }
 
 public class SeriesExpectedBookInfo

@@ -134,6 +134,8 @@ describe("AuthorDetail", () => {
       includeMissingSeries: true,
       missingSeriesLimit: 50,
       missingSeriesOffset: 0,
+      standaloneSearch: "",
+      standaloneFilters: {},
     });
   });
 
@@ -177,6 +179,8 @@ describe("AuthorDetail", () => {
         includeMissingSeries: true,
         missingSeriesLimit: 50,
         missingSeriesOffset: 0,
+        standaloneSearch: "",
+        standaloneFilters: {},
       });
     });
   });
@@ -217,6 +221,56 @@ describe("AuthorDetail", () => {
     );
   });
 
+  // Bug 8 unification: the standalone-books section gets the same search box the library list
+  // has, wired through to the backend's standaloneSearch query param.
+  it("debounces the standalone-books search box into a getAuthorDetail call", async () => {
+    const getAuthorDetail = vi
+      .spyOn(browseApi, "getAuthorDetail")
+      .mockResolvedValue(makeDetail(0, 2));
+
+    renderWithProviders();
+    await screen.findByText(/Standalone 01/);
+
+    const input = screen.getByPlaceholderText(/Search title, author/i);
+    fireEvent.change(input, { target: { value: "standalone" } });
+
+    await waitFor(
+      () => {
+        expect(getAuthorDetail).toHaveBeenLastCalledWith(
+          7,
+          expect.objectContaining({ standaloneSearch: "standalone" }),
+        );
+      },
+      { timeout: 1000 },
+    );
+  });
+
+  // Bug 8 unification: the standalone-books section gets the same option filters the library
+  // list has.
+  it("passes standalone-book option filters through and resets the standalone page", async () => {
+    const getAuthorDetail = vi
+      .spyOn(browseApi, "getAuthorDetail")
+      .mockResolvedValue(makeDetail(0, 2));
+
+    renderWithProviders();
+    await screen.findByText(/Standalone 01/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Duration (minutes) minimum"), {
+      target: { value: "10" },
+    });
+
+    await waitFor(() => {
+      expect(getAuthorDetail).toHaveBeenLastCalledWith(
+        7,
+        expect.objectContaining({
+          standaloneOffset: 0,
+          standaloneFilters: { minDurationInSeconds: 600 },
+        }),
+      );
+    });
+  });
+
   // Regression for the review finding: the selection used to be reset only by comparing the
   // prev-id during render, and no test actually changed the route param, so nothing proved the
   // reset fired. Navigating to a second author whose catalogue reuses the same book ids is the
@@ -246,6 +300,8 @@ describe("AuthorDetail", () => {
         includeMissingSeries: true,
         missingSeriesLimit: 50,
         missingSeriesOffset: 0,
+        standaloneSearch: "",
+        standaloneFilters: {},
       });
     });
 

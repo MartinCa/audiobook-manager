@@ -18,12 +18,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PAGE_SIZE } from "@/constants/paging";
-import { BookListRow } from "./BookListRow";
-import { BookBulkActionBar } from "./BookBulkActionBar";
+import { OwnedBookList } from "./OwnedBookList";
 import { SeriesListEntry } from "./SeriesListEntry";
 import { AuthorFollowSection } from "./AuthorFollowSection";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
-import { ExpectedBookList, SectionPager } from "./ExpectedBookList";
+import { ExpectedBookList } from "./ExpectedBookList";
+import { SectionPager } from "./SectionPager";
 import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
@@ -34,6 +34,7 @@ import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { AuthorExpectedBook, AuthorMissingSeries } from "@/types/AuthorDetail";
+import { hasActiveFilters, type BookListFilters } from "@/types/EntityFilters";
 import { Route } from "@/routes/library/authors/$authorId";
 
 export function AuthorDetail() {
@@ -52,6 +53,11 @@ export function AuthorDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
+  // Standalone-books text search and option filters (Bug 8 unification): local component state
+  // rather than a route search param, since this section's filtering is scoped to one author's
+  // page and never needs to be shareable via URL the way the library list's does.
+  const [standaloneSearch, setStandaloneSearch] = useState("");
+  const [standaloneFilters, setStandaloneFilters] = useState<BookListFilters>({});
 
   // Navigating between authors must not carry a previous author's page cursor along. Adjusted
   // during render (React's documented pattern) rather than in an effect: the query key below
@@ -65,6 +71,8 @@ export function AuthorDetail() {
     setMissingSeriesPage(0);
     setShowIgnored(false);
     selection.clear();
+    setStandaloneSearch("");
+    setStandaloneFilters({});
   }
 
   // One combined detail query instead of two: the endpoint already computes both sections on
@@ -72,7 +80,14 @@ export function AuthorDetail() {
   // change issue an extra backend call whose other section (computed with default paging) was
   // thrown away. keepPreviousData keeps both sections rendered while one of them pages.
   const detailQuery = useQuery({
-    queryKey: queryKeys.author.detail(id, seriesPage, standalonePage, missingSeriesPage),
+    queryKey: queryKeys.author.detail(
+      id,
+      seriesPage,
+      standalonePage,
+      missingSeriesPage,
+      standaloneSearch,
+      standaloneFilters,
+    ),
     queryFn: () =>
       browseApi.getAuthorDetail(id, {
         seriesLimit: PAGE_SIZE,
@@ -82,10 +97,22 @@ export function AuthorDetail() {
         includeMissingSeries: true,
         missingSeriesLimit: PAGE_SIZE,
         missingSeriesOffset: missingSeriesPage * PAGE_SIZE,
+        standaloneSearch,
+        standaloneFilters,
       }),
     enabled: Boolean(id),
     placeholderData: keepPreviousData,
   });
+
+  const handleStandaloneSearchChange = (next: string) => {
+    setStandaloneSearch(next);
+    setStandalonePage(0);
+  };
+
+  const handleStandaloneFiltersChange = (next: BookListFilters) => {
+    setStandaloneFilters(next);
+    setStandalonePage(0);
+  };
 
   const author = detailQuery.data?.author;
   const seriesSection = detailQuery.data?.series ?? { items: [], total: 0 };
@@ -181,6 +208,11 @@ export function AuthorDetail() {
 
   const series = seriesSection.items;
   const standaloneBooks = standaloneSection.items;
+  // Keeps the standalone section (and its search/filter bar) visible when a search or filter
+  // narrows the section to zero results, rather than hiding the only way to clear it. An author
+  // with no standalone books at all, and no active search/filter, still hides the section.
+  const hasActiveStandaloneSearchOrFilter =
+    standaloneSearch.trim() !== "" || hasActiveFilters(standaloneFilters);
 
   return (
     <div className="space-y-6">
@@ -256,74 +288,29 @@ export function AuthorDetail() {
         </div>
       )}
 
-      {standaloneSection.total > 0 && (
+      {(standaloneSection.total > 0 || hasActiveStandaloneSearchOrFilter) && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-              <BookOpen className="text-primary h-5 w-5" />
-              Standalone Audiobooks ({standaloneSection.total})
-            </h2>
-            <Checkbox
-              id="select-standalone-page"
-              disabled={standaloneBooks.length === 0}
-              checked={standaloneBooks.length > 0 && selection.pageAllSelected(standaloneBooks)}
-              indeterminate={
-                standaloneBooks.length > 0 && selection.pageSomeSelected(standaloneBooks)
-              }
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  selection.selectPage(standaloneBooks);
-                } else {
-                  selection.deselectPage(standaloneBooks);
-                }
-              }}
-            />
-            <label
-              htmlFor="select-standalone-page"
-              className="text-muted-foreground cursor-pointer text-xs leading-none select-none"
-            >
-              Select page
-            </label>
-          </div>
-          <div className="space-y-2">
-            {standaloneBooks.map((book) => (
-              <BookListRow
-                key={book.id}
-                book={book}
-                selectable
-                selected={selection.isSelected(book.id)}
-                onSelectedChange={() => selection.toggle(book)}
-              />
-            ))}
-          </div>
-          <BookBulkActionBar selection={selection} />
-          {standalonePageCount > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <span className="text-muted-foreground text-xs">
-                Showing {currentStandalonePage * PAGE_SIZE + 1}–
-                {Math.min((currentStandalonePage + 1) * PAGE_SIZE, standaloneSection.total)} of{" "}
-                {standaloneSection.total}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentStandalonePage === 0}
-                  onClick={() => setStandalonePage(currentStandalonePage - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentStandalonePage >= standalonePageCount - 1}
-                  onClick={() => setStandalonePage(currentStandalonePage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
+          <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
+            <BookOpen className="text-primary h-5 w-5" />
+            Standalone Audiobooks ({standaloneSection.total})
+          </h2>
+          <OwnedBookList
+            books={standaloneBooks}
+            totalCount={standaloneSection.total}
+            emptyState={
+              <p className="text-muted-foreground text-sm">No standalone books matched.</p>
+            }
+            selection={selection}
+            search={standaloneSearch}
+            onSearchChange={handleStandaloneSearchChange}
+            filters={standaloneFilters}
+            onFiltersChange={handleStandaloneFiltersChange}
+            page={currentStandalonePage}
+            pageCount={standalonePageCount}
+            pageSize={PAGE_SIZE}
+            onPageChange={setStandalonePage}
+            itemNoun="books"
+          />
         </div>
       )}
 

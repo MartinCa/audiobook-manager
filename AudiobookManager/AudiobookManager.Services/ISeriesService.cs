@@ -43,6 +43,12 @@ public interface ISeriesService
     /// change by <c>ISeriesReconciliationCache</c>, never per page request, so a section request
     /// never materializes the roster plus every owned book of the series.
     /// </summary>
+    /// <summary>
+    /// <paramref name="ownedSearch"/>/<paramref name="ownedFilter"/> apply the same text search
+    /// and <see cref="BookSummaryFilter"/> the whole-library book list offers, scoped to this
+    /// series' owned-books section only - the other sections (missing/upcoming/part mismatches)
+    /// are unaffected.
+    /// </summary>
     Task<SeriesDetailPage?> GetSeriesDetailPageAsync(
         string seriesName,
         int ownedSkip, int ownedTake,
@@ -50,7 +56,8 @@ public interface ISeriesService
         int ignoredMissingSkip, int ignoredMissingTake,
         int ignoredUpcomingSkip, int ignoredUpcomingTake,
         int partMismatchSkip, int partMismatchTake,
-        int upcomingSkip = 0, int upcomingTake = int.MaxValue);
+        int upcomingSkip = 0, int upcomingTake = int.MaxValue,
+        string? ownedSearch = null, BookSummaryFilter? ownedFilter = null);
 
     Task<List<SeriesMatchCandidate>> SuggestSeriesMatchesAsync(string seriesName);
 
