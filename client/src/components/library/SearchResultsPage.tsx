@@ -199,15 +199,19 @@ export function SearchResultsPage() {
   const seriesLimit = tab === "series" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
   const seriesOffset = tab === "series" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
 
+  // Books-tab option filters must not leak into the "All" tab's books preview, which has no
+  // filter UI to explain or clear them.
+  const effectiveBooksFilters = tab === "books" ? booksFilters : {};
+
   const booksQuery = useQuery({
     queryKey: queryKeys.searchResults.books(
       q,
       tab === "books" ? page : 1,
       booksLimit,
       booksOffset,
-      booksFilters,
+      effectiveBooksFilters,
     ),
-    queryFn: () => browseApi.searchAudiobooks(q, booksLimit, booksOffset, booksFilters),
+    queryFn: () => browseApi.searchAudiobooks(q, booksLimit, booksOffset, effectiveBooksFilters),
     enabled: Boolean(q),
     placeholderData: keepPreviousData,
   });
@@ -506,7 +510,9 @@ export function SearchResultsPage() {
                 />
               </div>
             ))}
-          <BookBulkActionBar selection={selection} />
+          {/* The books tab's OwnedBookList already renders its own bulk-action bar; a second one
+              here would duplicate SignalR listeners, progress bars, and completion toasts. */}
+          {tab !== "books" && <BookBulkActionBar selection={selection} />}
         </>
       )}
     </div>

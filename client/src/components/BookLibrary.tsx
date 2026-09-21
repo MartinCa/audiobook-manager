@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Library, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ const PAGE_SIZE = 20;
 
 export function BookLibrary() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const selection = useBookSelection();
   const { q = "", page = 1, ...filterSearch } = Route.useSearch();
   const filters: BookListFilters = filterSearch;
@@ -65,20 +66,22 @@ export function BookLibrary() {
   const totalCount = data?.totalCount ?? 0;
   const pageCount = Math.ceil(totalCount / PAGE_SIZE) || 1;
 
+  const handleReload = () => {
+    void refetch();
+    // The issue-count/pending-refresh badges are separate cached queries owned by OwnedBookList
+    // now, so Reload has to invalidate them explicitly or a stale badge survives a consistency
+    // check/refresh that this page's own refetch() doesn't touch.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.issueSummary() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <LibraryViewTabs activeTab="books" />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void refetch();
-            }}
-            disabled={loading}
-          >
+          <Button variant="outline" size="sm" onClick={handleReload} disabled={loading}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Reload
           </Button>

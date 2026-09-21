@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -148,46 +148,57 @@ export function OwnedBookList({
     queryFn: () => metadataRefreshApi.getPendingSummary().catch(() => NO_PENDING_IDS),
   });
   const issueSummary = issueSummaryQuery.data ?? NO_ISSUE_COUNTS;
-  const pendingRefreshIds = new Set(pendingSummaryQuery.data ?? NO_PENDING_IDS);
-
-  const languageOptions = filterOptionsQuery.data?.languages ?? [];
-  const languageLabels = Object.fromEntries(
-    languageOptions.map((code) => [
-      code,
-      languageLabel(code, languagesQuery.data?.languages ?? []),
-    ]),
+  // Rebuilding this Set on every render (including every search keystroke) is O(n) work in the
+  // render path for no reason - it only needs to change when the pending-summary data itself
+  // changes (see AGENTS.md's "Keep O(n) work out of the render path").
+  const pendingRefreshIds = useMemo(
+    () => new Set(pendingSummaryQuery.data ?? NO_PENDING_IDS),
+    [pendingSummaryQuery.data],
   );
 
-  const FILTER_FIELDS: FilterFieldDef[] = [
-    {
-      type: "multiselect",
-      key: "sources",
-      label: "Metadata source",
-      options: filterOptionsQuery.data?.sources ?? [],
-      optionLabels: SOURCE_OPTION_LABELS,
-      selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
-    },
-    {
-      type: "multiselect",
-      key: "genres",
-      label: "Genre",
-      options: filterOptionsQuery.data?.genres ?? [],
-    },
-    {
-      type: "multiselect",
-      key: "languages",
-      label: "Language",
-      options: languageOptions,
-      optionLabels: languageLabels,
-    },
-    {
-      type: "numberRange",
-      label: "Duration (minutes)",
-      minKey: "minDurationInSeconds",
-      maxKey: "maxDurationInSeconds",
-      unit: DURATION_FILTER_UNIT,
-    },
-  ];
+  // Same reasoning: the filter field definitions (and the language option/label lookups they're
+  // built from) only need to change when the underlying filter-option/language data changes, not
+  // on every render.
+  const FILTER_FIELDS: FilterFieldDef[] = useMemo(() => {
+    const languageOptions = filterOptionsQuery.data?.languages ?? [];
+    const languageLabels = Object.fromEntries(
+      languageOptions.map((code) => [
+        code,
+        languageLabel(code, languagesQuery.data?.languages ?? []),
+      ]),
+    );
+
+    return [
+      {
+        type: "multiselect",
+        key: "sources",
+        label: "Metadata source",
+        options: filterOptionsQuery.data?.sources ?? [],
+        optionLabels: SOURCE_OPTION_LABELS,
+        selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
+      },
+      {
+        type: "multiselect",
+        key: "genres",
+        label: "Genre",
+        options: filterOptionsQuery.data?.genres ?? [],
+      },
+      {
+        type: "multiselect",
+        key: "languages",
+        label: "Language",
+        options: languageOptions,
+        optionLabels: languageLabels,
+      },
+      {
+        type: "numberRange",
+        label: "Duration (minutes)",
+        minKey: "minDurationInSeconds",
+        maxKey: "maxDurationInSeconds",
+        unit: DURATION_FILTER_UNIT,
+      },
+    ];
+  }, [filterOptionsQuery.data, languagesQuery.data]);
 
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL, or a filter
   // set before this instance mounted) starts expanded so the list isn't filtered with no visible
