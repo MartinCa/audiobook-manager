@@ -301,6 +301,23 @@ describe("BookDetail", () => {
 
   // ---- Edit route ----
 
+  // Regression guard: the edit route wraps BookEditForm in a Card (view route does not), and the
+  // entry fields' suggestion dropdown is an absolutely-positioned element - the kind of thing an
+  // ancestor's `overflow-hidden` can silently clip. This renders the actual edit route (not just
+  // SeriesField in isolation) so a future wrapper change that swallows the dropdown fails here
+  // instead of only showing up as a user-reported "type-ahead does nothing on the edit page".
+  it("shows the series type-ahead dropdown on the /edit route (Card-wrapped, unlike the view route)", async () => {
+    vi.mocked(similarValuesApi.getAutocomplete).mockResolvedValue(["The Stormlight Archive"]);
+    renderWithProviders("/library/book/42/edit");
+
+    const seriesInput = await screen.findByPlaceholderText("Series name");
+    fireEvent.change(seriesInput, { target: { value: "Storm" } });
+
+    expect(
+      await screen.findByRole("option", { name: "The Stormlight Archive" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the edit form with book metadata on the /edit route", async () => {
     renderWithProviders("/library/book/42/edit");
 

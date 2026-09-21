@@ -13,6 +13,8 @@ import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TYPEAHEAD_SUGGESTION_COUNT } from "@/constants/paging";
 import { narrowByQuery, normalizeForMatch } from "@/helpers/similarValueMatcher";
+import { useServerSuggestions } from "@/hooks/useServerSuggestions";
+import { SuggestionFetchErrorNote } from "@/components/SuggestionFetchErrorNote";
 
 export interface TagsInputProps {
   value: string[];
@@ -31,8 +33,9 @@ export interface TagsInputProps {
    * When present, the suggestions shown while typing come from this bounded server-side lookup
    * (query + server-side limit) instead of a preloaded list - the type-ahead for fields whose
    * candidate list is too large to ship whole (the entry fields). Called debounced with the
-   * draft text; errors fall back to an empty list. Mutually advisory with `suggestions`; when
-   * both are present the provider wins.
+   * draft text; a failure is retried once before showing an error note instead of silently
+   * looking like "no matches" (see useServerSuggestions). Mutually advisory with `suggestions`;
+   * when both are present the provider wins.
    */
   suggestionsProvider?: (query: string) => Promise<string[]>;
   /**
@@ -119,36 +122,17 @@ export function TagsInput({
   const [editDraft, setEditDraft] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editHighlightedIndex, setEditHighlightedIndex] = useState(-1);
-  const [serverSuggestions, setServerSuggestions] = useState<string[]>([]);
 
   // When a provider is given, the candidate list is fetched server-side, bounded by the typed
-  // query, rather than preloaded whole. Debounced so a keystroke does not fire one request per
-  // character; the fetch is only for the active draft (new-entry or in-place edit). Errors
-  // degrade to an empty list - a broken type-ahead must not block committing a value.
-  useEffect(() => {
-    if (!suggestionsProvider) return;
-    const query = (draft || editDraft || "").trim();
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!query) {
-        // Nothing to look up; clear the previous lookup so a later keystroke cannot resurrect
-        // it. Done inside the timer (async), never synchronously in the effect itself.
-        if (!cancelled) setServerSuggestions([]);
-        return;
-      }
-      suggestionsProvider(query)
-        .then((names) => {
-          if (!cancelled) setServerSuggestions(names);
-        })
-        .catch(() => {
-          if (!cancelled) setServerSuggestions([]);
-        });
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [draft, editDraft, suggestionsProvider]);
+  // query, rather than preloaded whole - debounced, with one retry before falling back to an
+  // error note (see useServerSuggestions) so a transient failure (a dropped mobile connection,
+  // a request that outlives a backgrounded-tab network suspension) does not look identical to
+  // "no matches" and does not block committing a value either way. The fetch is only for the
+  // active draft (new-entry or in-place edit) - the two never overlap, so one query suffices.
+  const { suggestions: serverSuggestions, isError: suggestionsFetchFailed } = useServerSuggestions(
+    (draft || editDraft || "").trim(),
+    suggestionsProvider,
+  );
 
   const suggestionSource = suggestionsProvider ? serverSuggestions : suggestions;
 
@@ -504,6 +488,10 @@ export function TagsInput({
             onSelect={applyEditSuggestion}
           />
         )}
+        {isEditOpen &&
+          editSuggestions.length === 0 &&
+          suggestionsFetchFailed &&
+          editDraft.trim() && <SuggestionFetchErrorNote />}
       </div>
     ) : (
       <TagChip
@@ -562,6 +550,9 @@ export function TagsInput({
             onHighlight={setHighlightedIndex}
             onSelect={applySuggestion}
           />
+        )}
+        {isDraftOpen && draftSuggestions.length === 0 && suggestionsFetchFailed && draft.trim() && (
+          <SuggestionFetchErrorNote />
         )}
       </div>
     </div>
