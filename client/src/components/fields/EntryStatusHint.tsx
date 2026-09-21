@@ -39,6 +39,33 @@ export function EntryStatusHint({ status, isError = false, onUseMatch }: EntrySt
   }
 
   if (status.status === "exact" && status.exactMatch) {
+    // The match is case/accent-insensitive (see EntryValueStatus), so "exact" covers both a
+    // literal match and one that only differs in casing (e.g. "the murderbot diaries" vs the
+    // library's "The Murderbot Diaries"). The latter is worth flagging - saving as typed would
+    // create a second, differently-cased value alongside the existing one - so it gets the same
+    // actionable "similar" treatment instead of the plain success note.
+    if (status.exactMatch.name !== status.value) {
+      const hint = `Existing entry has different casing: "${status.exactMatch.name}"`;
+      if (onUseMatch) {
+        return (
+          <button
+            type="button"
+            className="text-status-warn hover:text-foreground mt-1 block cursor-pointer text-xs underline decoration-dotted"
+            onClick={() => onUseMatch(status.exactMatch!.name)}
+          >
+            <Sparkles className="mr-1 inline h-3 w-3" />
+            {hint} — click to fix casing
+          </button>
+        );
+      }
+      return (
+        <p className="text-status-warn mt-1 flex items-center gap-1 text-xs">
+          <Sparkles className="h-3 w-3 shrink-0" />
+          <span className="break-words">{hint}</span>
+        </p>
+      );
+    }
+
     return (
       <p className="text-status-ok mt-1 flex items-center gap-1 text-xs">
         <CheckCircle2 className="h-3 w-3 shrink-0" />

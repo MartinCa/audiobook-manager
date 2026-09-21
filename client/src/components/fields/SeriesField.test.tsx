@@ -64,7 +64,7 @@ describe("SeriesField", () => {
     vi.mocked(similarValuesApi.getEntryStatus).mockResolvedValue({
       value: "Stormlight",
       status: "exact",
-      exactMatch: { id: null, name: "The Stormlight Archive" },
+      exactMatch: { id: null, name: "Stormlight" },
       similarMatches: [],
     });
     renderField();
@@ -72,8 +72,27 @@ describe("SeriesField", () => {
     await waitFor(() => {
       expect(similarValuesApi.getEntryStatus).toHaveBeenCalledWith("series", "Stormlight", 3);
     });
-    expect(await screen.findByText("The Stormlight Archive")).toBeInTheDocument();
+    expect(await screen.findByText("Stormlight")).toBeInTheDocument();
     expect(screen.getByText("— existing entry")).toBeInTheDocument();
+  });
+
+  // The match is case/accent-insensitive, so "exact" also covers a value that only differs in
+  // casing from the library's - saving it as typed would create a second, differently-cased
+  // value, so this gets an actionable casing-fix hint instead of the plain success note.
+  it("offers to fix casing when the exact match differs only in case", async () => {
+    vi.mocked(similarValuesApi.getEntryStatus).mockResolvedValue({
+      value: "the stormlight archive",
+      status: "exact",
+      exactMatch: { id: null, name: "The Stormlight Archive" },
+      similarMatches: [],
+    });
+    const { onChange } = renderField({ value: "the stormlight archive" });
+
+    const hint = await screen.findByRole("button", {
+      name: /different casing.*click to fix casing/i,
+    });
+    fireEvent.click(hint);
+    expect(onChange).toHaveBeenCalledWith("The Stormlight Archive");
   });
 
   it("applies a similar candidate when its hint is clicked", async () => {

@@ -39,6 +39,40 @@ describe("EntryStatusHint", () => {
     expect(screen.getByText("— existing entry")).toBeInTheDocument();
   });
 
+  it("flags a casing-only mismatch as an actionable warning instead of a plain match", () => {
+    const onUseMatch = vi.fn();
+    render(
+      <EntryStatusHint
+        status={makeStatus({
+          value: "the murderbot diaries",
+          status: "exact",
+          exactMatch: { id: null, name: "The Murderbot Diaries" },
+        })}
+        onUseMatch={onUseMatch}
+      />,
+    );
+
+    const hint = screen.getByRole("button", { name: /different casing.*click to fix casing/i });
+    fireEvent.click(hint);
+    expect(onUseMatch).toHaveBeenCalledWith("The Murderbot Diaries");
+    expect(screen.queryByText("— existing entry")).not.toBeInTheDocument();
+  });
+
+  it("shows a casing mismatch as informational text when no onUseMatch is given", () => {
+    render(
+      <EntryStatusHint
+        status={makeStatus({
+          value: "jane author",
+          status: "exact",
+          exactMatch: { id: 5, name: "Jane Author" },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/different casing.*Jane Author/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("offers the similar candidate as a click-to-use hint", () => {
     const onUseMatch = vi.fn();
     render(
