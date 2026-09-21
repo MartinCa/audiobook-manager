@@ -128,6 +128,27 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
   // take seconds, so the clicked candidate keeps a spinner while every other row is disabled.
   const [matchingSourceId, setMatchingSourceId] = useState<string | null>(null);
 
+  // Reset the local search/result state whenever the dialog opens, or whenever it is asked to
+  // match a different author while already open. AuthorFollowSection is rendered once per
+  // author-detail page with no `key`, and TanStack Router does not remount the tree on a
+  // param-only navigation, so this dialog instance is reused across authors - without this reset,
+  // `useState(authorName)` above only seeds `query`/`debouncedQuery` on the very first mount and
+  // every later author reopens the dialog with the previous author's stale search text. Mirrors
+  // SeriesMatchDialog's prevOpen pattern.
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevAuthorId, setPrevAuthorId] = useState(authorId);
+  if (open !== prevOpen || authorId !== prevAuthorId) {
+    const shouldReset = open && (open !== prevOpen || authorId !== prevAuthorId);
+    setPrevOpen(open);
+    setPrevAuthorId(authorId);
+    if (shouldReset) {
+      setQuery(authorName);
+      setDebouncedQuery(authorName);
+      setMatching(false);
+      setMatchingSourceId(null);
+    }
+  }
+
   // Debounced like AuthorsList's own filter: a fast typist must not enqueue a Hardcover search
   // request per keystroke through the shared 5000/day budget.
   useEffect(() => {
