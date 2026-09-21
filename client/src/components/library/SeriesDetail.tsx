@@ -249,6 +249,9 @@ export function SeriesDetail() {
       return;
     }
     if (handleApiError(seriesDetailQuery.error).status === 404) {
+      // Fire once: a background refetch can re-error again before navigation actually unmounts
+      // this component, and a second navigateBack() would pop an extra history entry.
+      hadOverviewRef.current = false;
       navigateBack();
     }
   }, [seriesDetailQuery.isError, seriesDetailQuery.error, navigateBack]);
