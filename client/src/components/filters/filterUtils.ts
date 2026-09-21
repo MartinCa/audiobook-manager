@@ -5,7 +5,21 @@
  */
 export type FilterFieldDef =
   | { type: "tristate"; key: string; label: string; trueLabel: string; falseLabel: string }
-  | { type: "numberRange"; label: string; minKey: string; maxKey: string; min?: number }
+  | {
+      type: "numberRange";
+      label: string;
+      minKey: string;
+      maxKey: string;
+      min?: number;
+      /**
+       * Optional display-unit conversion for a field whose stored value's unit differs from what
+       * the input shows (e.g. a duration filter stored in seconds, entered in minutes - Bug 7).
+       * `toDisplay` converts the stored (filter/URL-state) value to what the input renders;
+       * `toStored` converts the typed number back before it lands in filter/URL state. Both are
+       * identity when the field carries no `unit` at all.
+       */
+      unit?: { toDisplay: (stored: number) => number; toStored: (display: number) => number };
+    }
   | {
       type: "dateRange";
       label: string;
@@ -25,6 +39,15 @@ export type FilterFieldDef =
        * when a specific option has no entry.
        */
       optionLabels?: Record<string, string>;
+      /**
+       * Optional "select every real option" convenience shown as an extra item above the option
+       * list (e.g. "Any supported" for a Matched source filter - Bug 6). Picking it sets the
+       * field's value to every option in `options` except `excludeValues` (the synthetic
+       * "Unsupported/None" bucket); picking it again clears the field entirely. Purely a
+       * client-side selection shortcut - the value that lands in filter/URL state is still the
+       * plain list of real option strings, so the backend needs no changes to understand it.
+       */
+      selectAllOption?: { label: string; excludeValues: string[] };
     };
 
 /** Loosely typed so callers can pass their own (SeriesListFilters/AuthorListFilters/BookListFilters) shape. */
@@ -37,14 +60,20 @@ export function tristateValue(v: boolean | number | string | string[] | undefine
 /**
  * Parses a numberRange input's raw text into the integer the backend's `int?` model binding
  * expects, dropping anything a fraction (`2.5`) or exponent notation (`1e3`) would otherwise
- * smuggle through - the server rejects a non-integer with an unexplained 400.
+ * smuggle through - the server rejects a non-integer with an unexplained 400. `toStored` applies
+ * a field's optional display-unit conversion (see `FilterFieldDef`'s `unit`, e.g. minutes ->
+ * seconds for the duration filter - Bug 7) after parsing and before truncation, so the value that
+ * lands in filter/URL state is always in the backend's unit regardless of what the input showed.
  */
-export function toIntFilterValue(raw: string): number | undefined {
+export function toIntFilterValue(
+  raw: string,
+  toStored: (parsed: number) => number = (v) => v,
+): number | undefined {
   if (raw === "") {
     return undefined;
   }
   const parsed = Math.trunc(Number(raw));
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isFinite(parsed) ? Math.trunc(toStored(parsed)) : undefined;
 }
 
 /** Every field that currently carries a value, as a removable summary chip. */
@@ -64,8 +93,11 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
     } else if (field.type === "numberRange") {
       // A numberRange field's values are always number|undefined - the wider FilterValueMap type
       // (shared with tristate/multiselect fields) is narrowed back here.
-      const min = values[field.minKey] as number | undefined;
-      const max = values[field.maxKey] as number | undefined;
+      const storedMin = values[field.minKey] as number | undefined;
+      const storedMax = values[field.maxKey] as number | undefined;
+      const toDisplay = field.unit?.toDisplay ?? ((v: number) => v);
+      const min = storedMin === undefined ? undefined : toDisplay(storedMin);
+      const max = storedMax === undefined ? undefined : toDisplay(storedMax);
       if (min !== undefined || max !== undefined) {
         const label =
           min !== undefined && max !== undefined
@@ -82,10 +114,20 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
     } else if (field.type === "multiselect") {
       const selected = values[field.key];
       if (Array.isArray(selected) && selected.length > 0) {
-        const displayed = selected.map((v) => field.optionLabels?.[v] ?? v);
+        const realOptions = field.selectAllOption
+          ? field.options.filter((o) => !field.selectAllOption!.excludeValues.includes(o))
+          : [];
+        const isSelectAll =
+          field.selectAllOption != null &&
+          realOptions.length > 0 &&
+          selected.length === realOptions.length &&
+          realOptions.every((o) => selected.includes(o));
+        const label = isSelectAll
+          ? `${field.label}: ${field.selectAllOption!.label}`
+          : `${field.label}: ${selected.map((v) => field.optionLabels?.[v] ?? v).join(", ")}`;
         chips.push({
           key: field.key,
-          label: `${field.label}: ${displayed.join(", ")}`,
+          label,
           clear: () => ({ ...values, [field.key]: undefined }),
         });
       }

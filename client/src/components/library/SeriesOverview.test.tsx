@@ -6,7 +6,8 @@ import { routeTree } from "@/routeTree.gen";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { operationsApi, seriesApi } from "@/services/api";
+import { browseApi, operationsApi, seriesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { HubEventHandler, SignalRContextValue } from "@/context/SignalRContext";
 
 vi.mock("@/services/api", () => ({
@@ -168,6 +169,40 @@ describe("SeriesOverview", () => {
     await waitFor(() => {
       expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", { minOwnedBooks: 3 });
     });
+  });
+
+  // Bug 5 regression: the redundant "Matched" boolean filter (alongside "Matched source") was
+  // removed from this list - it is fully expressible through the sources filter.
+  it("does not render a separate Matched boolean filter control", async () => {
+    renderWithProviders();
+    await screen.findByText("Series 01");
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+    expect(screen.queryByLabelText("Matched")).not.toBeInTheDocument();
+    // "Followed" is the same tristate control shape, so its presence proves the filter bar
+    // rendered rather than the assertion above passing vacuously.
+    expect(screen.getByLabelText("Followed")).toBeInTheDocument();
+  });
+
+  // Bug 6: the sources filter's synthetic "Unsupported" value displays as "Unsupported/None", and
+  // an "Any supported" convenience selects every real source.
+  it("relabels Unsupported as Unsupported/None and offers an Any supported option", async () => {
+    // The filter-options query is cached across this file's shared QueryClient with a 5-minute
+    // staleTime, so an earlier test's fetch would otherwise still be served here.
+    queryClient.removeQueries({ queryKey: queryKeys.browseFilterOptions() });
+    vi.mocked(browseApi.getFilterOptions).mockResolvedValue({
+      sources: ["Hardcover", "Unsupported"],
+      genres: [],
+      languages: [],
+    });
+
+    renderWithProviders();
+    await screen.findByText("Series 01");
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Any" }));
+
+    expect(screen.getByText("Unsupported/None")).toBeInTheDocument();
+    expect(screen.getByText("Any supported")).toBeInTheDocument();
   });
 
   it("starts with the filter bar collapsed, and expands it on toggle", async () => {

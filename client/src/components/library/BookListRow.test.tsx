@@ -46,6 +46,8 @@ function book(overrides: Partial<ManagedAudiobook> = {}): ManagedAudiobook {
     genres: ["Fantasy"],
     durationInSeconds: 3661,
     coverFilePath: "/covers/1.jpg",
+    isMatched: false,
+    matchedSourceName: null,
     ...overrides,
   };
 }
@@ -64,6 +66,20 @@ describe("BookListRow", () => {
     expect(screen.getByText("Series: The Stormlight Archive #1 ·")).toBeInTheDocument();
     expect(screen.getByText("Narrated by Michael Kramer, Kate Reading ·")).toBeInTheDocument();
     expect(screen.getByText("1h 1m 1s")).toBeInTheDocument();
+  });
+
+  // Bug 2 regression: the row used to render no match/source indication at all.
+  it("shows the matched-source badge with the source name when the book is matched", () => {
+    render(<BookListRow book={book({ isMatched: true, matchedSourceName: "Hardcover" })} />);
+
+    expect(screen.getByText("Hardcover")).toBeInTheDocument();
+    expect(screen.queryByText("Unmatched")).not.toBeInTheDocument();
+  });
+
+  it("shows the Unmatched badge when the book has no matched source", () => {
+    render(<BookListRow book={book({ isMatched: false, matchedSourceName: null })} />);
+
+    expect(screen.getByText("Unmatched")).toBeInTheDocument();
   });
 
   it("renders the cover image for a book with cover art", () => {

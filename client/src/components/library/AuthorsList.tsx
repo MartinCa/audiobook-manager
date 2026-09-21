@@ -10,12 +10,20 @@ import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/Entit
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { LibraryViewTabs } from "./LibraryViewTabs";
+import { MatchSourceBadge } from "./MatchSourceBadge";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { Route } from "@/routes/library/authors/index";
+import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { AuthorListFilters } from "@/types/EntityFilters";
 
+// The redundant "Matched" boolean filter (equivalent to selecting/excluding the sources filter's
+// "Unsupported/None" option - see AuthorSummaryFilter.Matched's application in
+// PersonRepository.GetAuthorSummariesPagedAsync) was removed from this list on purpose (Bug 5).
+// The `matched` field itself stays on AuthorListFilters/EntityListFilters since it is not fully
+// dead - SeriesMatchDialog still passes it directly to seriesApi.getSeriesPage for the series
+// equivalent of this list.
 const BASE_FILTER_FIELDS: FilterFieldDef[] = [
   {
     type: "tristate",
@@ -23,13 +31,6 @@ const BASE_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Followed",
     trueLabel: "Followed",
     falseLabel: "Not followed",
-  },
-  {
-    type: "tristate",
-    key: "matched",
-    label: "Matched",
-    trueLabel: "Matched",
-    falseLabel: "Unmatched",
   },
   {
     type: "tristate",
@@ -81,6 +82,8 @@ export function AuthorsList() {
         key: "sources",
         label: "Matched source",
         options: filterOptionsQuery.data?.sources ?? [],
+        optionLabels: SOURCE_OPTION_LABELS,
+        selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
     ],
     [filterOptionsQuery.data],
@@ -250,7 +253,13 @@ export function AuthorsList() {
               <div className="flex items-center gap-3">
                 <BookOpen className="text-primary h-4 w-4" />
                 <div>
-                  <div className="text-foreground font-semibold">{author.name}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-foreground font-semibold">{author.name}</span>
+                    <MatchSourceBadge
+                      isMatched={author.isMatched}
+                      matchedSourceName={author.matchedSourceName}
+                    />
+                  </div>
                   <div className="text-muted-foreground text-xs">
                     {author.bookCount} {author.bookCount === 1 ? "book" : "books"}
                   </div>

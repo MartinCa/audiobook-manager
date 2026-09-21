@@ -85,6 +85,27 @@ public class BrowseControllerTests
             null, null, null, null, null, null, null, null, null,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
 
+    // Regression for the missing match-source badge on the book list (Bug 2): the DTO used to
+    // carry no match-source fields at all, so MapToSummaryDto dropped Audiobook.MatchedSourceName
+    // on the floor and a matched book was indistinguishable from an unmatched one on the wire.
+    [TestMethod]
+    public async Task GetAudiobooks_MapsIsMatchedAndMatchedSourceNameFromTheAudiobook()
+    {
+        var matched = MakeBook(1, "Mistborn: The Final Empire");
+        matched.MatchedSourceName = "Hardcover";
+        var unmatched = MakeBook(2, "Warbreaker");
+
+        _audiobookRepo.Setup(r => r.GetAllAsync(20, 0, null))
+            .ReturnsAsync((new List<Audiobook> { matched, unmatched }, 2));
+
+        var result = await _controller.GetAudiobooks();
+
+        Assert.IsTrue(result.Items[0].IsMatched);
+        Assert.AreEqual("Hardcover", result.Items[0].MatchedSourceName);
+        Assert.IsFalse(result.Items[1].IsMatched);
+        Assert.IsNull(result.Items[1].MatchedSourceName);
+    }
+
     [TestMethod]
     public async Task SearchLibrary_BlankQuery_ReturnsEmptyResult()
     {
@@ -300,6 +321,28 @@ public class BrowseControllerTests
         Assert.AreEqual(91, ok.Total);
         Assert.AreEqual("Brandon Sanderson", ok.Items[0].Name);
         Assert.AreEqual(5, ok.Items[0].BookCount);
+    }
+
+    // Regression for the missing match-source badge on the author list (Bug 2): the DTO used to
+    // carry no match-source fields at all, so a matched author was indistinguishable from an
+    // unmatched one on the wire.
+    [TestMethod]
+    public async Task GetAuthors_MapsIsMatchedAndMatchedSourceNameFromTheRow()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0))
+            .ReturnsAsync((new List<AuthorSummaryRow>
+            {
+                new(1, "Brandon Sanderson", 5, true, "Hardcover"),
+                new(2, "Unmatched Author", 1),
+            }, 2));
+
+        var result = await _controller.GetAuthors();
+
+        var ok = result.Value!;
+        Assert.IsTrue(ok.Items[0].IsMatched);
+        Assert.AreEqual("Hardcover", ok.Items[0].MatchedSourceName);
+        Assert.IsFalse(ok.Items[1].IsMatched);
+        Assert.IsNull(ok.Items[1].MatchedSourceName);
     }
 
     [TestMethod]

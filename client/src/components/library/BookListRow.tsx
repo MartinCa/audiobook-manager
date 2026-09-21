@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, Clock, Library, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MatchSourceBadge } from "./MatchSourceBadge";
 import { browseApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
@@ -71,6 +72,10 @@ export function BookListRow({
                 {book.bookName}
               </span>
               {book.year && <span className="text-muted-foreground text-xs">({book.year})</span>}
+              <MatchSourceBadge
+                isMatched={book.isMatched}
+                matchedSourceName={book.matchedSourceName}
+              />
               {typeof issueCount === "number" && issueCount > 0 && (
                 <Badge variant="destructive" className="h-5 gap-1 px-1.5 text-[10px]">
                   <AlertTriangle className="h-2.5 w-2.5" />

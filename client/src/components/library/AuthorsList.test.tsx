@@ -45,8 +45,18 @@ function renderWithProviders(initialEntry = "/library/authors") {
   );
 }
 
-function makeAuthor(id: number) {
-  return { id, name: `Author ${String(id).padStart(2, "0")}`, bookCount: id };
+function makeAuthor(
+  id: number,
+  overrides: Partial<{ isMatched: boolean; matchedSourceName: string | null }> = {},
+) {
+  return {
+    id,
+    name: `Author ${String(id).padStart(2, "0")}`,
+    bookCount: id,
+    isMatched: false,
+    matchedSourceName: null,
+    ...overrides,
+  };
 }
 
 describe("AuthorsList", () => {
@@ -65,6 +75,57 @@ describe("AuthorsList", () => {
 
     expect(await screen.findByText("Author 01")).toBeInTheDocument();
     expect(screen.getByText(/Authors \(3\)/)).toBeInTheDocument();
+  });
+
+  // Bug 2 regression: the row used to render no match/source indication at all.
+  it("shows the matched-source badge for a matched author and Unmatched otherwise", async () => {
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({
+      count: 2,
+      total: 2,
+      items: [makeAuthor(1, { isMatched: true, matchedSourceName: "Hardcover" }), makeAuthor(2)],
+    });
+
+    renderWithProviders();
+
+    expect(await screen.findByText("Hardcover")).toBeInTheDocument();
+    expect(screen.getByText("Unmatched")).toBeInTheDocument();
+  });
+
+  // Bug 5 regression: the redundant "Matched" boolean filter (alongside "Matched source") was
+  // removed from this list - it is fully expressible through the sources filter.
+  it("does not render a separate Matched boolean filter control", async () => {
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+    renderWithProviders();
+    await screen.findByPlaceholderText("Filter authors...");
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+    expect(screen.queryByLabelText("Matched")).not.toBeInTheDocument();
+    // "Followed" is the same tristate control shape, so its presence proves the filter bar
+    // rendered rather than the assertion above passing vacuously.
+    expect(screen.getByLabelText("Followed")).toBeInTheDocument();
+  });
+
+  // Bug 6: the sources filter's synthetic "Unsupported" value displays as "Unsupported/None", and
+  // an "Any supported" convenience selects every real source.
+  it("relabels Unsupported as Unsupported/None and offers an Any supported option", async () => {
+    // The filter-options query is cached across this file's shared QueryClient with a 5-minute
+    // staleTime, so an earlier test's fetch would otherwise still be served here.
+    queryClient.removeQueries({ queryKey: queryKeys.browseFilterOptions() });
+    vi.mocked(browseApi.getFilterOptions).mockResolvedValue({
+      sources: ["Hardcover", "Unsupported"],
+      genres: [],
+      languages: [],
+    });
+    vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+    renderWithProviders();
+    await screen.findByPlaceholderText("Filter authors...");
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Any" }));
+
+    expect(screen.getByText("Unsupported/None")).toBeInTheDocument();
+    expect(screen.getByText("Any supported")).toBeInTheDocument();
   });
 
   it("pages server-side via limit/offset", async () => {

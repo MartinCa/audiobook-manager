@@ -85,6 +85,30 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
               onChange({ ...values, [field.key]: next.length > 0 ? next : undefined });
             };
 
+            // "Select every real option" convenience (e.g. "Any supported" - Bug 6): a purely
+            // client-side shortcut that expands to the plain list of real option values, so the
+            // backend sees an ordinary sources list either way.
+            const selectAllOption = field.selectAllOption;
+            const realOptions = selectAllOption
+              ? field.options.filter((o) => !selectAllOption.excludeValues.includes(o))
+              : [];
+            const isSelectAllChecked =
+              selectAllOption != null &&
+              realOptions.length > 0 &&
+              selected.length === realOptions.length &&
+              realOptions.every((o) => selected.includes(o));
+            const toggleSelectAll = () => {
+              onChange({
+                ...values,
+                [field.key]: isSelectAllChecked ? undefined : realOptions,
+              });
+            };
+
+            const triggerLabel =
+              isSelectAllChecked && selectAllOption
+                ? selectAllOption.label
+                : selected.map((v) => field.optionLabels?.[v] ?? v).join(", ");
+
             return (
               <div key={field.key} className="space-y-1">
                 <label className="text-muted-foreground text-xs font-semibold uppercase">
@@ -100,15 +124,22 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                         className="h-8 w-40 justify-between font-normal"
                       >
                         <span className="truncate">
-                          {selected.length > 0
-                            ? selected.map((v) => field.optionLabels?.[v] ?? v).join(", ")
-                            : "Any"}
+                          {selected.length > 0 ? triggerLabel : "Any"}
                         </span>
                         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
                       </Button>
                     }
                   />
                   <DropdownMenuContent align="start">
+                    {selectAllOption && (
+                      <DropdownMenuCheckboxItem
+                        checked={isSelectAllChecked}
+                        onCheckedChange={toggleSelectAll}
+                        closeOnClick={false}
+                      >
+                        {selectAllOption.label}
+                      </DropdownMenuCheckboxItem>
+                    )}
                     {field.options.map((option) => (
                       <DropdownMenuCheckboxItem
                         key={option}
@@ -126,6 +157,11 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
           }
 
           if (field.type === "numberRange") {
+            const toDisplay = field.unit?.toDisplay ?? ((v: number) => v);
+            const toStored = field.unit?.toStored ?? ((v: number) => v);
+            const minValue = values[field.minKey] as number | undefined;
+            const maxValue = values[field.maxKey] as number | undefined;
+
             return (
               <div key={field.minKey} className="space-y-1">
                 <label className="text-muted-foreground text-xs font-semibold uppercase">
@@ -138,11 +174,11 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                     step={1}
                     min={field.min ?? 0}
                     placeholder="Min"
-                    value={values[field.minKey] === undefined ? "" : String(values[field.minKey])}
+                    value={minValue === undefined ? "" : String(toDisplay(minValue))}
                     onChange={(e) =>
                       onChange({
                         ...values,
-                        [field.minKey]: toIntFilterValue(e.target.value),
+                        [field.minKey]: toIntFilterValue(e.target.value, toStored),
                       })
                     }
                     className="w-20"
@@ -155,11 +191,11 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                     step={1}
                     min={field.min ?? 0}
                     placeholder="Max"
-                    value={values[field.maxKey] === undefined ? "" : String(values[field.maxKey])}
+                    value={maxValue === undefined ? "" : String(toDisplay(maxValue))}
                     onChange={(e) =>
                       onChange({
                         ...values,
-                        [field.maxKey]: toIntFilterValue(e.target.value),
+                        [field.maxKey]: toIntFilterValue(e.target.value, toStored),
                       })
                     }
                     className="w-20"

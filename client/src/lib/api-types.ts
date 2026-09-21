@@ -4691,6 +4691,8 @@ export interface components {
             coverFilePath?: string | null;
             /** Format: int32 */
             durationInSeconds?: number | null;
+            isMatched?: boolean;
+            matchedSourceName?: string | null;
         };
         AudiobookSummaryDtoPaginatedResult: {
             /** Format: int32 */
@@ -4792,6 +4794,8 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             bookCount?: number;
+            isMatched?: boolean;
+            matchedSourceName?: string | null;
         };
         AuthorSummaryDtoPaginatedResult: {
             /** Format: int32 */
