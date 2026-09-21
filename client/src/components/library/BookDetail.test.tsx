@@ -313,7 +313,9 @@ describe("BookDetail", () => {
     const seriesInput = await screen.findByPlaceholderText("Series name");
     fireEvent.change(seriesInput, { target: { value: "Storm" } });
 
-    expect(await screen.findByRole("option", { name: "The Stormlight Archive" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: "The Stormlight Archive" }),
+    ).toBeInTheDocument();
   });
 
   it("renders the edit form with book metadata on the /edit route", async () => {

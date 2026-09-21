@@ -487,9 +487,10 @@ export function TagsInput({
             onSelect={applyEditSuggestion}
           />
         )}
-        {isEditOpen && editSuggestions.length === 0 && suggestionsFetchFailed && editDraft.trim() && (
-          <SuggestionFetchErrorNote />
-        )}
+        {isEditOpen &&
+          editSuggestions.length === 0 &&
+          suggestionsFetchFailed &&
+          editDraft.trim() && <SuggestionFetchErrorNote />}
       </div>
     ) : (
       <TagChip
