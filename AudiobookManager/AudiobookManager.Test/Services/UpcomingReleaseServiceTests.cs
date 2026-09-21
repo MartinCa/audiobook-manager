@@ -1108,4 +1108,50 @@ public class UpcomingReleaseServiceTests
         Assert.AreEqual(9, items.Single().SeriesId);
         _authorFollowRepository.Verify(r => r.GetFollowedMatchedAuthorsAsync(), Times.Never);
     }
+
+    // Regression: the series detail page's scoped call must show roster Upcoming entries for a
+    // MATCHED series regardless of follow status - per UPCOMING_RELEASES_DESIGN.md ("The
+    // per-series/per-author detail page shows missing/upcoming regardless of follow status").
+    // IsFollowedAsync is deliberately left unconfigured (Moq default: false) and never verified as
+    // called - the scoped branch must not even need to check it.
+    [TestMethod]
+    public async Task GetUpcomingReleasesAsync_SeriesScopedQuery_MatchedButUnfollowed_StillReturnsRosterUpcoming()
+    {
+        var series = new Series { Id = 9, Name = "The Wheel of Time", MatchedSourceId = "77", MatchedSourceName = "Hardcover" };
+        _upcomingReleaseRepository.Setup(r => r.GetAllAsync(null, 9)).ReturnsAsync(new List<UpcomingRelease>());
+        _seriesRepository.Setup(r => r.GetByIdWithExpectedBooksAsync(9)).ReturnsAsync(series);
+        _seriesReconciliationProvider.Setup(p => p.GetReconciliationAsync("The Wheel of Time")).ReturnsAsync(
+            SeriesReconciliationWith(new List<SeriesExpectedBookInfo>
+            {
+                new() { Id = 1, Title = "Book 15", Position = "15", Year = 2031, ReleaseDate = new DateOnly(2031, 1, 1), SourceName = "Hardcover", SourceBookId = "444" },
+            }));
+
+        var (items, total) = await _service.GetUpcomingReleasesAsync(null, 9, 50, 0);
+
+        Assert.AreEqual(1, total, "an unfollowed but matched series' scoped page must still show its roster Upcoming entries");
+        Assert.AreEqual(9, items.Single().SeriesId);
+        Assert.AreEqual("Book 15", items.Single().Title);
+    }
+
+    // Same regression for the author detail page's scoped call.
+    [TestMethod]
+    public async Task GetUpcomingReleasesAsync_AuthorScopedQuery_MatchedButUnfollowed_StillReturnsRosterUpcoming()
+    {
+        _upcomingReleaseRepository.Setup(r => r.GetAllAsync(7, null)).ReturnsAsync(new List<UpcomingRelease>());
+        _seriesFollowRepository.Setup(r => r.GetFollowedMatchedSeriesAsync()).ReturnsAsync(new List<Series>());
+
+        var author = new Person(7, "Brandon Sanderson") { MatchedSourceId = "42" };
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(author);
+        _authorReconciliationProvider.Setup(p => p.GetReconciliationAsync(7, false)).ReturnsAsync(
+            AuthorReconciliationWith(new List<AuthorExpectedBookInfo>
+            {
+                new() { Id = 2, Title = "Standalone Novella", Year = 2031, ReleaseDate = new DateOnly(2031, 2, 1), SourceName = "Hardcover", SourceBookId = "999" },
+            }));
+
+        var (items, total) = await _service.GetUpcomingReleasesAsync(7, null, 50, 0);
+
+        Assert.AreEqual(1, total, "an unfollowed but matched author's scoped page must still show their roster Upcoming entries");
+        Assert.AreEqual("Standalone Novella", items.Single().Title);
+        Assert.AreEqual(7, items.Single().AuthorId);
+    }
 }

@@ -730,19 +730,13 @@ export function SeriesDetail() {
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-foreground text-lg font-bold">Upcoming Releases</h2>
-        {overview.id != null ? (
-          <UpcomingReleasesList
-            seriesId={overview.id}
-            emptyMessage="No upcoming releases tracked for this series yet. Follow it to start tracking."
-          />
-        ) : (
-          <p className="text-muted-foreground py-4 text-center text-sm">
-            Follow this series to start tracking its upcoming releases.
-          </p>
-        )}
-      </div>
+      {overview.id != null && (
+        <UpcomingReleasesList
+          seriesId={overview.id}
+          sectionTitle="Upcoming Releases"
+          emptyMessage="No upcoming releases tracked for this series yet."
+        />
+      )}
 
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">

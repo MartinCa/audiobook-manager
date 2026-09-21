@@ -33,7 +33,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@babel/types": "8.0.5",
+    "@babel/types": "8.0.6",
     "@martinrun/frontend-config": "0.2.11",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/router-plugin": "1.168.40",

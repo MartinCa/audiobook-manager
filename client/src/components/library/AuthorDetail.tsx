@@ -204,16 +204,16 @@ export function AuthorDetail() {
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-          <BookMarked className="text-primary h-5 w-5" />
-          Upcoming Releases
-        </h2>
-        <UpcomingReleasesList
-          authorId={author.id}
-          emptyMessage="No upcoming releases tracked for this author yet. Follow them to start tracking."
-        />
-      </div>
+      <UpcomingReleasesList
+        authorId={author.id}
+        sectionTitle={
+          <>
+            <BookMarked className="text-primary h-5 w-5" />
+            Upcoming Releases
+          </>
+        }
+        emptyMessage="No upcoming releases tracked for this author yet."
+      />
 
       {seriesSection.total > 0 && (
         <div className="space-y-3">
@@ -328,11 +328,11 @@ export function AuthorDetail() {
       )}
 
       {missingSeriesSection.total > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-foreground flex items-center gap-2 text-lg font-bold">
-            <BookMarked className="text-primary h-5 w-5" />
-            Missing Series ({missingSeriesSection.total})
-          </h2>
+        <CollapsibleCountSection
+          label="Missing Series"
+          count={missingSeriesSection.total}
+          defaultOpen={false}
+        >
           <p className="text-muted-foreground text-xs">
             Series from this author's matched bibliography that your library owns no book in yet.
           </p>
@@ -353,7 +353,7 @@ export function AuthorDetail() {
               onPageChange={setMissingSeriesPage}
             />
           )}
-        </div>
+        </CollapsibleCountSection>
       )}
 
       {ignoredBooks.length > 0 && (
