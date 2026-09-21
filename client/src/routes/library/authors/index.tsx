@@ -5,7 +5,8 @@ import AuthorsList from "@/components/library/AuthorsList";
 const authorsSearchSchema = z.object({
   q: z.string().optional(),
   followed: z.boolean().optional(),
-  matched: z.boolean().optional(),
+  // The redundant "Matched" boolean filter control was removed from the authors list (Bug 5); it
+  // is fully expressible through `sources` (select/exclude the "Unsupported/None" option).
   minBookCount: z.number().optional(),
   maxBookCount: z.number().optional(),
   hasMissingBooks: z.boolean().optional(),

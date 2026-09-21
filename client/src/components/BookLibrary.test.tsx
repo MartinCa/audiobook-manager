@@ -87,6 +87,8 @@ describe("BookLibrary", () => {
       genres: ["Fantasy"],
       durationInSeconds: 164000,
       coverFilePath: "/covers/1.jpg",
+      isMatched: false,
+      matchedSourceName: null,
     },
     {
       id: 2,
@@ -99,6 +101,8 @@ describe("BookLibrary", () => {
       genres: ["Fantasy"],
       durationInSeconds: 170000,
       coverFilePath: "/covers/2.jpg",
+      isMatched: false,
+      matchedSourceName: null,
     },
   ];
 
@@ -382,6 +386,38 @@ describe("BookLibrary", () => {
       "aria-checked",
       "mixed",
     );
+  });
+
+  // Bug 7: the duration filter is entered/displayed in minutes but the underlying filter/URL
+  // state (and the backend's minDurationInSeconds/maxDurationInSeconds query params) stay in
+  // seconds - the UI is the only thing that changed.
+  it("converts a typed duration filter from minutes to seconds before sending it to the server", async () => {
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Duration (minutes) minimum"), {
+      target: { value: "10" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+        minDurationInSeconds: 600,
+      });
+    });
+  });
+
+  it("displays a duration filter stored in seconds converted back to minutes", async () => {
+    const { router } = renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    // Navigate through the router's own search API (rather than guessing the query-string
+    // encoding) so this exercises exactly what Route.useSearch() decodes.
+    await router.navigate({ to: "/library", search: { minDurationInSeconds: 600 } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+    expect(screen.getByLabelText("Duration (minutes) minimum")).toHaveValue(10);
   });
 
   it("shows skeleton loading rows while the library list loads", async () => {

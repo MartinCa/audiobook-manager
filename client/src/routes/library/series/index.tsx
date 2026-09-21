@@ -5,7 +5,10 @@ import SeriesOverviewPage from "@/components/library/SeriesOverview";
 const seriesSearchSchema = z.object({
   q: z.string().optional(),
   followed: z.boolean().optional(),
-  matched: z.boolean().optional(),
+  // The redundant "Matched" boolean filter control was removed from the series list (Bug 5); it
+  // is fully expressible through `sources` (select/exclude the "Unsupported/None" option). No
+  // longer a route search param either - SeriesMatchDialog's own `{ matched: false }` filter is a
+  // direct API call, not routed through this search schema.
   minOwnedBooks: z.number().optional(),
   maxOwnedBooks: z.number().optional(),
   hasMissingBooks: z.boolean().optional(),

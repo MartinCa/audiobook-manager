@@ -90,6 +90,29 @@ public class PersonRepositoryTests
         Assert.AreEqual("Matched Author", items.Single().Name);
     }
 
+    // Regression for the missing match-source badge on the author list (Bug 2): the row this
+    // method projects used to carry only Id/Name/BookCount, so a matched author looked identical
+    // to an unmatched one to every caller above the repository.
+    [TestMethod]
+    public async Task GetAuthorSummariesPagedAsync_ProjectsIsMatchedAndMatchedSourceName()
+    {
+        var matched = await SeedAuthorWithBooksAsync("Matched Author", 1);
+        matched.MatchedSourceId = "hc-1";
+        matched.MatchedSourceName = "Hardcover";
+        await SeedAuthorWithBooksAsync("Unmatched Author", 1);
+        await _db.SaveChangesAsync();
+
+        var (items, _) = await _repository.GetAuthorSummariesPagedAsync(null, 10, 0);
+
+        var matchedRow = items.Single(i => i.Name == "Matched Author");
+        Assert.IsTrue(matchedRow.IsMatched);
+        Assert.AreEqual("Hardcover", matchedRow.MatchedSourceName);
+
+        var unmatchedRow = items.Single(i => i.Name == "Unmatched Author");
+        Assert.IsFalse(unmatchedRow.IsMatched);
+        Assert.IsNull(unmatchedRow.MatchedSourceName);
+    }
+
     [TestMethod]
     public async Task GetAuthorSummariesPagedAsync_MinBookCountFilter_ExcludesAuthorsWithFewerBooks()
     {

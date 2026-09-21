@@ -23,8 +23,15 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
+import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { SeriesListFilters } from "@/types/EntityFilters";
 
+// The redundant "Matched" boolean filter (equivalent to selecting/excluding the sources filter's
+// "Unsupported/None" option - see the `matched` parameter's application in
+// AudiobookRepository.GetSeriesValuesPageAsync) was removed from this list on purpose (Bug 5).
+// The `matched` field itself stays on SeriesListFilters/EntityListFilters since it is not fully
+// dead - SeriesMatchDialog still passes it directly to seriesApi.getSeriesPage to list every
+// unmatched series for the bulk-match dialog.
 const BASE_FILTER_FIELDS: FilterFieldDef[] = [
   {
     type: "tristate",
@@ -32,13 +39,6 @@ const BASE_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Followed",
     trueLabel: "Followed",
     falseLabel: "Not followed",
-  },
-  {
-    type: "tristate",
-    key: "matched",
-    label: "Matched",
-    trueLabel: "Matched",
-    falseLabel: "Unmatched",
   },
   {
     type: "tristate",
@@ -103,6 +103,8 @@ export function SeriesOverviewPage() {
         key: "sources",
         label: "Matched source",
         options: filterOptionsQuery.data?.sources ?? [],
+        optionLabels: SOURCE_OPTION_LABELS,
+        selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
     ],
     [filterOptionsQuery.data],

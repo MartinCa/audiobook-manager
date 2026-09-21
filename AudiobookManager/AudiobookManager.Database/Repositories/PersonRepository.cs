@@ -267,7 +267,9 @@ public class PersonRepository : IPersonRepository
         var rows = await _db.Persons
             .AsNoTracking()
             .Where(p => p.BooksAuthored.Any())
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(p => new AuthorSummaryRow(
+                p.Id, p.Name, p.BooksAuthored.Count,
+                p.MatchedSourceId != null && p.MatchedSourceId != "", p.MatchedSourceName))
             .ToListAsync();
 
         // Project in SQL, order in memory. This list is unpaged, so nothing forces the sort
@@ -381,7 +383,9 @@ public class PersonRepository : IPersonRepository
             .ThenBy(p => p.Id)
             .Skip(offset)
             .Take(limit)
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(p => new AuthorSummaryRow(
+                p.Id, p.Name, p.BooksAuthored.Count,
+                p.MatchedSourceId != null && p.MatchedSourceId != "", p.MatchedSourceName))
             .ToListAsync();
 
         return (rows, total);
@@ -410,7 +414,9 @@ public class PersonRepository : IPersonRepository
             .ThenBy(p => p.Id)
             .Skip(offset)
             .Take(limit)
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(p => new AuthorSummaryRow(
+                p.Id, p.Name, p.BooksAuthored.Count,
+                p.MatchedSourceId != null && p.MatchedSourceId != "", p.MatchedSourceName))
             .ToListAsync();
 
         return (rows, total);
@@ -421,7 +427,9 @@ public class PersonRepository : IPersonRepository
         return await _db.Persons
             .AsNoTracking()
             .Where(p => p.Id == authorId)
-            .Select(p => new AuthorSummaryRow(p.Id, p.Name, p.BooksAuthored.Count))
+            .Select(p => new AuthorSummaryRow(
+                p.Id, p.Name, p.BooksAuthored.Count,
+                p.MatchedSourceId != null && p.MatchedSourceId != "", p.MatchedSourceName))
             .FirstOrDefaultAsync();
     }
 

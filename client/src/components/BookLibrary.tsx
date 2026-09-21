@@ -18,7 +18,18 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
 import { languageLabel } from "@/helpers/languages";
 import { Route } from "@/routes/library/index";
+import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { BookListFilters } from "@/types/EntityFilters";
+
+// The duration filter is entered/displayed in minutes but stored (filter/URL state, and the
+// backend's minDurationInSeconds/maxDurationInSeconds query params - see BookSummaryFilter and
+// AudiobookRepository.ApplyBookSummaryFilter) in seconds, which is the correct wire contract and
+// deliberately does not change (Bug 7). Rounding on toDisplay covers a value that arrived from a
+// hand-edited/older URL and isn't an exact multiple of 60.
+const DURATION_FILTER_UNIT = {
+  toDisplay: (storedSeconds: number) => Math.round(storedSeconds / 60),
+  toStored: (displayMinutes: number) => displayMinutes * 60,
+};
 
 /** Typed so a failed summary fetch still indexes as a count map rather than widening to {}. */
 const NO_ISSUE_COUNTS: Record<number, number> = {};
@@ -68,6 +79,8 @@ export function BookLibrary() {
         key: "sources",
         label: "Metadata source",
         options: filterOptionsQuery.data?.sources ?? [],
+        optionLabels: SOURCE_OPTION_LABELS,
+        selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
       {
         type: "multiselect",
@@ -84,9 +97,10 @@ export function BookLibrary() {
       },
       {
         type: "numberRange",
-        label: "Duration (seconds)",
+        label: "Duration (minutes)",
         minKey: "minDurationInSeconds",
         maxKey: "maxDurationInSeconds",
+        unit: DURATION_FILTER_UNIT,
       },
     ];
   }, [filterOptionsQuery.data, languagesQuery.data]);

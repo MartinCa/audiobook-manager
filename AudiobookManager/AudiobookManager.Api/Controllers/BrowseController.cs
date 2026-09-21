@@ -181,7 +181,7 @@ public class BrowseController : ControllerBase
         }
 
         var (items, total) = await _personRepo.SearchAuthorSummariesAsync(q, limit, offset);
-        var dtos = items.Select(p => new AuthorSummaryDto(p.Id, p.Name, p.BookCount)).ToList();
+        var dtos = items.Select(ToAuthorSummaryDto).ToList();
         return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
     }
 
@@ -320,7 +320,7 @@ public class BrowseController : ControllerBase
         var search = string.IsNullOrWhiteSpace(q) ? null : q!.Trim();
         var (items, total) = await _personRepo.GetAuthorSummariesPagedAsync(
             search, limit, offset, filter.IsEmpty ? null : filter, restrictToIds, excludeIds);
-        var dtos = items.Select(p => new AuthorSummaryDto(p.Id, p.Name, p.BookCount)).ToList();
+        var dtos = items.Select(ToAuthorSummaryDto).ToList();
         return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
     }
 
@@ -369,7 +369,7 @@ public class BrowseController : ControllerBase
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
             authorId, standaloneLimit, standaloneOffset);
 
-        var summary = new AuthorSummaryDto(author.Id, author.Name, author.BookCount);
+        var summary = ToAuthorSummaryDto(author);
         var seriesDtos = seriesPage.Items.Select(SeriesOverviewMapper.ToDto).ToList();
         var standaloneDtos = standalone.Select(MapToSummaryDto).ToList();
 
@@ -875,7 +875,13 @@ public class BrowseController : ControllerBase
             a.Narrators.Select(p => p.Name).ToList(),
             a.Genres.Select(g => g.Name).ToList(),
             a.CoverFilePath,
-            a.DurationInSeconds
+            a.DurationInSeconds,
+            !string.IsNullOrEmpty(a.MatchedSourceName),
+            a.MatchedSourceName
         );
     }
+
+    /// <summary>Maps the repository's AuthorSummaryRow projection to its wire DTO, carrying the match-source fields through to the book/author list badges (mirrors SeriesOverviewMapper for series).</summary>
+    private static AuthorSummaryDto ToAuthorSummaryDto(AuthorSummaryRow p) =>
+        new(p.Id, p.Name, p.BookCount, p.IsMatched, p.MatchedSourceName);
 }
