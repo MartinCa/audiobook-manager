@@ -269,9 +269,13 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         }
         else
         {
+            // Scoped call (the series detail page): show the roster regardless of follow status -
+            // only a matched source is required, so there is a roster to reconcile against. See
+            // UPCOMING_RELEASES_DESIGN.md: "The per-series/per-author detail page shows
+            // missing/upcoming regardless of follow status." The unscoped branch above keeps the
+            // followed-and-matched requirement for the global page.
             var series = await _seriesRepository.GetByIdWithExpectedBooksAsync(seriesId.Value);
-            if (series is not null && await _seriesFollowRepository.IsFollowedAsync(series.Id)
-                && !string.IsNullOrEmpty(series.MatchedSourceId))
+            if (series is not null && !string.IsNullOrEmpty(series.MatchedSourceId))
             {
                 await CollectSeriesRoster(series, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
@@ -290,9 +294,10 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         }
         else
         {
+            // Scoped call (the author detail page): same rationale as the series branch above -
+            // matched is sufficient, followed is not required.
             var person = await _personRepository.GetByIdAsync(personId.Value);
-            if (person is not null && await _authorFollowRepository.IsFollowedAsync(person.Id)
-                && !string.IsNullOrEmpty(person.MatchedSourceId))
+            if (person is not null && !string.IsNullOrEmpty(person.MatchedSourceId))
             {
                 await CollectAuthorRoster(person, rosterItems, rosterSourceKeys, rosterScopeTitleKeys);
             }
