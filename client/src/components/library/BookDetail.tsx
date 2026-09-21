@@ -127,6 +127,11 @@ export function BookDetail({ mode }: BookDetailProps) {
         queryKey: queryKeys.metadataRefresh.pendingForBook(id),
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+      // A saved book may have changed Series/SeriesPart (directly, or a series-part edit); the
+      // series detail page's owned-books roster is a separate query family and would otherwise
+      // stay stale for its 30s staleTime - same reasoning as the bulk-edit completion handler in
+      // BookBulkActionBar, which invalidates this same family for the same books-changed reason.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.all() });
       if (pendingApplied) {
         setPendingApplied(false);
         void metadataRefreshApi.dismissPending(id).catch(() => {});
