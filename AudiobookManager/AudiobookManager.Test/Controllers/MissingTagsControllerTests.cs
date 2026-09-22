@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -156,7 +157,8 @@ public class MissingTagsControllerTests
             .Setup(s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Language" }, null, skip: 0, take: 50))
             .ReturnsAsync((new List<AudiobookMissingTags>
             {
-                new(7, "Book Without Language", new List<string> { "Author" }, new List<string> { "Language" }),
+                new(7, "Book Without Language", new List<string> { "Author" }, new List<string>(), 2020,
+                    null, null, null, null, false, null, new List<string> { "Language" }),
             }, 321));
 
         var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Language" });
@@ -183,6 +185,48 @@ public class MissingTagsControllerTests
         Assert.AreEqual(9, page.TotalCount);
         _missingTagService.Verify(
             s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, "rene", skip: 100, take: 25),
+            Times.Once);
+    }
+
+    // Regression: the endpoint used to accept no option filters at all, unlike every other
+    // book-list surface (BookSummaryFilter) - this pins that source/genre/language/duration query
+    // params actually reach the service as a filter, not just accepted and dropped.
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_BuildsAndPassesTheBookSummaryFilterThrough()
+    {
+        BookSummaryFilter? captured = null;
+        _missingTagService
+            .Setup(s => s.FindAudiobooksMissingTagsPageAsync(
+                new[] { "Year" }, null, 0, 50, It.IsAny<BookSummaryFilter?>()))
+            .Callback((IEnumerable<string> _, string? _, int _, int _, BookSummaryFilter? filter) => captured = filter)
+            .ReturnsAsync((new List<AudiobookMissingTags>(), 0));
+
+        await _controller.GetAudiobooksMissingTags(
+            fields: new List<string> { "Year" },
+            sources: new List<string> { "Hardcover" },
+            genres: new List<string> { "Fantasy" },
+            minDurationInSeconds: 60);
+
+        Assert.IsNotNull(captured);
+        CollectionAssert.AreEqual(new List<string> { "Hardcover" }, captured!.Sources!.ToList());
+        CollectionAssert.AreEqual(new List<string> { "Fantasy" }, captured.Genres!.ToList());
+        Assert.AreEqual(60, captured.MinDurationInSeconds);
+    }
+
+    // No option filter query params means an empty BookSummaryFilter, which the controller
+    // collapses to null rather than passing a no-op filter object through every call.
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_NoFilterQueryParams_PassesNullFilter()
+    {
+        _missingTagService
+            .Setup(s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, 0, 50, null))
+            .ReturnsAsync((new List<AudiobookMissingTags>(), 0));
+
+        var result = await _controller.GetAudiobooksMissingTags(fields: new List<string> { "Year" });
+
+        Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
+        _missingTagService.Verify(
+            s => s.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, 0, 50, null),
             Times.Once);
     }
 

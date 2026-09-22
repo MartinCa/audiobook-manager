@@ -2,7 +2,24 @@ namespace AudiobookManager.Api.Dtos;
 
 public record MissingTagFieldDto(string Key, string Label, bool IsCriticalByDefault);
 
-public record AudiobookMissingTagsDto(long AudiobookId, string BookName, List<string> Authors, List<string> MissingFields);
+/// <summary>
+/// One book on the Missing Tags page - the same display fields <c>AudiobookSummaryDto</c> carries
+/// plus <c>MissingFields</c>, so the client's book-list row renders cover/narrators/duration/year/
+/// match-status exactly like every other book list instead of a bare title/author line.
+/// </summary>
+public record AudiobookMissingTagsDto(
+    long AudiobookId,
+    string BookName,
+    List<string> Authors,
+    List<string> Narrators,
+    int Year,
+    string? Series,
+    string? SeriesPart,
+    string? CoverFilePath,
+    int? DurationInSeconds,
+    bool IsMatched,
+    string? MatchedSourceName,
+    List<string> MissingFields);
 
 /// <summary>
 /// One page of audiobooks missing the selected tags plus the total matching that field set, so

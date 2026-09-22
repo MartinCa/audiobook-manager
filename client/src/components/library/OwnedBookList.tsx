@@ -78,12 +78,16 @@ export interface OwnedBookListProps {
   /** Noun used in the "Showing N of Total {itemNoun}" line - default "audiobooks". */
   itemNoun?: string;
   skeletonRowCount?: number;
+
+  /** Per-row extra badges (e.g. MissingTags' "Missing X" amber badges), below the meta line. */
+  renderExtraBadges?: (book: ManagedAudiobook) => ReactNode;
 }
 
 /**
  * The shared list UI for every place owned books are listed (library, series detail's owned
- * section, author detail's standalone section, search results' books tab) - Bug 8: these had
- * drifted into four hand-rolled lists with different filtering, badges and pagination.
+ * section, author detail's standalone section, search results' books tab, the Missing Tags page)
+ * - Bug 8: these had drifted into four hand-rolled lists with different filtering, badges and
+ * pagination.
  *
  * Owns: the debounced text search input, the EntityFilterBar-driven option filters (metadata
  * source/genre/language/duration - identical everywhere, so filtering behaves the same on every
@@ -120,6 +124,7 @@ export function OwnedBookList({
   hideSeries = false,
   itemNoun = "audiobooks",
   skeletonRowCount = 6,
+  renderExtraBadges,
 }: OwnedBookListProps) {
   // Source options come from whichever scrapers are actually registered (see
   // BrowseController.GetFilterOptions), and genre/language options from what's actually present
@@ -350,6 +355,7 @@ export function OwnedBookList({
                 selectable
                 selected={selection.isSelected(book.id)}
                 onSelectedChange={() => selection.toggle(book)}
+                extraBadges={renderExtraBadges?.(book)}
               />
             );
           })}

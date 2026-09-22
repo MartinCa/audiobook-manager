@@ -178,14 +178,18 @@ public interface IAudiobookRepository
     /// expressions (built by <c>MissingTagService.Fields</c>, the single source of truth for what
     /// "missing" means) and are applied as an OR of WHERE clauses, so only the page's rows are
     /// projected - no entity graphs, no Description-size blobs. <paramref name="search"/> folds
-    /// accents on the precomputed <c>BookNameFolded</c> column; the page is ordered in SQL by
-    /// book name then id (a total order, at BINARY-collation cost per the paged-query rule).
+    /// accents on the precomputed <c>BookNameFolded</c> column; <paramref name="filter"/> is the
+    /// same <see cref="BookSummaryFilter"/> narrowing the whole-library book list applies (via
+    /// <c>ApplyBookSummaryFilter</c>), so the Missing Tags page's option filters behave exactly
+    /// like every other book list's; the page is ordered in SQL by book name then id (a total
+    /// order, at BINARY-collation cost per the paged-query rule).
     /// </summary>
     Task<(List<MissingTagRow> Items, int Total)> GetMissingTagRowsPageAsync(
         IReadOnlyCollection<Expression<Func<Audiobook, bool>>> missingPredicates,
         string? search,
         int skip,
-        int take);
+        int take,
+        BookSummaryFilter? filter = null);
 
     /// <summary>
     /// All audiobooks reduced to the fields the missing-book candidate search needs. Unlike

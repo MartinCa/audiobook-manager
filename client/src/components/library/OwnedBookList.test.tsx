@@ -95,6 +95,7 @@ interface HarnessProps {
   showSeriesPart?: boolean;
   hideSeries?: boolean;
   showSearchBox?: boolean;
+  renderExtraBadges?: (book: ManagedAudiobook) => ReactNode;
 }
 
 function Harness({
@@ -111,6 +112,7 @@ function Harness({
   showSeriesPart,
   hideSeries,
   showSearchBox,
+  renderExtraBadges,
 }: HarnessProps) {
   const selection = useBookSelection();
   return (
@@ -130,6 +132,7 @@ function Harness({
       onPageChange={onPageChange}
       showSeriesPart={showSeriesPart}
       hideSeries={hideSeries}
+      renderExtraBadges={renderExtraBadges}
     />
   );
 }
@@ -167,6 +170,17 @@ describe("OwnedBookList", () => {
 
     expect(await screen.findByText("2 issues")).toBeInTheDocument();
     expect(screen.getByText("Pending refresh")).toBeInTheDocument();
+  });
+
+  it("renders renderExtraBadges' output for each row", async () => {
+    renderList({
+      books: [book(), book({ id: 2, bookName: "Words of Radiance" })],
+      totalCount: 2,
+      renderExtraBadges: (b) => <span>Missing tag for {b.bookName}</span>,
+    });
+
+    expect(await screen.findByText("Missing tag for The Way of Kings")).toBeInTheDocument();
+    expect(screen.getByText("Missing tag for Words of Radiance")).toBeInTheDocument();
   });
 
   it("shows the empty state when there are no books and it is not loading", () => {

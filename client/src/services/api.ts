@@ -471,9 +471,15 @@ export const missingTagsApi = {
 
   // Paged server-side (bounded-list invariant): a book missing even one selected critical tag
   // lands in this list, so the unpaged version returned thousands of rows to render into the DOM.
+  // filters is the same BookSummaryFilter shape getAudiobooks/searchAudiobooks accept.
   getAudiobooksMissingTags: (
     fields: string[],
-    params: { page?: number; pageSize?: number; search?: string } = {},
+    params: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      filters?: BookListFilters;
+    } = {},
   ) =>
     api.get<AudiobookMissingTagsPage>("/missing-tags/audiobooks", {
       query: {
@@ -481,6 +487,7 @@ export const missingTagsApi = {
         page: params.page,
         pageSize: params.pageSize,
         search: params.search,
+        ...params.filters,
       },
     }),
 

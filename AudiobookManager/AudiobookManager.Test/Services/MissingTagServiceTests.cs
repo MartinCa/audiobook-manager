@@ -38,6 +38,14 @@ public class MissingTagServiceTests
         long id,
         string bookName,
         List<string>? authors = null,
+        List<string>? narrators = null,
+        int year = 2024,
+        string? series = null,
+        string? seriesPart = null,
+        string? coverFilePath = "/covers/cover.jpg",
+        int? durationInSeconds = 3600,
+        bool isMatched = false,
+        string? matchedSourceName = null,
         bool hasNarrator = true,
         bool hasGenre = true,
         bool bookNameBlank = false,
@@ -56,7 +64,8 @@ public class MissingTagServiceTests
     {
         var hasRealAuthor = (authors ?? new List<string>()).Any(a => a != "" && a != null);
         return new MissingTagRow(
-            id, bookName, authors ?? new List<string>(),
+            id, bookName, authors ?? new List<string>(), narrators ?? new List<string>(),
+            year, series, seriesPart, coverFilePath, durationInSeconds, isMatched, matchedSourceName,
             hasRealAuthor, hasNarrator, hasGenre,
             bookNameBlank, yearZero, seriesBlank, seriesPartBlank,
             subtitleBlank, descriptionBlank, languageBlank, coverBlank,
@@ -180,7 +189,7 @@ public class MissingTagServiceTests
             .Setup(r => r.GetMissingTagRowsPageAsync(
                 It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
                 null, 0, 50))
-            .Callback((IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>> predicates, string? _, int _, int _) => captured = predicates)
+            .Callback((IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>> predicates, string? _, int _, int _, BookSummaryFilter? _) => captured = predicates)
             .ReturnsAsync((new List<MissingTagRow>(), 0));
 
         await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year", "Language", "Www" }, null, skip: 0, take: 50);
@@ -223,6 +232,51 @@ public class MissingTagServiceTests
                 It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
                 "rene", 0, 50),
             Times.Once);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_PassesTheFilterToTheRepository()
+    {
+        var filter = new BookSummaryFilter(Genres: new[] { "Fantasy" });
+        _audiobookRepository
+            .Setup(r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                null, 0, 50, filter))
+            .ReturnsAsync((new List<MissingTagRow>(), 0));
+
+        await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, skip: 0, take: 50, filter);
+
+        _audiobookRepository.Verify(
+            r => r.GetMissingTagRowsPageAsync(
+                It.IsAny<IReadOnlyCollection<Expression<Func<DbAudiobook, bool>>>>(),
+                null, 0, 50, filter),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task FindAudiobooksMissingTagsPageAsync_MapsTheRowsDisplayFieldsIntoTheResult()
+    {
+        StubPage(new List<MissingTagRow>
+        {
+            MakeRow(
+                1, "Mistborn", authors: new List<string> { "Brandon Sanderson" },
+                narrators: new List<string> { "Michael Kramer" }, year: 2006,
+                series: "Mistborn", seriesPart: "1", coverFilePath: "/covers/1.jpg",
+                durationInSeconds: 36_000, isMatched: true, matchedSourceName: "Hardcover",
+                yearZero: true),
+        }, total: 1);
+
+        var (results, _) = await _service.FindAudiobooksMissingTagsPageAsync(new[] { "Year" }, null, skip: 0, take: 50);
+
+        var result = results.Single();
+        CollectionAssert.AreEqual(new List<string> { "Michael Kramer" }, result.Narrators);
+        Assert.AreEqual(2006, result.Year);
+        Assert.AreEqual("Mistborn", result.Series);
+        Assert.AreEqual("1", result.SeriesPart);
+        Assert.AreEqual("/covers/1.jpg", result.CoverFilePath);
+        Assert.AreEqual(36_000, result.DurationInSeconds);
+        Assert.IsTrue(result.IsMatched);
+        Assert.AreEqual("Hardcover", result.MatchedSourceName);
     }
 
     [TestMethod]

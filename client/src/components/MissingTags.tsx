@@ -1,27 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Tag, BookOpen, Globe, Search, X } from "lucide-react";
+import { ArrowLeft, Tag, BookOpen, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
-import { BookListRow } from "./library/BookListRow";
+import { OwnedBookList } from "./library/OwnedBookList";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { useBookSelection } from "@/hooks/useBookSelection";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
+import type { BookListFilters } from "@/types/EntityFilters";
+import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import { notifications } from "@/lib/notifications";
+
+function toManagedAudiobook(b: AudiobookMissingTags): ManagedAudiobook {
+  return {
+    id: b.audiobookId,
+    bookName: b.bookName,
+    authors: b.authors,
+    narrators: b.narrators,
+    genres: [],
+    year: b.year,
+    series: b.series,
+    seriesPart: b.seriesPart,
+    coverFilePath: b.coverFilePath,
+    durationInSeconds: b.durationInSeconds,
+    isMatched: b.isMatched,
+    matchedSourceName: b.matchedSourceName,
+  };
+}
 
 export function MissingTags() {
   const queryClient = useQueryClient();
+  const selection = useBookSelection();
 
   const { data: fields = [], isLoading: loadingFields } = useQuery({
     queryKey: queryKeys.missingTagFields(),
@@ -34,33 +53,30 @@ export function MissingTags() {
   // requested page of matching books crosses the wire - a book missing even one selected critical
   // tag used to make the whole result set load and render at once.
   const [page, setPage] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<BookListFilters>({});
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const trimmed = searchQuery.trim();
-      if (trimmed !== search) {
-        setSearch(trimmed);
-        setPage(0);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, search]);
+  const handleFiltersChange = (next: BookListFilters) => {
+    setFilters(next);
+    setPage(0);
+  };
 
   const { data: pageData, isLoading: loadingBooks } = useQuery({
-    queryKey: queryKeys.missingTagsAudiobooks.page(selectedFields, page, search),
+    queryKey: queryKeys.missingTagsAudiobooks.page(selectedFields, page, search, filters),
     queryFn: () =>
       missingTagsApi.getAudiobooksMissingTags(selectedFields, {
         page,
         pageSize: PAGE_SIZE,
         search,
+        filters,
       }),
     enabled: selectedFields.length > 0,
     placeholderData: keepPreviousData,
   });
 
   const audiobooks = (pageData?.items ?? []) as AudiobookMissingTags[];
+  const books = audiobooks.map(toManagedAudiobook);
+  const missingFieldsByBookId = new Map(audiobooks.map((b) => [b.audiobookId, b.missingFields]));
   const totalCount = pageData?.totalCount ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
@@ -203,118 +219,66 @@ export function MissingTags() {
         </div>
       </div>
 
-      {selectedFields.length > 0 && (
-        <div className="relative max-w-md">
-          <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-          <Input
-            placeholder="Filter by book title..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pr-9 pl-9"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              aria-label="Clear search"
-              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 cursor-pointer rounded-sm p-0.5 transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-      )}
-
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-foreground text-lg font-bold">
-            Audiobooks with Missing Tags ({totalCount})
-          </h2>
-        </div>
+        <h2 className="text-foreground text-lg font-bold">
+          Audiobooks with Missing Tags ({totalCount})
+        </h2>
 
-        {loadingFields || (loadingBooks && audiobooks.length === 0) ? (
-          <div role="status" aria-label="Scanning tags..." className="space-y-3">
-            {Array.from({ length: 6 }, (_, i) => (
-              <div
-                key={i}
-                className="border-border bg-card flex items-center gap-3 rounded-lg border p-3"
+        <OwnedBookList
+          books={books}
+          totalCount={totalCount}
+          loading={loadingFields || (loadingBooks && books.length === 0)}
+          loadingLabel="Scanning tags..."
+          emptyState={
+            selectedFields.length === 0 ? (
+              <Card className="p-12 text-center">
+                <Tag className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
+                <h3 className="text-foreground text-lg font-medium">No fields selected</h3>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  Select at least one field above to inspect the library for it.
+                </p>
+              </Card>
+            ) : (
+              <Card className="p-12 text-center">
+                <BookOpen className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
+                <h3 className="text-foreground text-lg font-medium">
+                  No audiobooks missing selected tags
+                </h3>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  {search
+                    ? "No books match your title filter."
+                    : "Every book in your library contains the selected tag fields."}
+                </p>
+              </Card>
+            )
+          }
+          selection={selection}
+          search={search}
+          onSearchChange={(value) => {
+            setSearch(value);
+            setPage(0);
+          }}
+          searchPlaceholder="Filter by book title..."
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          page={currentPage}
+          pageCount={pageCount}
+          pageSize={PAGE_SIZE}
+          pagerDisabled={loadingBooks}
+          onPageChange={setPage}
+          itemNoun="audiobooks"
+          renderExtraBadges={(book) =>
+            (missingFieldsByBookId.get(book.id) ?? []).map((f) => (
+              <Badge
+                key={f}
+                variant="secondary"
+                className="bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400"
               >
-                <Skeleton className="h-12 w-12 shrink-0 rounded" />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <Skeleton className="h-4 w-3/5 max-w-80" />
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                  </div>
-                </div>
-                <Skeleton className="size-4 shrink-0" />
-              </div>
-            ))}
-          </div>
-        ) : totalCount === 0 ? (
-          <Card className="p-12 text-center">
-            <BookOpen className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
-            <h3 className="text-foreground text-lg font-medium">
-              No audiobooks missing selected tags
-            </h3>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {search
-                ? "No books match your title filter."
-                : "Every book in your library contains the selected tag fields."}
-            </p>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {audiobooks.map((b) => (
-              <BookListRow
-                key={b.audiobookId}
-                book={{
-                  id: b.audiobookId,
-                  bookName: b.bookName,
-                  authors: b.authors,
-                  narrators: [],
-                  genres: [],
-                }}
-                extraBadges={b.missingFields.map((f) => (
-                  <Badge
-                    key={f}
-                    variant="secondary"
-                    className="bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400"
-                  >
-                    Missing {f}
-                  </Badge>
-                ))}
-              />
-            ))}
-
-            {pageCount > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-muted-foreground text-xs">
-                  Showing {currentPage * PAGE_SIZE + 1}–
-                  {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage === 0}
-                    onClick={() => setPage(currentPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage >= pageCount - 1}
-                    onClick={() => setPage(currentPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+                Missing {f}
+              </Badge>
+            ))
+          }
+        />
       </div>
     </div>
   );

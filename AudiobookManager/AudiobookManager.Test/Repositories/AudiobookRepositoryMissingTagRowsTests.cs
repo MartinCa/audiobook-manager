@@ -60,19 +60,23 @@ public class AudiobookRepositoryMissingTagRowsTests
         string bookName,
         List<Person>? authors = null,
         List<Person>? narrators = null,
+        List<Genre>? genres = null,
         int year = 2024,
         string? series = null,
+        string? seriesPart = null,
         string? language = null,
         string? coverFilePath = null,
+        int? durationInSeconds = null,
         string? www = null)
     {
         var audiobook = new Audiobook(
-            default, bookName, null, series, null, year,
-            null, null, null, language, null, null, www, coverFilePath, null,
+            default, bookName, null, series, seriesPart, year,
+            null, null, null, language, null, null, www, coverFilePath, durationInSeconds,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000);
 
         if (authors is not null) audiobook.Authors = authors;
         if (narrators is not null) audiobook.Narrators = narrators;
+        if (genres is not null) audiobook.Genres = genres;
         if (coverFilePath is not null) audiobook.CoverFilePath = coverFilePath;
 
         _db.Audiobooks.Add(audiobook);
@@ -84,8 +88,9 @@ public class AudiobookRepositoryMissingTagRowsTests
         IReadOnlyCollection<Expression<Func<Audiobook, bool>>> predicates,
         string? search = null,
         int skip = 0,
-        int take = 50) =>
-        await _repository.GetMissingTagRowsPageAsync(predicates, search, skip, take);
+        int take = 50,
+        BookSummaryFilter? filter = null) =>
+        await _repository.GetMissingTagRowsPageAsync(predicates, search, skip, take, filter);
 
     [TestMethod]
     public async Task GetMissingTagRowsPageAsync_FlagsACompletelyUntaggedBook()
@@ -251,5 +256,63 @@ public class AudiobookRepositoryMissingTagRowsTests
 
         Assert.AreEqual(0, total, "no selected fields means no books can be missing a selected field");
         Assert.AreEqual(0, items.Count);
+    }
+
+    // Regression: the row used to carry only identity/author/blank-flag fields, so the client's
+    // book-list row rendered no cover, match badge, narrator, duration, or year - unlike every
+    // other book list in the app, which reads these straight off AudiobookSummaryDto.
+    [TestMethod]
+    public async Task GetMissingTagRowsPageAsync_ProjectsTheDisplayFieldsTheBookListRowNeeds()
+    {
+        await SeedBookAsync(
+            "Mistborn",
+            narrators: new List<Person> { new(default, "Michael Kramer") },
+            year: 2006,
+            series: "Mistborn",
+            seriesPart: "1",
+            language: null,
+            coverFilePath: "/covers/mistborn.jpg",
+            durationInSeconds: 36_000,
+            www: "https://hardcover.app/books/mistborn");
+
+        var (items, _) = await PageAsync(new[] { LanguageMissing });
+
+        var row = items.Single();
+        CollectionAssert.AreEqual(new List<string> { "Michael Kramer" }, row.Narrators);
+        Assert.AreEqual(2006, row.Year);
+        Assert.AreEqual("Mistborn", row.Series);
+        Assert.AreEqual("1", row.SeriesPart);
+        Assert.AreEqual("/covers/mistborn.jpg", row.CoverFilePath);
+        Assert.AreEqual(36_000, row.DurationInSeconds);
+        Assert.IsTrue(row.IsMatched);
+        Assert.AreEqual("Hardcover", row.MatchedSourceName);
+    }
+
+    [TestMethod]
+    public async Task GetMissingTagRowsPageAsync_AnUnmatchedBook_ReportsIsMatchedFalse()
+    {
+        await SeedBookAsync("Unmatched Book", language: null);
+
+        var (items, _) = await PageAsync(new[] { LanguageMissing });
+
+        Assert.IsFalse(items.Single().IsMatched);
+    }
+
+    // Regression: the missing-tags page had no option filters at all, unlike every other
+    // book-list surface (BookSummaryFilter) - this pins that the filter is now applied, not just
+    // accepted and ignored.
+    [TestMethod]
+    public async Task GetMissingTagRowsPageAsync_AppliesTheBookSummaryFilter()
+    {
+        await SeedBookAsync(
+            "Fantasy Book", language: null, genres: new List<Genre> { new(default, "Fantasy") });
+        await SeedBookAsync(
+            "SciFi Book", language: null, genres: new List<Genre> { new(default, "Science Fiction") });
+
+        var (items, total) = await PageAsync(
+            new[] { LanguageMissing }, filter: new BookSummaryFilter(Genres: new[] { "Fantasy" }));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Fantasy Book", items.Single().BookName);
     }
 }

@@ -592,7 +592,8 @@ public class AudiobookRepository : IAudiobookRepository
         IReadOnlyCollection<Expression<Func<Audiobook, bool>>> missingPredicates,
         string? search,
         int skip,
-        int take)
+        int take,
+        BookSummaryFilter? filter = null)
     {
         var query = _db.Audiobooks.AsNoTracking();
 
@@ -604,6 +605,7 @@ public class AudiobookRepository : IAudiobookRepository
         }
 
         query = query.Where(BuildOr(missingPredicates));
+        query = ApplyBookSummaryFilter(query, filter);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -629,6 +631,14 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Id,
                 a.BookName,
                 a.Authors.Select(p => p.Name).ToList(),
+                a.Narrators.Select(p => p.Name).ToList(),
+                a.Year,
+                a.Series,
+                a.SeriesPart,
+                a.CoverFilePath,
+                a.DurationInSeconds,
+                !string.IsNullOrEmpty(a.MatchedSourceName),
+                a.MatchedSourceName,
                 a.Authors.Any(p => p.Name != null && p.Name.Trim() != ""),
                 a.Narrators.Any(p => p.Name != null && p.Name.Trim() != ""),
                 a.Genres.Any(),

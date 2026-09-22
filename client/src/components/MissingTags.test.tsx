@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MissingTags } from "./MissingTags";
 import { queryKeys } from "@/lib/queryKeys";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
+import { SignalRContext } from "@/context/SignalRContext";
+import { OperationKeys } from "@/constants/signalrEvents";
 import { notifications } from "@/lib/notifications";
 
 vi.mock("@/lib/notifications", () => ({
@@ -19,9 +21,51 @@ vi.mock("@/services/api", () => ({
   operationsApi: {
     getStatus: vi.fn(),
   },
+  // OwnedBookList's own fixtures: option-filter dropdowns, the issue-count/pending-refresh
+  // badge summaries, and the cover URL helper - unrelated to this file's own assertions.
+  browseApi: {
+    getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
+  },
+  settingsApi: {
+    getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+  },
+  consistencyApi: {
+    getIssueSummary: vi.fn().mockResolvedValue({}),
+  },
+  metadataRefreshApi: {
+    getPendingSummary: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 import { missingTagsApi, operationsApi } from "@/services/api";
+
+const mockSignalRValue = {
+  connection: null,
+  isConnected: false,
+  on: vi.fn(),
+  off: vi.fn(),
+  onReconnected: vi.fn(),
+  offReconnected: vi.fn(),
+};
+
+// OwnedBookList mounts BookBulkActionBar, which resyncs three OTHER operations
+// (bulk-edit/metadata-refresh/consistency-check-selected) through this same
+// operationsApi.getStatus - a blanket mockResolvedValue would report all of them running too,
+// popping up three unrelated progress bars alongside the language-backfill one this file tests.
+function mockLanguageBackfillStatus(status: {
+  isRunning: boolean;
+  processed: number;
+  total: number;
+}) {
+  vi.mocked(operationsApi.getStatus).mockImplementation((key: string) =>
+    Promise.resolve(
+      key === OperationKeys.languageBackfill
+        ? status
+        : { isRunning: false, processed: 0, total: 0 },
+    ),
+  );
+}
 
 describe("MissingTags", () => {
   let queryClient: QueryClient;
@@ -44,24 +88,23 @@ describe("MissingTags", () => {
           audiobookId: 101,
           bookName: "Test Book Without Language",
           authors: ["Author A"],
+          narrators: [],
           missingFields: ["language"],
         },
       ],
       totalCount: 1,
     });
 
-    vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: false,
-      processed: 0,
-      total: 0,
-    });
+    mockLanguageBackfillStatus({ isRunning: false, processed: 0, total: 0 });
   });
 
   const renderComponent = () =>
     render(
-      <QueryClientProvider client={queryClient}>
-        <RouterTestWrapper ui={<MissingTags />} />
-      </QueryClientProvider>,
+      <SignalRContext.Provider value={mockSignalRValue}>
+        <QueryClientProvider client={queryClient}>
+          <RouterTestWrapper ui={<MissingTags />} />
+        </QueryClientProvider>
+      </SignalRContext.Provider>,
     );
 
   it("loads fields and displays audiobooks with missing tags", async () => {
@@ -82,7 +125,7 @@ describe("MissingTags", () => {
     await waitFor(() => {
       expect(missingTagsApi.getAudiobooksMissingTags).toHaveBeenCalledWith(
         expect.arrayContaining(["language", "year", "series"]),
-        { page: 0, pageSize: 50, search: "" },
+        { page: 0, pageSize: 50, search: "", filters: {} },
       );
     });
   });
@@ -96,6 +139,7 @@ describe("MissingTags", () => {
       audiobookId: 200 + offset,
       bookName: `Book ${String(offset).padStart(2, "0")}`,
       authors: ["Author A"],
+      narrators: [],
       missingFields: ["language"],
     });
     getBooks.mockImplementation((_fields, params) => {
@@ -116,6 +160,7 @@ describe("MissingTags", () => {
         page: 1,
         pageSize: 50,
         search: "",
+        filters: {},
       });
     });
     expect(await screen.findByText(/Book 51/)).toBeInTheDocument();
@@ -129,20 +174,12 @@ describe("MissingTags", () => {
       });
     });
 
-    vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: true,
-      processed: 5,
-      total: 10,
-    });
+    mockLanguageBackfillStatus({ isRunning: true, processed: 5, total: 10 });
     await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
     // The running state must actually render (and flip prevRunningRef) before completing.
     expect(await screen.findByText(/50%/)).toBeInTheDocument();
 
-    vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: false,
-      processed: 10,
-      total: 10,
-    });
+    mockLanguageBackfillStatus({ isRunning: false, processed: 10, total: 10 });
     await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
 
     await waitFor(() => {
@@ -153,6 +190,7 @@ describe("MissingTags", () => {
         page: 0,
         pageSize: 50,
         search: "",
+        filters: {},
       });
     });
     expect(await screen.findByText(/Audiobooks with Missing Tags \(50\)/)).toBeInTheDocument();
@@ -163,11 +201,7 @@ describe("MissingTags", () => {
     vi.mocked(missingTagsApi.startLanguageBackfill).mockResolvedValue();
 
     // Starts running
-    vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: true,
-      processed: 5,
-      total: 10,
-    });
+    mockLanguageBackfillStatus({ isRunning: true, processed: 5, total: 10 });
 
     renderComponent();
 
@@ -184,11 +218,7 @@ describe("MissingTags", () => {
     expect(await screen.findByText(/50%/)).toBeInTheDocument();
 
     // Completes
-    vi.mocked(operationsApi.getStatus).mockResolvedValue({
-      isRunning: false,
-      processed: 10,
-      total: 10,
-    });
+    mockLanguageBackfillStatus({ isRunning: false, processed: 10, total: 10 });
 
     await queryClient.invalidateQueries({ queryKey: queryKeys.languageBackfillStatus() });
 
