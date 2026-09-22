@@ -245,6 +245,9 @@ export function LibraryConsistency() {
     // Re-read the authoritative list rather than reproducing the server's cascade rules
     // client-side: resolving one issue routinely clears its siblings for the same book.
     void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
+    // A TagMismatch/WrongFilePath resolve rewrites the book's tags in full, which can fill in a
+    // field a book was shown missing for on the Missing Tags page.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
   });
 
   // The combined "Scan Library" run is triggered through the same shared hook as the Discovered
@@ -271,6 +274,7 @@ export function LibraryConsistency() {
       const result = await consistencyApi.resolveIssue(issue.id);
       notifyConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
       setSelectedIssues((prev) => {
         const next = new Map(prev);
         next.delete(issue.id);
@@ -342,6 +346,9 @@ export function LibraryConsistency() {
       const result = await consistencyApi.resolveTagMismatch(issueId, fieldValues);
       notifyConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
+      // A TagMismatch resolve rewrites the chosen field values onto the book, which can fill in
+      // a field it was shown missing for on the Missing Tags page.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
       setSelectedIssues((prev) => {
         const next = new Map(prev);
         next.delete(issueId);

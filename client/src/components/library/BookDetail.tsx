@@ -132,6 +132,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       // stay stale for its 30s staleTime - same reasoning as the bulk-edit completion handler in
       // BookBulkActionBar, which invalidates this same family for the same books-changed reason.
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail.all() });
+      // A save is exactly how a book missing a field gets that field filled in - same reasoning
+      // as BookBulkActionBar's invalidateCommonViews.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
       if (pendingApplied) {
         setPendingApplied(false);
         void metadataRefreshApi.dismissPending(id).catch(() => {});
@@ -202,6 +205,9 @@ export function BookDetail({ mode }: BookDetailProps) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
+    // A TagMismatch/WrongFilePath resolve rewrites the book's tags in full (AudiobookService.
+    // UpdateAudiobook), which can fill in a field this book was missing.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
   };
 
   const handleCheckConsistency = async () => {
