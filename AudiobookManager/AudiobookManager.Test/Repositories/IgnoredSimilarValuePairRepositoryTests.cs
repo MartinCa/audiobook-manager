@@ -103,6 +103,66 @@ public class IgnoredSimilarValuePairRepositoryTests
         // No exception is the assertion.
     }
 
+    [TestMethod]
+    public async Task DeleteInvolvingValuesAsync_RemovesPairsNamingAnyOfTheGivenValues()
+    {
+        await _repository.AddRangeAsync("authors", new[]
+        {
+            ("Ben Winters", "Ed Winters"),
+            ("Brandon Sanderson", "brandon sanderson"),
+            ("Unrelated A", "Unrelated B"),
+        });
+
+        await _repository.DeleteInvolvingValuesAsync("authors", new[] { "Ed Winters", "brandon sanderson" });
+
+        var remaining = await _repository.GetForKindAsync("authors");
+        Assert.AreEqual(1, remaining.Count);
+        Assert.AreEqual("Unrelated A", remaining[0].ValueA);
+        Assert.AreEqual("Unrelated B", remaining[0].ValueB);
+    }
+
+    [TestMethod]
+    public async Task DeleteInvolvingValuesAsync_DoesNotTouchAnotherKind()
+    {
+        await _repository.AddRangeAsync("authors", new[] { ("Ben Winters", "Ed Winters") });
+        await _repository.AddRangeAsync("series", new[] { ("Ben Winters", "Ed Winters") });
+
+        await _repository.DeleteInvolvingValuesAsync("authors", new[] { "Ben Winters" });
+
+        Assert.AreEqual(0, (await _repository.GetForKindAsync("authors")).Count);
+        Assert.AreEqual(1, (await _repository.GetForKindAsync("series")).Count);
+    }
+
+    [TestMethod]
+    public async Task DeleteInvolvingValuesAsync_EmptyValues_IsANoOp()
+    {
+        await _repository.AddRangeAsync("authors", new[] { ("Ben Winters", "Ed Winters") });
+
+        await _repository.DeleteInvolvingValuesAsync("authors", Array.Empty<string>());
+
+        Assert.AreEqual(1, (await _repository.GetForKindAsync("authors")).Count);
+    }
+
+    // Regression: every pair from one AddRangeAsync batch shares a single CreatedAt, so ordering
+    // by CreatedAt alone left same-batch rows in an arbitrary (rowid-dependent) order.
+    [TestMethod]
+    public async Task GetForKindAsync_SameBatchPairs_AreOrderedDeterministicallyById()
+    {
+        await _repository.AddRangeAsync("authors", new[]
+        {
+            ("Ben Winters", "Ed Winters"),
+            ("Ben Winters", "Benjamin Winters"),
+        });
+
+        var first = await _repository.GetForKindAsync("authors");
+        var second = await _repository.GetForKindAsync("authors");
+
+        CollectionAssert.AreEqual(
+            first.Select(p => p.Id).ToList(),
+            second.Select(p => p.Id).ToList());
+        Assert.IsTrue(first[0].Id < first[1].Id);
+    }
+
     // The unique index is the concurrency backstop: two callers racing to add the same pair must
     // both succeed and leave exactly one row, mirroring PersonRepository.GetOrCreatePersons.
     [TestMethod]

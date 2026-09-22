@@ -213,7 +213,12 @@ public class SimilarValuesController : ControllerBase
             return this.InvalidRequest("AgainstValues must not contain a blank value.");
         }
 
-        await _similarValueService.IgnorePairAsync(kind, dto.Value, dto.AgainstValues);
+        var ok = await _similarValueService.IgnorePairAsync(kind, dto.Value, dto.AgainstValues);
+        if (!ok)
+        {
+            return this.InvalidRequest("Value and AgainstValues must all be currently-existing library values.");
+        }
+
         return Ok();
     }
 

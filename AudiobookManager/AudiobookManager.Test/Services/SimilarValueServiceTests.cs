@@ -207,6 +207,60 @@ public class SimilarValueServiceTests
             "alignment must invalidate the cached grouping so the merged value is re-detected");
     }
 
+    // Regression: an ignored pair naming a value an alignment just rewrote away used to linger
+    // forever in "Show ignored" - it can never match a live clustering edge again once the value
+    // it names no longer exists, so alignment must sweep it.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_SweepsIgnoredPairsNamingTheRewrittenSourceNames()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling", "J. K. Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(
+                "authors",
+                It.Is<IReadOnlyCollection<string>>(v =>
+                    v.Count == 2 && v.Contains("JK Rowling") && v.Contains("J. K. Rowling"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task AlignSeriesAsync_SweepsIgnoredPairsNamingTheRewrittenSourceValues()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Fantasy & Adventure", "Fantasy and Adventure" },
+            "Fantasy & Adventure",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(
+                "series",
+                It.Is<IReadOnlyCollection<string>>(v => v.Count == 1 && v.Contains("Fantasy and Adventure"))),
+            Times.Once);
+    }
+
+    // Alignment that touches nothing (only the target itself in the group) must not sweep either.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_OnlyTargetNameInGroup_DoesNotSweepIgnoredPairs()
+    {
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>()),
+            Times.Never);
+    }
+
     // Regression for the stale-publication race: a request that missed the cache and is still
     // reading the distinct values when an alignment invalidates must NOT publish its
     // pre-alignment groups back into the cache for the TTL. The test coordinates the interleaving
@@ -555,6 +609,10 @@ public class SimilarValueServiceTests
     [TestMethod]
     public async Task IgnorePairAsync_AddsOnePairPerAgainstValue_ExcludingTheValueItself()
     {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
         List<(string ValueA, string ValueB)>? insertedPairs = null;
         _ignoredPairRepository
             .Setup(r => r.AddRangeAsync("authors", It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()))
@@ -586,7 +644,9 @@ public class SimilarValueServiceTests
 
         await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
 
-        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(2),
+        // 3 calls: the first detect (cache miss), IgnorePairAsync's own existence check against
+        // the current distinct values, and the second detect (cache invalidated by the ignore).
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(3),
             "ignoring a pair must invalidate the cached grouping so it is re-clustered");
     }
 
@@ -595,6 +655,27 @@ public class SimilarValueServiceTests
     {
         await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ben Winters" });
 
+        _ignoredPairRepository.Verify(
+            r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()),
+            Times.Never);
+    }
+
+    // Regression: a value that no longer exists in the library (e.g. a stale client tab still
+    // holding a group an alignment has since folded away) must not be able to accumulate ignored
+    // rows for it - IgnorePairAsync now checks both sides against the kind's current distinct
+    // values before writing anything.
+    [TestMethod]
+    public async Task IgnorePairAsync_AgainstValueNoLongerExists_ReturnsFalseAndWritesNothing()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters",
+        });
+
+        var succeeded = await _service.IgnorePairAsync(
+            "authors", "Ben Winters", new List<string> { "Ed Winters" });
+
+        Assert.IsFalse(succeeded);
         _ignoredPairRepository.Verify(
             r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()),
             Times.Never);
@@ -805,6 +886,8 @@ public class SimilarValueServiceTests
             .ReturnsAsync((string?)null);
         _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Stormlight Archivee", 20))
             .ReturnsAsync(new List<string> { "The Stormlight Archive" });
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Stormlight Archivee", 20))
+            .ReturnsAsync(new List<string>());
 
         var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Stormlight Archivee", 3);
 

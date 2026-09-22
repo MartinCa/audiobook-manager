@@ -20,4 +20,12 @@ public interface IIgnoredSimilarValuePairRepository
     /// different <paramref name="kind"/> is a no-op success.
     /// </summary>
     Task DeleteAsync(string kind, long id);
+
+    /// <summary>
+    /// Removes every ignored pair for a kind where either side is one of <paramref name="values"/>.
+    /// Called after an alignment rewrites those values away, so an ignored pair naming a value
+    /// nothing in the library carries any more does not linger in "Show ignored" forever - it can
+    /// never match a live clustering edge again anyway, since the values it names no longer exist.
+    /// </summary>
+    Task DeleteInvolvingValuesAsync(string kind, IReadOnlyCollection<string> values);
 }

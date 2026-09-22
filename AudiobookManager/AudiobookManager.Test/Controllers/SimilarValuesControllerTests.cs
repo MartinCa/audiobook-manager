@@ -342,6 +342,10 @@ public class SimilarValuesControllerTests
     [TestMethod]
     public async Task IgnorePair_ValidRequest_CallsServiceWithMappedKind()
     {
+        _similarValueService
+            .Setup(s => s.IgnorePairAsync("series", "The Mistborn Saga", It.IsAny<List<string>>()))
+            .ReturnsAsync(true);
+
         var result = await _controller.IgnorePair(new IgnoreSimilarValuePairDto
         {
             ValueType = "series",
@@ -353,6 +357,27 @@ public class SimilarValuesControllerTests
         _similarValueService.Verify(
             s => s.IgnorePairAsync("series", "The Mistborn Saga", It.Is<List<string>>(l => l.Contains("Mistborn Saga"))),
             Times.Once);
+    }
+
+    // Regression: the service rejects a value/againstValues set that no longer exists in the
+    // library (e.g. a stale client tab holding a group an alignment has since folded away) by
+    // returning false - the controller must surface that as InvalidRequest, not a bare Ok().
+    [TestMethod]
+    public async Task IgnorePair_ServiceRejectsStaleValues_ReturnsBadRequest()
+    {
+        _similarValueService
+            .Setup(s => s.IgnorePairAsync("author", "Ben Winters", It.IsAny<List<string>>()))
+            .ReturnsAsync(false);
+
+        var result = await _controller.IgnorePair(new IgnoreSimilarValuePairDto
+        {
+            ValueType = "author",
+            Value = "Ben Winters",
+            AgainstValues = new List<string> { "Ed Winters" },
+        });
+
+        Assert.IsInstanceOfType(result, typeof(ObjectResult));
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result).StatusCode);
     }
 
     [TestMethod]

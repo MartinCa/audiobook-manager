@@ -16,7 +16,11 @@ public class IgnoredSimilarValuePairRepository : IIgnoredSimilarValuePairReposit
         _db.IgnoredSimilarValuePairs
             .AsNoTracking()
             .Where(p => p.Kind == kind)
+            // CreatedAt alone is not a total order: every pair from one AddRangeAsync batch shares
+            // the same timestamp, so same-batch rows would otherwise come back in an arbitrary,
+            // rowid-dependent order between requests.
             .OrderBy(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
             .ToListAsync();
 
     public async Task AddRangeAsync(string kind, IEnumerable<(string ValueA, string ValueB)> pairs)
@@ -100,6 +104,18 @@ public class IgnoredSimilarValuePairRepository : IIgnoredSimilarValuePairReposit
     {
         await _db.IgnoredSimilarValuePairs
             .Where(p => p.Id == id && p.Kind == kind)
+            .ExecuteDeleteAsync();
+    }
+
+    public async Task DeleteInvolvingValuesAsync(string kind, IReadOnlyCollection<string> values)
+    {
+        if (values.Count == 0)
+        {
+            return;
+        }
+
+        await _db.IgnoredSimilarValuePairs
+            .Where(p => p.Kind == kind && (values.Contains(p.ValueA) || values.Contains(p.ValueB)))
             .ExecuteDeleteAsync();
     }
 }
