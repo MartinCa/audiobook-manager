@@ -51,7 +51,7 @@ import type {
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { ScheduledTask } from "@/types/ScheduledTask";
-import type { SimilarValueGroupsPage } from "@/types/SimilarValue";
+import type { SimilarValueGroupsPage, IgnoredSimilarValuePair } from "@/types/SimilarValue";
 import type { SystemInfo } from "@/types/SystemInfo";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 import type { TagMismatchField } from "@/types/TagMismatchField";
@@ -443,6 +443,25 @@ export const similarValuesApi = {
       valueType,
       sourceValues,
       targetValue,
+    }),
+
+  // Naturally small (one row per manually-marked "not similar" pair), so this is left unpaged
+  // like the rest of this resource's small per-kind lists.
+  getIgnoredPairs: (valueType: "author" | "series") =>
+    api.get<IgnoredSimilarValuePair[]>("/similar-values/ignored", {
+      query: { valueType },
+    }),
+
+  ignorePair: (valueType: "author" | "series", value: string, againstValues: string[]) =>
+    api.post<void>("/similar-values/ignore", {
+      valueType,
+      value,
+      againstValues,
+    }),
+
+  removeIgnoredPair: (valueType: "author" | "series", id: number) =>
+    api.delete<void>(`/similar-values/ignore/${id}`, {
+      query: { valueType },
     }),
 };
 

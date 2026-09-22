@@ -13,6 +13,9 @@ vi.mock("@/services/api", () => ({
     getSimilarAuthors: vi.fn(),
     getSimilarSeries: vi.fn(),
     align: vi.fn(),
+    getIgnoredPairs: vi.fn(),
+    ignorePair: vi.fn(),
+    removeIgnoredPair: vi.fn(),
   },
   operationsApi: {
     getStatus: vi.fn().mockResolvedValue({ isRunning: false, processed: 0, total: 0 }),
@@ -77,6 +80,8 @@ describe("SimilarValues", () => {
     signalR = makeSignalR();
     vi.mocked(similarValuesApi.getSimilarAuthors).mockResolvedValue(groupPage);
     vi.mocked(similarValuesApi.getSimilarSeries).mockResolvedValue(groupPage);
+    vi.mocked(similarValuesApi.getIgnoredPairs).mockResolvedValue([]);
+    vi.mocked(similarValuesApi.ignorePair).mockResolvedValue(undefined);
   });
 
   it("renders tabs, group variants and per-candidate book counts from the server page", async () => {
@@ -148,5 +153,38 @@ describe("SimilarValues", () => {
       expect(similarValuesApi.getSimilarAuthors).toHaveBeenCalledWith(0, 50);
     });
     expect(await screen.findByText(/Showing 1–50 of 60 groups/)).toBeInTheDocument();
+  });
+
+  it("marking a candidate as not similar calls the API with the rest of its group and refetches", async () => {
+    renderWithProviders(<SimilarValues />);
+
+    const notSimilarButton = await screen.findByRole("button", {
+      name: 'Mark "J.K. Rowling" as not similar to the rest of this group',
+    });
+    notSimilarButton.click();
+
+    await waitFor(() => {
+      expect(similarValuesApi.ignorePair).toHaveBeenCalledWith("author", "J.K. Rowling", [
+        "JK Rowling",
+      ]);
+    });
+    // Invalidating similarValues.all() must refetch the currently-shown page.
+    await waitFor(() => {
+      expect(similarValuesApi.getSimilarAuthors).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("Show ignored opens the ignored-pairs dialog for the active tab", async () => {
+    vi.mocked(similarValuesApi.getIgnoredPairs).mockResolvedValue([
+      { id: 1, valueA: "Ben Winters", valueB: "Ed Winters", ignoredAtUtc: "2026-01-01T00:00:00Z" },
+    ]);
+
+    renderWithProviders(<SimilarValues />);
+
+    (await screen.findByRole("button", { name: "Show ignored" })).click();
+
+    expect(await screen.findByText("Ben Winters")).toBeInTheDocument();
+    expect(screen.getByText("Ed Winters")).toBeInTheDocument();
+    expect(similarValuesApi.getIgnoredPairs).toHaveBeenCalledWith("author");
   });
 });

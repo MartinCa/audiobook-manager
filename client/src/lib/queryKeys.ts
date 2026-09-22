@@ -59,6 +59,7 @@ export const queryKeys = {
   similarValues: {
     all: () => ["similarValues"] as const,
     page: (tab: string, page: number) => ["similarValues", tab, page] as const,
+    ignoredPairs: (tab: string) => ["similarValues", "ignoredPairs", tab] as const,
   },
 
   author: {
