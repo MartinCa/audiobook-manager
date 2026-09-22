@@ -269,6 +269,7 @@ describe("LibraryConsistency", () => {
       actionTaken: "resolved",
       message: "Tags updated",
     });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     renderWithProviders(<LibraryConsistency />);
 
@@ -290,6 +291,14 @@ describe("LibraryConsistency", () => {
       expect(consistencyApi.resolveTagMismatch).toHaveBeenCalledWith(42, {
         bookName: "The Test Book 2",
       });
+    });
+
+    // Regression: a TagMismatch resolve rewrites the chosen field values onto the book, which
+    // can fill in a field the Missing Tags page was showing it missing for - that page's list
+    // must be invalidated too, not just the consistency view.
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(keys).toContainEqual(["missingTagsAudiobooks"]);
     });
   });
 
@@ -562,6 +571,7 @@ describe("LibraryConsistency", () => {
       },
     ]);
     vi.spyOn(consistencyApi, "getOrphanDirectories").mockResolvedValue([]);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     renderWithProviders(<LibraryConsistency />);
     const trigger = await screen.findByRole("button", { name: /Missing Description Files/ });
@@ -597,6 +607,10 @@ describe("LibraryConsistency", () => {
     });
     expect(screen.queryByText(/Resolving issues/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resolve All 1" })).toBeEnabled();
+    // Regression: a bulk resolve can fill in a field a book was shown missing for on the
+    // Missing Tags page - that page's list must be invalidated too.
+    const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+    expect(keys).toContainEqual(["missingTagsAudiobooks"]);
   });
 
   // The combined scan runs under the library-scan operation key - the page must resync on that

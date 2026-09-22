@@ -89,6 +89,10 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     // this one cache entry, so it must be invalidated here too, not just the library list's own
     // page query as before.
     void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
+    // The Missing Tags page also renders through OwnedBookList: a bulk edit is precisely the
+    // operation most likely to fill in the field(s) a book was shown for, so its page must be
+    // invalidated too or the list keeps showing a now-fixed book until the fields/search change.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
   };
 
   // Recover each in-flight operation (started here or elsewhere, or events missed while

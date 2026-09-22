@@ -404,6 +404,7 @@ describe("BookDetail", () => {
       expect(keys).toContainEqual(["bookDetail", 42]);
       expect(keys).toContainEqual(["consistency"]);
       expect(keys).toContainEqual(["books"]);
+      expect(keys).toContainEqual(["missingTagsAudiobooks"]);
     });
   });
 
@@ -427,6 +428,7 @@ describe("BookDetail", () => {
     await waitFor(() => {
       const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
       expect(keys).toContainEqual(["seriesDetail"]);
+      expect(keys).toContainEqual(["missingTagsAudiobooks"]);
     });
   });
 
@@ -467,6 +469,7 @@ describe("BookDetail", () => {
       expect(keys).toContainEqual(["bookDetail", 42]);
       expect(keys).toContainEqual(["consistency"]);
       expect(keys).toContainEqual(["books"]);
+      expect(keys).toContainEqual(["missingTagsAudiobooks"]);
     });
   });
 

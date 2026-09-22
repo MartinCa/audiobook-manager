@@ -75,7 +75,11 @@ export function BookListRow({
                 {showSeriesPart && book.seriesPart ? `#${book.seriesPart} ` : ""}
                 {book.bookName}
               </span>
-              {book.year && <span className="text-muted-foreground text-xs">({book.year})</span>}
+              {/* book.year ?? not && - a book missing its year is stored as 0 (see
+                  MissingTagService's YearZero check), and 0 && <span/> renders the literal "0". */}
+              {book.year ? (
+                <span className="text-muted-foreground text-xs">({book.year})</span>
+              ) : null}
               <MatchSourceBadge
                 isMatched={book.isMatched}
                 matchedSourceName={book.matchedSourceName}

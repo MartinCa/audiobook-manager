@@ -88,7 +88,7 @@ public class MissingTagService : IMissingTagService
         Fields.Select(f => new MissingTagField(f.Key, f.Label, f.IsCriticalByDefault)).ToList();
 
     public async Task<(List<AudiobookMissingTags> Items, int Total)> FindAudiobooksMissingTagsPageAsync(
-        IEnumerable<string> fieldKeys, string? search, int skip, int take)
+        IEnumerable<string> fieldKeys, string? search, int skip, int take, BookSummaryFilter? filter = null)
     {
         var requestedFields = Fields.Where(f => fieldKeys.Contains(f.Key)).ToList();
         if (requestedFields.Count == 0)
@@ -96,13 +96,13 @@ public class MissingTagService : IMissingTagService
             return (new List<AudiobookMissingTags>(), 0);
         }
 
-        // The selected fields' "is missing" predicates, the search and the page boundaries all
-        // run in SQL: the repository applies the predicates as a WHERE clause (an OR of
-        // EXISTS/negated-EXISTS subqueries and blank checks), folds the search accent-insensitively
+        // The selected fields' "is missing" predicates, the search, the option filter and the page
+        // boundaries all run in SQL: the repository applies the predicates as a WHERE clause (an OR
+        // of EXISTS/negated-EXISTS subqueries and blank checks), folds the search accent-insensitively
         // and counts/slices the filtered set. Only the returned page's rows are materialized, and
         // only they are evaluated for the per-book MissingFields list.
         var (rows, total) = await _audiobookRepository.GetMissingTagRowsPageAsync(
-            requestedFields.Select(f => f.IsMissingSql).ToList(), search, skip, take);
+            requestedFields.Select(f => f.IsMissingSql).ToList(), search, skip, take, filter);
 
         var results = rows
             .Select(row => (
@@ -111,7 +111,19 @@ public class MissingTagService : IMissingTagService
             // The SQL WHERE already guarantees at least one selected field is missing; the guard
             // is a defensive backstop in case the two predicate forms ever drift apart.
             .Where(r => r.Missing.Count > 0)
-            .Select(r => new AudiobookMissingTags(r.Row.Id, r.Row.BookName, r.Row.Authors, r.Missing))
+            .Select(r => new AudiobookMissingTags(
+                r.Row.Id,
+                r.Row.BookName,
+                r.Row.Authors,
+                r.Row.Narrators,
+                r.Row.Year,
+                r.Row.Series,
+                r.Row.SeriesPart,
+                r.Row.CoverFilePath,
+                r.Row.DurationInSeconds,
+                r.Row.IsMatched,
+                r.Row.MatchedSourceName,
+                r.Missing))
             .ToList();
 
         return (results, total);

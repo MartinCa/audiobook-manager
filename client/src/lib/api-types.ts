@@ -2569,6 +2569,11 @@ export interface paths {
                     search?: string;
                     page?: number;
                     pageSize?: number;
+                    sources?: string[];
+                    genres?: string[];
+                    languages?: string[];
+                    minDurationInSeconds?: number;
+                    maxDurationInSeconds?: number;
                 };
                 header?: never;
                 path?: never;
@@ -4791,6 +4796,16 @@ export interface components {
             audiobookId?: number;
             bookName?: string | null;
             authors?: string[] | null;
+            narrators?: string[] | null;
+            /** Format: int32 */
+            year?: number;
+            series?: string | null;
+            seriesPart?: string | null;
+            coverFilePath?: string | null;
+            /** Format: int32 */
+            durationInSeconds?: number | null;
+            isMatched?: boolean;
+            matchedSourceName?: string | null;
             missingFields?: string[] | null;
         };
         AudiobookMissingTagsPageDto: {

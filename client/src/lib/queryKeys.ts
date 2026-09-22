@@ -167,8 +167,8 @@ export const queryKeys = {
 
   missingTagsAudiobooks: {
     all: () => ["missingTagsAudiobooks"] as const,
-    page: (selectedFields: string[], page: number, search: string) =>
-      ["missingTagsAudiobooks", selectedFields, page, search] as const,
+    page: (selectedFields: string[], page: number, search: string, filters: BookListFilters) =>
+      ["missingTagsAudiobooks", selectedFields, page, search, filters] as const,
   },
 
   languageBackfillStatus: () => ["languageBackfillStatus"] as const,

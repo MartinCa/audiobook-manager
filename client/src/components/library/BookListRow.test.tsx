@@ -105,6 +105,15 @@ describe("BookListRow", () => {
     expect(container.querySelector("svg.lucide-library")).not.toBeNull();
   });
 
+  // Regression: {book.year && <span>...} rendered the literal text "0" for a book whose year is
+  // the "missing" sentinel (0, per MissingTagService's YearZero check) instead of nothing.
+  it("renders no year span, and no stray '0', for a book with year 0", () => {
+    render(<BookListRow book={book({ year: 0 })} />);
+
+    expect(screen.queryByText("(0)")).not.toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
   it("shows the issue-count badge and the pending-refresh badge", () => {
     render(<BookListRow book={book()} issueCount={2} hasPendingRefresh />);
 

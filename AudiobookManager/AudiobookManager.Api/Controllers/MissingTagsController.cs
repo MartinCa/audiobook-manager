@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -46,7 +47,12 @@ public class MissingTagsController : ControllerBase
         [FromQuery] List<string> fields,
         [FromQuery] string? search = null,
         int page = 0,
-        int pageSize = PagingLimits.DefaultPageSize)
+        int pageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? genres = null,
+        [FromQuery] List<string>? languages = null,
+        [FromQuery] int? minDurationInSeconds = null,
+        [FromQuery] int? maxDurationInSeconds = null)
     {
         if (page < 0)
         {
@@ -65,12 +71,25 @@ public class MissingTagsController : ControllerBase
             return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} audiobooks.");
         }
 
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
         var (results, totalCount) = await _missingTagService.FindAudiobooksMissingTagsPageAsync(
-            fields, search, (int)skip, pageSize);
+            fields, search, (int)skip, pageSize, filter.IsEmpty ? null : filter);
 
         return Ok(new AudiobookMissingTagsPageDto(
             results
-                .Select(r => new AudiobookMissingTagsDto(r.AudiobookId, r.BookName, r.Authors, r.MissingFields))
+                .Select(r => new AudiobookMissingTagsDto(
+                    r.AudiobookId,
+                    r.BookName,
+                    r.Authors,
+                    r.Narrators,
+                    r.Year,
+                    r.Series,
+                    r.SeriesPart,
+                    r.CoverFilePath,
+                    r.DurationInSeconds,
+                    r.IsMatched,
+                    r.MatchedSourceName,
+                    r.MissingFields))
                 .ToList(),
             totalCount));
     }
