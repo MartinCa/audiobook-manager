@@ -41,6 +41,11 @@ public class SimilarValuesControllerTests
         _statusRegistry = new Mock<IOperationStatusRegistry>();
         _similarValueService = new Mock<ISimilarValueService>();
         _personRepository = new Mock<IPersonRepository>();
+        // GetSimilarAuthors always awaits this to resolve AuthorId - default it to "nothing
+        // resolves" so a test that doesn't care about AuthorId doesn't have to set it up.
+        _personRepository
+            .Setup(r => r.GetByNamesAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbPerson>());
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _logger = new Mock<ILogger<SimilarValuesController>>();
 
