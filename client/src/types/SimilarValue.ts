@@ -3,10 +3,13 @@ import type { Require } from "@/lib/dto";
 
 // AudiobookManager.Api/Dtos/SimilarValueGroupDto.cs: candidates carry a value and a book count —
 // not the per-candidate book lists the unpaged response embedded, which is what made the
-// detection payload grow with the library. All fields are non-nullable.
+// detection payload grow with the library. value/bookCount are non-nullable; authorId is set only
+// for an author candidate whose value resolves to a Person row (null for series candidates, and
+// for an author value with none).
 export interface SimilarValueCandidate {
   value: string;
   bookCount: number;
+  authorId?: number | null;
 }
 
 export interface SimilarValueGroup {

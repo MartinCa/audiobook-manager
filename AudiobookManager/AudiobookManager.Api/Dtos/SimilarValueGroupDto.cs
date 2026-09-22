@@ -5,10 +5,18 @@ public class SimilarValueCandidateDto
     public string Value { get; set; }
     public int BookCount { get; set; }
 
-    public SimilarValueCandidateDto(string value, int bookCount)
+    /// <summary>
+    /// The matching <c>Person</c> row's id, for author candidates only - lets the client link
+    /// straight to the author's page while investigating a group. Null for series candidates
+    /// (series have no id, just a name) and for an author value that has no Person row.
+    /// </summary>
+    public long? AuthorId { get; set; }
+
+    public SimilarValueCandidateDto(string value, int bookCount, long? authorId = null)
     {
         Value = value;
         BookCount = bookCount;
+        AuthorId = authorId;
     }
 }
 

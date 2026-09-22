@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, Clock, Library, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,8 @@ export interface BookListRowProps {
   showSeriesPart?: boolean;
   /** Skip the "Series: ..." meta span; used inside SeriesDetail where the series is the heading. */
   hideSeries?: boolean;
+  /** Extra badges (e.g. MissingTags' "Missing X" amber badges) on their own row below the meta line. */
+  extraBadges?: ReactNode;
 }
 
 export function BookListRow({
@@ -31,6 +34,7 @@ export function BookListRow({
   onSelectedChange,
   showSeriesPart = false,
   hideSeries = false,
+  extraBadges,
 }: BookListRowProps) {
   return (
     <div className="group border-border bg-card hover:bg-muted/50 flex items-center gap-3 rounded-lg border p-3">
@@ -109,6 +113,8 @@ export function BookListRow({
                 </span>
               )}
             </div>
+
+            {extraBadges && <div className="mt-1.5 flex flex-wrap gap-1.5">{extraBadges}</div>}
           </div>
         </div>
 

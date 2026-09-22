@@ -269,9 +269,27 @@ export function SimilarValues() {
                       className="border-border bg-muted/30 flex items-start justify-between gap-2 rounded-md border p-2.5 text-xs"
                     >
                       <div className="min-w-0">
-                        <div className="text-foreground font-semibold break-words">
-                          {cand.value}
-                        </div>
+                        {activeTab === "series" ? (
+                          <Link
+                            to="/library/series/$seriesName"
+                            params={{ seriesName: cand.value }}
+                            className="text-primary font-semibold break-words hover:underline"
+                          >
+                            {cand.value}
+                          </Link>
+                        ) : cand.authorId != null ? (
+                          <Link
+                            to="/library/authors/$authorId"
+                            params={{ authorId: String(cand.authorId) }}
+                            className="text-primary font-semibold break-words hover:underline"
+                          >
+                            {cand.value}
+                          </Link>
+                        ) : (
+                          <span className="text-foreground font-semibold break-words">
+                            {cand.value}
+                          </span>
+                        )}
                         <div className="text-muted-foreground mt-1">
                           {cand.bookCount} {cand.bookCount === 1 ? "book" : "books"}
                         </div>

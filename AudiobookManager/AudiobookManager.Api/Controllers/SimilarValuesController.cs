@@ -1,5 +1,6 @@
 ﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -57,7 +58,9 @@ public class SimilarValuesController : ControllerBase
 
         var groups = await _similarValueService.DetectSimilarAuthorsAsync(
             skip: (int)((long)page * pageSize), take: pageSize);
-        return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items), groups.Total));
+        var candidateNames = groups.Items.SelectMany(g => g.Candidates.Select(c => c.Value)).ToList();
+        var authorsByName = await _personRepository.GetByNamesAsync(candidateNames);
+        return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items, authorsByName), groups.Total));
     }
 
     [HttpGet("similar-series")]
@@ -303,12 +306,15 @@ public class SimilarValuesController : ControllerBase
         return null;
     }
 
-    private static List<SimilarValueGroupDto> ToDto(List<Domain.SimilarValueGroup> groups)
+    private static List<SimilarValueGroupDto> ToDto(
+        List<Domain.SimilarValueGroup> groups,
+        IReadOnlyDictionary<string, Person>? authorsByName = null)
     {
         return groups.Select(g => new SimilarValueGroupDto(
             g.Candidates.Select(c => new SimilarValueCandidateDto(
                 c.Value,
-                c.BookCount
+                c.BookCount,
+                authorsByName != null && authorsByName.TryGetValue(c.Value, out var author) ? author.Id : null
             )).ToList()
         )).ToList();
     }

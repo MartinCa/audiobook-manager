@@ -108,6 +108,25 @@ public class SimilarValuesControllerTests
     }
 
     [TestMethod]
+    public async Task GetSimilarAuthors_ResolvesAuthorIdsForCandidatesWithAPersonRow()
+    {
+        _similarValueService
+            .Setup(s => s.DetectSimilarAuthorsAsync(skip: 0, take: 50))
+            .ReturnsAsync((new List<SimilarValueGroup> { MakeGroup("J.K. Rowling", 12) }, 1));
+        _personRepository
+            .Setup(r => r.GetByNamesAsync(It.Is<IReadOnlyCollection<string>>(
+                names => names.Contains("J.K. Rowling") && names.Contains("J.K. Rowling2"))))
+            .ReturnsAsync(new Dictionary<string, DbPerson> { ["J.K. Rowling"] = new DbPerson(9, "J.K. Rowling") });
+
+        var result = await _controller.GetSimilarAuthors();
+
+        var page = ((OkObjectResult)result.Result!).Value as SimilarValueGroupsPageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(9, page.Items[0].Candidates[0].AuthorId, "the candidate with a Person row gets its id.");
+        Assert.IsNull(page.Items[0].Candidates[1].AuthorId, "a candidate value with no Person row stays unlinked.");
+    }
+
+    [TestMethod]
     public async Task GetSimilarAuthors_PassesPageAndPageSizeThrough()
     {
         _similarValueService

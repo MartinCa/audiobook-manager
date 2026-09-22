@@ -5583,6 +5583,8 @@ export interface components {
             value?: string | null;
             /** Format: int32 */
             bookCount?: number;
+            /** Format: int64 */
+            authorId?: number | null;
         };
         SimilarValueGroupDto: {
             candidates?: components["schemas"]["SimilarValueCandidateDto"][] | null;

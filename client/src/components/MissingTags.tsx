@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Tag, BookOpen, ChevronRight, Globe, Search, X } from "lucide-react";
+import { ArrowLeft, Tag, BookOpen, Globe, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
+import { BookListRow } from "./library/BookListRow";
 import { missingTagsApi, operationsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
@@ -236,8 +237,9 @@ export function MissingTags() {
             {Array.from({ length: 6 }, (_, i) => (
               <div
                 key={i}
-                className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-3"
+                className="border-border bg-card flex items-center gap-3 rounded-lg border p-3"
               >
+                <Skeleton className="h-12 w-12 shrink-0 rounded" />
                 <div className="min-w-0 flex-1 space-y-2">
                   <Skeleton className="h-4 w-3/5 max-w-80" />
                   <div className="flex flex-wrap gap-1.5 pt-1">
@@ -264,31 +266,25 @@ export function MissingTags() {
         ) : (
           <div className="space-y-2">
             {audiobooks.map((b) => (
-              <Link
+              <BookListRow
                 key={b.audiobookId}
-                to="/library/book/$bookId"
-                params={{ bookId: String(b.audiobookId) }}
-                className="group border-border bg-card hover:bg-muted/50 flex items-center justify-between rounded-lg border p-3 transition-colors"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-foreground font-semibold break-words">
-                    {b.authors.join(", ")} &mdash; {b.bookName}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {b.missingFields.map((f) => (
-                      <Badge
-                        key={f}
-                        variant="secondary"
-                        className="bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400"
-                      >
-                        Missing {f}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                <ChevronRight className="text-muted-foreground group-hover:text-foreground h-4 w-4 shrink-0" />
-              </Link>
+                book={{
+                  id: b.audiobookId,
+                  bookName: b.bookName,
+                  authors: b.authors,
+                  narrators: [],
+                  genres: [],
+                }}
+                extraBadges={b.missingFields.map((f) => (
+                  <Badge
+                    key={f}
+                    variant="secondary"
+                    className="bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400"
+                  >
+                    Missing {f}
+                  </Badge>
+                ))}
+              />
             ))}
 
             {pageCount > 1 && (

@@ -7,6 +7,11 @@
  * The canonical source of these values is the shadcn preset (see SETUP.md);
  * this file exists so projects that were not scaffolded from the preset can
  * still be brought into line.
+ *
+ * --primary/--primary-foreground are trialing the "b1PzeK" preset's blue accent (was
+ * chroma-0 gray, indistinguishable from bold body text) ahead of porting it to
+ * frontend-kit itself; every other token here still matches the current frontend-kit
+ * theme.
  */
 
 @layer base {
@@ -22,8 +27,8 @@
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
 
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.488 0.243 264.376);
+    --primary-foreground: oklch(0.97 0.014 254.604);
 
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
@@ -58,8 +63,8 @@
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
 
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
+    --primary: oklch(0.424 0.199 265.638);
+    --primary-foreground: oklch(0.97 0.014 254.604);
 
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
