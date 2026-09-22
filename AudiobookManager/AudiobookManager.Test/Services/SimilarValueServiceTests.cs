@@ -368,6 +368,35 @@ public class SimilarValueServiceTests
         Assert.AreEqual(1, last.failed);
     }
 
+    // Regression: a source name is only actually gone from the library if every book carrying it
+    // aligned successfully. A failed book (busy save gate, path collision, etc.) still carries the
+    // source name, so its ignored pairs are still live and must survive the alignment.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_OneBookFails_DoesNotSweepIgnoredPairs()
+    {
+        var book1 = MakeDbAudiobook(1, "Book One");
+        book1.Authors = new List<DbPerson> { new(1, "J.K. Rowling") };
+        var book2 = MakeDbAudiobook(2, "Book Two");
+        book2.Authors = new List<DbPerson> { new(2, "JK Rowling") };
+
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .ThrowsAsync(new Exception("path collision"));
+        _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>()),
+            Times.Never);
+    }
+
     // Regression: alignment rewrites m4b tags and can relocate files, exactly like an interactive
     // save, but the two were gated separately - the save endpoint held a private set of its own -
     // so an alignment and a save could both be rewriting the same book at once. Both now take the
@@ -788,6 +817,30 @@ public class SimilarValueServiceTests
         // real match is missing until the stripped-form re-search runs.
         _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
             .ReturnsAsync(new List<string> { "The Wheel of Time" });
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "Mistborn Saga"));
+    }
+
+    // Regression: each search is independently capped at the prefilter limit, so when the
+    // unstripped "%the%" first-token fallback alone fills the cap (a library with 20+ series
+    // containing "the" is not unusual), concatenating the stripped candidates *after* the
+    // unstripped ones and then re-capping to the limit used to cut the genuine stripped match back
+    // off before it was ever scored - reporting "New" for exactly the case this rule exists to fix.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_ReverseDirection_SurvivesUnstrippedFlood()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        // The unstripped search's own capped result is entirely noise - 20 unrelated series whose
+        // names happen to contain "the" - filling the candidate cap on its own.
+        var flood = Enumerable.Range(1, 20).Select(i => $"The Noisy Series {i}").ToList();
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(flood);
         _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
             .ReturnsAsync(new List<string> { "Mistborn Saga" });
 

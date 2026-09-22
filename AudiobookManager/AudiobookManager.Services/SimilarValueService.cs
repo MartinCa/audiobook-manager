@@ -189,8 +189,14 @@ public class SimilarValueService : ISimilarValueService
         {
             var strippedCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
                 strippedQuery, EntryStatusCandidatePrefilterLimit);
-            seriesCandidates = seriesCandidates
-                .Concat(strippedCandidates)
+
+            // strippedCandidates goes first: each search is independently capped at the limit, so
+            // when the unstripped search's own first-token fallback already fills the cap (the
+            // exact "%the%" flood this second search exists to work around), putting the
+            // unstripped list first would let Take() below cut the genuine stripped match back off
+            // again before it's ever scored.
+            seriesCandidates = strippedCandidates
+                .Concat(seriesCandidates)
                 .Distinct(StringComparer.Ordinal)
                 .Take(EntryStatusCandidatePrefilterLimit)
                 .ToList();
@@ -470,10 +476,13 @@ public class SimilarValueService : ISimilarValueService
             dbBook => $"Failed to align author for audiobook {dbBook.Id}",
             progressAction);
 
-        // Every source name is gone from these books; an ignored pair naming one is dead weight
-        // that would otherwise linger in "Show ignored" forever (it can never match a live
-        // clustering edge again, since a rewritten value no longer exists).
-        await _ignoredPairRepository.DeleteInvolvingValuesAsync(AuthorGroupsKind, namesToAlign);
+        // Every source name is gone from these books only if every one of them actually aligned -
+        // a per-book failure (busy save gate, a tag/path write error) leaves that book still
+        // carrying the source name, so its ignored pairs are still live and must not be swept.
+        if (result.Failed == 0)
+        {
+            await _ignoredPairRepository.DeleteInvolvingValuesAsync(AuthorGroupsKind, namesToAlign);
+        }
 
         // The merge folds groups together; the cached detection must not keep serving the
         // pre-merge grouping until its TTL runs out.
@@ -514,8 +523,11 @@ public class SimilarValueService : ISimilarValueService
             dbBook => $"Failed to align series for audiobook {dbBook.Id}",
             progressAction);
 
-        // See AlignAuthorsAsync: sweep ignored pairs naming a value this alignment rewrote away.
-        await _ignoredPairRepository.DeleteInvolvingValuesAsync(SeriesGroupsKind, valuesToAlign);
+        // See AlignAuthorsAsync: only sweep when every book actually aligned.
+        if (result.Failed == 0)
+        {
+            await _ignoredPairRepository.DeleteInvolvingValuesAsync(SeriesGroupsKind, valuesToAlign);
+        }
 
         _detectionCache.Invalidate();
 
