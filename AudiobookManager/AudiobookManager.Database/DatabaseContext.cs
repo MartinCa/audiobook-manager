@@ -69,4 +69,5 @@ public class DatabaseContext : DbContext
     public DbSet<ExpectedBook> ExpectedBooks { get; set; }
     public DbSet<ExpectedBookAuthor> ExpectedBookAuthors { get; set; }
     public DbSet<ScheduledTaskRun> ScheduledTaskRuns { get; set; }
+    public DbSet<IgnoredSimilarValuePair> IgnoredSimilarValuePairs { get; set; }
 }

@@ -15,11 +15,12 @@ public class SimilarValueService : ISimilarValueService
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ISimilarValueDetectionCache _detectionCache;
+    private readonly IIgnoredSimilarValuePairRepository _ignoredPairRepository;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<SimilarValueService> _logger;
 
-    private const string AuthorGroupsKind = "authors";
-    private const string SeriesGroupsKind = "series";
+    public const string AuthorGroupsKind = "authors";
+    public const string SeriesGroupsKind = "series";
 
     /// <summary>
     /// The candidate-prefilter cap for the entry-status classification. The fuzzy scoring runs
@@ -37,6 +38,7 @@ public class SimilarValueService : ISimilarValueService
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
         ISimilarValueDetectionCache detectionCache,
+        IIgnoredSimilarValuePairRepository ignoredPairRepository,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<SimilarValueService> logger)
     {
@@ -45,6 +47,7 @@ public class SimilarValueService : ISimilarValueService
         _audiobookService = audiobookService;
         _saveGate = saveGate;
         _detectionCache = detectionCache;
+        _ignoredPairRepository = ignoredPairRepository;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -54,7 +57,8 @@ public class SimilarValueService : ISimilarValueService
         // Detection only needs the distinct author names - not the per-book references the old
         // implementation loaded for every author on every request - and the clustered groups are
         // cached, so paging through the results does not re-run the clustering per request.
-        var groups = await GetOrComputeGroupsAsync(AuthorGroupsKind, _personRepository.GetAuthorNamesAsync);
+        var groups = await GetOrComputeGroupsAsync(
+            AuthorGroupsKind, _personRepository.GetAuthorNamesAsync, isSeries: false);
 
         var (items, total) = Page(groups, skip, take);
 
@@ -67,13 +71,60 @@ public class SimilarValueService : ISimilarValueService
 
     public async Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarSeriesAsync(int skip, int take)
     {
-        var groups = await GetOrComputeGroupsAsync(SeriesGroupsKind, _audiobookRepository.GetSeriesNamesAsync);
+        var groups = await GetOrComputeGroupsAsync(
+            SeriesGroupsKind, _audiobookRepository.GetSeriesNamesAsync, isSeries: true);
 
         var (items, total) = Page(groups, skip, take);
 
         await StampBookCountsAsync(items, _audiobookRepository.GetSeriesBookCountsAsync);
 
         return (items, total);
+    }
+
+    public async Task<List<IgnoredSimilarValuePairInfo>> GetIgnoredPairsAsync(string kind)
+    {
+        var rows = await _ignoredPairRepository.GetForKindAsync(kind);
+        return rows.Select(r => new IgnoredSimilarValuePairInfo(r.Id, r.ValueA, r.ValueB, r.CreatedAt)).ToList();
+    }
+
+    /// <summary>
+    /// Ignores <paramref name="value"/> against every value in <paramref name="againstValues"/> -
+    /// the UI passes the rest of the candidate's current detected group, so this removes every
+    /// edge the group's clustering drew directly to that candidate. Invalidates the detection
+    /// cache the same way an alignment does, so the group re-splits on the next request rather
+    /// than after the cache's TTL.
+    /// </summary>
+    public async Task<bool> IgnorePairAsync(string kind, string value, List<string> againstValues)
+    {
+        var pairs = againstValues
+            .Where(v => v != value)
+            .Select(v => SimilarityGrouper.IgnoredPairKey(value, v))
+            .ToList();
+        if (pairs.Count == 0)
+        {
+            return true;
+        }
+
+        var distinctValues = new HashSet<string>(
+            await LoadDistinctValuesForKindAsync(kind), StringComparer.Ordinal);
+        if (!distinctValues.Contains(value)
+            || pairs.Any(p => !distinctValues.Contains(p.A) || !distinctValues.Contains(p.B)))
+        {
+            return false;
+        }
+
+        await _ignoredPairRepository.AddRangeAsync(kind, pairs);
+        _detectionCache.Invalidate();
+        return true;
+    }
+
+    private Task<List<string>> LoadDistinctValuesForKindAsync(string kind) =>
+        kind == AuthorGroupsKind ? _personRepository.GetAuthorNamesAsync() : _audiobookRepository.GetSeriesNamesAsync();
+
+    public async Task RemoveIgnoredPairAsync(string kind, long id)
+    {
+        await _ignoredPairRepository.DeleteAsync(kind, id);
+        _detectionCache.Invalidate();
     }
 
     /// <summary>
@@ -125,8 +176,36 @@ public class SimilarValueService : ISimilarValueService
 
         var seriesCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
             trimmed, EntryStatusCandidatePrefilterLimit);
+
+        // The LIKE prefilter's first-token fallback makes the "the"-insensitivity rule
+        // one-directional: typing "The Mistborn Saga" against a stored "Mistborn Saga" falls back
+        // to a "%the%" token pattern (since "the" is the first token), which floods the capped
+        // candidate list with every series containing "the" anywhere and crowds out the real
+        // match. Re-running the search on the stripped form closes the gap without touching the
+        // shared LIKE-prefilter helper (also used by autocomplete, where "the"-stripping doesn't
+        // apply).
+        var strippedQuery = NameNormalizer.StripLeadingArticleRaw(trimmed);
+        if (strippedQuery.Length > 0 && strippedQuery != trimmed)
+        {
+            var strippedCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
+                strippedQuery, EntryStatusCandidatePrefilterLimit);
+
+            // Each search is already independently capped at the limit, so the merge is bounded
+            // (at most 2x the limit) without re-capping it - re-capping the merged set back down to
+            // the limit could still cut off a genuine stripped match if the unstripped search's own
+            // "%the%" first-token fallback filled its cap entirely with full/token matches (which
+            // sort ahead of the stripped search's own hits in whichever order the two are
+            // concatenated). Scoring further downstream both narrows this to the caller's
+            // requested result limit and orders by actual similarity, so there's no reason to
+            // impose a second, arbitrary trim here.
+            seriesCandidates = strippedCandidates
+                .Concat(seriesCandidates)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
         return BuildSimilarOrNew(trimmed,
-            seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit);
+            seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit, isSeries: true);
     }
 
     private async Task<EntryValueStatus> GetPersonEntryStatusAsync(
@@ -151,9 +230,9 @@ public class SimilarValueService : ISimilarValueService
     }
 
     private EntryValueStatus BuildSimilarOrNew(
-        string value, IEnumerable<EntryValueMatch> candidates, int limit)
+        string value, IEnumerable<EntryValueMatch> candidates, int limit, bool isSeries = false)
     {
-        var matches = ScoreSimilarMatches(value, candidates).Take(limit).ToList();
+        var matches = ScoreSimilarMatches(value, candidates, isSeries).Take(limit).ToList();
         return matches.Count > 0
             ? new EntryValueStatus(value, EntryValueStatusKind.Similar, null, matches)
             : new EntryValueStatus(value, EntryValueStatusKind.New, null, new List<EntryValueMatch>());
@@ -164,10 +243,16 @@ public class SimilarValueService : ISimilarValueService
     /// (edit distance, then name). The exact lookup has already run, so a normalized-equal or
     /// folded-equal candidate here means "same value, different raw spelling" (e.g. "Jane
     /// Authorr" vs "Jane Author" is a near match; "René" vs "Rene" was already exact).
+    ///
+    /// <paramref name="isSeries"/> mirrors <see cref="SimilarityGrouper"/>'s leading-article rule
+    /// for consistency with the detection screen: "The Mistborn Saga" is similar to "Mistborn
+    /// Saga" for a series entry. Never applied to authors/narrators.
     /// </summary>
-    private List<EntryValueMatch> ScoreSimilarMatches(string value, IEnumerable<EntryValueMatch> candidates)
+    private List<EntryValueMatch> ScoreSimilarMatches(
+        string value, IEnumerable<EntryValueMatch> candidates, bool isSeries = false)
     {
         var normInput = NameNormalizer.Normalize(value);
+        var strippedInput = isSeries ? NameNormalizer.StripLeadingArticle(normInput) : normInput;
         var foldedInput = Folded(value);
         var scored = new List<(EntryValueMatch Match, int Distance)>();
 
@@ -185,6 +270,16 @@ public class SimilarValueService : ISimilarValueService
             {
                 scored.Add((candidate, 0));
                 continue;
+            }
+
+            if (isSeries)
+            {
+                var strippedCandidate = NameNormalizer.StripLeadingArticle(normCandidate);
+                if (strippedInput.Length > 0 && strippedCandidate == strippedInput)
+                {
+                    scored.Add((candidate, 0));
+                    continue;
+                }
             }
 
             var foldedCandidate = Folded(candidate.Name);
@@ -250,7 +345,7 @@ public class SimilarValueService : ISimilarValueService
     /// never writes through to the objects the cache holds.
     /// </summary>
     private async Task<List<SimilarValueGroup>> GetOrComputeGroupsAsync(
-        string kind, Func<Task<List<string>>> loadDistinctValues)
+        string kind, Func<Task<List<string>>> loadDistinctValues, bool isSeries)
     {
         var versionAtStart = _detectionCache.GetVersion();
         if (_detectionCache.Get(kind) is { } cached)
@@ -259,7 +354,9 @@ public class SimilarValueService : ISimilarValueService
         }
 
         var values = await loadDistinctValues();
-        var clusters = SimilarityGrouper.GroupSimilarValues(values, _settings);
+        var ignoredPairRows = await _ignoredPairRepository.GetForKindAsync(kind);
+        var ignoredPairs = ignoredPairRows.Select(r => (r.ValueA, r.ValueB)).ToHashSet();
+        var clusters = SimilarityGrouper.GroupSimilarValues(values, _settings, isSeries, ignoredPairs);
 
         var groups = clusters
             .Select(cluster => new SimilarValueGroup
@@ -381,6 +478,14 @@ public class SimilarValueService : ISimilarValueService
             dbBook => $"Failed to align author for audiobook {dbBook.Id}",
             progressAction);
 
+        // Every source name is gone from these books only if every one of them actually aligned -
+        // a per-book failure (busy save gate, a tag/path write error) leaves that book still
+        // carrying the source name, so its ignored pairs are still live and must not be swept.
+        if (result.Failed == 0)
+        {
+            await _ignoredPairRepository.DeleteInvolvingValuesAsync(AuthorGroupsKind, namesToAlign);
+        }
+
         // The merge folds groups together; the cached detection must not keep serving the
         // pre-merge grouping until its TTL runs out.
         _detectionCache.Invalidate();
@@ -419,6 +524,12 @@ public class SimilarValueService : ISimilarValueService
             _logger,
             dbBook => $"Failed to align series for audiobook {dbBook.Id}",
             progressAction);
+
+        // See AlignAuthorsAsync: only sweep when every book actually aligned.
+        if (result.Failed == 0)
+        {
+            await _ignoredPairRepository.DeleteInvolvingValuesAsync(SeriesGroupsKind, valuesToAlign);
+        }
 
         _detectionCache.Invalidate();
 

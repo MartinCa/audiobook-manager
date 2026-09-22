@@ -23,6 +23,23 @@ public interface ISimilarValueService
     /// </summary>
     Task<EntryValueStatus> GetEntryStatusAsync(EntryValueKind kind, string value, int limit);
 
+    /// <summary>Every ignored pair for one kind ("authors"/"series"), oldest first.</summary>
+    Task<List<IgnoredSimilarValuePairInfo>> GetIgnoredPairsAsync(string kind);
+
+    /// <summary>
+    /// Marks <paramref name="value"/> as not similar to each of <paramref name="againstValues"/>
+    /// (typically the rest of its current detected group), then invalidates the detection cache
+    /// so the group re-splits immediately rather than after the cache TTL. Returns false without
+    /// writing anything if <paramref name="value"/> or any entry of <paramref name="againstValues"/>
+    /// is not a currently-existing value for <paramref name="kind"/> - a stale client (an old tab
+    /// still holding a group that alignment has since folded away) must not be able to accumulate
+    /// ignored-pair rows for values nothing in the library carries any more.
+    /// </summary>
+    Task<bool> IgnorePairAsync(string kind, string value, List<string> againstValues);
+
+    /// <summary>Removes one ignored pair by id and invalidates the detection cache.</summary>
+    Task RemoveIgnoredPairAsync(string kind, long id);
+
     Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
         string targetName,

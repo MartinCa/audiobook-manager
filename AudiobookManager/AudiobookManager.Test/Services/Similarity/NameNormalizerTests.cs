@@ -44,4 +44,60 @@ public class NameNormalizerTests
         Assert.AreEqual(string.Empty, NameNormalizer.Normalize(null));
         Assert.AreEqual(string.Empty, NameNormalizer.Normalize("   "));
     }
+
+    [TestMethod]
+    public void StripLeadingArticle_RemovesLeadingThe()
+    {
+        Assert.AreEqual(
+            "mistborn saga",
+            NameNormalizer.StripLeadingArticle(NameNormalizer.Normalize("The Mistborn Saga")));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticle_NoLeadingThe_IsUnchanged()
+    {
+        var normalized = NameNormalizer.Normalize("Mistborn Saga");
+        Assert.AreEqual(normalized, NameNormalizer.StripLeadingArticle(normalized));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticle_TheAsAWholeToken_IsNotStrippedFromTheMiddleOrWithoutTrailingSpace()
+    {
+        // "the" alone (no following token) must not be reduced to an empty string via a bad
+        // prefix check, and "theory" must not be affected by a naive StartsWith("the").
+        Assert.AreEqual("the", NameNormalizer.StripLeadingArticle("the"));
+        Assert.AreEqual("theory", NameNormalizer.StripLeadingArticle("theory"));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticle_AuthorNamedTheRock_IsNotAffectedByAuthorNormalization()
+    {
+        // The helper itself is a pure string function usable by either kind - the series-only
+        // guarantee lives in SimilarityGrouper's isSeries flag, not here. This just documents
+        // that an author literally named "The Rock" strips down to "rock" if the helper were
+        // (wrongly) applied to it - which is exactly why SimilarityGrouper must gate this call
+        // on isSeries.
+        Assert.AreEqual("rock", NameNormalizer.StripLeadingArticle(NameNormalizer.Normalize("The Rock")));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_RemovesLeadingThe_CaseInsensitively_PreservingRemainingCase()
+    {
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("The Mistborn Saga"));
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("THE Mistborn Saga"));
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("the Mistborn Saga"));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_NoLeadingThe_IsUnchanged()
+    {
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("Mistborn Saga"));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_TheAsAWholeToken_IsNotStrippedFromTheMiddleOrWithoutTrailingSpace()
+    {
+        Assert.AreEqual("The", NameNormalizer.StripLeadingArticleRaw("The"));
+        Assert.AreEqual("Theory", NameNormalizer.StripLeadingArticleRaw("Theory"));
+    }
 }

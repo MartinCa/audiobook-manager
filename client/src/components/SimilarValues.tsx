@@ -1,7 +1,17 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Layers, RefreshCw, ArrowRight, Loader2, Users, BookMarked } from "lucide-react";
+import {
+  ArrowLeft,
+  Layers,
+  RefreshCw,
+  ArrowRight,
+  Loader2,
+  Users,
+  BookMarked,
+  Ban,
+  ListX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,6 +20,7 @@ import { PAGE_SIZE } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { AlignTargetDialog } from "./AlignTargetDialog";
+import { IgnoredSimilarValuesDialog } from "./IgnoredSimilarValuesDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { similarValuesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -38,6 +49,8 @@ export function SimilarValues() {
   const [activeTab, setActiveTab] = useState<"author" | "series">("author");
   const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [ignoredDialogOpen, setIgnoredDialogOpen] = useState(false);
+  const [ignoringValue, setIgnoringValue] = useState<string | null>(null);
 
   // The detected groups are paged server-side: the clustering still runs over the whole
   // distinct-value set per request (detection is stateless by design), but only the requested
@@ -116,12 +129,11 @@ export function SimilarValues() {
     setDialogOpen(true);
   };
 
-  const handleAlignConfirm = async (targetValue: string) => {
+  const handleAlignConfirm = async (targetValue: string, includedValues: string[]) => {
     if (!selectedGroup) return;
     setAligning(true);
-    const candidateStrings = selectedGroup.candidates.map((c) => c.value);
     try {
-      await similarValuesApi.align(activeTab, candidateStrings, targetValue);
+      await similarValuesApi.align(activeTab, includedValues, targetValue);
       notifications.success(`Alignment started for "${targetValue}"`);
       void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
     } catch (err: unknown) {
@@ -129,6 +141,20 @@ export function SimilarValues() {
       setAligning(false);
     } finally {
       setSelectedGroup(null);
+    }
+  };
+
+  const handleIgnorePair = async (value: string, group: SimilarValueGroup) => {
+    setIgnoringValue(value);
+    const againstValues = group.candidates.map((c) => c.value).filter((v) => v !== value);
+    try {
+      await similarValuesApi.ignorePair(activeTab, value, againstValues);
+      notifications.success(`"${value}" marked as not similar`);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
+    } catch (err: unknown) {
+      notifications.error(handleApiError(err).message);
+    } finally {
+      setIgnoringValue(null);
     }
   };
 
@@ -140,16 +166,22 @@ export function SimilarValues() {
           Back to Library
         </LinkButton>
 
-        <Button
-          variant="outline"
-          onClick={() => {
-            void refetch();
-          }}
-          disabled={loading}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh Detection
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setIgnoredDialogOpen(true)}>
+            <ListX className="mr-2 h-4 w-4" />
+            Show ignored
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void refetch();
+            }}
+            disabled={loading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh Detection
+          </Button>
+        </div>
       </div>
 
       <div>
@@ -234,12 +266,31 @@ export function SimilarValues() {
                   {group.candidates.map((cand) => (
                     <div
                       key={cand.value}
-                      className="border-border bg-muted/30 rounded-md border p-2.5 text-xs"
+                      className="border-border bg-muted/30 flex items-start justify-between gap-2 rounded-md border p-2.5 text-xs"
                     >
-                      <div className="text-foreground font-semibold break-words">{cand.value}</div>
-                      <div className="text-muted-foreground mt-1">
-                        {cand.bookCount} {cand.bookCount === 1 ? "book" : "books"}
+                      <div className="min-w-0">
+                        <div className="text-foreground font-semibold break-words">
+                          {cand.value}
+                        </div>
+                        <div className="text-muted-foreground mt-1">
+                          {cand.bookCount} {cand.bookCount === 1 ? "book" : "books"}
+                        </div>
                       </div>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Mark "${cand.value}" as not similar to the rest of this group`}
+                        disabled={ignoringValue === cand.value}
+                        onClick={() => {
+                          void handleIgnorePair(cand.value, group);
+                        }}
+                      >
+                        {ignoringValue === cand.value ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Ban className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -278,15 +329,28 @@ export function SimilarValues() {
 
       {selectedGroup && (
         <AlignTargetDialog
+          // AlignTargetDialog's target/checkbox selection state only initializes on mount, not on
+          // prop change (closing via ESC/backdrop only flips `open`, it does not clear
+          // selectedGroup) - keying by the group's identity forces a remount instead of reusing
+          // stale selection state from whichever group was open before. Detected groups are
+          // disjoint clusters, so the first candidate's value alone already uniquely identifies a
+          // group - no need to join every value (which a "|" in a real value could collide on).
+          key={selectedGroup.candidates[0]?.value ?? ""}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           candidates={selectedGroup.candidates}
           valueType={activeTab}
-          onConfirm={(target) => {
-            void handleAlignConfirm(target);
+          onConfirm={(target, includedValues) => {
+            void handleAlignConfirm(target, includedValues);
           }}
         />
       )}
+
+      <IgnoredSimilarValuesDialog
+        open={ignoredDialogOpen}
+        onOpenChange={setIgnoredDialogOpen}
+        valueType={activeTab}
+      />
     </div>
   );
 }

@@ -17,6 +17,7 @@ public class SimilarValueServiceTests
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SimilarValueService>> _logger = null!;
+    private Mock<IIgnoredSimilarValuePairRepository> _ignoredPairRepository = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private AudiobookSaveGate _saveGate = null!;
     private SimilarValueDetectionCache _detectionCache = null!;
@@ -31,6 +32,9 @@ public class SimilarValueServiceTests
         _logger = new Mock<ILogger<SimilarValueService>>();
         _saveGate = new AudiobookSaveGate();
         _detectionCache = new SimilarValueDetectionCache();
+        _ignoredPairRepository = new Mock<IIgnoredSimilarValuePairRepository>();
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync(It.IsAny<string>()))
+            .ReturnsAsync(new List<AudiobookManager.Database.Models.IgnoredSimilarValuePair>());
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookImportPath = "/import",
@@ -43,6 +47,7 @@ public class SimilarValueServiceTests
             _audiobookService.Object,
             _saveGate,
             _detectionCache,
+            _ignoredPairRepository.Object,
             _settings,
             _logger.Object);
     }
@@ -202,6 +207,60 @@ public class SimilarValueServiceTests
             "alignment must invalidate the cached grouping so the merged value is re-detected");
     }
 
+    // Regression: an ignored pair naming a value an alignment just rewrote away used to linger
+    // forever in "Show ignored" - it can never match a live clustering edge again once the value
+    // it names no longer exists, so alignment must sweep it.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_SweepsIgnoredPairsNamingTheRewrittenSourceNames()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling", "J. K. Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(
+                "authors",
+                It.Is<IReadOnlyCollection<string>>(v =>
+                    v.Count == 2 && v.Contains("JK Rowling") && v.Contains("J. K. Rowling"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task AlignSeriesAsync_SweepsIgnoredPairsNamingTheRewrittenSourceValues()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Fantasy & Adventure", "Fantasy and Adventure" },
+            "Fantasy & Adventure",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(
+                "series",
+                It.Is<IReadOnlyCollection<string>>(v => v.Count == 1 && v.Contains("Fantasy and Adventure"))),
+            Times.Once);
+    }
+
+    // Alignment that touches nothing (only the target itself in the group) must not sweep either.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_OnlyTargetNameInGroup_DoesNotSweepIgnoredPairs()
+    {
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>()),
+            Times.Never);
+    }
+
     // Regression for the stale-publication race: a request that missed the cache and is still
     // reading the distinct values when an alignment invalidates must NOT publish its
     // pre-alignment groups back into the cache for the TTL. The test coordinates the interleaving
@@ -307,6 +366,39 @@ public class SimilarValueServiceTests
         Assert.AreEqual(2, last.total);
         Assert.AreEqual(1, last.succeeded);
         Assert.AreEqual(1, last.failed);
+    }
+
+    // Regression: a source name is only actually gone from the library if every book carrying it
+    // aligned successfully. A failed book (busy save gate, path collision, etc.) still carries the
+    // source name, so its ignored pairs are still live and must survive the alignment.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_OneBookFails_DoesNotSweepIgnoredPairs()
+    {
+        var book1 = MakeDbAudiobook(1, "Book One");
+        book1.Authors = new List<DbPerson> { new(1, "J.K. Rowling") };
+        var book2 = MakeDbAudiobook(2, "Book Two");
+        book2.Authors = new List<DbPerson> { new(2, "JK Rowling") };
+
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .ThrowsAsync(new Exception("path collision"));
+        _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        var result = await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" },
+            "J.K. Rowling",
+            (_, _, _, _) => Task.CompletedTask);
+
+        // The align must actually have run (and hit the failure) for "Times.Never" below to mean
+        // anything - otherwise an empty books list would pass this assertion vacuously.
+        Assert.AreEqual(1, result.Failed);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()), Times.Once);
+        _ignoredPairRepository.Verify(
+            r => r.DeleteInvolvingValuesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>()),
+            Times.Never);
     }
 
     // Regression: alignment rewrites m4b tags and can relocate files, exactly like an interactive
@@ -545,6 +637,246 @@ public class SimilarValueServiceTests
         Assert.AreEqual(0, last.failed);
     }
 
+    // ---- Ignored pairs ----
+
+    [TestMethod]
+    public async Task IgnorePairAsync_AddsOnePairPerAgainstValue_ExcludingTheValueItself()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
+        List<(string ValueA, string ValueB)>? insertedPairs = null;
+        _ignoredPairRepository
+            .Setup(r => r.AddRangeAsync("authors", It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()))
+            .Callback<string, IEnumerable<(string ValueA, string ValueB)>>((_, pairs) => insertedPairs = pairs.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ed Winters", "Ben Winters" });
+
+        Assert.IsNotNull(insertedPairs);
+        Assert.AreEqual(1, insertedPairs!.Count, "the value itself must not be paired against itself");
+        Assert.AreEqual(("Ben Winters", "Ed Winters"), insertedPairs[0], "the pair is ordered A < B ordinally");
+    }
+
+    [TestMethod]
+    public async Task IgnorePairAsync_InvalidatesTheDetectionCache()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()))
+            .Returns(Task.CompletedTask);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ed Winters" });
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        // 3 calls: the first detect (cache miss), IgnorePairAsync's own existence check against
+        // the current distinct values, and the second detect (cache invalidated by the ignore).
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(3),
+            "ignoring a pair must invalidate the cached grouping so it is re-clustered");
+    }
+
+    [TestMethod]
+    public async Task IgnorePairAsync_NoAgainstValuesBesidesItself_DoesNotCallTheRepository()
+    {
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ben Winters" });
+
+        _ignoredPairRepository.Verify(
+            r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()),
+            Times.Never);
+    }
+
+    // Regression: a value that no longer exists in the library (e.g. a stale client tab still
+    // holding a group an alignment has since folded away) must not be able to accumulate ignored
+    // rows for it - IgnorePairAsync now checks both sides against the kind's current distinct
+    // values before writing anything.
+    [TestMethod]
+    public async Task IgnorePairAsync_AgainstValueNoLongerExists_ReturnsFalseAndWritesNothing()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters",
+        });
+
+        var succeeded = await _service.IgnorePairAsync(
+            "authors", "Ben Winters", new List<string> { "Ed Winters" });
+
+        Assert.IsFalse(succeeded);
+        _ignoredPairRepository.Verify(
+            r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_IgnoredPair_SkipsThatEdge()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync("authors")).ReturnsAsync(new List<
+            AudiobookManager.Database.Models.IgnoredSimilarValuePair>
+        {
+            new() { Id = 1, Kind = "authors", ValueA = "Ben Winters", ValueB = "Ed Winters", CreatedAt = DateTime.UtcNow },
+        });
+
+        var (groups, total) = await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        Assert.AreEqual(0, total, "an ignored pair must not be clustered together");
+        Assert.AreEqual(0, groups.Count);
+    }
+
+    [TestMethod]
+    public async Task GetIgnoredPairsAsync_MapsRepositoryRowsToInfoRecords()
+    {
+        var ignoredAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync("series")).ReturnsAsync(new List<
+            AudiobookManager.Database.Models.IgnoredSimilarValuePair>
+        {
+            new() { Id = 9, Kind = "series", ValueA = "A", ValueB = "B", CreatedAt = ignoredAt },
+        });
+
+        var pairs = await _service.GetIgnoredPairsAsync("series");
+
+        Assert.AreEqual(1, pairs.Count);
+        Assert.AreEqual(9, pairs[0].Id);
+        Assert.AreEqual("A", pairs[0].ValueA);
+        Assert.AreEqual("B", pairs[0].ValueB);
+        Assert.AreEqual(ignoredAt, pairs[0].IgnoredAtUtc);
+    }
+
+    [TestMethod]
+    public async Task RemoveIgnoredPairAsync_InvalidatesTheDetectionCache()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>());
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.DeleteAsync("authors", 5)).Returns(Task.CompletedTask);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        await _service.RemoveIgnoredPairAsync("authors", 5);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(2),
+            "removing an ignored pair must invalidate the cached grouping");
+        _ignoredPairRepository.Verify(r => r.DeleteAsync("authors", 5), Times.Once);
+    }
+
+    // ---- Series "the"-insensitivity ----
+
+    [TestMethod]
+    public async Task DetectSimilarSeriesAsync_LeadingArticleDifference_IsGrouped()
+    {
+        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "The Mistborn Saga", "Mistborn Saga",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var (groups, total) = await _service.DetectSimilarSeriesAsync(skip: 0, take: 50);
+
+        Assert.AreEqual(1, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "The Mistborn Saga", "Mistborn Saga" },
+            groups[0].Candidates.Select(c => c.Value).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_IsSimilar()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual(1, status.SimilarMatches.Count);
+        Assert.AreEqual("The Mistborn Saga", status.SimilarMatches[0].Name);
+    }
+
+    // Regression: the reverse direction of the leading-article rule. The prefilter's LIKE pattern
+    // for "The Mistborn Saga" cannot find a stored "Mistborn Saga" by substring (the typed string
+    // is the longer one), and its first-token fallback ("the") would flood the capped candidate
+    // list with unrelated matches instead - so the service re-searches on the stripped form too.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_ReverseDirection_IsSimilar()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        // The unstripped search only turns up noise the "the" token pattern floods in with - the
+        // real match is missing until the stripped-form re-search runs.
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Wheel of Time" });
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "Mistborn Saga"));
+    }
+
+    // Regression: each search is independently capped at the prefilter limit, so when the
+    // unstripped "%the%" first-token fallback alone fills the cap (a library with 20+ series
+    // containing "the" is not unusual), concatenating the stripped candidates *after* the
+    // unstripped ones and then re-capping to the limit used to cut the genuine stripped match back
+    // off before it was ever scored - reporting "New" for exactly the case this rule exists to fix.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_ReverseDirection_SurvivesUnstrippedFlood()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        // The unstripped search's own capped result is entirely noise - 20 unrelated series whose
+        // names happen to contain "the" - filling the candidate cap on its own.
+        var flood = Enumerable.Range(1, 20).Select(i => $"The Noisy Series {i}").ToList();
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(flood);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "Mistborn Saga"));
+    }
+
+    // Regression: the residual asymmetry a re-capped merge could still hit - the *stripped* search
+    // filling its own cap with noise. The merge no longer re-caps at all (each search is already
+    // independently capped, so the merge is bounded on its own), so a genuine match the unstripped
+    // search alone found must survive even when the stripped search's result is full of noise.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_StrippedSearchFloodDoesNotDropAnUnstrippedMatch()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Mistborn Sagaa" });
+        // The stripped search's own capped result is entirely noise - 20 unrelated series that
+        // happen to contain "Mistborn Saga" as a substring - filling its cap on its own.
+        var strippedFlood = Enumerable.Range(1, 20).Select(i => $"Mistborn Saga Noise {i}").ToList();
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(strippedFlood);
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "The Mistborn Sagaa"));
+    }
+
     // ---- GetEntryStatusAsync ----
 
     [TestMethod]
@@ -634,6 +966,8 @@ public class SimilarValueServiceTests
             .ReturnsAsync((string?)null);
         _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Stormlight Archivee", 20))
             .ReturnsAsync(new List<string> { "The Stormlight Archive" });
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Stormlight Archivee", 20))
+            .ReturnsAsync(new List<string>());
 
         var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Stormlight Archivee", 3);
 

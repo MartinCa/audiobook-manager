@@ -168,6 +168,81 @@ public class SimilarValuesController : ControllerBase
             status.SimilarMatches.Select(m => new EntryMatchDto(m.Id, m.Name)).ToList());
     }
 
+    /// <summary>
+    /// Every pair a user has explicitly marked as not similar for one kind - naturally small (one
+    /// row per manual ignore), so this is unbounded only in the sense that a per-kind ignored-
+    /// pairs table cannot realistically grow with the library the way a name list does.
+    /// </summary>
+    [HttpGet("ignored")]
+    public async Task<ActionResult<List<IgnoredSimilarValuePairDto>>> GetIgnoredPairs(
+        [FromQuery] string valueType)
+    {
+        var kind = ValidateValueType(valueType);
+        if (kind is null)
+        {
+            return this.InvalidRequest("valueType must be 'author' or 'series'.");
+        }
+
+        var pairs = await _similarValueService.GetIgnoredPairsAsync(kind);
+        return pairs
+            .Select(p => new IgnoredSimilarValuePairDto(p.Id, p.ValueA, p.ValueB, p.IgnoredAtUtc))
+            .ToList();
+    }
+
+    [HttpPost("ignore")]
+    public async Task<IActionResult> IgnorePair([FromBody] IgnoreSimilarValuePairDto dto)
+    {
+        var kind = ValidateValueType(dto.ValueType);
+        if (kind is null)
+        {
+            return this.InvalidRequest("ValueType must be 'author' or 'series'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Value))
+        {
+            return this.InvalidRequest("Value is required.");
+        }
+
+        if (dto.AgainstValues == null || dto.AgainstValues.Count == 0)
+        {
+            return this.InvalidRequest("AgainstValues must contain at least one value.");
+        }
+
+        if (dto.AgainstValues.Any(string.IsNullOrWhiteSpace))
+        {
+            return this.InvalidRequest("AgainstValues must not contain a blank value.");
+        }
+
+        var ok = await _similarValueService.IgnorePairAsync(kind, dto.Value, dto.AgainstValues);
+        if (!ok)
+        {
+            return this.InvalidRequest("Value and AgainstValues must all be currently-existing library values.");
+        }
+
+        return Ok();
+    }
+
+    [HttpDelete("ignore/{id:long}")]
+    public async Task<IActionResult> RemoveIgnoredPair(long id, [FromQuery] string valueType)
+    {
+        var kind = ValidateValueType(valueType);
+        if (kind is null)
+        {
+            return this.InvalidRequest("valueType must be 'author' or 'series'.");
+        }
+
+        await _similarValueService.RemoveIgnoredPairAsync(kind, id);
+        return Ok();
+    }
+
+    /// <summary>Maps the wire "author"/"series" valueType to the service's "authors"/"series" kind, or null if invalid.</summary>
+    private static string? ValidateValueType(string valueType) => valueType switch
+    {
+        "author" => SimilarValueService.AuthorGroupsKind,
+        "series" => SimilarValueService.SeriesGroupsKind,
+        _ => null,
+    };
+
     [HttpPost("align")]
     public IActionResult StartAlign([FromBody] AlignSimilarValuesDto dto)
     {

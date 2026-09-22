@@ -19,3 +19,10 @@ export type SimilarValueGroupsPage = Require<
 > & {
   items: SimilarValueGroup[];
 };
+
+// AudiobookManager.Api/Dtos/SimilarValueGroupDto.cs's IgnoredSimilarValuePairDto record - every
+// field is non-nullable there, so all are required here.
+export type IgnoredSimilarValuePair = Require<
+  components["schemas"]["IgnoredSimilarValuePairDto"],
+  "id" | "valueA" | "valueB" | "ignoredAtUtc"
+>;
