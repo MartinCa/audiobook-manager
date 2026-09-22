@@ -387,11 +387,15 @@ public class SimilarValueServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
             .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
 
-        await _service.AlignAuthorsAsync(
+        var result = await _service.AlignAuthorsAsync(
             new List<string> { "J.K. Rowling", "JK Rowling" },
             "J.K. Rowling",
             (_, _, _, _) => Task.CompletedTask);
 
+        // The align must actually have run (and hit the failure) for "Times.Never" below to mean
+        // anything - otherwise an empty books list would pass this assertion vacuously.
+        Assert.AreEqual(1, result.Failed);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()), Times.Once);
         _ignoredPairRepository.Verify(
             r => r.DeleteInvolvingValuesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>()),
             Times.Never);
@@ -848,6 +852,29 @@ public class SimilarValueServiceTests
 
         Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
         Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "Mistborn Saga"));
+    }
+
+    // Regression: the residual asymmetry a re-capped merge could still hit - the *stripped* search
+    // filling its own cap with noise. The merge no longer re-caps at all (each search is already
+    // independently capped, so the merge is bounded on its own), so a genuine match the unstripped
+    // search alone found must survive even when the stripped search's result is full of noise.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_StrippedSearchFloodDoesNotDropAnUnstrippedMatch()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Mistborn Sagaa" });
+        // The stripped search's own capped result is entirely noise - 20 unrelated series that
+        // happen to contain "Mistborn Saga" as a substring - filling its cap on its own.
+        var strippedFlood = Enumerable.Range(1, 20).Select(i => $"Mistborn Saga Noise {i}").ToList();
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(strippedFlood);
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "The Mistborn Sagaa"));
     }
 
     // ---- GetEntryStatusAsync ----

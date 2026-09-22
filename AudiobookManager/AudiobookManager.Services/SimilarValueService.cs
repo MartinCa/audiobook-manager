@@ -190,15 +190,17 @@ public class SimilarValueService : ISimilarValueService
             var strippedCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
                 strippedQuery, EntryStatusCandidatePrefilterLimit);
 
-            // strippedCandidates goes first: each search is independently capped at the limit, so
-            // when the unstripped search's own first-token fallback already fills the cap (the
-            // exact "%the%" flood this second search exists to work around), putting the
-            // unstripped list first would let Take() below cut the genuine stripped match back off
-            // again before it's ever scored.
+            // Each search is already independently capped at the limit, so the merge is bounded
+            // (at most 2x the limit) without re-capping it - re-capping the merged set back down to
+            // the limit could still cut off a genuine stripped match if the unstripped search's own
+            // "%the%" first-token fallback filled its cap entirely with full/token matches (which
+            // sort ahead of the stripped search's own hits in whichever order the two are
+            // concatenated). Scoring further downstream both narrows this to the caller's
+            // requested result limit and orders by actual similarity, so there's no reason to
+            // impose a second, arbitrary trim here.
             seriesCandidates = strippedCandidates
                 .Concat(seriesCandidates)
                 .Distinct(StringComparer.Ordinal)
-                .Take(EntryStatusCandidatePrefilterLimit)
                 .ToList();
         }
 
