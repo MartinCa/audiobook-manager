@@ -4229,6 +4229,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/similar-values/ignored": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    valueType?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["IgnoredSimilarValuePairDto"][];
+                        "application/json": components["schemas"]["IgnoredSimilarValuePairDto"][];
+                        "text/json": components["schemas"]["IgnoredSimilarValuePairDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/similar-values/ignore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["IgnoreSimilarValuePairDto"];
+                    "text/json": components["schemas"]["IgnoreSimilarValuePairDto"];
+                    "application/*+json": components["schemas"]["IgnoreSimilarValuePairDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/similar-values/ignore/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    valueType?: string;
+                };
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/similar-values/align": {
         parameters: {
             query?: never;
@@ -4994,6 +5109,19 @@ export interface components {
             lastFailureReason?: string | null;
             /** Format: date-time */
             lastFailureAt?: string | null;
+        };
+        IgnoreSimilarValuePairDto: {
+            valueType?: string | null;
+            value?: string | null;
+            againstValues?: string[] | null;
+        };
+        IgnoredSimilarValuePairDto: {
+            /** Format: int64 */
+            id?: number;
+            valueA?: string | null;
+            valueB?: string | null;
+            /** Format: date-time */
+            ignoredAtUtc?: string;
         };
         IncludeOmnibusEditionsDto: {
             includeOmnibusEditions?: boolean;
