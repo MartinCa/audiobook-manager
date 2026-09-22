@@ -24,6 +24,7 @@ public static class DependencyInjection
             .AddScoped<ISeriesFollowRepository, SeriesFollowRepository>()
             .AddScoped<IUpcomingReleaseRepository, UpcomingReleaseRepository>()
             .AddScoped<IExpectedBookRepository, ExpectedBookRepository>()
-            .AddScoped<IScheduledTaskRunRepository, ScheduledTaskRunRepository>();
+            .AddScoped<IScheduledTaskRunRepository, ScheduledTaskRunRepository>()
+            .AddScoped<IIgnoredSimilarValuePairRepository, IgnoredSimilarValuePairRepository>();
 
 }
