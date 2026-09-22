@@ -374,6 +374,27 @@ public class SimilarValuesControllerTests
             s => s.IgnorePairAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
     }
 
+    // Regression: a blank AgainstValues entry used to sail past validation and hit the
+    // [Required]/NOT-NULL entity columns downstream, surfacing as a raw 500 instead of the
+    // InvalidRequest 400 every other malformed-body case on this endpoint gets.
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    public async Task IgnorePair_BlankAgainstValuesEntry_ReturnsBadRequest(string blankEntry)
+    {
+        var result = await _controller.IgnorePair(new IgnoreSimilarValuePairDto
+        {
+            ValueType = "author",
+            Value = "Ben Winters",
+            AgainstValues = new List<string> { "Ed Winters", blankEntry },
+        });
+
+        Assert.IsInstanceOfType(result, typeof(ObjectResult));
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result).StatusCode);
+        _similarValueService.Verify(
+            s => s.IgnorePairAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
+    }
+
     [TestMethod]
     public async Task RemoveIgnoredPair_ValidRequest_CallsServiceWithMappedKind()
     {

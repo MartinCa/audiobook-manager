@@ -164,6 +164,26 @@ public class SimilarValueService : ISimilarValueService
 
         var seriesCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
             trimmed, EntryStatusCandidatePrefilterLimit);
+
+        // The LIKE prefilter's first-token fallback makes the "the"-insensitivity rule
+        // one-directional: typing "The Mistborn Saga" against a stored "Mistborn Saga" falls back
+        // to a "%the%" token pattern (since "the" is the first token), which floods the capped
+        // candidate list with every series containing "the" anywhere and crowds out the real
+        // match. Re-running the search on the stripped form closes the gap without touching the
+        // shared LIKE-prefilter helper (also used by autocomplete, where "the"-stripping doesn't
+        // apply).
+        var strippedQuery = NameNormalizer.StripLeadingArticleRaw(trimmed);
+        if (strippedQuery.Length > 0 && strippedQuery != trimmed)
+        {
+            var strippedCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
+                strippedQuery, EntryStatusCandidatePrefilterLimit);
+            seriesCandidates = seriesCandidates
+                .Concat(strippedCandidates ?? new List<string>())
+                .Distinct(StringComparer.Ordinal)
+                .Take(EntryStatusCandidatePrefilterLimit)
+                .ToList();
+        }
+
         return BuildSimilarOrNew(trimmed,
             seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit, isSeries: true);
     }

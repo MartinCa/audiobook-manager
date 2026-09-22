@@ -694,6 +694,28 @@ public class SimilarValueServiceTests
         Assert.AreEqual("The Mistborn Saga", status.SimilarMatches[0].Name);
     }
 
+    // Regression: the reverse direction of the leading-article rule. The prefilter's LIKE pattern
+    // for "The Mistborn Saga" cannot find a stored "Mistborn Saga" by substring (the typed string
+    // is the longer one), and its first-token fallback ("the") would flood the capped candidate
+    // list with unrelated matches instead - so the service re-searches on the stripped form too.
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_ReverseDirection_IsSimilar()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("The Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        // The unstripped search only turns up noise the "the" token pattern floods in with - the
+        // real match is missing until the stripped-form re-search runs.
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("The Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Wheel of Time" });
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "The Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.IsTrue(status.SimilarMatches.Any(m => m.Name == "Mistborn Saga"));
+    }
+
     // ---- GetEntryStatusAsync ----
 
     [TestMethod]

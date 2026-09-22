@@ -79,4 +79,25 @@ public class NameNormalizerTests
         // on isSeries.
         Assert.AreEqual("rock", NameNormalizer.StripLeadingArticle(NameNormalizer.Normalize("The Rock")));
     }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_RemovesLeadingThe_CaseInsensitively_PreservingRemainingCase()
+    {
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("The Mistborn Saga"));
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("THE Mistborn Saga"));
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("the Mistborn Saga"));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_NoLeadingThe_IsUnchanged()
+    {
+        Assert.AreEqual("Mistborn Saga", NameNormalizer.StripLeadingArticleRaw("Mistborn Saga"));
+    }
+
+    [TestMethod]
+    public void StripLeadingArticleRaw_TheAsAWholeToken_IsNotStrippedFromTheMiddleOrWithoutTrailingSpace()
+    {
+        Assert.AreEqual("The", NameNormalizer.StripLeadingArticleRaw("The"));
+        Assert.AreEqual("Theory", NameNormalizer.StripLeadingArticleRaw("Theory"));
+    }
 }

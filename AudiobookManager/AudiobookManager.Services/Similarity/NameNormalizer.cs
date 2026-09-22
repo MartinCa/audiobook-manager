@@ -72,4 +72,16 @@ public static class NameNormalizer
         normalized.StartsWith(LeadingArticle, StringComparison.Ordinal)
             ? normalized[LeadingArticle.Length..]
             : normalized;
+
+    /// <summary>
+    /// Strips a leading "the " token from a raw, un-normalized string - case-insensitively, but
+    /// preserving the case of whatever follows (unlike <see cref="StripLeadingArticle"/>, which
+    /// only ever sees an already-lowercased string). Used to build a second search-prefilter query
+    /// from a raw typed value ("The Mistborn Saga" -&gt; "Mistborn Saga") without lowercasing text
+    /// that is about to go back out over the wire as a query string.
+    /// </summary>
+    public static string StripLeadingArticleRaw(string value) =>
+        value.StartsWith(LeadingArticle, StringComparison.OrdinalIgnoreCase)
+            ? value[LeadingArticle.Length..]
+            : value;
 }

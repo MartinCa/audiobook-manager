@@ -135,4 +135,42 @@ public class IgnoredSimilarValuePairRepositoryTests
             }
         }
     }
+
+    // Regression: AddRangeAsync fans multiple pairs into one AddRange + SaveChanges, and SQLite
+    // aborts that whole batch on a single unique violation. IgnorePairAsync calls this with one
+    // pair per "against" value, so a batch containing several distinct pairs must not let a race
+    // on just one of them silently drop the others - only the pair that actually lost the race
+    // may go missing.
+    [TestMethod]
+    public async Task AddRangeAsync_BatchWithOneCollidingPair_StillInsertsTheOtherPairsInTheBatch()
+    {
+        var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+        using var otherContext = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+        var otherRepository = new IgnoredSimilarValuePairRepository(otherContext);
+
+        var sharedPair = ("Ben Winters", "Ben Winter");
+        var uniquePairs = new[]
+        {
+            ("Ben Winters", "Ed Winters"),
+            ("Ben Winters", "Benjamin Winters"),
+        };
+
+        var batchCall = _repository.AddRangeAsync(
+            "authors", uniquePairs.Append(sharedPair));
+        var racingCall = otherRepository.AddRangeAsync("authors", new[] { sharedPair });
+
+        await Task.WhenAll(batchCall, racingCall);
+
+        var stored = await _db.IgnoredSimilarValuePairs.AsNoTracking().ToListAsync();
+
+        // Exactly one row per distinct pair - the shared pair is not duplicated regardless of
+        // which of the two calls won the race, and both of the batch's other pairs survive.
+        Assert.AreEqual(3, stored.Count);
+        foreach (var (valueA, valueB) in uniquePairs)
+        {
+            Assert.IsTrue(
+                stored.Any(p => p.ValueA == valueA && p.ValueB == valueB),
+                $"Expected pair ({valueA}, {valueB}) to survive the batch despite the race on a sibling pair.");
+        }
+    }
 }

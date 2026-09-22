@@ -56,13 +56,43 @@ public class IgnoredSimilarValuePairRepository : IIgnoredSimilarValuePairReposit
         {
             // Lost a race against a concurrent ignore of the same pair (or same kind/value pair
             // added from another request) - the row already exists, which is exactly what this
-            // call asked for. Detach so the failed insert does not linger in the change tracker.
-            foreach (var entry in _db.ChangeTracker.Entries<IgnoredSimilarValuePair>()
-                         .Where(e => e.State == EntityState.Added)
-                         .ToList())
+            // call asked for. But SaveChangesAsync batches the whole AddRange into one statement,
+            // and a single unique violation aborts that entire batch - so a caller ignoring a
+            // value against several others in its group (IgnorePairAsync fans out one pair per
+            // "against" value) would silently lose every pair after the one that collided, not
+            // just the collided one. Detach the whole batch and retry each pair on its own
+            // SaveChanges so only the pair(s) that actually lost the race are skipped.
+            DetachAddedEntries();
+
+            foreach (var pair in missing)
             {
-                entry.State = EntityState.Detached;
+                _db.IgnoredSimilarValuePairs.Add(new IgnoredSimilarValuePair
+                {
+                    Kind = kind,
+                    ValueA = pair.ValueA,
+                    ValueB = pair.ValueB,
+                    CreatedAt = now,
+                });
+
+                try
+                {
+                    await _db.SaveChangesAsync();
+                }
+                catch (DbUpdateException retryEx) when (SqliteErrors.IsUniqueViolation(retryEx))
+                {
+                    DetachAddedEntries();
+                }
             }
+        }
+    }
+
+    private void DetachAddedEntries()
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<IgnoredSimilarValuePair>()
+                     .Where(e => e.State == EntityState.Added)
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
         }
     }
 

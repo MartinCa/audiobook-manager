@@ -208,6 +208,11 @@ public class SimilarValuesController : ControllerBase
             return this.InvalidRequest("AgainstValues must contain at least one value.");
         }
 
+        if (dto.AgainstValues.Any(string.IsNullOrWhiteSpace))
+        {
+            return this.InvalidRequest("AgainstValues must not contain a blank value.");
+        }
+
         await _similarValueService.IgnorePairAsync(kind, dto.Value, dto.AgainstValues);
         return Ok();
     }
