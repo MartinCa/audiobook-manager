@@ -244,6 +244,7 @@ describe("BookBulkActionBar", () => {
       queryKeys.author.all(),
       queryKeys.seriesDetail.all(),
       queryKeys.metadataRefresh.all(),
+      queryKeys.missingTagsAudiobooks.all(),
     ]) {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey });
     }
@@ -335,6 +336,7 @@ describe("BookBulkActionBar", () => {
     });
     expect(screen.queryByText("Refreshing metadata...")).not.toBeInTheDocument();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.books.all() });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.missingTagsAudiobooks.all() });
     // A refresh does not change the books' identities: the selection survives.
     expect(screen.getByText("2 selected")).toBeInTheDocument();
   });
@@ -385,6 +387,7 @@ describe("BookBulkActionBar", () => {
     });
     expect(screen.queryByText("Checking books (3 issues found)")).not.toBeInTheDocument();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.seriesDetail.all() });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.missingTagsAudiobooks.all() });
     expect(screen.getByText("2 selected")).toBeInTheDocument();
   });
 
