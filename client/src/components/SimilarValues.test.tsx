@@ -95,6 +95,36 @@ describe("SimilarValues", () => {
     expect(screen.getByText("7 books")).toBeInTheDocument();
   });
 
+  it("links an author candidate that resolved to a Person row to the author page, and leaves an unresolved one as plain text", async () => {
+    vi.mocked(similarValuesApi.getSimilarAuthors).mockResolvedValue({
+      items: [
+        {
+          candidates: [
+            { value: "J.K. Rowling", bookCount: 7, authorId: 42 },
+            { value: "JK Rowling", bookCount: 2 },
+          ],
+        },
+      ],
+      totalCount: 1,
+    });
+
+    renderWithProviders(<SimilarValues />);
+
+    const resolvedLink = await screen.findByRole("link", { name: "J.K. Rowling" });
+    expect(resolvedLink).toHaveAttribute("href", "/library/authors/42");
+    expect(screen.getByText("JK Rowling").closest("a")).toBeNull();
+  });
+
+  it("links every series candidate to its series page", async () => {
+    renderWithProviders(<SimilarValues />);
+
+    const seriesTab = await screen.findByText("Similar Series");
+    seriesTab.click();
+
+    const link = await screen.findByRole("link", { name: "J.K. Rowling" });
+    expect(link).toHaveAttribute("href", "/library/series/J.K.%20Rowling");
+  });
+
   it("switches to the series endpoint when the tab changes", async () => {
     renderWithProviders(<SimilarValues />);
 

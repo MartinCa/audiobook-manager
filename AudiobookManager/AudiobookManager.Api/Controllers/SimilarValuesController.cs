@@ -1,5 +1,6 @@
 ﻿using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -57,7 +58,9 @@ public class SimilarValuesController : ControllerBase
 
         var groups = await _similarValueService.DetectSimilarAuthorsAsync(
             skip: (int)((long)page * pageSize), take: pageSize);
-        return Ok(new SimilarValueGroupsPageDto(ToDto(groups.Items), groups.Total));
+        var candidateNames = groups.Items.SelectMany(g => g.Candidates.Select(c => c.Value)).ToList();
+        var authorsByName = await _personRepository.GetByNamesAsync(candidateNames);
+        return Ok(new SimilarValueGroupsPageDto(ToDtoWithAuthorIds(groups.Items, authorsByName), groups.Total));
     }
 
     [HttpGet("similar-series")]
@@ -303,12 +306,26 @@ public class SimilarValuesController : ControllerBase
         return null;
     }
 
+    // Series candidates carry no AuthorId - there is no Person row to resolve for a series value.
     private static List<SimilarValueGroupDto> ToDto(List<Domain.SimilarValueGroup> groups)
+    {
+        return groups.Select(g => new SimilarValueGroupDto(
+            g.Candidates.Select(c => new SimilarValueCandidateDto(c.Value, c.BookCount)).ToList()
+        )).ToList();
+    }
+
+    // Author candidates resolve AuthorId from the caller-supplied name->Person map (built once,
+    // up front, from every candidate across the page) rather than taking an optional dictionary
+    // here - an accidental null would otherwise silently produce an all-unlinked page.
+    private static List<SimilarValueGroupDto> ToDtoWithAuthorIds(
+        List<Domain.SimilarValueGroup> groups,
+        IReadOnlyDictionary<string, Person> authorsByName)
     {
         return groups.Select(g => new SimilarValueGroupDto(
             g.Candidates.Select(c => new SimilarValueCandidateDto(
                 c.Value,
-                c.BookCount
+                c.BookCount,
+                authorsByName.TryGetValue(c.Value, out var author) ? author.Id : null
             )).ToList()
         )).ToList();
     }
