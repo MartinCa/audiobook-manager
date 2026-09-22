@@ -15,3 +15,9 @@ public class SimilarValueCandidate
     public string Value { get; set; } = string.Empty;
     public int BookCount { get; set; }
 }
+
+/// <summary>
+/// One pair of values a user has explicitly marked as not similar within one kind
+/// ("authors"/"series"), so the clustering stops unioning them directly.
+/// </summary>
+public record IgnoredSimilarValuePairInfo(long Id, string ValueA, string ValueB, DateTime IgnoredAtUtc);

@@ -310,6 +310,90 @@ public class SimilarValuesControllerTests
     }
 
     [TestMethod]
+    public async Task GetIgnoredPairs_Author_ReturnsMappedDtos()
+    {
+        var ignoredAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _similarValueService.Setup(s => s.GetIgnoredPairsAsync("authors"))
+            .ReturnsAsync(new List<IgnoredSimilarValuePairInfo>
+            {
+                new(5, "Ben Winters", "Ed Winters", ignoredAt),
+            });
+
+        var result = await _controller.GetIgnoredPairs("author");
+
+        var dtos = result.Value;
+        Assert.IsNotNull(dtos);
+        Assert.AreEqual(1, dtos!.Count);
+        Assert.AreEqual(5, dtos[0].Id);
+        Assert.AreEqual("Ben Winters", dtos[0].ValueA);
+        Assert.AreEqual("Ed Winters", dtos[0].ValueB);
+        Assert.AreEqual(ignoredAt, dtos[0].IgnoredAtUtc);
+    }
+
+    [TestMethod]
+    public async Task GetIgnoredPairs_InvalidValueType_ReturnsBadRequest()
+    {
+        var result = await _controller.GetIgnoredPairs("narrator");
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _similarValueService.Verify(s => s.GetIgnoredPairsAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task IgnorePair_ValidRequest_CallsServiceWithMappedKind()
+    {
+        var result = await _controller.IgnorePair(new IgnoreSimilarValuePairDto
+        {
+            ValueType = "series",
+            Value = "The Mistborn Saga",
+            AgainstValues = new List<string> { "Mistborn Saga" },
+        });
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _similarValueService.Verify(
+            s => s.IgnorePairAsync("series", "The Mistborn Saga", It.Is<List<string>>(l => l.Contains("Mistborn Saga"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("invalid", "value", true)]
+    [DataRow("author", "", true)]
+    [DataRow("author", "value", false)]
+    public async Task IgnorePair_InvalidRequest_ReturnsBadRequest(string valueType, string value, bool hasAgainstValues)
+    {
+        var result = await _controller.IgnorePair(new IgnoreSimilarValuePairDto
+        {
+            ValueType = valueType,
+            Value = value,
+            AgainstValues = hasAgainstValues ? new List<string> { "Other" } : new List<string>(),
+        });
+
+        Assert.IsInstanceOfType(result, typeof(ObjectResult));
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result).StatusCode);
+        _similarValueService.Verify(
+            s => s.IgnorePairAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RemoveIgnoredPair_ValidRequest_CallsServiceWithMappedKind()
+    {
+        var result = await _controller.RemoveIgnoredPair(5, "author");
+
+        Assert.IsInstanceOfType(result, typeof(OkResult));
+        _similarValueService.Verify(s => s.RemoveIgnoredPairAsync("authors", 5), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RemoveIgnoredPair_InvalidValueType_ReturnsBadRequest()
+    {
+        var result = await _controller.RemoveIgnoredPair(5, "narrator");
+
+        Assert.IsInstanceOfType(result, typeof(ObjectResult));
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result).StatusCode);
+        _similarValueService.Verify(s => s.RemoveIgnoredPairAsync(It.IsAny<string>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
     public void StartAlign_InvalidValueType_ReturnsBadRequest()
     {
         var result = _controller.StartAlign(new AlignSimilarValuesDto

@@ -23,6 +23,19 @@ public interface ISimilarValueService
     /// </summary>
     Task<EntryValueStatus> GetEntryStatusAsync(EntryValueKind kind, string value, int limit);
 
+    /// <summary>Every ignored pair for one kind ("authors"/"series"), oldest first.</summary>
+    Task<List<IgnoredSimilarValuePairInfo>> GetIgnoredPairsAsync(string kind);
+
+    /// <summary>
+    /// Marks <paramref name="value"/> as not similar to each of <paramref name="againstValues"/>
+    /// (typically the rest of its current detected group), then invalidates the detection cache
+    /// so the group re-splits immediately rather than after the cache TTL.
+    /// </summary>
+    Task IgnorePairAsync(string kind, string value, List<string> againstValues);
+
+    /// <summary>Removes one ignored pair by id and invalidates the detection cache.</summary>
+    Task RemoveIgnoredPairAsync(string kind, long id);
+
     Task<(int Processed, int Succeeded, int Failed)> AlignAuthorsAsync(
         List<string> sourceNames,
         string targetName,

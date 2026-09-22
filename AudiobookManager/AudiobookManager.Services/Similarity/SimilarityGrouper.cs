@@ -14,8 +14,27 @@ public static class SimilarityGrouper
     /// Groups near-duplicate values. Only clusters with more than one member are returned.
     /// Input values are expected to already be distinct (case-sensitive); order of values
     /// within a cluster is preserved from the input.
+    ///
+    /// <paramref name="isSeries"/> turns on a series-only rule: two values whose normalized form
+    /// differs only by a leading "the " (<see cref="NameNormalizer.StripLeadingArticle"/>) are
+    /// unioned directly, in a separate O(n) bucketing pass independent of the length-blocking
+    /// loop below - "The Mistborn Saga" vs "Mistborn Saga" differs by 4 characters, which can
+    /// fall outside the edit-distance threshold and the length-window blocking cutoff both.
+    /// Never applied to authors, so an author literally named "The Rock" does not fold onto
+    /// "Rock".
+    ///
+    /// <paramref name="ignoredPairs"/> removes specific edges the union-find step would
+    /// otherwise draw: a pair explicitly marked "not similar" is skipped, but the two values can
+    /// still end up in the same cluster transitively through a third value neither is ignored
+    /// against - this only removes that one edge, not the values from consideration entirely.
+    /// Pairs are looked up with <see cref="IgnoredPairKey"/> (ValueA/ValueB ordered the same way
+    /// the caller normalizes them before building the set).
     /// </summary>
-    public static List<List<string>> GroupSimilarValues(IReadOnlyList<string> values, AudiobookManagerSettings settings)
+    public static List<List<string>> GroupSimilarValues(
+        IReadOnlyList<string> values,
+        AudiobookManagerSettings settings,
+        bool isSeries = false,
+        HashSet<(string A, string B)>? ignoredPairs = null)
     {
         var n = values.Count;
         if (n < 2)
@@ -75,6 +94,9 @@ public static class SimilarityGrouper
                 if (Find(i) == Find(j))
                     continue;
 
+                if (ignoredPairs is { Count: > 0 } && ignoredPairs.Contains(IgnoredPairKey(values[i], values[j])))
+                    continue;
+
                 if (normI == normJ)
                 {
                     Union(i, j);
@@ -88,6 +110,42 @@ public static class SimilarityGrouper
                 var distance = LevenshteinDistance.Compute(normI, normJ);
                 if (distance <= threshold)
                     Union(i, j);
+            }
+        }
+
+        if (isSeries)
+        {
+            // Independent of the length-blocking loop above (and its window-break cutoff), so a
+            // leading-article difference is caught even when it puts the pair outside that
+            // window. A bucket of size 1 unions nothing, so running this unconditionally for
+            // every series value is simpler than special-casing which ones to check.
+            var strippedBuckets = new Dictionary<string, List<int>>();
+            for (var i = 0; i < n; i++)
+            {
+                var stripped = NameNormalizer.StripLeadingArticle(normalized[i]);
+                if (stripped.Length == 0)
+                    continue;
+
+                if (!strippedBuckets.TryGetValue(stripped, out var bucket))
+                {
+                    bucket = new List<int>();
+                    strippedBuckets[stripped] = bucket;
+                }
+                bucket.Add(i);
+            }
+
+            foreach (var bucket in strippedBuckets.Values)
+            {
+                for (var k = 1; k < bucket.Count; k++)
+                {
+                    var i = bucket[0];
+                    var j = bucket[k];
+                    if (Find(i) == Find(j))
+                        continue;
+                    if (ignoredPairs is { Count: > 0 } && ignoredPairs.Contains(IgnoredPairKey(values[i], values[j])))
+                        continue;
+                    Union(i, j);
+                }
             }
         }
 
@@ -105,6 +163,14 @@ public static class SimilarityGrouper
 
         return groups.Values.Where(g => g.Count > 1).ToList();
     }
+
+    /// <summary>
+    /// Orders a pair of raw values the same way an ignored-pair row is stored (ValueA &lt;
+    /// ValueB by <see cref="StringComparer.Ordinal"/>), so a pair is unordered for lookup
+    /// purposes regardless of which order it was detected in.
+    /// </summary>
+    public static (string A, string B) IgnoredPairKey(string value1, string value2) =>
+        StringComparer.Ordinal.Compare(value1, value2) <= 0 ? (value1, value2) : (value2, value1);
 
     private static int GetMaxDistance(int length, AudiobookManagerSettings settings)
     {

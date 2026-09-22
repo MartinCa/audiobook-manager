@@ -58,4 +58,18 @@ public static class NameNormalizer
 
         return string.Join(" ", merged);
     }
+
+    private const string LeadingArticle = "the ";
+
+    /// <summary>
+    /// Strips a leading "the " token from an already-<see cref="Normalize"/>d string (lowercased,
+    /// so the comparison is a plain ordinal prefix check), no-op otherwise. Series-only: series
+    /// titles routinely drop/add a leading "The" ("The Mistborn Saga" vs "Mistborn Saga"), which
+    /// is not a rule that should apply to author names (an author literally named "The Rock" must
+    /// not fold onto "Rock").
+    /// </summary>
+    public static string StripLeadingArticle(string normalized) =>
+        normalized.StartsWith(LeadingArticle, StringComparison.Ordinal)
+            ? normalized[LeadingArticle.Length..]
+            : normalized;
 }

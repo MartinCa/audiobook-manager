@@ -35,3 +35,13 @@ public class AlignSimilarValuesDto
     public List<string> SourceValues { get; set; } = new();
     public string TargetValue { get; set; } = string.Empty;
 }
+
+/// <summary>One pair a user has marked as not similar, as returned by <c>GET api/similar-values/ignored</c>.</summary>
+public record IgnoredSimilarValuePairDto(long Id, string ValueA, string ValueB, DateTime IgnoredAtUtc);
+
+public class IgnoreSimilarValuePairDto
+{
+    public string ValueType { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+    public List<string> AgainstValues { get; set; } = new();
+}

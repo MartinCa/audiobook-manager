@@ -15,11 +15,12 @@ public class SimilarValueService : ISimilarValueService
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ISimilarValueDetectionCache _detectionCache;
+    private readonly IIgnoredSimilarValuePairRepository _ignoredPairRepository;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<SimilarValueService> _logger;
 
-    private const string AuthorGroupsKind = "authors";
-    private const string SeriesGroupsKind = "series";
+    public const string AuthorGroupsKind = "authors";
+    public const string SeriesGroupsKind = "series";
 
     /// <summary>
     /// The candidate-prefilter cap for the entry-status classification. The fuzzy scoring runs
@@ -37,6 +38,7 @@ public class SimilarValueService : ISimilarValueService
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
         ISimilarValueDetectionCache detectionCache,
+        IIgnoredSimilarValuePairRepository ignoredPairRepository,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<SimilarValueService> logger)
     {
@@ -45,6 +47,7 @@ public class SimilarValueService : ISimilarValueService
         _audiobookService = audiobookService;
         _saveGate = saveGate;
         _detectionCache = detectionCache;
+        _ignoredPairRepository = ignoredPairRepository;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -54,7 +57,8 @@ public class SimilarValueService : ISimilarValueService
         // Detection only needs the distinct author names - not the per-book references the old
         // implementation loaded for every author on every request - and the clustered groups are
         // cached, so paging through the results does not re-run the clustering per request.
-        var groups = await GetOrComputeGroupsAsync(AuthorGroupsKind, _personRepository.GetAuthorNamesAsync);
+        var groups = await GetOrComputeGroupsAsync(
+            AuthorGroupsKind, _personRepository.GetAuthorNamesAsync, isSeries: false);
 
         var (items, total) = Page(groups, skip, take);
 
@@ -67,13 +71,48 @@ public class SimilarValueService : ISimilarValueService
 
     public async Task<(List<SimilarValueGroup> Items, int Total)> DetectSimilarSeriesAsync(int skip, int take)
     {
-        var groups = await GetOrComputeGroupsAsync(SeriesGroupsKind, _audiobookRepository.GetSeriesNamesAsync);
+        var groups = await GetOrComputeGroupsAsync(
+            SeriesGroupsKind, _audiobookRepository.GetSeriesNamesAsync, isSeries: true);
 
         var (items, total) = Page(groups, skip, take);
 
         await StampBookCountsAsync(items, _audiobookRepository.GetSeriesBookCountsAsync);
 
         return (items, total);
+    }
+
+    public async Task<List<IgnoredSimilarValuePairInfo>> GetIgnoredPairsAsync(string kind)
+    {
+        var rows = await _ignoredPairRepository.GetForKindAsync(kind);
+        return rows.Select(r => new IgnoredSimilarValuePairInfo(r.Id, r.ValueA, r.ValueB, r.CreatedAt)).ToList();
+    }
+
+    /// <summary>
+    /// Ignores <paramref name="value"/> against every value in <paramref name="againstValues"/> -
+    /// the UI passes the rest of the candidate's current detected group, so this removes every
+    /// edge the group's clustering drew directly to that candidate. Invalidates the detection
+    /// cache the same way an alignment does, so the group re-splits on the next request rather
+    /// than after the cache's TTL.
+    /// </summary>
+    public async Task IgnorePairAsync(string kind, string value, List<string> againstValues)
+    {
+        var pairs = againstValues
+            .Where(v => v != value)
+            .Select(v => SimilarityGrouper.IgnoredPairKey(value, v))
+            .ToList();
+        if (pairs.Count == 0)
+        {
+            return;
+        }
+
+        await _ignoredPairRepository.AddRangeAsync(kind, pairs);
+        _detectionCache.Invalidate();
+    }
+
+    public async Task RemoveIgnoredPairAsync(string kind, long id)
+    {
+        await _ignoredPairRepository.DeleteAsync(kind, id);
+        _detectionCache.Invalidate();
     }
 
     /// <summary>
@@ -126,7 +165,7 @@ public class SimilarValueService : ISimilarValueService
         var seriesCandidates = await _audiobookRepository.SearchSeriesValuesAsync(
             trimmed, EntryStatusCandidatePrefilterLimit);
         return BuildSimilarOrNew(trimmed,
-            seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit);
+            seriesCandidates.Select(s => new EntryValueMatch(null, s)), resultLimit, isSeries: true);
     }
 
     private async Task<EntryValueStatus> GetPersonEntryStatusAsync(
@@ -151,9 +190,9 @@ public class SimilarValueService : ISimilarValueService
     }
 
     private EntryValueStatus BuildSimilarOrNew(
-        string value, IEnumerable<EntryValueMatch> candidates, int limit)
+        string value, IEnumerable<EntryValueMatch> candidates, int limit, bool isSeries = false)
     {
-        var matches = ScoreSimilarMatches(value, candidates).Take(limit).ToList();
+        var matches = ScoreSimilarMatches(value, candidates, isSeries).Take(limit).ToList();
         return matches.Count > 0
             ? new EntryValueStatus(value, EntryValueStatusKind.Similar, null, matches)
             : new EntryValueStatus(value, EntryValueStatusKind.New, null, new List<EntryValueMatch>());
@@ -164,10 +203,16 @@ public class SimilarValueService : ISimilarValueService
     /// (edit distance, then name). The exact lookup has already run, so a normalized-equal or
     /// folded-equal candidate here means "same value, different raw spelling" (e.g. "Jane
     /// Authorr" vs "Jane Author" is a near match; "René" vs "Rene" was already exact).
+    ///
+    /// <paramref name="isSeries"/> mirrors <see cref="SimilarityGrouper"/>'s leading-article rule
+    /// for consistency with the detection screen: "The Mistborn Saga" is similar to "Mistborn
+    /// Saga" for a series entry. Never applied to authors/narrators.
     /// </summary>
-    private List<EntryValueMatch> ScoreSimilarMatches(string value, IEnumerable<EntryValueMatch> candidates)
+    private List<EntryValueMatch> ScoreSimilarMatches(
+        string value, IEnumerable<EntryValueMatch> candidates, bool isSeries = false)
     {
         var normInput = NameNormalizer.Normalize(value);
+        var strippedInput = isSeries ? NameNormalizer.StripLeadingArticle(normInput) : normInput;
         var foldedInput = Folded(value);
         var scored = new List<(EntryValueMatch Match, int Distance)>();
 
@@ -185,6 +230,16 @@ public class SimilarValueService : ISimilarValueService
             {
                 scored.Add((candidate, 0));
                 continue;
+            }
+
+            if (isSeries)
+            {
+                var strippedCandidate = NameNormalizer.StripLeadingArticle(normCandidate);
+                if (strippedInput.Length > 0 && strippedCandidate == strippedInput)
+                {
+                    scored.Add((candidate, 0));
+                    continue;
+                }
             }
 
             var foldedCandidate = Folded(candidate.Name);
@@ -250,7 +305,7 @@ public class SimilarValueService : ISimilarValueService
     /// never writes through to the objects the cache holds.
     /// </summary>
     private async Task<List<SimilarValueGroup>> GetOrComputeGroupsAsync(
-        string kind, Func<Task<List<string>>> loadDistinctValues)
+        string kind, Func<Task<List<string>>> loadDistinctValues, bool isSeries)
     {
         var versionAtStart = _detectionCache.GetVersion();
         if (_detectionCache.Get(kind) is { } cached)
@@ -259,7 +314,9 @@ public class SimilarValueService : ISimilarValueService
         }
 
         var values = await loadDistinctValues();
-        var clusters = SimilarityGrouper.GroupSimilarValues(values, _settings);
+        var ignoredPairRows = await _ignoredPairRepository.GetForKindAsync(kind);
+        var ignoredPairs = ignoredPairRows.Select(r => (r.ValueA, r.ValueB)).ToHashSet();
+        var clusters = SimilarityGrouper.GroupSimilarValues(values, _settings, isSeries, ignoredPairs);
 
         var groups = clusters
             .Select(cluster => new SimilarValueGroup

@@ -17,6 +17,7 @@ public class SimilarValueServiceTests
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SimilarValueService>> _logger = null!;
+    private Mock<IIgnoredSimilarValuePairRepository> _ignoredPairRepository = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private AudiobookSaveGate _saveGate = null!;
     private SimilarValueDetectionCache _detectionCache = null!;
@@ -31,6 +32,9 @@ public class SimilarValueServiceTests
         _logger = new Mock<ILogger<SimilarValueService>>();
         _saveGate = new AudiobookSaveGate();
         _detectionCache = new SimilarValueDetectionCache();
+        _ignoredPairRepository = new Mock<IIgnoredSimilarValuePairRepository>();
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync(It.IsAny<string>()))
+            .ReturnsAsync(new List<AudiobookManager.Database.Models.IgnoredSimilarValuePair>());
         _settings = Options.Create(new AudiobookManagerSettings
         {
             AudiobookImportPath = "/import",
@@ -43,6 +47,7 @@ public class SimilarValueServiceTests
             _audiobookService.Object,
             _saveGate,
             _detectionCache,
+            _ignoredPairRepository.Object,
             _settings,
             _logger.Object);
     }
@@ -543,6 +548,150 @@ public class SimilarValueServiceTests
         var last = progressCalls.Last();
         Assert.AreEqual(2, last.succeeded);
         Assert.AreEqual(0, last.failed);
+    }
+
+    // ---- Ignored pairs ----
+
+    [TestMethod]
+    public async Task IgnorePairAsync_AddsOnePairPerAgainstValue_ExcludingTheValueItself()
+    {
+        List<(string ValueA, string ValueB)>? insertedPairs = null;
+        _ignoredPairRepository
+            .Setup(r => r.AddRangeAsync("authors", It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()))
+            .Callback<string, IEnumerable<(string ValueA, string ValueB)>>((_, pairs) => insertedPairs = pairs.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ed Winters", "Ben Winters" });
+
+        Assert.IsNotNull(insertedPairs);
+        Assert.AreEqual(1, insertedPairs!.Count, "the value itself must not be paired against itself");
+        Assert.AreEqual(("Ben Winters", "Ed Winters"), insertedPairs[0], "the pair is ordered A < B ordinally");
+    }
+
+    [TestMethod]
+    public async Task IgnorePairAsync_InvalidatesTheDetectionCache()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()))
+            .Returns(Task.CompletedTask);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ed Winters" });
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(2),
+            "ignoring a pair must invalidate the cached grouping so it is re-clustered");
+    }
+
+    [TestMethod]
+    public async Task IgnorePairAsync_NoAgainstValuesBesidesItself_DoesNotCallTheRepository()
+    {
+        await _service.IgnorePairAsync("authors", "Ben Winters", new List<string> { "Ben Winters" });
+
+        _ignoredPairRepository.Verify(
+            r => r.AddRangeAsync(It.IsAny<string>(), It.IsAny<IEnumerable<(string ValueA, string ValueB)>>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DetectSimilarAuthorsAsync_IgnoredPair_SkipsThatEdge()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "Ben Winters", "Ed Winters",
+        });
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync("authors")).ReturnsAsync(new List<
+            AudiobookManager.Database.Models.IgnoredSimilarValuePair>
+        {
+            new() { Id = 1, Kind = "authors", ValueA = "Ben Winters", ValueB = "Ed Winters", CreatedAt = DateTime.UtcNow },
+        });
+
+        var (groups, total) = await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        Assert.AreEqual(0, total, "an ignored pair must not be clustered together");
+        Assert.AreEqual(0, groups.Count);
+    }
+
+    [TestMethod]
+    public async Task GetIgnoredPairsAsync_MapsRepositoryRowsToInfoRecords()
+    {
+        var ignoredAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _ignoredPairRepository.Setup(r => r.GetForKindAsync("series")).ReturnsAsync(new List<
+            AudiobookManager.Database.Models.IgnoredSimilarValuePair>
+        {
+            new() { Id = 9, Kind = "series", ValueA = "A", ValueB = "B", CreatedAt = ignoredAt },
+        });
+
+        var pairs = await _service.GetIgnoredPairsAsync("series");
+
+        Assert.AreEqual(1, pairs.Count);
+        Assert.AreEqual(9, pairs[0].Id);
+        Assert.AreEqual("A", pairs[0].ValueA);
+        Assert.AreEqual("B", pairs[0].ValueB);
+        Assert.AreEqual(ignoredAt, pairs[0].IgnoredAtUtc);
+    }
+
+    [TestMethod]
+    public async Task RemoveIgnoredPairAsync_InvalidatesTheDetectionCache()
+    {
+        _personRepository.Setup(r => r.GetAuthorNamesAsync()).ReturnsAsync(new List<string>());
+        _personRepository.Setup(r => r.GetAuthorBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+        _ignoredPairRepository.Setup(r => r.DeleteAsync("authors", 5)).Returns(Task.CompletedTask);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        await _service.RemoveIgnoredPairAsync("authors", 5);
+
+        await _service.DetectSimilarAuthorsAsync(skip: 0, take: 50);
+
+        _personRepository.Verify(r => r.GetAuthorNamesAsync(), Times.Exactly(2),
+            "removing an ignored pair must invalidate the cached grouping");
+        _ignoredPairRepository.Verify(r => r.DeleteAsync("authors", 5), Times.Once);
+    }
+
+    // ---- Series "the"-insensitivity ----
+
+    [TestMethod]
+    public async Task DetectSimilarSeriesAsync_LeadingArticleDifference_IsGrouped()
+    {
+        _audiobookRepository.Setup(r => r.GetSeriesNamesAsync()).ReturnsAsync(new List<string>
+        {
+            "The Mistborn Saga", "Mistborn Saga",
+        });
+        _audiobookRepository.Setup(r => r.GetSeriesBookCountsAsync(It.IsAny<IReadOnlyCollection<string>>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var (groups, total) = await _service.DetectSimilarSeriesAsync(skip: 0, take: 50);
+
+        Assert.AreEqual(1, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "The Mistborn Saga", "Mistborn Saga" },
+            groups[0].Candidates.Select(c => c.Value).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetEntryStatusAsync_SeriesLeadingArticleDifference_IsSimilar()
+    {
+        _audiobookRepository.Setup(r => r.FindSeriesValueByFoldedNameAsync("Mistborn Saga"))
+            .ReturnsAsync((string?)null);
+        _audiobookRepository.Setup(r => r.SearchSeriesValuesAsync("Mistborn Saga", 20))
+            .ReturnsAsync(new List<string> { "The Mistborn Saga" });
+
+        var status = await _service.GetEntryStatusAsync(EntryValueKind.Series, "Mistborn Saga", 3);
+
+        Assert.AreEqual(EntryValueStatusKind.Similar, status.Kind);
+        Assert.AreEqual(1, status.SimilarMatches.Count);
+        Assert.AreEqual("The Mistborn Saga", status.SimilarMatches[0].Name);
     }
 
     // ---- GetEntryStatusAsync ----
