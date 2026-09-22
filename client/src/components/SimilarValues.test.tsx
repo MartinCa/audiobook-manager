@@ -174,6 +174,53 @@ describe("SimilarValues", () => {
     });
   });
 
+  // Regression: AlignTargetDialog's checkbox/target selection state only initializes on mount, so
+  // reopening "Align Group" for a *different* group after closing the dialog for a previous one
+  // (Cancel/ESC only flips `open`, it never clears `selectedGroup`) reused the previous group's
+  // stale checked-values set, leaving every checkbox for the new group unchecked and "Continue"
+  // permanently disabled. Keying the dialog by the group's identity forces a remount instead.
+  it("opening Align for a different group does not carry over the previous group's selection state", async () => {
+    // The shared queryClient persists cached pages across tests in this file; clear it so this
+    // test's distinctly-shaped two-group page is what actually renders, not a previous test's
+    // cached one-group page served instantly by keepPreviousData.
+    queryClient.clear();
+    vi.mocked(similarValuesApi.getSimilarAuthors).mockResolvedValue({
+      items: [
+        {
+          candidates: [
+            { value: "J.K. Rowling", bookCount: 7 },
+            { value: "JK Rowling", bookCount: 2 },
+          ],
+        },
+        {
+          candidates: [
+            { value: "George R.R. Martin", bookCount: 5 },
+            { value: "George RR Martin", bookCount: 1 },
+          ],
+        },
+      ],
+      totalCount: 2,
+    });
+
+    renderWithProviders(<SimilarValues />);
+
+    const alignButtons = await screen.findAllByRole("button", { name: /Align Group/ });
+    alignButtons[0]!.click();
+
+    expect(await screen.findByText("J.K. Rowling")).toBeInTheDocument();
+    screen.getByText("Cancel").click();
+
+    alignButtons[1]!.click();
+
+    // The reopened dialog must reflect the second group's own candidates, checked by default -
+    // not the first group's stale (and, for this group, entirely absent) checked-values set.
+    const martinCheckbox = await screen.findByRole("checkbox", {
+      name: 'Include "George R.R. Martin" in this alignment',
+    });
+    expect(martinCheckbox).toBeChecked();
+    expect(screen.getByText("Continue").closest("button")).not.toBeDisabled();
+  });
+
   it("Show ignored opens the ignored-pairs dialog for the active tab", async () => {
     vi.mocked(similarValuesApi.getIgnoredPairs).mockResolvedValue([
       { id: 1, valueA: "Ben Winters", valueB: "Ed Winters", ignoredAtUtc: "2026-01-01T00:00:00Z" },

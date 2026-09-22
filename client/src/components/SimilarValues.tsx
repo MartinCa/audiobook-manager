@@ -329,6 +329,11 @@ export function SimilarValues() {
 
       {selectedGroup && (
         <AlignTargetDialog
+          // AlignTargetDialog's target/checkbox selection state only initializes on mount, not on
+          // prop change (closing via ESC/backdrop only flips `open`, it does not clear
+          // selectedGroup) - keying by the group's identity forces a remount instead of reusing
+          // stale selection state from whichever group was open before.
+          key={selectedGroup.candidates.map((c) => c.value).join("|")}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           candidates={selectedGroup.candidates}
