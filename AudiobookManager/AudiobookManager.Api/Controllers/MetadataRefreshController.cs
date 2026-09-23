@@ -214,6 +214,13 @@ public class MetadataRefreshController : ControllerBase
             var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields);
             return applied ? Ok() : NoContent();
         }
+        catch (AudiobookBusyException ex)
+        {
+            // The apply takes the same per-audiobook save gate an interactive save/resolve/align
+            // does (MetadataRefreshService.ApplyOneAsync), so another operation already holding
+            // it for this book is a "try again", not a server error.
+            return this.ConflictingState(ex.Message, "Cannot apply pending refresh");
+        }
         catch (InvalidOperationException ex)
         {
             return this.InvalidRequest(ex.Message);

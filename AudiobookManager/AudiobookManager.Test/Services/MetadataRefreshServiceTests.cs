@@ -274,4 +274,72 @@ public class MetadataRefreshServiceTests
     }
 
     #endregion
+
+    #region ApplyPendingRefreshAsync
+
+    // Regression (review finding): a corrupt/unparseable stored payload used to return false,
+    // indistinguishable from "book no longer exists" - both mapped to 204 at the controller, so
+    // a caller could not tell "nothing to apply" from "the stored snapshot is unreadable" and
+    // reported success without applying anything. It must now throw instead.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_UnparseablePayload_ThrowsInsteadOfReturningFalse()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(99))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 99,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = "not valid json",
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => CreateService().ApplyPendingRefreshAsync(99));
+
+        // Never reached the point of touching the book or the save gate.
+        _audiobookRepository.Verify(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    // Regression (review finding): AudiobookBusyException from the shared per-book save gate
+    // must propagate out of the service uncaught, so the controller's catch maps it to 409
+    // rather than the generic InvalidOperationException catch swallowing it into a 400 - or,
+    // absent that catch entirely, an unhandled 500.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_BookAlreadyBusy_PropagatesAudiobookBusyException()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(101))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 101,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://example.com/book",
+                    "Audible",
+                    new List<string> { "A Person" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+        var busyBook = Book("https://example.com/book");
+        busyBook.Id = 101;
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { busyBook });
+
+        using var lease = _saveGate.Acquire(101);
+
+        await Assert.ThrowsExactlyAsync<AudiobookBusyException>(
+            () => CreateService().ApplyPendingRefreshAsync(101));
+    }
+
+    #endregion
 }

@@ -44,8 +44,8 @@ export type BulkMetadataRefresh = {
   olderThanUtc?: string;
 };
 
-/// Every field name a pending snapshot can offer as a change (AudiobookManager.Services/
-/// MetadataRefreshFields.cs) - the vocabulary the filter picker and per-book field badges use.
+// Every field name a pending snapshot can offer as a change (AudiobookManager.Services/
+// MetadataRefreshFields.cs) - the vocabulary the filter picker and per-book field badges use.
 export const METADATA_REFRESH_FIELDS = [
   "Authors",
   "Narrators",

@@ -175,6 +175,39 @@ public class MetadataRefreshControllerTests
             r.StopReason == "Hardcover daily API request limit reached")), Times.Once);
     }
 
+    // Regression (review finding): ApplyOneAsync takes the shared per-audiobook save gate, which
+    // throws AudiobookBusyException when another operation already holds it for this book. That
+    // used to fall through to the generic InvalidOperationException catch's absence and surface
+    // as an unhandled 500 instead of the 409 every other file-mutating endpoint returns for the
+    // same condition (see ConsistencyController).
+    [TestMethod]
+    public async Task ApplyPending_BookBusy_Returns409NotA500()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(55, null))
+            .ThrowsAsync(new AudiobookBusyException(55));
+
+        var result = await _controller.ApplyPending(55, null);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict,
+            "Another operation is already modifying audiobook 55");
+    }
+
+    // Regression (review finding): a corrupt/unparseable stored payload now throws
+    // InvalidOperationException out of the service rather than returning false indistinguishably
+    // from "book no longer exists" - both used to map to 204, so the client toasted success and
+    // discarded a snapshot it never actually applied.
+    [TestMethod]
+    public async Task ApplyPending_UnparseablePayload_Returns400NotA204()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(77, null))
+            .ThrowsAsync(new InvalidOperationException("The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid."));
+
+        var result = await _controller.ApplyPending(77, null);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest,
+            "The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid.");
+    }
+
     [TestMethod]
     public async Task GetPendingForAudiobook_NoPendingSnapshot_Returns204()
     {

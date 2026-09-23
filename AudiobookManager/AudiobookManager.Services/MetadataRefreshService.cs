@@ -350,7 +350,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                 var applied = await ApplyOneAsync(row, fields: null);
                 if (!applied)
                 {
-                    throw new KeyNotFoundException($"Audiobook {id}'s pending metadata refresh could not be read.");
+                    throw new KeyNotFoundException($"Audiobook {id} no longer exists.");
                 }
             },
             _logger,
@@ -362,15 +362,18 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// Applies one pending row's snapshot (the fields it recorded as changed, or the caller's
     /// explicit subset of them) to the live book and dismisses the row - the write path every
     /// apply entry point (single quick-apply, bulk-selected, bulk-filtered) funnels through, so
-    /// they share one save-gate/recheck/dismiss sequence. Returns false only when the row's
-    /// payload cannot be parsed or the book no longer exists; a save failure throws.
+    /// they share one save-gate/recheck/dismiss sequence. Returns false only when the book no
+    /// longer exists; a corrupt/unparseable payload throws instead of returning false, so a
+    /// caller cannot confuse "nothing to apply" with "the stored snapshot is unreadable" - the
+    /// single-book endpoint maps the throw to a 400 rather than silently reporting success.
     /// </summary>
     private async Task<bool> ApplyOneAsync(PendingMetadataRefresh row, IReadOnlyCollection<string>? fields)
     {
         var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
         if (payload is null)
         {
-            return false;
+            throw new InvalidOperationException(
+                $"The pending metadata refresh for audiobook {row.AudiobookId} could not be read; its stored payload is not valid.");
         }
 
         var storedChangedFields = MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson);

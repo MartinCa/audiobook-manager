@@ -98,7 +98,11 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [lastKeys, setLastKeys] = useState<string[] | null>(null);
-  if (searchResult && lastKeys === null) {
+  // Gated on bookDetail too, not just searchResult: the pending-snapshot query can resolve
+  // before the book-detail query does, and computing the diff against currentInput={} (still
+  // unloaded) would flag every snapshot field as "changed" - freezing that over-inclusive set
+  // into `selected` the moment lastKeys stops being null, with no later re-sync.
+  if (bookDetail && searchResult && lastKeys === null) {
     setLastKeys(changedFieldKeys);
     setSelected(new Set(changedFieldKeys));
   }
