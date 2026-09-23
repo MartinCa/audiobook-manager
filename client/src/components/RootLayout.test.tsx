@@ -131,7 +131,7 @@ describe("RootLayout", () => {
 
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => item.textContent)).toEqual([
-      "Consistency Check",
+      "Library Issues",
       "Missing Tags",
       "Metadata Refresh",
       "Similar Values",

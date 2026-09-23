@@ -148,7 +148,7 @@ export function RootLayout() {
                     className="cursor-pointer text-xs"
                   >
                     <ShieldAlert className="text-primary mr-2 h-4 w-4" />
-                    <span>Consistency Check</span>
+                    <span>Library Issues</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
@@ -343,7 +343,7 @@ export function RootLayout() {
                     className="cursor-pointer text-xs"
                   >
                     <ShieldAlert className="text-primary mr-2 h-4 w-4" />
-                    <span>Consistency Check</span>
+                    <span>Library Issues</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {

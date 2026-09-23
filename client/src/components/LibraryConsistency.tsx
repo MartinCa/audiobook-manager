@@ -452,7 +452,7 @@ export function LibraryConsistency() {
       <div>
         <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
           <ShieldAlert className="text-primary h-6 w-6" />
-          Library Consistency
+          Library Issues
         </h1>
         <p className="text-muted-foreground text-sm">
           Scan Library discovers new audiobook files in the library directory and then verifies that

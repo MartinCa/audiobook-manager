@@ -116,7 +116,7 @@ describe("LibraryConsistency", () => {
 
     renderWithProviders(<LibraryConsistency />);
     expect(await screen.findByText("Scan Library")).toBeInTheDocument();
-    expect(screen.getByText("Library Consistency")).toBeInTheDocument();
+    expect(screen.getByText("Library Issues")).toBeInTheDocument();
   });
 
   it("starts the combined library scan through the shared trigger and toasts its result", async () => {
