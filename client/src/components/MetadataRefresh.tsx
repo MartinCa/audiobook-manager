@@ -12,6 +12,7 @@ import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { SeriesConsistencyIssueList } from "./library/SeriesConsistencyIssueList";
+import { AuthorConsistencyIssueList } from "./library/AuthorConsistencyIssueList";
 import { metadataRefreshApi, seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -301,6 +302,8 @@ export function MetadataRefresh() {
       <SeriesRefreshPendingList />
 
       <SeriesConsistencyIssueList />
+
+      <AuthorConsistencyIssueList />
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -59,6 +59,7 @@ public class DatabaseContext : DbContext
     public DbSet<DiscoveredAudiobook> DiscoveredAudiobooks { get; set; }
     public DbSet<BookConsistencyIssue> BookConsistencyIssues { get; set; }
     public DbSet<SeriesConsistencyIssue> SeriesConsistencyIssues { get; set; }
+    public DbSet<AuthorConsistencyIssue> AuthorConsistencyIssues { get; set; }
     public DbSet<PendingMetadataRefresh> PendingMetadataRefreshes { get; set; }
     public DbSet<PendingSeriesRefresh> PendingSeriesRefreshes { get; set; }
     public DbSet<OrphanDirectory> OrphanDirectories { get; set; }

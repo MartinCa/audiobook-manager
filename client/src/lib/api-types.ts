@@ -822,6 +822,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/consistency-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/authors/{authorId}/expected-books/ignore": {
         parameters: {
             query?: never;
@@ -4890,6 +4930,21 @@ export interface components {
             authors?: string[] | null;
             currentUrl?: string | null;
             cleanedUrl?: string | null;
+        };
+        AuthorConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            personId?: number;
+            authorName?: string | null;
+            errorMessage?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        AuthorConsistencyIssuePageDto: {
+            items?: components["schemas"]["AuthorConsistencyIssueDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
         };
         AuthorDetailDto: {
             author?: components["schemas"]["AuthorSummaryDto"];

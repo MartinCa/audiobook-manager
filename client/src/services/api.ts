@@ -49,6 +49,7 @@ import type {
   SeriesRefreshResult,
 } from "@/types/SeriesRefresh";
 import type { SeriesConsistencyIssuePage } from "@/types/SeriesConsistencyIssue";
+import type { AuthorConsistencyIssuePage } from "@/types/AuthorConsistencyIssue";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { ScheduledTask } from "@/types/ScheduledTask";
@@ -306,6 +307,13 @@ export const browseApi = {
   // soon as it is accepted. There is no UI trigger for this yet - when one is added, follow it
   // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
   refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
+
+  // Paged server-side: one page of authors whose most recent roster refresh (single or bulk)
+  // failed, newest first. Retrying is just calling refreshAuthor again for the same author.
+  getAuthorConsistencyIssuesPage: (page: number, pageSize: number) =>
+    api.get<AuthorConsistencyIssuePage>("/browse/authors/consistency-issues", {
+      query: { page, pageSize },
+    }),
 
   // Dismisses/restores a roster entry on the same shared expected-book rows the series view
   // reads from (global ignore). The stable expected-book row id (book.id) is the preferred

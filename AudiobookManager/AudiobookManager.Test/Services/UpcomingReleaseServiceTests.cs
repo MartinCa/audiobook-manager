@@ -24,6 +24,7 @@ public class UpcomingReleaseServiceTests
     private Mock<ISeriesReconciliationProvider> _seriesReconciliationProvider = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliationProvider = null!;
     private Mock<ISeriesReconciliationCache> _seriesReconciliationCache = null!;
+    private Mock<IAuthorConsistencyIssueRepository> _authorConsistencyIssueRepository = null!;
     private Mock<IScraper> _scraper = null!;
     private UpcomingReleaseService _service = null!;
 
@@ -43,6 +44,7 @@ public class UpcomingReleaseServiceTests
         _seriesReconciliationProvider = new Mock<ISeriesReconciliationProvider>();
         _authorReconciliationProvider = new Mock<IAuthorReconciliationProvider>();
         _seriesReconciliationCache = new Mock<ISeriesReconciliationCache>();
+        _authorConsistencyIssueRepository = new Mock<IAuthorConsistencyIssueRepository>();
 
         _scraper = new Mock<IScraper>();
         _scraper.Setup(s => s.SourceName).Returns("Hardcover");
@@ -59,6 +61,7 @@ public class UpcomingReleaseServiceTests
             _seriesReconciliationProvider.Object,
             _authorReconciliationProvider.Object,
             _seriesReconciliationCache.Object,
+            _authorConsistencyIssueRepository.Object,
             new[] { _scraper.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
     }
@@ -269,7 +272,8 @@ public class UpcomingReleaseServiceTests
             _seriesFollowRepository.Object, _upcomingReleaseRepository.Object,
             _expectedBookRepository.Object,
             _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
-            _seriesReconciliationCache.Object, new[] { scraperNoAuthorLookup.Object },
+            _seriesReconciliationCache.Object, _authorConsistencyIssueRepository.Object,
+            new[] { scraperNoAuthorLookup.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
         _personRepository.Setup(r => r.GetByIdAsync(7))
             .ReturnsAsync(new Person(7, "Brandon Sanderson") { MatchedSourceId = "123" });
@@ -286,6 +290,48 @@ public class UpcomingReleaseServiceTests
         _expectedBookRepository.Setup(r => r.GetByAuthorBoundedAsync(personId, It.IsAny<int>()))
             .ReturnsAsync((new List<ExpectedBook>(), false));
         return author;
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_Success_ClearsAnyStaleConsistencyIssue()
+    {
+        await SetupRefreshableAuthorAsync();
+        _scraper.Setup(s => s.GetAuthorBooks("123")).ReturnsAsync(new List<AuthorBookResult>());
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _authorConsistencyIssueRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+        _authorConsistencyIssueRepository.Verify(r => r.UpsertFailureAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_ScraperThrows_RecordsConsistencyIssueAndRethrows()
+    {
+        await SetupRefreshableAuthorAsync();
+        _scraper.Setup(s => s.GetAuthorBooks("123"))
+            .ThrowsAsync(new InvalidOperationException("The source returned an error."));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => _service.RefreshAuthorRosterAsync(7));
+
+        _authorConsistencyIssueRepository.Verify(
+            r => r.UpsertFailureAsync(7, "The source returned an error."), Times.Once);
+        _authorConsistencyIssueRepository.Verify(r => r.DeleteByPersonIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_HardcoverDailyLimitExceeded_IsNotRecordedAsAFailure()
+    {
+        await SetupRefreshableAuthorAsync();
+        _scraper.Setup(s => s.GetAuthorBooks("123"))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(55));
+
+        await Assert.ThrowsExactlyAsync<HardcoverDailyLimitExceededException>(
+            () => _service.RefreshAuthorRosterAsync(7));
+
+        _authorConsistencyIssueRepository.Verify(
+            r => r.UpsertFailureAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+        _authorConsistencyIssueRepository.Verify(r => r.DeleteByPersonIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     // Regression (the primary fix of this phase): the author refresh RETAINS a book that belongs
@@ -564,7 +610,8 @@ public class UpcomingReleaseServiceTests
             _seriesFollowRepository.Object, _upcomingReleaseRepository.Object,
             _expectedBookRepository.Object,
             _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
-            _seriesReconciliationCache.Object, new[] { scraperNoAuthorLookup.Object },
+            _seriesReconciliationCache.Object, _authorConsistencyIssueRepository.Object,
+            new[] { scraperNoAuthorLookup.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
 
         var (processed, succeeded, failed, stopReason) = await service.RefreshAllAuthorRostersAsync();

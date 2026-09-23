@@ -34,6 +34,7 @@ public class BrowseController : ControllerBase
     private readonly ISeriesService _seriesService;
     private readonly IUpcomingReleaseService _upcomingReleaseService;
     private readonly IAuthorReconciliationProvider _authorReconciliation;
+    private readonly IAuthorConsistencyIssueRepository _authorConsistencyIssueRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
@@ -47,6 +48,7 @@ public class BrowseController : ControllerBase
         ISeriesService seriesService,
         IUpcomingReleaseService upcomingReleaseService,
         IAuthorReconciliationProvider authorReconciliation,
+        IAuthorConsistencyIssueRepository authorConsistencyIssueRepository,
         IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
         IServiceScopeFactory serviceScopeFactory,
@@ -60,6 +62,7 @@ public class BrowseController : ControllerBase
         _seriesService = seriesService;
         _upcomingReleaseService = upcomingReleaseService;
         _authorReconciliation = authorReconciliation;
+        _authorConsistencyIssueRepository = authorConsistencyIssueRepository;
         _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
         _serviceScopeFactory = serviceScopeFactory;
@@ -518,6 +521,40 @@ public class BrowseController : ControllerBase
             },
             () => Task.CompletedTask,
             _appLifetime.ApplicationStopping);
+    }
+
+    /// <summary>
+    /// One page of authors whose most recent roster refresh (single or bulk) failed, newest
+    /// first - the author-scoped counterpart to SeriesController's series issue list. An author
+    /// drops off this list the moment a refresh of it succeeds; retrying is just calling
+    /// <see cref="RefreshAuthor"/> again for the same author.
+    /// </summary>
+    [HttpGet("authors/consistency-issues")]
+    public async Task<ActionResult<AuthorConsistencyIssuePageDto>> GetAuthorConsistencyIssues(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+    {
+        if (page < 0)
+        {
+            return this.InvalidRequest("page must be zero or greater.");
+        }
+
+        if (pageSize < 1 || pageSize > PagingLimits.MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {PagingLimits.MaxPageSize}.");
+        }
+
+        var skip = (long)page * pageSize;
+        if (skip > PagingLimits.MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} issues.");
+        }
+
+        var (issues, totalCount) = await _authorConsistencyIssueRepository.GetPageWithAuthorAsync((int)skip, pageSize);
+
+        return Ok(new AuthorConsistencyIssuePageDto(
+            issues.Select(i => new AuthorConsistencyIssueDto(i.Id, i.PersonId, i.Person.Name, i.ErrorMessage, i.DetectedAt)).ToList(),
+            totalCount));
     }
 
     // Roster entries are addressed by the stable expected-book row id (preferred - the id the

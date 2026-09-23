@@ -166,6 +166,11 @@ export const queryKeys = {
     page: (page: number) => ["seriesConsistencyIssues", "page", page] as const,
   },
 
+  authorConsistencyIssues: {
+    all: () => ["authorConsistencyIssues"] as const,
+    page: (page: number) => ["authorConsistencyIssues", "page", page] as const,
+  },
+
   bookDetail: (id: number) => ["bookDetail", id] as const,
 
   missingTagFields: () => ["missingTagFields"] as const,
