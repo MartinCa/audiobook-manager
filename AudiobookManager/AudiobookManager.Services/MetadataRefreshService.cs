@@ -254,6 +254,13 @@ public class MetadataRefreshService : IMetadataRefreshService
     public async Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
         int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null)
     {
+        // One-time cost per legacy row (a stored-row read, a book-with-includes read, and a
+        // write), run sequentially on the request thread. Bounded by how many pending rows
+        // predate ChangedFieldsJson and never recurs once they're all backfilled, but on a
+        // library with a large pending set this first page load after upgrading can be
+        // noticeably slower than every one after it.
+        await EnsureChangedFieldsBackfilledAsync();
+
         if (fieldsFilter is null || fieldsFilter.Count == 0)
         {
             return await _pendingRepository.GetPageWithAudiobookAsync(page * pageSize, pageSize);
@@ -276,6 +283,8 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     public async Task<List<long>> GetPendingAudiobookIdsAsync(IReadOnlyCollection<string>? fieldsFilter = null)
     {
+        await EnsureChangedFieldsBackfilledAsync();
+
         if (fieldsFilter is null || fieldsFilter.Count == 0)
         {
             return await _pendingRepository.GetPendingAudiobookIdsAsync();
@@ -283,6 +292,72 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var matches = await GetFilterMatchesAsync(fieldsFilter);
         return matches.Select(m => m.AudiobookId).ToList();
+    }
+
+    /// <summary>
+    /// Self-heals pending rows written before <c>ChangedFieldsJson</c> existed (it was added
+    /// alongside the field filter/badges/selective-apply feature; every row a pre-existing
+    /// library already had on disk predates it and has it stored as null). Recomputes each such
+    /// row's changed fields by re-diffing its stored snapshot against the book exactly the way
+    /// the write path would have, via <see cref="MetadataRefreshDiffer.DiffSnapshot"/>, and
+    /// persists the result - or, if the book has since caught up with (or never actually
+    /// differed from) the snapshot, supersedes the row the same way a fresh no-diff check does.
+    /// A no-op once every row has been backfilled: the lookup that finds candidates is a cheap
+    /// "is this column null" scan with no book graph attached - except for a row whose
+    /// PayloadJson cannot be parsed, which is skipped every time rather than backfilled, so it
+    /// never leaves that candidate list. That costs only a repeated cheap scan (its column stays
+    /// null forever), not repeated book loads, so it is left as-is rather than papered over with
+    /// a sentinel value that would then need its own "is this the corrupt-marker" handling.
+    /// <para>
+    /// The recompute is a re-diff against the book's CURRENT state, not a replay of what the
+    /// original fetch recorded. If the book was edited after the snapshot was stored but before
+    /// this backfill ever ran, that can add fields the original fetch never flagged (the book
+    /// diverged further from the snapshot since) as well as drop ones it did (the book caught
+    /// up). That is the intended behavior - a pending snapshot's job is to converge the book
+    /// toward what the source last reported, and "which fields would still change it" is exactly
+    /// what should be re-evaluated against the book as it is now, not as it was at fetch time.
+    /// </para>
+    /// </summary>
+    private async Task EnsureChangedFieldsBackfilledAsync()
+    {
+        var missingIds = await _pendingRepository.GetAudiobookIdsMissingChangedFieldsAsync();
+        if (missingIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var audiobookId in missingIds)
+        {
+            var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
+            if (row is null)
+            {
+                continue;
+            }
+
+            var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
+            if (payload is null)
+            {
+                // Corrupt/foreign payload - nothing to compute here; ApplyOneAsync already
+                // surfaces this as an error if the row is ever applied.
+                continue;
+            }
+
+            var book = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
+            if (book is null)
+            {
+                continue;
+            }
+
+            var changedFields = MetadataRefreshDiffer.DiffSnapshot(book, payload).Select(d => d.Field).ToList();
+            if (changedFields.Count == 0)
+            {
+                await _pendingRepository.DeleteByAudiobookIdAsync(audiobookId);
+                continue;
+            }
+
+            await _pendingRepository.SetChangedFieldsJsonAsync(
+                audiobookId, JsonSerializer.Serialize(changedFields, ChangedFieldsJsonOptions));
+        }
     }
 
     /// <summary>
@@ -377,17 +452,38 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         var storedChangedFields = MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson);
+
+        var books = await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId });
+        var dbBook = books.FirstOrDefault();
+
+        // No explicit caller selection and nothing recorded: either this row predates
+        // ChangedFieldsJson (an existing library's pending rows all do, until
+        // EnsureChangedFieldsBackfilledAsync gets to them) or it is genuinely empty. Recompute
+        // once from the stored snapshot rather than assuming "nothing to apply" - a caller can
+        // reach this row through apply-selected/apply-filtered before any list view has had a
+        // chance to backfill it.
+        //
+        // This reads dbBook before the save gate below is acquired, so a concurrent save could
+        // in principle mutate the book between this diff and the gated apply, leaving the
+        // recomputed field set stale by the time it's used. That is not a new race: the ordinary
+        // path (stored fields applied against this same pre-gate book read) already has the
+        // identical shape, so this recompute just inherits the existing window rather than
+        // opening a new one.
+        if ((fields is null || fields.Count == 0) && storedChangedFields.Count == 0 && dbBook is not null)
+        {
+            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload).Select(d => d.Field).ToList();
+        }
+
         var fieldsToApply = new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
         if (fieldsToApply.Count == 0)
         {
-            // Nothing recorded to apply (an old row from before ChangedFieldsJson existed, with
-            // no explicit fields given either) - dismiss it rather than silently no-op forever.
+            // Either the book has genuinely caught up with the snapshot, or it no longer exists
+            // (dbBook is null and there was nothing explicit to apply either way) - the row is
+            // stale either way, so dismiss it rather than silently no-op forever.
             await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
             return true;
         }
 
-        var books = await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId });
-        var dbBook = books.FirstOrDefault();
         if (dbBook is null)
         {
             return false;
