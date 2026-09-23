@@ -59,6 +59,7 @@ public class SeriesService : ISeriesService
     private readonly ISeriesFollowRepository _seriesFollowRepository;
     private readonly ISeriesMappingRepository _seriesMappingRepository;
     private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
+    private readonly ISeriesConsistencyIssueRepository _seriesConsistencyIssueRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
@@ -76,6 +77,7 @@ public class SeriesService : ISeriesService
         ISeriesFollowRepository seriesFollowRepository,
         ISeriesMappingRepository seriesMappingRepository,
         IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
+        ISeriesConsistencyIssueRepository seriesConsistencyIssueRepository,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
         ILibraryConsistencyService libraryConsistencyService,
@@ -92,6 +94,7 @@ public class SeriesService : ISeriesService
         _seriesFollowRepository = seriesFollowRepository;
         _seriesMappingRepository = seriesMappingRepository;
         _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
+        _seriesConsistencyIssueRepository = seriesConsistencyIssueRepository;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
         _libraryConsistencyService = libraryConsistencyService;
@@ -653,7 +656,7 @@ public class SeriesService : ISeriesService
             throw new KeyNotFoundException($"Series '{seriesName}' is not matched to a metadata source, so it cannot be refreshed.");
         }
 
-        var (hasChanges, changeCount, sourceName) = await RefreshOneSeriesCoreAsync(seriesName, row);
+        var (hasChanges, changeCount, sourceName) = await RefreshOneSeriesTrackedAsync(seriesName, row);
         return new SeriesRefreshResult(Success: true, hasChanges, changeCount, sourceName);
     }
 
@@ -840,9 +843,38 @@ public class SeriesService : ISeriesService
                 return false;
             }
 
-            await RefreshOneSeriesCoreAsync(name, row);
+            await RefreshOneSeriesTrackedAsync(name, row);
             return true;
         });
+    }
+
+    /// <summary>
+    /// Wraps <see cref="RefreshOneSeriesCoreAsync"/> with the same failure bookkeeping the
+    /// book-scoped refresh has (<see cref="BookConsistencyIssueType.MetadataRefreshFailed"/>):
+    /// a fresh error replaces the series' stale one, a success clears it, and both the single
+    /// and bulk refresh paths go through here so the tracked state never depends on which one
+    /// was used. The daily request-budget exception is not a per-series failure - the caller
+    /// (<see cref="RunBulkAsync"/>) stops the sweep on it rather than counting it - so it is
+    /// re-thrown untouched rather than recorded.
+    /// </summary>
+    private async Task<(bool HasChanges, int ChangeCount, string? SourceName)> RefreshOneSeriesTrackedAsync(
+        string seriesName, Series row)
+    {
+        try
+        {
+            var result = await RefreshOneSeriesCoreAsync(seriesName, row);
+            await _seriesConsistencyIssueRepository.DeleteBySeriesIdAsync(row.Id);
+            return result;
+        }
+        catch (HardcoverDailyLimitExceededException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await _seriesConsistencyIssueRepository.UpsertFailureAsync(row.Id, ex.Message);
+            throw;
+        }
     }
 
     /// <summary>

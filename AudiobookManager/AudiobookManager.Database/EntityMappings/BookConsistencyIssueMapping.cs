@@ -4,9 +4,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace AudiobookManager.Database.EntityMappings;
 
-public class ConsistencyIssueMapping : IEntityTypeConfiguration<ConsistencyIssue>
+public class BookConsistencyIssueMapping : IEntityTypeConfiguration<BookConsistencyIssue>
 {
-    public void Configure(EntityTypeBuilder<ConsistencyIssue> builder)
+    public void Configure(EntityTypeBuilder<BookConsistencyIssue> builder)
     {
         builder
             .HasOne(ci => ci.Audiobook)

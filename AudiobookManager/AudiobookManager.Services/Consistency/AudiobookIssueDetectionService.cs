@@ -10,13 +10,13 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
 {
     private readonly AudiobookManagerSettings _settings;
     private readonly IAudiobookTagHandler _tagHandler;
-    private readonly IReadOnlyList<IConsistencyIssueDetector> _detectors;
+    private readonly IReadOnlyList<IBookConsistencyIssueDetector> _detectors;
     private readonly ILogger<AudiobookIssueDetectionService> _logger;
 
     public AudiobookIssueDetectionService(
         IOptions<AudiobookManagerSettings> settings,
         IAudiobookTagHandler tagHandler,
-        IEnumerable<IConsistencyIssueDetector> detectors,
+        IEnumerable<IBookConsistencyIssueDetector> detectors,
         ILogger<AudiobookIssueDetectionService> logger)
     {
         _settings = settings.Value;
@@ -32,7 +32,7 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
 
         /// <summary>
         /// Nothing is at the file's path, and the file's *parent directory* is still there - the
-        /// shape a genuinely deleted book leaves behind. Answered with <see cref="ConsistencyIssueType.MissingMediaFile"/>,
+        /// shape a genuinely deleted book leaves behind. Answered with <see cref="BookConsistencyIssueType.MissingMediaFile"/>,
         /// whose resolution deletes the library record.
         /// </summary>
         Missing,
@@ -42,7 +42,7 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
 
         /// <summary>
         /// Nothing is at the file's path and the parent directory is gone too - an unmounted
-        /// subtree rather than a deleted book. Answered with <see cref="ConsistencyIssueType.LibraryPathUnavailable"/>,
+        /// subtree rather than a deleted book. Answered with <see cref="BookConsistencyIssueType.LibraryPathUnavailable"/>,
         /// which is never resolved by deleting the record.
         /// </summary>
         DirectoryMissing,
@@ -97,15 +97,15 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
         }
     }
 
-    public List<ConsistencyIssue> DetectIssues(Audiobook audiobook)
+    public List<BookConsistencyIssue> DetectIssues(Audiobook audiobook)
     {
         var (state, detail) = ProbeMediaFile(audiobook.FileInfoFullPath);
 
         if (state == MediaFileState.Missing)
         {
-            return new List<ConsistencyIssue>
+            return new List<BookConsistencyIssue>
             {
-                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.MissingMediaFile,
+                BookConsistencyIssueFactory.Create(audiobook.Id, BookConsistencyIssueType.MissingMediaFile,
                     $"Media file not found: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, null)
             };
@@ -117,9 +117,9 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // unmounted subtree (a dead per-author or per-share mount), not of a deleted book,
             // and it is reported separately so it can never be answered with the resolution that
             // deletes the library record - the share may come back.
-            return new List<ConsistencyIssue>
+            return new List<BookConsistencyIssue>
             {
-                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.LibraryPathUnavailable,
+                BookConsistencyIssueFactory.Create(audiobook.Id, BookConsistencyIssueType.LibraryPathUnavailable,
                     $"Media file's directory is not available: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, null)
             };
@@ -131,9 +131,9 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
                 "Media file for audiobook {AudiobookId} at '{FilePath}' exists but cannot be read: {Detail}",
                 audiobook.Id, audiobook.FileInfoFullPath, detail);
 
-            return new List<ConsistencyIssue>
+            return new List<BookConsistencyIssue>
             {
-                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.UnreadableFile,
+                BookConsistencyIssueFactory.Create(audiobook.Id, BookConsistencyIssueType.UnreadableFile,
                     $"Media file could not be read: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, detail)
             };
@@ -158,9 +158,9 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // container log, where nobody is looking while reading that screen.
             _logger.LogWarning(ex, "Failed to check consistency for {FilePath}", audiobook.FileInfoFullPath);
 
-            return new List<ConsistencyIssue>
+            return new List<BookConsistencyIssue>
             {
-                ConsistencyIssueFactory.Create(audiobook.Id, ConsistencyIssueType.UnreadableFile,
+                BookConsistencyIssueFactory.Create(audiobook.Id, BookConsistencyIssueType.UnreadableFile,
                     $"Media file could not be read: {audiobook.FileInfoFileName}",
                     audiobook.FileInfoFullPath, ex.Message)
             };

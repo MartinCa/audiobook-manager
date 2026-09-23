@@ -40,11 +40,11 @@ import {
   getIssueTypeLabel,
   getIssueTypeInfo,
   getBulkResolveDescription,
-  notifyConsistencyResolveResult,
+  notifyBookConsistencyResolveResult,
   notifyOrphanResolveResult,
 } from "@/helpers/consistencyHelpers";
 import { notifications } from "@/lib/notifications";
-import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
+import type { BookConsistencyIssue } from "@/types/BookConsistencyIssue";
 import type { OrphanDirectory } from "@/types/OrphanDirectory";
 
 interface ProgressPayload {
@@ -77,7 +77,7 @@ interface ResolveCompletePayload {
 const ACCORDION_ITEM_CLASS = "border-border bg-card rounded-lg border px-4 shadow-sm";
 
 type PendingResolve =
-  | { kind: "single"; issue: ConsistencyIssue }
+  | { kind: "single"; issue: BookConsistencyIssue }
   | { kind: "selected"; issueType: string; issueIds: number[] }
   | { kind: "byType"; issueType: string; count: number };
 
@@ -115,7 +115,7 @@ export function LibraryConsistency() {
   const [confirmingResolve, setConfirmingResolve] = useState(false);
 
   // Tag mismatch selective-resolution state
-  const [tagMismatchIssue, setTagMismatchIssue] = useState<ConsistencyIssue | null>(null);
+  const [tagMismatchIssue, setTagMismatchIssue] = useState<BookConsistencyIssue | null>(null);
 
   // Per-group pagination. A single group can hold thousands of issues (the image in the
   // bug report shows 3699 in one group); rendering them all bloats the DOM and makes every
@@ -164,8 +164,8 @@ export function LibraryConsistency() {
     })),
   });
 
-  const issuesForType = (type: string): ConsistencyIssue[] =>
-    (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as ConsistencyIssue[];
+  const issuesForType = (type: string): BookConsistencyIssue[] =>
+    (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as BookConsistencyIssue[];
 
   // Recover an in-flight resolve (started elsewhere, or events missed while disconnected) on
   // mount and after a SignalR reconnect, the same way the check state is recovered below. The
@@ -268,11 +268,11 @@ export function LibraryConsistency() {
     }
   };
 
-  const handleResolveSingle = async (issue: ConsistencyIssue) => {
+  const handleResolveSingle = async (issue: BookConsistencyIssue) => {
     setResolvingIds((prev) => new Set(prev).add(issue.id));
     try {
       const result = await consistencyApi.resolveIssue(issue.id);
-      notifyConsistencyResolveResult(result);
+      notifyBookConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
       setSelectedIssues((prev) => {
@@ -327,7 +327,7 @@ export function LibraryConsistency() {
     }
   };
 
-  const onResolveClick = (issue: ConsistencyIssue) => {
+  const onResolveClick = (issue: BookConsistencyIssue) => {
     if (issue.issueType === "MissingMediaFile") {
       setPendingResolve({ kind: "single", issue });
     } else if (issue.issueType === "TagMismatch") {
@@ -344,7 +344,7 @@ export function LibraryConsistency() {
     setResolvingIds((prev) => new Set(prev).add(issueId));
     try {
       const result = await consistencyApi.resolveTagMismatch(issueId, fieldValues);
-      notifyConsistencyResolveResult(result);
+      notifyBookConsistencyResolveResult(result);
       void queryClient.invalidateQueries({ queryKey: queryKeys.consistency.all() });
       // A TagMismatch resolve rewrites the chosen field values onto the book, which can fill in
       // a field it was shown missing for on the Missing Tags page.
@@ -452,7 +452,7 @@ export function LibraryConsistency() {
       <div>
         <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
           <ShieldAlert className="text-primary h-6 w-6" />
-          Library Consistency
+          Library Issues
         </h1>
         <p className="text-muted-foreground text-sm">
           Scan Library discovers new audiobook files in the library directory and then verifies that

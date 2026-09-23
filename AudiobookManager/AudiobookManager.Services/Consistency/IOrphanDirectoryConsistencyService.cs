@@ -2,7 +2,7 @@ namespace AudiobookManager.Services;
 
 /// <summary>
 /// Detects and resolves orphaned library directories - folders left behind with no audio file
-/// anywhere in their subtree. A separate concern from <see cref="ConsistencyIssue"/> handling:
+/// anywhere in their subtree. A separate concern from <see cref="BookConsistencyIssue"/> handling:
 /// orphan directories are not tied to an audiobook record at all, they're their own
 /// <c>OrphanDirectory</c> model with its own table.
 /// </summary>

@@ -19,22 +19,22 @@ namespace AudiobookManager.Services;
 /// database-is-truth pipeline as TagMismatch always did closes that gap by construction: there's
 /// no "assume tags are fine" path left to desync from what actually got resolved.
 /// </summary>
-public class TagOrPathMismatchResolver : IConsistencyIssueResolver
+public class TagOrPathMismatchResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[]
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[]
     {
-        ConsistencyIssueType.WrongFilePath, ConsistencyIssueType.TagMismatch
+        BookConsistencyIssueType.WrongFilePath, BookConsistencyIssueType.TagMismatch
     };
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IAudiobookService _audiobookService;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ILogger<TagOrPathMismatchResolver> _logger;
 
     public TagOrPathMismatchResolver(
         IAudiobookRepository audiobookRepository,
         IAudiobookService audiobookService,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ILogger<TagOrPathMismatchResolver> logger)
     {
         _audiobookRepository = audiobookRepository;
@@ -43,7 +43,7 @@ public class TagOrPathMismatchResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
@@ -72,14 +72,14 @@ public class TagOrPathMismatchResolver : IConsistencyIssueResolver
     /// metadata) but needs the identical persist/log/clear tail once it has one - shared here
     /// instead of duplicated so the two can't drift apart on what "resolved" actually does.
     /// </summary>
-    public static async Task<ConsistencyResolveResult> RewriteTagsAndClearIssuesAsync(
+    public static async Task<BookConsistencyResolveResult> RewriteTagsAndClearIssuesAsync(
         IAudiobookService audiobookService,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ILogger logger,
         Audiobook dbAudiobook,
         DomainAudiobook domain,
         long issueId,
-        ConsistencyIssueType issueType,
+        BookConsistencyIssueType issueType,
         string logVerb,
         string resultMessage)
     {
@@ -92,6 +92,6 @@ public class TagOrPathMismatchResolver : IConsistencyIssueResolver
         // Tags (and potentially the file path) changed, invalidating all other checks for this book
         await issueRepository.DeleteByAudiobookIdAsync(dbAudiobook.Id);
 
-        return new ConsistencyResolveResult(issueId, issueType, "resolved", resultMessage);
+        return new BookConsistencyResolveResult(issueId, issueType, "resolved", resultMessage);
     }
 }

@@ -32,7 +32,10 @@ import { toAudiobook } from "@/helpers/audiobookMapping";
 import { languageLabel } from "@/helpers/languages";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
-import { notifyConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
+import {
+  notifyBookConsistencyResolveResult,
+  getIssueTypeLabel,
+} from "@/helpers/consistencyHelpers";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { notifications } from "@/lib/notifications";
@@ -235,7 +238,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     setResolvingIssueId(issueId);
     try {
       const result = await consistencyApi.resolveIssue(issueId);
-      notifyConsistencyResolveResult(result);
+      notifyBookConsistencyResolveResult(result);
       if (result.actionTaken === "audiobook_deleted") {
         invalidateConsistencyViews();
         void navigate({ to: "/library" });

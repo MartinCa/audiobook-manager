@@ -21,7 +21,7 @@ public class AudiobookServiceTests
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IGenreRepository> _genreRepository = null!;
-    private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IBookConsistencyIssueRepository> _issueRepository = null!;
     private Mock<ILogger<AudiobookService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private SeriesReconciliationCache _reconciliationCache = null!;
@@ -36,7 +36,7 @@ public class AudiobookServiceTests
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _personRepository = new Mock<IPersonRepository>();
         _genreRepository = new Mock<IGenreRepository>();
-        _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _issueRepository = new Mock<IBookConsistencyIssueRepository>();
         _logger = new Mock<ILogger<AudiobookService>>();
         _settings = Options.Create(new AudiobookManagerSettings
         {

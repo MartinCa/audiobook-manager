@@ -30,20 +30,20 @@ namespace AudiobookManager.Services;
 /// of implying the roster still agrees with the stored part (see
 /// <see cref="ClearIssueBookNoLongerInSeries"/>).
 /// </summary>
-public class SeriesPartMismatchResolver : IConsistencyIssueResolver
+public class SeriesPartMismatchResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[] { ConsistencyIssueType.SeriesPartMismatch };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[] { BookConsistencyIssueType.SeriesPartMismatch };
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IAudiobookService _audiobookService;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ISeriesReconciliationProvider _reconciliation;
     private readonly ILogger<SeriesPartMismatchResolver> _logger;
 
     public SeriesPartMismatchResolver(
         IAudiobookRepository audiobookRepository,
         IAudiobookService audiobookService,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ISeriesReconciliationProvider reconciliation,
         ILogger<SeriesPartMismatchResolver> logger)
     {
@@ -54,7 +54,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var dbAudiobook = await _audiobookRepository.GetByIdWithIncludesAsync(issue.AudiobookId);
         if (dbAudiobook == null)
@@ -102,7 +102,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
         // this book - same cascade the tag/path rewrite applies.
         await _issueRepository.DeleteByAudiobookIdAsync(dbAudiobook.Id);
 
-        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+        return (ResolveScope.AllForAudiobook, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "resolved",
@@ -117,7 +117,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
     /// <see cref="ResolveScope.IssueOnly"/>: nothing about the book was touched, so a bulk resolve
     /// must not treat the book's other issues as settled by this stale row.
     /// </summary>
-    private async Task<(ResolveScope, ConsistencyResolveResult)> ClearStaleIssue(ConsistencyIssue issue)
+    private async Task<(ResolveScope, BookConsistencyResolveResult)> ClearStaleIssue(BookConsistencyIssue issue)
     {
         _logger.LogInformation(
             "SeriesPartMismatch issue {IssueId} for audiobook {AudiobookId} is stale: the current roster assigns the book's stored part; clearing it.",
@@ -125,7 +125,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
 
         await _issueRepository.DeleteAsync(issue.Id);
 
-        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+        return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "resolved",
@@ -138,7 +138,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
     /// cleared without touching the book, exactly as <see cref="ClearStaleIssue"/> does - but the
     /// message is factual about the cause rather than claiming the roster assigns the stored part.
     /// </summary>
-    private async Task<(ResolveScope, ConsistencyResolveResult)> ClearIssueBookNoLongerInSeries(ConsistencyIssue issue)
+    private async Task<(ResolveScope, BookConsistencyResolveResult)> ClearIssueBookNoLongerInSeries(BookConsistencyIssue issue)
     {
         _logger.LogInformation(
             "SeriesPartMismatch issue {IssueId} for audiobook {AudiobookId} is stale: the book no longer belongs to a series, so its stored part cannot mismatch one; clearing it.",
@@ -146,7 +146,7 @@ public class SeriesPartMismatchResolver : IConsistencyIssueResolver
 
         await _issueRepository.DeleteAsync(issue.Id);
 
-        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+        return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "resolved",

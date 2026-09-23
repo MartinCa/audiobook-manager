@@ -19,6 +19,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     private readonly ISeriesReconciliationProvider _seriesReconciliationProvider;
     private readonly IAuthorReconciliationProvider _authorReconciliationProvider;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
+    private readonly IAuthorConsistencyIssueRepository _authorConsistencyIssueRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<UpcomingReleaseService> _logger;
 
@@ -32,6 +33,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         ISeriesReconciliationProvider seriesReconciliationProvider,
         IAuthorReconciliationProvider authorReconciliationProvider,
         ISeriesReconciliationCache seriesReconciliationCache,
+        IAuthorConsistencyIssueRepository authorConsistencyIssueRepository,
         IEnumerable<IScraper> scrapers,
         ILogger<UpcomingReleaseService> logger)
     {
@@ -44,6 +46,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _seriesReconciliationProvider = seriesReconciliationProvider;
         _authorReconciliationProvider = authorReconciliationProvider;
         _seriesReconciliationCache = seriesReconciliationCache;
+        _authorConsistencyIssueRepository = authorConsistencyIssueRepository;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -601,7 +604,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         var scraper = AuthorLookupScraper
             ?? throw new ArgumentException("No author-capable scraper is available to refresh this author's roster.");
 
-        await RefreshAuthorRosterCoreAsync(scraper, person);
+        await RefreshAuthorRosterTrackedAsync(scraper, person);
     }
 
     public async Task<(int Processed, int Succeeded, int Failed, string? StopReason)> RefreshAllAuthorRostersAsync()
@@ -630,7 +633,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             processed++;
             try
             {
-                await RefreshAuthorRosterCoreAsync(scraper, author);
+                await RefreshAuthorRosterTrackedAsync(scraper, author);
                 succeeded++;
             }
             catch (HardcoverDailyLimitExceededException ex)
@@ -649,6 +652,32 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         }
 
         return (processed, succeeded, failed, stopReason);
+    }
+
+    /// <summary>
+    /// Wraps <see cref="RefreshAuthorRosterCoreAsync"/> with the same failure bookkeeping
+    /// <c>SeriesService.RefreshOneSeriesTrackedAsync</c> gives series refreshes: a fresh error
+    /// replaces the author's stale one, a success clears it, and both the single and bulk refresh
+    /// paths go through here so the tracked state never depends on which one was used. The daily
+    /// request-budget exception is not a per-author failure - the bulk sweep stops on it rather
+    /// than counting it - so it is re-thrown untouched rather than recorded.
+    /// </summary>
+    private async Task RefreshAuthorRosterTrackedAsync(IScraper scraper, Person person)
+    {
+        try
+        {
+            await RefreshAuthorRosterCoreAsync(scraper, person);
+            await _authorConsistencyIssueRepository.DeleteByPersonIdAsync(person.Id);
+        }
+        catch (HardcoverDailyLimitExceededException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await _authorConsistencyIssueRepository.UpsertFailureAsync(person.Id, ex.Message);
+            throw;
+        }
     }
 
     /// <summary>

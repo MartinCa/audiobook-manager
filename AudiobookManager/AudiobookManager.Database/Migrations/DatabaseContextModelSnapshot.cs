@@ -156,6 +156,36 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("audiobooks", (string)null);
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.AuthorConsistencyIssue", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("detected_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_message");
+
+                    b.Property<long>("PersonId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("person_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_author_consistency_issues");
+
+                    b.HasIndex("PersonId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_author_consistency_issues_person_id");
+
+                    b.ToTable("author_consistency_issues", (string)null);
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.AuthorFollow", b =>
                 {
                     b.Property<long>("Id")
@@ -181,7 +211,7 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("author_follows", (string)null);
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.ConsistencyIssue", b =>
+            modelBuilder.Entity("AudiobookManager.Database.Models.BookConsistencyIssue", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -214,12 +244,12 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnName("issue_type");
 
                     b.HasKey("Id")
-                        .HasName("pk_consistency_issues");
+                        .HasName("pk_book_consistency_issues");
 
                     b.HasIndex("AudiobookId")
-                        .HasDatabaseName("ix_consistency_issues_audiobook_id");
+                        .HasDatabaseName("ix_book_consistency_issues_audiobook_id");
 
-                    b.ToTable("consistency_issues", (string)null);
+                    b.ToTable("book_consistency_issues", (string)null);
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.DiscoveredAudiobook", b =>
@@ -812,6 +842,36 @@ namespace AudiobookManager.Database.Migrations
                     b.ToTable("series", (string)null);
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.SeriesConsistencyIssue", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("detected_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_message");
+
+                    b.Property<long>("SeriesId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("series_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_series_consistency_issues");
+
+                    b.HasIndex("SeriesId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_series_consistency_issues_series_id");
+
+                    b.ToTable("series_consistency_issues", (string)null);
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.SeriesFollow", b =>
                 {
                     b.Property<long>("Id")
@@ -991,6 +1051,18 @@ namespace AudiobookManager.Database.Migrations
                         .HasConstraintName("fk_audiobook_genre_genres_genres_id");
                 });
 
+            modelBuilder.Entity("AudiobookManager.Database.Models.AuthorConsistencyIssue", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.Person", "Person")
+                        .WithMany()
+                        .HasForeignKey("PersonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_author_consistency_issues_persons_person_id");
+
+                    b.Navigation("Person");
+                });
+
             modelBuilder.Entity("AudiobookManager.Database.Models.AuthorFollow", b =>
                 {
                     b.HasOne("AudiobookManager.Database.Models.Person", "Person")
@@ -1003,14 +1075,14 @@ namespace AudiobookManager.Database.Migrations
                     b.Navigation("Person");
                 });
 
-            modelBuilder.Entity("AudiobookManager.Database.Models.ConsistencyIssue", b =>
+            modelBuilder.Entity("AudiobookManager.Database.Models.BookConsistencyIssue", b =>
                 {
                     b.HasOne("AudiobookManager.Database.Models.Audiobook", "Audiobook")
                         .WithMany()
                         .HasForeignKey("AudiobookId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_consistency_issues_audiobooks_audiobook_id");
+                        .HasConstraintName("fk_book_consistency_issues_audiobooks_audiobook_id");
 
                     b.Navigation("Audiobook");
                 });
@@ -1056,6 +1128,18 @@ namespace AudiobookManager.Database.Migrations
                         .HasConstraintName("fk_pending_metadata_refresh_audiobooks_audiobook_id");
 
                     b.Navigation("Audiobook");
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.SeriesConsistencyIssue", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.Series", "Series")
+                        .WithMany()
+                        .HasForeignKey("SeriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_series_consistency_issues_series_series_id");
+
+                    b.Navigation("Series");
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.SeriesFollow", b =>

@@ -17,17 +17,17 @@ namespace AudiobookManager.Services;
 /// mount that is not currently attached - and deleting the record would drop the only copy of its
 /// curated metadata.
 /// </summary>
-public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
+public class LibraryPathUnavailableResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[] { ConsistencyIssueType.LibraryPathUnavailable };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[] { BookConsistencyIssueType.LibraryPathUnavailable };
 
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookIssueDetectionService _detectionService;
     private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ILogger<LibraryPathUnavailableResolver> _logger;
 
     public LibraryPathUnavailableResolver(
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IAudiobookIssueDetectionService detectionService,
         IPartMismatchIssueDetector partMismatchIssueDetector,
         ILogger<LibraryPathUnavailableResolver> logger)
@@ -38,7 +38,7 @@ public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -47,7 +47,7 @@ public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
         var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
 
         var stillUnavailable = newIssues
-            .Where(newIssue => newIssue.IssueType == ConsistencyIssueType.LibraryPathUnavailable)
+            .Where(newIssue => newIssue.IssueType == BookConsistencyIssueType.LibraryPathUnavailable)
             .ToList();
 
         if (stillUnavailable.Count > 0)
@@ -57,7 +57,7 @@ public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
             // nothing about the book's sidecars, tags or path - and deleting the stored issues
             // for those would discard findings that were never re-evaluated.
             await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
-                audiobook.Id, new[] { ConsistencyIssueType.LibraryPathUnavailable });
+                audiobook.Id, new[] { BookConsistencyIssueType.LibraryPathUnavailable });
             await _issueRepository.InsertRangeAsync(stillUnavailable);
 
             _logger.LogInformation(
@@ -66,7 +66,7 @@ public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
 
             // IssueOnly, not AllForAudiobook: nothing else about this book was touched, so a bulk
             // resolve must not treat the book's other issues as settled by this one.
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "directory_still_unavailable",
@@ -91,7 +91,7 @@ public class LibraryPathUnavailableResolver : IConsistencyIssueResolver
             "Directory of media file for audiobook {AudiobookId} ('{Title}') at '{FilePath}' is available again; refreshed consistency status.",
             audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
-        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+        return (ResolveScope.AllForAudiobook, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "directory_readable_again",

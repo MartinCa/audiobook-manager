@@ -11,7 +11,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 {
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPendingMetadataRefreshRepository _pendingRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IScrapingService _scrapingService;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
@@ -20,7 +20,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     public MetadataRefreshService(
         IAudiobookRepository audiobookRepository,
         IPendingMetadataRefreshRepository pendingRepository,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IScrapingService scrapingService,
         IEnumerable<IScraper> scrapers,
         ILibrarySettingsRepository librarySettingsRepository,
@@ -285,7 +285,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         // The bookkeeping timestamp is deliberately NOT stamped on failure: the next bulk run's
         // staleness filter then picks the book up again naturally (retry by omission).
         var existing = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
-        var staleIssue = existing.FirstOrDefault(i => i.IssueType == ConsistencyIssueType.MetadataRefreshFailed);
+        var staleIssue = existing.FirstOrDefault(i => i.IssueType == BookConsistencyIssueType.MetadataRefreshFailed);
 
         if (staleIssue is not null)
         {
@@ -311,9 +311,9 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
         else
         {
-            await _issueRepository.InsertAsync(ConsistencyIssueFactory.Create(
+            await _issueRepository.InsertAsync(BookConsistencyIssueFactory.Create(
                 audiobookId,
-                ConsistencyIssueType.MetadataRefreshFailed,
+                BookConsistencyIssueType.MetadataRefreshFailed,
                 "Metadata refresh failed",
                 expectedValue: null,
                 actualValue: error));

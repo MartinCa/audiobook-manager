@@ -8,10 +8,10 @@ import type { BookFileInfo } from "@/types/BookFileInfo";
 import type { BulkEditAudiobooksRequest, BulkEditPreviewResponse } from "@/types/BulkEdit";
 import type { PaginatedResult } from "@/types/Common";
 import type {
-  ConsistencyIssue,
+  BookConsistencyIssue,
   ConsistencyIssuePage,
-  ConsistencyResolveResult,
-} from "@/types/ConsistencyIssue";
+  BookConsistencyResolveResult,
+} from "@/types/BookConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
 import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
@@ -48,6 +48,8 @@ import type {
   SeriesRefreshPendingPage,
   SeriesRefreshResult,
 } from "@/types/SeriesRefresh";
+import type { SeriesConsistencyIssuePage } from "@/types/SeriesConsistencyIssue";
+import type { AuthorConsistencyIssuePage } from "@/types/AuthorConsistencyIssue";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { ScheduledTask } from "@/types/ScheduledTask";
@@ -306,6 +308,13 @@ export const browseApi = {
   // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
   refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
 
+  // Paged server-side: one page of authors whose most recent roster refresh (single or bulk)
+  // failed, newest first. Retrying is just calling refreshAuthor again for the same author.
+  getAuthorConsistencyIssuesPage: (page: number, pageSize: number) =>
+    api.get<AuthorConsistencyIssuePage>("/browse/authors/consistency-issues", {
+      query: { page, pageSize },
+    }),
+
   // Dismisses/restores a roster entry on the same shared expected-book rows the series view
   // reads from (global ignore). The stable expected-book row id (book.id) is the preferred
   // addressing; title is the compatibility fallback for callers that only carry the natural key.
@@ -362,19 +371,19 @@ export const consistencyApi = {
   getIssueSummary: () => api.get<Record<number, number>>("/consistency/issues/summary"),
 
   getIssuesByAudiobook: (audiobookId: number) =>
-    api.get<ConsistencyIssue[]>(`/consistency/issues/by-audiobook/${audiobookId}`),
+    api.get<BookConsistencyIssue[]>(`/consistency/issues/by-audiobook/${audiobookId}`),
 
   recheckAudiobook: (audiobookId: number) =>
-    api.post<ConsistencyIssue[]>(`/consistency/issues/recheck/${audiobookId}`),
+    api.post<BookConsistencyIssue[]>(`/consistency/issues/recheck/${audiobookId}`),
 
   resolveIssue: (id: number) =>
-    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
+    api.post<BookConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
 
   getTagMismatch: (id: number) =>
     api.get<TagMismatchField[]>(`/consistency/issues/${id}/tag-mismatch`),
 
   resolveTagMismatch: (id: number, fieldValues: Record<string, string | null>) =>
-    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/tag-mismatch/resolve`, {
+    api.post<BookConsistencyResolveResult>(`/consistency/issues/${id}/tag-mismatch/resolve`, {
       fieldValues,
     }),
 
@@ -668,6 +677,13 @@ export const seriesApi = {
     }),
 
   getSeriesPendingCount: () => api.get<number>("/series/pending/count"),
+
+  // Paged server-side: one page of series whose most recent refresh (single or bulk) failed,
+  // newest first. Retrying is just calling refreshSeries again for the same series name.
+  getConsistencyIssuesPage: (page: number, pageSize: number) =>
+    api.get<SeriesConsistencyIssuePage>("/series/consistency-issues", {
+      query: { page, pageSize },
+    }),
 
   // The stored pending snapshot for one series; the backend 404s when none exists (a refresh that
   // found no changes leaves nothing pending), so this resolves to undefined there - the absence

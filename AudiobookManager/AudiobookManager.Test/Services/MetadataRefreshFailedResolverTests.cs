@@ -12,13 +12,13 @@ namespace AudiobookManager.Test.Services;
 public class MetadataRefreshFailedResolverTests
 {
     private readonly Mock<IMetadataRefreshService> _refreshService = new();
-    private readonly Mock<IConsistencyIssueRepository> _issueRepository = new();
+    private readonly Mock<IBookConsistencyIssueRepository> _issueRepository = new();
     private readonly Mock<ILogger<MetadataRefreshFailedResolver>> _logger = new();
 
     private MetadataRefreshFailedResolver CreateResolver() =>
         new(_refreshService.Object, _issueRepository.Object, _logger.Object);
 
-    private static ConsistencyIssue Issue(long audiobookId = 42) => new()
+    private static BookConsistencyIssue Issue(long audiobookId = 42) => new()
     {
         Id = 7,
         AudiobookId = audiobookId,
@@ -26,7 +26,7 @@ public class MetadataRefreshFailedResolverTests
             audiobookId, "A Book", null, null, null, 2024,
             null, null, null, null, null, null, null, null, null,
             "/library/book.m4b", "book.m4b", 1000),
-        IssueType = ConsistencyIssueType.MetadataRefreshFailed,
+        IssueType = BookConsistencyIssueType.MetadataRefreshFailed,
         Description = "Metadata refresh failed",
         DetectedAt = DateTime.UtcNow,
     };
@@ -50,7 +50,7 @@ public class MetadataRefreshFailedResolverTests
         StringAssert.Contains(result.Message, "5000");
         // The failure row stays: nothing was refreshed, so there is nothing to clean up.
         _issueRepository.Verify(
-            r => r.DeleteByAudiobookIdAndTypesAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<ConsistencyIssueType>>()),
+            r => r.DeleteByAudiobookIdAndTypesAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<BookConsistencyIssueType>>()),
             Times.Never);
     }
 
@@ -83,8 +83,8 @@ public class MetadataRefreshFailedResolverTests
         Assert.AreEqual("refresh_succeeded", result.ActionTaken);
         _issueRepository.Verify(
             r => r.DeleteByAudiobookIdAndTypesAsync(
-                42, It.Is<IReadOnlyCollection<ConsistencyIssueType>>(
-                    types => types.Count == 1 && types.Contains(ConsistencyIssueType.MetadataRefreshFailed))),
+                42, It.Is<IReadOnlyCollection<BookConsistencyIssueType>>(
+                    types => types.Count == 1 && types.Contains(BookConsistencyIssueType.MetadataRefreshFailed))),
             Times.Once);
     }
 }

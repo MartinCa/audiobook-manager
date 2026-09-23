@@ -14,11 +14,11 @@ namespace AudiobookManager.Test.Repositories;
 /// drop another.
 /// </summary>
 [TestClass]
-public class ConsistencyIssueRepositoryPagingTests
+public class BookConsistencyIssueRepositoryPagingTests
 {
     private string _dbPath = null!;
     private DatabaseContext _db = null!;
-    private ConsistencyIssueRepository _repository = null!;
+    private BookConsistencyIssueRepository _repository = null!;
     private Person _author = null!;
 
     [TestInitialize]
@@ -28,7 +28,7 @@ public class ConsistencyIssueRepositoryPagingTests
         var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
         _db = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
         _db.Database.EnsureCreated();
-        _repository = new ConsistencyIssueRepository(_db);
+        _repository = new BookConsistencyIssueRepository(_db);
         _author = new Person(default, "An Author");
     }
 
@@ -61,11 +61,11 @@ public class ConsistencyIssueRepositoryPagingTests
         return audiobook;
     }
 
-    private async Task SeedIssuesAsync(long audiobookId, ConsistencyIssueType type, int count)
+    private async Task SeedIssuesAsync(long audiobookId, BookConsistencyIssueType type, int count)
     {
         for (var i = 0; i < count; i++)
         {
-            _db.ConsistencyIssues.Add(new ConsistencyIssue
+            _db.BookConsistencyIssues.Add(new BookConsistencyIssue
             {
                 AudiobookId = audiobookId,
                 IssueType = type,
@@ -85,14 +85,14 @@ public class ConsistencyIssueRepositoryPagingTests
         // and mark it all Modified, so a rename made between the read and the update was silently
         // reverted by the stale snapshot. Only the issue row may be rewritten.
         var book = await SeedBookAsync("Graph Victim");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.MetadataRefreshFailed, 1);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.MetadataRefreshFailed, 1);
 
         var noTrackingContext = new DatabaseContext(
             new DbContextOptions<DatabaseContext>(),
             Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath }));
         try
         {
-            var detachedIssue = (await noTrackingContext.ConsistencyIssues
+            var detachedIssue = (await noTrackingContext.BookConsistencyIssues
                 .AsNoTracking()
                 .Include(ci => ci.Audiobook).ThenInclude(a => a.Authors)
                 .SingleAsync(ci => ci.AudiobookId == book.Id));
@@ -118,7 +118,7 @@ public class ConsistencyIssueRepositoryPagingTests
             Assert.AreEqual("Renamed Concurrently",
                 (await verify.Persons.SingleAsync(p => p.Id == authorId)).Name);
 
-            var reloaded = await verify.ConsistencyIssues.SingleAsync(ci => ci.AudiobookId == book.Id);
+            var reloaded = await verify.BookConsistencyIssues.SingleAsync(ci => ci.AudiobookId == book.Id);
             Assert.AreEqual("the fresh error", reloaded.ActualValue);
         }
         finally
@@ -131,11 +131,11 @@ public class ConsistencyIssueRepositoryPagingTests
     public async Task UpdateAsync_UnknownIssue_ThrowsKeyNotFound()
     {
         await SeedBookAsync("No Issue Book");
-        var phantom = new ConsistencyIssue
+        var phantom = new BookConsistencyIssue
         {
             Id = 999999,
             AudiobookId = 1,
-            IssueType = ConsistencyIssueType.MetadataRefreshFailed,
+            IssueType = BookConsistencyIssueType.MetadataRefreshFailed,
             Description = "x",
             DetectedAt = DateTime.UtcNow,
         };
@@ -148,7 +148,7 @@ public class ConsistencyIssueRepositoryPagingTests
     public async Task GetPageWithAudiobookAsync_ReturnsTheRequestedSliceAndTheFullTotal()
     {
         var book = await SeedBookAsync("A Book");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.TagMismatch, 25);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.TagMismatch, 25);
 
         var (items, totalCount) = await _repository.GetPageWithAudiobookAsync(null, skip: 10, take: 10);
 
@@ -160,7 +160,7 @@ public class ConsistencyIssueRepositoryPagingTests
     public async Task GetPageWithAudiobookAsync_IncludesTheAudiobookAndItsAuthors()
     {
         var book = await SeedBookAsync("A Book");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.MissingDescTxt, 1);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.MissingDescTxt, 1);
 
         var (items, _) = await _repository.GetPageWithAudiobookAsync(null, skip: 0, take: 10);
 
@@ -175,9 +175,9 @@ public class ConsistencyIssueRepositoryPagingTests
     {
         var first = await SeedBookAsync("First");
         var second = await SeedBookAsync("Second");
-        await SeedIssuesAsync(first.Id, ConsistencyIssueType.TagMismatch, 7);
-        await SeedIssuesAsync(second.Id, ConsistencyIssueType.TagMismatch, 7);
-        await SeedIssuesAsync(first.Id, ConsistencyIssueType.MissingCoverFile, 7);
+        await SeedIssuesAsync(first.Id, BookConsistencyIssueType.TagMismatch, 7);
+        await SeedIssuesAsync(second.Id, BookConsistencyIssueType.TagMismatch, 7);
+        await SeedIssuesAsync(first.Id, BookConsistencyIssueType.MissingCoverFile, 7);
 
         var seen = new List<long>();
         for (var page = 0; page < 5; page++)
@@ -188,7 +188,7 @@ public class ConsistencyIssueRepositoryPagingTests
 
         Assert.AreEqual(21, seen.Count);
         CollectionAssert.AreEquivalent(
-            await _db.ConsistencyIssues.Select(i => i.Id).ToListAsync(),
+            await _db.BookConsistencyIssues.Select(i => i.Id).ToListAsync(),
             seen,
             "Every issue must appear exactly once across the pages.");
     }
@@ -197,21 +197,21 @@ public class ConsistencyIssueRepositoryPagingTests
     public async Task GetPageWithAudiobookAsync_FilteredByType_CountsAndReturnsOnlyThatType()
     {
         var book = await SeedBookAsync("A Book");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.TagMismatch, 6);
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.MissingCoverFile, 4);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.TagMismatch, 6);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.MissingCoverFile, 4);
 
         var (items, totalCount) = await _repository.GetPageWithAudiobookAsync(
-            ConsistencyIssueType.TagMismatch, skip: 0, take: 50);
+            BookConsistencyIssueType.TagMismatch, skip: 0, take: 50);
 
         Assert.AreEqual(6, totalCount, "The total must count the filter, not the table.");
-        Assert.IsTrue(items.All(i => i.IssueType == ConsistencyIssueType.TagMismatch));
+        Assert.IsTrue(items.All(i => i.IssueType == BookConsistencyIssueType.TagMismatch));
     }
 
     [TestMethod]
     public async Task GetPageWithAudiobookAsync_PastTheEnd_IsEmptyButStillReportsTheTotal()
     {
         var book = await SeedBookAsync("A Book");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.TagMismatch, 3);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.TagMismatch, 3);
 
         var (items, totalCount) = await _repository.GetPageWithAudiobookAsync(null, skip: 500, take: 50);
 
@@ -223,13 +223,13 @@ public class ConsistencyIssueRepositoryPagingTests
     public async Task GetCountsByTypeAsync_CountsEachTypeSeparately()
     {
         var book = await SeedBookAsync("A Book");
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.TagMismatch, 6);
-        await SeedIssuesAsync(book.Id, ConsistencyIssueType.MissingCoverFile, 4);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.TagMismatch, 6);
+        await SeedIssuesAsync(book.Id, BookConsistencyIssueType.MissingCoverFile, 4);
 
         var counts = await _repository.GetCountsByTypeAsync();
 
-        Assert.AreEqual(6, counts[ConsistencyIssueType.TagMismatch]);
-        Assert.AreEqual(4, counts[ConsistencyIssueType.MissingCoverFile]);
+        Assert.AreEqual(6, counts[BookConsistencyIssueType.TagMismatch]);
+        Assert.AreEqual(4, counts[BookConsistencyIssueType.MissingCoverFile]);
         Assert.AreEqual(2, counts.Count, "Types with no issues must not appear.");
     }
 }

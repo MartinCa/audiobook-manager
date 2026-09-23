@@ -9,7 +9,7 @@ namespace AudiobookManager.Services;
 /// <summary>
 /// Maps the cached per-series reconciliation's part mismatches to consistency issues. See
 /// <see cref="IPartMismatchIssueDetector"/> for why this is a library-wide sweep and not an
-/// <see cref="IConsistencyIssueDetector"/>. The per-series work is delegated to
+/// <see cref="IBookConsistencyIssueDetector"/>. The per-series work is delegated to
 /// <see cref="ISeriesReconciliationProvider.GetReconciliationAsync(string)"/> - never
 /// reimplemented here - so the detected findings always agree with what the series detail renders,
 /// and a full check that follows a series-detail browse reuses the cache instead of recomputing.
@@ -34,12 +34,12 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<ConsistencyIssue>> DetectLibraryWideAsync()
+    public async Task<IReadOnlyList<BookConsistencyIssue>> DetectLibraryWideAsync()
     {
         // One issue per treated book, bounded by the matched-series list (the sweep is groupable
         // only by series, and unmatched series have no roster to mismatch against).
         var matchedSeries = await _seriesRepository.GetMatchedSeriesNamesAsync();
-        var issues = new List<ConsistencyIssue>();
+        var issues = new List<BookConsistencyIssue>();
 
         // Sequential by design, not an oversight. A reconciliation cache miss computes inline in
         // the caller (see SeriesReconciliationCache.GetOrComputeAsync) through the caller's scoped
@@ -72,11 +72,11 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
         return issues;
     }
 
-    public async Task<IReadOnlyList<ConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook)
+    public async Task<IReadOnlyList<BookConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook)
     {
         if (string.IsNullOrWhiteSpace(audiobook.Series))
         {
-            return new List<ConsistencyIssue>();
+            return new List<BookConsistencyIssue>();
         }
 
         try
@@ -92,20 +92,20 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
             _logger.LogWarning(
                 ex, "Skipping series-part-mismatch detection for audiobook {AudiobookId} in series {SeriesName}: {Message}",
                 audiobook.Id, audiobook.Series, ex.Message);
-            return new List<ConsistencyIssue>();
+            return new List<BookConsistencyIssue>();
         }
     }
 
     /// <summary>
     /// The issue's expected/actual values carry the roster position vs the stored part (the
-    /// resolver writes <see cref="ConsistencyIssue.ExpectedValue"/> back into the book), and the
+    /// resolver writes <see cref="BookConsistencyIssue.ExpectedValue"/> back into the book), and the
     /// description names the roster title the book was matched against, mirroring what the series
     /// detail's Part Mismatches section shows.
     /// </summary>
-    private static ConsistencyIssue ToIssue(SeriesPartMismatch mismatch) => new()
+    private static BookConsistencyIssue ToIssue(SeriesPartMismatch mismatch) => new()
     {
         AudiobookId = mismatch.AudiobookId,
-        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+        IssueType = BookConsistencyIssueType.SeriesPartMismatch,
         Description =
             $"The stored series part of '{mismatch.BookName}' is missing or differs from "
             + $"part {mismatch.ExpectedPart} assigned to '{mismatch.RosterTitle}' in the matched series.",

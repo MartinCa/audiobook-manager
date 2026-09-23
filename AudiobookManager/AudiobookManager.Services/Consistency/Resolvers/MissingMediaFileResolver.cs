@@ -5,12 +5,12 @@ using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
-public class MissingMediaFileResolver : IConsistencyIssueResolver
+public class MissingMediaFileResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[] { ConsistencyIssueType.MissingMediaFile };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[] { BookConsistencyIssueType.MissingMediaFile };
 
     private readonly IAudiobookRepository _audiobookRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookFileHandler _fileHandler;
     private readonly IAudiobookIssueDetectionService _detectionService;
     private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
@@ -19,7 +19,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
 
     public MissingMediaFileResolver(
         IAudiobookRepository audiobookRepository,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IAudiobookFileHandler fileHandler,
         IAudiobookIssueDetectionService detectionService,
         IPartMismatchIssueDetector partMismatchIssueDetector,
@@ -35,7 +35,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -58,7 +58,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
                 await _issueRepository.InsertRangeAsync(newIssues);
             }
 
-            return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+            return (ResolveScope.AllForAudiobook, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "file_recovered",
@@ -84,7 +84,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
             // issues for those would discard findings that were never re-evaluated. The re-check's
             // answer (LibraryPathUnavailable, the stock "share is gone" shape) is inserted below.
             await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
-                audiobook.Id, new[] { ConsistencyIssueType.MissingMediaFile });
+                audiobook.Id, new[] { BookConsistencyIssueType.MissingMediaFile });
             var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
             if (newIssues.Count > 0)
             {
@@ -93,7 +93,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
 
             // IssueOnly, not AllForAudiobook: nothing else about this book was touched, so a bulk
             // resolve must not treat the book's other issues as settled by this one.
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "directory_unavailable",
@@ -121,7 +121,7 @@ public class MissingMediaFileResolver : IConsistencyIssueResolver
             "Media file for audiobook {AudiobookId} ('{Title}') not found at '{FilePath}'. Deleted audiobook from database and cleaned up empty directory.",
             audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
-        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+        return (ResolveScope.AllForAudiobook, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "audiobook_deleted",

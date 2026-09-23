@@ -7,7 +7,7 @@ using DomainPerson = AudiobookManager.Domain.Person;
 namespace AudiobookManager.Services;
 
 /// <summary>
-/// Resolves an <see cref="ConsistencyIssueType.InitialsSpacingMismatch"/> issue by renaming the
+/// Resolves an <see cref="BookConsistencyIssueType.InitialsSpacingMismatch"/> issue by renaming the
 /// offending person value to its canonical spacing on every book that carries it. This is the
 /// "binding invariant" path (AGENTS.md: Author/Series/SeriesPart/Year/BookName changes go through
 /// <see cref="AudiobookService.UpdateAudiobook"/>) - the value is never rewritten record-only,
@@ -15,27 +15,27 @@ namespace AudiobookManager.Services;
 ///
 /// The issue is person-scoped (one row per distinct value, see
 /// <see cref="InitialsSpacingIssueDetector"/>), so this resolver is deliberately *not* gated by the
-/// calling issue's <see cref="ConsistencyIssue.AudiobookId"/> gate the way the per-book resolvers
+/// calling issue's <see cref="BookConsistencyIssue.AudiobookId"/> gate the way the per-book resolvers
 /// are: it takes the per-audiobook gate itself, once per book in its own loop, exactly like
 /// <see cref="SimilarValueService.AlignAuthorsAsync"/>. <see cref="LibraryConsistencyService"/>
 /// special-cases this type to skip the outer gate.
 ///
 /// Because the issue is person-scoped, the resolve never clears a book's issues wholesale: a
 /// rewritten book's per-book rows (tags, path, sidecars) are genuinely invalidated, but another
-/// person's <see cref="ConsistencyIssueType.InitialsSpacingMismatch"/> row that merely shares
+/// person's <see cref="BookConsistencyIssueType.InitialsSpacingMismatch"/> row that merely shares
 /// the representative book must survive, and the reported scope is
 /// <see cref="ResolveScope.IssueOnly"/> so a bulk resolve does not cascade it away.
 /// </summary>
-public class InitialsSpacingResolver : IConsistencyIssueResolver
+public class InitialsSpacingResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[]
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[]
     {
-        ConsistencyIssueType.InitialsSpacingMismatch
+        BookConsistencyIssueType.InitialsSpacingMismatch
     };
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IAudiobookService _audiobookService;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILogger<InitialsSpacingResolver> _logger;
 
@@ -44,22 +44,22 @@ public class InitialsSpacingResolver : IConsistencyIssueResolver
     /// <see cref="AudiobookService.UpdateAudiobook"/>: tags were rewritten, the file may have been
     /// relocated and the sidecars and cover re-extracted, so every per-book check is stale for it.
     ///
-    /// Deliberately excludes <see cref="ConsistencyIssueType.InitialsSpacingMismatch"/>: that type
+    /// Deliberately excludes <see cref="BookConsistencyIssueType.InitialsSpacingMismatch"/>: that type
     /// is person-scoped, not book-scoped - one row per distinct non-compliant value, with
-    /// <see cref="ConsistencyIssue.AudiobookId"/> naming a representative book the value appears on.
+    /// <see cref="BookConsistencyIssue.AudiobookId"/> naming a representative book the value appears on.
     /// Rewriting a *different* person's name on that book says nothing about another non-compliant
     /// value the same book happens to carry, so those rows must survive. Derived from the enum
     /// rather than hand-listed so a newly added issue type is automatically swept as stale here too.
     /// </summary>
-    private static readonly ConsistencyIssueType[] InvalidatedByRewriteTypes =
-        Enum.GetValues<ConsistencyIssueType>()
-            .Where(t => t != ConsistencyIssueType.InitialsSpacingMismatch)
+    private static readonly BookConsistencyIssueType[] InvalidatedByRewriteTypes =
+        Enum.GetValues<BookConsistencyIssueType>()
+            .Where(t => t != BookConsistencyIssueType.InitialsSpacingMismatch)
             .ToArray();
 
     public InitialsSpacingResolver(
         IAudiobookRepository audiobookRepository,
         IAudiobookService audiobookService,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IAudiobookSaveGate saveGate,
         ILogger<InitialsSpacingResolver> logger)
     {
@@ -70,7 +70,7 @@ public class InitialsSpacingResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var currentName = issue.ActualValue;
         var canonicalName = issue.ExpectedValue;
@@ -88,7 +88,7 @@ public class InitialsSpacingResolver : IConsistencyIssueResolver
             // IssueOnly, not AllForAudiobook: nothing about any book was touched, so a bulk resolve
             // must not treat the representative book's other issues as settled by this row.
             await _issueRepository.DeleteAsync(issue.Id);
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id, issue.IssueType, "resolved",
                 $"No book carries '{currentName}' anymore; the issue was stale and has been cleared."));
         }
@@ -156,7 +156,7 @@ public class InitialsSpacingResolver : IConsistencyIssueResolver
             // for the next check to re-flag them. Return IssueOnly, not AllForAudiobook: another
             // person's InitialsSpacingMismatch row on a rewritten book is still live, and a bulk
             // resolve must not treat the representative book as settled by this partial fix.
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id, issue.IssueType, "resolved",
                 $"Renamed '{currentName}' to '{canonicalName}' on {succeeded} of {processed} books "
                 + $"{failed} failed and will be re-flagged by the next check."));
@@ -167,7 +167,7 @@ public class InitialsSpacingResolver : IConsistencyIssueResolver
 
         // IssueOnly for the same reason as above: this resolve removed only this person's row plus
         // each rewritten book's stale per-book rows - never another person's InitialsSpacingMismatch.
-        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+        return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
             issue.Id, issue.IssueType, "resolved",
             $"Renamed '{currentName}' to '{canonicalName}' on all {succeeded} books."));
     }

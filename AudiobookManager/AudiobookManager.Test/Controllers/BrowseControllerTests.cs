@@ -30,6 +30,7 @@ public class BrowseControllerTests
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
+    private Mock<IAuthorConsistencyIssueRepository> _authorConsistencyIssueRepository = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private ExpectedBookWriteGate _expectedBookWriteGate = null!;
@@ -44,6 +45,7 @@ public class BrowseControllerTests
         _seriesService = new Mock<ISeriesService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
+        _authorConsistencyIssueRepository = new Mock<IAuthorConsistencyIssueRepository>();
         _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>(), It.IsAny<bool>()))
             .ReturnsAsync(new AuthorReconciliation(
                 new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(),
@@ -60,7 +62,8 @@ public class BrowseControllerTests
 
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
-            _upcomingReleaseService.Object, _authorReconciliation.Object, _expectedBookWriteGate,
+            _upcomingReleaseService.Object, _authorReconciliation.Object,
+            _authorConsistencyIssueRepository.Object, _expectedBookWriteGate,
             Array.Empty<IScraper>(),
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
@@ -1393,5 +1396,50 @@ public class BrowseControllerTests
         Assert.AreEqual("Hardcover", book.SourceName);
         Assert.AreEqual("555", book.SourceBookId);
         Assert.AreEqual("https://covers.hardcover.app/words-of-radiance.jpg", book.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorConsistencyIssues_ReturnsMappedDtoList()
+    {
+        var issues = new List<AuthorConsistencyIssue>
+        {
+            new AuthorConsistencyIssue
+            {
+                Id = 1,
+                PersonId = 7,
+                Person = new Person(7, "Brandon Sanderson"),
+                ErrorMessage = "The source returned an error.",
+                DetectedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            },
+        };
+
+        _authorConsistencyIssueRepository
+            .Setup(r => r.GetPageWithAuthorAsync(0, 50))
+            .ReturnsAsync((issues, 1));
+
+        var result = await _controller.GetAuthorConsistencyIssues();
+
+        var page = ((OkObjectResult)result.Result!).Value as AuthorConsistencyIssuePageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(1, page.Items[0].Id);
+        Assert.AreEqual(7, page.Items[0].PersonId);
+        Assert.AreEqual("Brandon Sanderson", page.Items[0].AuthorName);
+        Assert.AreEqual("The source returned an error.", page.Items[0].ErrorMessage);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetAuthorConsistencyIssues_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetAuthorConsistencyIssues(page: page, pageSize: pageSize);
+
+        Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _authorConsistencyIssueRepository.Verify(
+            r => r.GetPageWithAuthorAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 }

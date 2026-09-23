@@ -4,7 +4,7 @@ import {
   getIssueTypeLabel,
   getIssueTypeInfo,
   getBulkResolveDescription,
-  notifyConsistencyResolveResult,
+  notifyBookConsistencyResolveResult,
   notifyOrphanResolveResult,
 } from "./consistencyHelpers";
 
@@ -68,9 +68,9 @@ describe("consistencyHelpers", () => {
     });
   });
 
-  describe("notifyConsistencyResolveResult", () => {
+  describe("notifyBookConsistencyResolveResult", () => {
     it("shows info toast when actionTaken is file_recovered", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "MissingMediaFile",
         actionTaken: "file_recovered",
@@ -82,7 +82,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("shows success toast when actionTaken is audiobook_deleted", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "MissingMediaFile",
         actionTaken: "audiobook_deleted",
@@ -94,7 +94,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("shows success toast when actionTaken is resolved", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "TagMismatch",
         actionTaken: "resolved",
@@ -119,7 +119,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("warns rather than reporting success when the file is still unreadable", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "UnreadableFile",
         actionTaken: "still_unreadable",
@@ -131,7 +131,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("reports success when the file can be read again", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "UnreadableFile",
         actionTaken: "file_readable",
@@ -156,7 +156,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("warns rather than reporting success when the directory is still unavailable", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "LibraryPathUnavailable",
         actionTaken: "directory_still_unavailable",
@@ -168,7 +168,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("reports success when the directory is readable again", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "LibraryPathUnavailable",
         actionTaken: "directory_readable_again",
@@ -180,7 +180,7 @@ describe("consistencyHelpers", () => {
     });
 
     it("reports info (not success) when a MissingMediaFile resolve re-checks to a missing directory", () => {
-      notifyConsistencyResolveResult({
+      notifyBookConsistencyResolveResult({
         issueId: 1,
         issueType: "MissingMediaFile",
         actionTaken: "directory_unavailable",

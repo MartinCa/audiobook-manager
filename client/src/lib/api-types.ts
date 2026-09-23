@@ -822,6 +822,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/consistency-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["AuthorConsistencyIssuePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/authors/{authorId}/expected-books/ignore": {
         parameters: {
             query?: never;
@@ -1288,9 +1328,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyIssuePageDto"];
-                        "application/json": components["schemas"]["ConsistencyIssuePageDto"];
-                        "text/json": components["schemas"]["ConsistencyIssuePageDto"];
+                        "text/plain": components["schemas"]["BookConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["BookConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["BookConsistencyIssuePageDto"];
                     };
                 };
             };
@@ -1413,9 +1453,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyIssueDto"][];
-                        "application/json": components["schemas"]["ConsistencyIssueDto"][];
-                        "text/json": components["schemas"]["ConsistencyIssueDto"][];
+                        "text/plain": components["schemas"]["BookConsistencyIssueDto"][];
+                        "application/json": components["schemas"]["BookConsistencyIssueDto"][];
+                        "text/json": components["schemas"]["BookConsistencyIssueDto"][];
                     };
                 };
             };
@@ -1608,9 +1648,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
-                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
-                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/plain": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["BookConsistencyResolveResultDto"];
                     };
                 };
             };
@@ -1647,9 +1687,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
-                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
-                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/plain": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["BookConsistencyResolveResultDto"];
                     };
                 };
             };
@@ -3459,6 +3499,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/consistency-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/expected-books/candidates": {
         parameters: {
             query?: never;
@@ -4851,6 +4931,21 @@ export interface components {
             currentUrl?: string | null;
             cleanedUrl?: string | null;
         };
+        AuthorConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            personId?: number;
+            authorName?: string | null;
+            errorMessage?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        AuthorConsistencyIssuePageDto: {
+            items?: components["schemas"]["AuthorConsistencyIssueDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
         AuthorDetailDto: {
             author?: components["schemas"]["AuthorSummaryDto"];
             series?: components["schemas"]["SeriesOverviewDtoPaginatedResult"];
@@ -4946,6 +5041,32 @@ export interface components {
             total?: number;
             items?: components["schemas"]["AuthorSummaryDto"][] | null;
         };
+        BookConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            authors?: string[] | null;
+            issueType?: string | null;
+            description?: string | null;
+            expectedValue?: string | null;
+            actualValue?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        BookConsistencyIssuePageDto: {
+            items?: components["schemas"]["BookConsistencyIssueDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
+        BookConsistencyResolveResultDto: {
+            /** Format: int64 */
+            issueId?: number;
+            issueType?: string | null;
+            actionTaken?: string | null;
+            message?: string | null;
+        };
         BrowseFilterOptionsDto: {
             sources?: string[] | null;
             genres?: string[] | null;
@@ -5019,32 +5140,6 @@ export interface components {
         };
         BulkSelectionDto: {
             audiobookIds: number[];
-        };
-        ConsistencyIssueDto: {
-            /** Format: int64 */
-            id?: number;
-            /** Format: int64 */
-            audiobookId?: number;
-            bookName?: string | null;
-            authors?: string[] | null;
-            issueType?: string | null;
-            description?: string | null;
-            expectedValue?: string | null;
-            actualValue?: string | null;
-            /** Format: date-time */
-            detectedAt?: string;
-        };
-        ConsistencyIssuePageDto: {
-            items?: components["schemas"]["ConsistencyIssueDto"][] | null;
-            /** Format: int32 */
-            totalCount?: number;
-        };
-        ConsistencyResolveResultDto: {
-            /** Format: int64 */
-            issueId?: number;
-            issueType?: string | null;
-            actionTaken?: string | null;
-            message?: string | null;
         };
         DiscoveredAudiobookDto: {
             fullPath?: string | null;
@@ -5411,6 +5506,21 @@ export interface components {
         };
         SeriesBulkCandidatePageDto: {
             items?: components["schemas"]["SeriesBulkCandidateItemDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
+        SeriesConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            seriesId?: number;
+            seriesName?: string | null;
+            errorMessage?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        SeriesConsistencyIssuePageDto: {
+            items?: components["schemas"]["SeriesConsistencyIssueDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
         };

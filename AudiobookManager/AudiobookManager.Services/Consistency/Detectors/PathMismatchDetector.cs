@@ -3,9 +3,9 @@ using AudiobookManager.FileManager;
 
 namespace AudiobookManager.Services;
 
-public sealed class PathMismatchDetector : IConsistencyIssueDetector
+public sealed class PathMismatchDetector : IBookConsistencyIssueDetector
 {
-    public IEnumerable<ConsistencyIssue> Detect(AudiobookCheckContext context)
+    public IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context)
     {
         var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(context.Parsed);
         // Same join as AudiobookService.GenerateLibraryPath, and it has to stay the same one: this
@@ -15,7 +15,7 @@ public sealed class PathMismatchDetector : IConsistencyIssueDetector
 
         if (!AudiobookFileHandler.PathsEqual(context.Audiobook.FileInfoFullPath, expectedFullPath))
         {
-            yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.WrongFilePath,
+            yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.WrongFilePath,
                 "File path does not match expected path from tags",
                 expectedFullPath, context.Audiobook.FileInfoFullPath);
         }

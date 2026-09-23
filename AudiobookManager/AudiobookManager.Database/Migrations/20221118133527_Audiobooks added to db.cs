@@ -14,10 +14,17 @@ namespace AudiobookManager.Database.Migrations
                 name: "PK_series_mapping",
                 table: "series_mapping");
 
-            migrationBuilder.RenameIndex(
+            // RenameIndex is avoided here (rather than relying on it) - see the Down() comment
+            // for why: it produces the same "ix_series_mapping_regex" end state.
+            migrationBuilder.DropIndex(
                 name: "IX_series_mapping_regex",
+                table: "series_mapping");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_series_mapping_regex",
                 table: "series_mapping",
-                newName: "ix_series_mapping_regex");
+                column: "regex",
+                unique: true);
 
             migrationBuilder.AddPrimaryKey(
                 name: "pk_series_mapping",
@@ -191,10 +198,23 @@ namespace AudiobookManager.Database.Migrations
                 name: "pk_series_mapping",
                 table: "series_mapping");
 
-            migrationBuilder.RenameIndex(
+            // RenameIndex is deliberately not used: SQLite has no native rename-index statement,
+            // and EF's Sqlite migrations generator only synthesizes the Drop+Create it needs when
+            // the RenameIndexOperation sits directly next to the primary-key change it belongs to
+            // in the operation list - which it does not here, because the six unrelated DropTable
+            // calls above sit in between. With those in between, the generator falls through to
+            // its per-operation RenameIndexOperation handler, which SQLite (and so this generator)
+            // never supports standalone, and throws NotSupportedException. Writing the same rename
+            // as an explicit Drop+Create sidesteps the detection issue entirely.
+            migrationBuilder.DropIndex(
                 name: "ix_series_mapping_regex",
+                table: "series_mapping");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_series_mapping_regex",
                 table: "series_mapping",
-                newName: "IX_series_mapping_regex");
+                column: "regex",
+                unique: true);
 
             migrationBuilder.AddPrimaryKey(
                 name: "PK_series_mapping",

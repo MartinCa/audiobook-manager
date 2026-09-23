@@ -3,9 +3,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TagMismatchResolveDialog } from "./TagMismatchResolveDialog";
 import { consistencyApi } from "@/services/api";
-import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
+import type { BookConsistencyIssue } from "@/types/BookConsistencyIssue";
 
-const issue: ConsistencyIssue = {
+const issue: BookConsistencyIssue = {
   id: 42,
   audiobookId: 7,
   bookName: "The Test Book",

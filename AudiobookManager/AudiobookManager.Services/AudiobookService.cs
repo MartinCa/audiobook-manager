@@ -19,7 +19,7 @@ public class AudiobookService : IAudiobookService
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPersonRepository _personRepository;
     private readonly IGenreRepository _genreRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
 
     public AudiobookService(
@@ -30,7 +30,7 @@ public class AudiobookService : IAudiobookService
         IAudiobookRepository audiobookRepository,
         IPersonRepository personRepository,
         IGenreRepository genreRepository,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ISeriesReconciliationCache seriesReconciliationCache,
         ILogger<AudiobookService> logger)
     {

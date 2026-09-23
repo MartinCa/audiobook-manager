@@ -48,6 +48,7 @@ public class SeriesController : ControllerBase
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ILibraryConsistencyService _libraryConsistencyService;
     private readonly IUpcomingReleaseService _upcomingReleaseService;
+    private readonly ISeriesConsistencyIssueRepository _seriesConsistencyIssueRepository;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<SeriesController> _logger;
 
@@ -59,6 +60,7 @@ public class SeriesController : ControllerBase
         IAudiobookSaveGate saveGate,
         ILibraryConsistencyService libraryConsistencyService,
         IUpcomingReleaseService upcomingReleaseService,
+        ISeriesConsistencyIssueRepository seriesConsistencyIssueRepository,
         IExpectedBookWriteGate expectedBookWriteGate,
         IHostApplicationLifetime appLifetime,
         ILogger<SeriesController> logger)
@@ -70,6 +72,7 @@ public class SeriesController : ControllerBase
         _saveGate = saveGate;
         _libraryConsistencyService = libraryConsistencyService;
         _upcomingReleaseService = upcomingReleaseService;
+        _seriesConsistencyIssueRepository = seriesConsistencyIssueRepository;
         _expectedBookWriteGate = expectedBookWriteGate;
         _appLifetime = appLifetime;
         _logger = logger;
@@ -565,6 +568,40 @@ public class SeriesController : ControllerBase
     public IActionResult StartRefreshAllSeries()
     {
         return StartRefresh(service => service.RefreshAllSeriesAsync(RefreshProgressAction));
+    }
+
+    /// <summary>
+    /// One page of series whose most recent refresh (single or bulk) failed, newest first - the
+    /// series-scoped counterpart to ConsistencyController's book issue list. A series drops off
+    /// this list the moment a refresh of it succeeds; retrying is just calling
+    /// <see cref="RefreshSeries"/> again for the same series name.
+    /// </summary>
+    [HttpGet("consistency-issues")]
+    public async Task<ActionResult<SeriesConsistencyIssuePageDto>> GetConsistencyIssues(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+    {
+        if (page < 0)
+        {
+            return this.InvalidRequest("page must be zero or greater.");
+        }
+
+        if (pageSize < 1 || pageSize > PagingLimits.MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {PagingLimits.MaxPageSize}.");
+        }
+
+        var skip = (long)page * pageSize;
+        if (skip > PagingLimits.MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} issues.");
+        }
+
+        var (issues, totalCount) = await _seriesConsistencyIssueRepository.GetPageWithSeriesAsync((int)skip, pageSize);
+
+        return Ok(new SeriesConsistencyIssuePageDto(
+            issues.Select(i => new SeriesConsistencyIssueDto(i.Id, i.SeriesId, i.Series.Name, i.ErrorMessage, i.DetectedAt)).ToList(),
+            totalCount));
     }
 
     [HttpGet("expected-books/candidates")]

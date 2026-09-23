@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { consistencyApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import type { ConsistencyIssue } from "@/types/ConsistencyIssue";
+import type { BookConsistencyIssue } from "@/types/BookConsistencyIssue";
 
 export type TagFieldChoice = "library" | "file" | "empty";
 
@@ -24,7 +24,7 @@ function initialChoicesFor(fields: TagMismatchField[] | undefined): Record<strin
 interface TagMismatchResolveDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  issue: ConsistencyIssue | null;
+  issue: BookConsistencyIssue | null;
   onResolve: (issueId: number, fieldValues: Record<string, string | null>) => Promise<void>;
 }
 

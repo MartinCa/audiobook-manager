@@ -5,24 +5,24 @@ using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
-public class MetadataSidecarResolver : IConsistencyIssueResolver
+public class MetadataSidecarResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[]
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[]
     {
-        ConsistencyIssueType.MissingDescTxt, ConsistencyIssueType.IncorrectDescTxt,
-        ConsistencyIssueType.MissingReaderTxt, ConsistencyIssueType.IncorrectReaderTxt,
-        ConsistencyIssueType.MissingOpfFile, ConsistencyIssueType.IncorrectOpfFile
+        BookConsistencyIssueType.MissingDescTxt, BookConsistencyIssueType.IncorrectDescTxt,
+        BookConsistencyIssueType.MissingReaderTxt, BookConsistencyIssueType.IncorrectReaderTxt,
+        BookConsistencyIssueType.MissingOpfFile, BookConsistencyIssueType.IncorrectOpfFile
     };
 
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly IAudiobookFileHandler _fileHandler;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ILogger<MetadataSidecarResolver> _logger;
 
     public MetadataSidecarResolver(
         IAudiobookTagHandler tagHandler,
         IAudiobookFileHandler fileHandler,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ILogger<MetadataSidecarResolver> logger)
     {
         _tagHandler = tagHandler;
@@ -31,7 +31,7 @@ public class MetadataSidecarResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -46,7 +46,7 @@ public class MetadataSidecarResolver : IConsistencyIssueResolver
         // WriteMetadata writes all three, so every desc/reader/opf issue for this book is settled.
         await _issueRepository.DeleteByAudiobookIdAndTypesAsync(audiobook.Id, HandledTypes);
 
-        return (ResolveScope.SidecarsForAudiobook, new ConsistencyResolveResult(
+        return (ResolveScope.SidecarsForAudiobook, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "resolved",

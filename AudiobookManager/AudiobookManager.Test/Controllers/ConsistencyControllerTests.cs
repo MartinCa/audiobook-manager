@@ -24,7 +24,7 @@ public class ConsistencyControllerTests
     private Mock<IHubContext<OrganizeHub, IOrganize>> _hubContext = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
-    private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IBookConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<ILogger<ConsistencyController>> _logger = null!;
     private string _libraryPath = null!;
@@ -36,7 +36,7 @@ public class ConsistencyControllerTests
         _hubContext = new Mock<IHubContext<OrganizeHub, IOrganize>>();
         _serviceScopeFactory = new Mock<IServiceScopeFactory>();
         _statusRegistry = new Mock<IOperationStatusRegistry>();
-        _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _issueRepository = new Mock<IBookConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _logger = new Mock<ILogger<ConsistencyController>>();
 
@@ -67,14 +67,14 @@ public class ConsistencyControllerTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issues = new List<ConsistencyIssue>
+        var issues = new List<BookConsistencyIssue>
         {
-            new ConsistencyIssue
+            new BookConsistencyIssue
             {
                 Id = 1,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingDescTxt,
+                IssueType = BookConsistencyIssueType.MissingDescTxt,
                 Description = "desc.txt missing",
                 ExpectedValue = "Some description",
                 ActualValue = null,
@@ -88,7 +88,7 @@ public class ConsistencyControllerTests
 
         var result = await _controller.GetIssues();
 
-        var page = ((OkObjectResult)result.Result!).Value as ConsistencyIssuePageDto;
+        var page = ((OkObjectResult)result.Result!).Value as BookConsistencyIssuePageDto;
         Assert.IsNotNull(page);
         Assert.AreEqual(1, page.TotalCount);
         Assert.AreEqual(1, page.Items.Count);
@@ -106,17 +106,17 @@ public class ConsistencyControllerTests
     public async Task GetIssues_WithAnIssueType_PassesItThroughAndPagesFromIt()
     {
         _issueRepository
-            .Setup(r => r.GetPageWithAudiobookAsync(ConsistencyIssueType.TagMismatch, 100, 25))
-            .ReturnsAsync((new List<ConsistencyIssue>(), 3699));
+            .Setup(r => r.GetPageWithAudiobookAsync(BookConsistencyIssueType.TagMismatch, 100, 25))
+            .ReturnsAsync((new List<BookConsistencyIssue>(), 3699));
 
         var result = await _controller.GetIssues("TagMismatch", page: 4, pageSize: 25);
 
-        var page = ((OkObjectResult)result.Result!).Value as ConsistencyIssuePageDto;
+        var page = ((OkObjectResult)result.Result!).Value as BookConsistencyIssuePageDto;
         Assert.IsNotNull(page);
 
         // The total is the whole matching set, not the page - it is what sizes the pager.
         Assert.AreEqual(3699, page.TotalCount);
-        _issueRepository.Verify(r => r.GetPageWithAudiobookAsync(ConsistencyIssueType.TagMismatch, 100, 25), Times.Once);
+        _issueRepository.Verify(r => r.GetPageWithAudiobookAsync(BookConsistencyIssueType.TagMismatch, 100, 25), Times.Once);
     }
 
     [TestMethod]
@@ -127,7 +127,7 @@ public class ConsistencyControllerTests
 
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _issueRepository.Verify(
-            r => r.GetPageWithAudiobookAsync(It.IsAny<ConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
+            r => r.GetPageWithAudiobookAsync(It.IsAny<BookConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -153,7 +153,7 @@ public class ConsistencyControllerTests
 
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _issueRepository.Verify(
-            r => r.GetPageWithAudiobookAsync(It.IsAny<ConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
+            r => r.GetPageWithAudiobookAsync(It.IsAny<BookConsistencyIssueType?>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -172,7 +172,7 @@ public class ConsistencyControllerTests
     {
         _issueRepository
             .Setup(r => r.GetPageWithAudiobookAsync(null, 1_000_000, 50))
-            .ReturnsAsync((new List<ConsistencyIssue>(), 0));
+            .ReturnsAsync((new List<BookConsistencyIssue>(), 0));
 
         var result = await _controller.GetIssues(page: 20_000, pageSize: 50);
 
@@ -182,10 +182,10 @@ public class ConsistencyControllerTests
     [TestMethod]
     public async Task GetIssueCountsByType_ReturnsTheCountsKeyedByTypeName()
     {
-        _issueRepository.Setup(r => r.GetCountsByTypeAsync()).ReturnsAsync(new Dictionary<ConsistencyIssueType, int>
+        _issueRepository.Setup(r => r.GetCountsByTypeAsync()).ReturnsAsync(new Dictionary<BookConsistencyIssueType, int>
         {
-            [ConsistencyIssueType.TagMismatch] = 3699,
-            [ConsistencyIssueType.MissingDescTxt] = 12,
+            [BookConsistencyIssueType.TagMismatch] = 3699,
+            [BookConsistencyIssueType.MissingDescTxt] = 12,
         });
 
         var counts = await _controller.GetIssueCountsByType();
@@ -197,7 +197,7 @@ public class ConsistencyControllerTests
     [TestMethod]
     public async Task ResolveIssue_NotFound_Returns404()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((BookConsistencyIssue?)null);
 
         var result = await _controller.ResolveIssue(999);
 
@@ -209,11 +209,11 @@ public class ConsistencyControllerTests
     [TestMethod]
     public async Task ResolveIssue_BookIsBeingModifiedElsewhere_ReturnsConflict()
     {
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 1,
             AudiobookId = 7,
-            IssueType = ConsistencyIssueType.MissingDescTxt,
+            IssueType = BookConsistencyIssueType.MissingDescTxt,
             Description = "test",
             DetectedAt = DateTime.UtcNow
         };
@@ -238,11 +238,11 @@ public class ConsistencyControllerTests
     [TestMethod]
     public async Task ResolveIssue_Success_ReturnsOkWithResultDto()
     {
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 1,
             AudiobookId = 1,
-            IssueType = ConsistencyIssueType.MissingDescTxt,
+            IssueType = BookConsistencyIssueType.MissingDescTxt,
             Description = "test",
             DetectedAt = DateTime.UtcNow
         };
@@ -253,7 +253,7 @@ public class ConsistencyControllerTests
         var mockServiceProvider = new Mock<IServiceProvider>();
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
         mockConsistencyService.Setup(s => s.ResolveIssue(1))
-            .ReturnsAsync(new ConsistencyResolveResult(1, ConsistencyIssueType.MissingDescTxt, "resolved", "Metadata sidecar files updated."));
+            .ReturnsAsync(new BookConsistencyResolveResult(1, BookConsistencyIssueType.MissingDescTxt, "resolved", "Metadata sidecar files updated."));
 
         mockServiceProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
             .Returns(mockConsistencyService.Object);
@@ -264,7 +264,7 @@ public class ConsistencyControllerTests
 
         Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
         var okResult = (OkObjectResult)result.Result!;
-        var dto = (ConsistencyResolveResultDto)okResult.Value!;
+        var dto = (BookConsistencyResolveResultDto)okResult.Value!;
         Assert.AreEqual(1, dto.IssueId);
         Assert.AreEqual("resolved", dto.ActionTaken);
         mockConsistencyService.Verify(s => s.ResolveIssue(1), Times.Once);
@@ -281,14 +281,14 @@ public class ConsistencyControllerTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var reloadedIssues = new List<ConsistencyIssue>
+        var reloadedIssues = new List<BookConsistencyIssue>
         {
-            new ConsistencyIssue
+            new BookConsistencyIssue
             {
                 Id = 5,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.WrongFilePath,
+                IssueType = BookConsistencyIssueType.WrongFilePath,
                 Description = "File path does not match expected path from tags",
                 ExpectedValue = "/library/expected.m4b",
                 ActualValue = "/path/test.m4b",
@@ -311,7 +311,7 @@ public class ConsistencyControllerTests
         var result = await _controller.RecheckAudiobook(1) as OkObjectResult;
 
         Assert.IsNotNull(result);
-        var dtos = result.Value as List<AudiobookManager.Api.Dtos.ConsistencyIssueDto>;
+        var dtos = result.Value as List<AudiobookManager.Api.Dtos.BookConsistencyIssueDto>;
         Assert.IsNotNull(dtos);
         Assert.AreEqual(1, dtos.Count);
         Assert.AreEqual(5, dtos[0].Id);
@@ -469,7 +469,7 @@ public class ConsistencyControllerTests
     {
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
         mockConsistencyService.Setup(s => s.ResolveTagMismatchSelectivelyAsync(5, It.IsAny<IReadOnlyDictionary<string, string?>>()))
-            .ReturnsAsync(new ConsistencyResolveResult(5, ConsistencyIssueType.TagMismatch, "resolved", "Selected tag values applied and file path updated."));
+            .ReturnsAsync(new BookConsistencyResolveResult(5, BookConsistencyIssueType.TagMismatch, "resolved", "Selected tag values applied and file path updated."));
         SetupScope(mockConsistencyService.Object);
 
         var result = await _controller.ResolveTagMismatch(5, new ResolveTagMismatchRequest
@@ -479,7 +479,7 @@ public class ConsistencyControllerTests
 
         Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
         var okResult = (OkObjectResult)result.Result!;
-        var dto = (ConsistencyResolveResultDto)okResult.Value!;
+        var dto = (BookConsistencyResolveResultDto)okResult.Value!;
         Assert.AreEqual(5, dto.IssueId);
         Assert.AreEqual("resolved", dto.ActionTaken);
         mockConsistencyService.Verify(
@@ -717,17 +717,17 @@ public class ConsistencyControllerTests
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
         SetupScope(mockConsistencyService.Object);
 
-        var result = await _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingDescTxt));
+        var result = await _controller.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingDescTxt));
 
         Assert.IsInstanceOfType<OkResult>(result);
         mockConsistencyService.Verify(
-            s => s.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingDescTxt)), Times.Once);
+            s => s.ValidateResolveByTypeAsync(nameof(BookConsistencyIssueType.MissingDescTxt)), Times.Once);
 
         // The background task resolves with a progress callback and broadcasts completion;
         // wait for the real release rather than a fixed sleep (the gate is process-static).
         await OperationGate.WaitUntilReleasedAsync(typeof(ConsistencyController));
         mockConsistencyService.Verify(s => s.ResolveIssuesByType(
-            nameof(ConsistencyIssueType.MissingDescTxt), It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+            nameof(BookConsistencyIssueType.MissingDescTxt), It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
     }
 
     [TestMethod]
@@ -752,11 +752,11 @@ public class ConsistencyControllerTests
         // would reach the client only as ConsistencyResolveComplete(0, 0, 0) - which reads as
         // "nothing to resolve", the opposite of what a refused sweep means.
         var mockConsistencyService = new Mock<ILibraryConsistencyService>();
-        mockConsistencyService.Setup(s => s.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingMediaFile)))
+        mockConsistencyService.Setup(s => s.ValidateResolveByTypeAsync(nameof(BookConsistencyIssueType.MissingMediaFile)))
             .ThrowsAsync(new LibraryUnavailableException("library is not fully mounted"));
         SetupScope(mockConsistencyService.Object);
 
-        var result = await _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var result = await _controller.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingMediaFile));
 
         var problem = ProblemAssert.HasStatus(result, StatusCodes.Status409Conflict);
         StringAssert.Contains(problem.Detail!, "library is not fully mounted");
@@ -812,7 +812,7 @@ public class ConsistencyControllerTests
         Assert.IsInstanceOfType<OkResult>(first);
 
         // by-type 409s while selected is running...
-        var secondByType = _controller.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingDescTxt)).GetAwaiter().GetResult();
+        var secondByType = _controller.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingDescTxt)).GetAwaiter().GetResult();
         Assert.AreEqual(StatusCodes.Status409Conflict, ((ObjectResult)secondByType).StatusCode);
 
         // ...and selected 409s too.

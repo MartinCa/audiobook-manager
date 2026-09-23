@@ -8,9 +8,9 @@ namespace AudiobookManager.Services;
 /// parsed tags and directory, and a resolve of any one of them (<c>WriteMetadata</c>) rewrites all
 /// three at once - see <see cref="MetadataSidecarResolver"/>.
 /// </summary>
-public sealed class SidecarFilesDetector : IConsistencyIssueDetector
+public sealed class SidecarFilesDetector : IBookConsistencyIssueDetector
 {
-    public IEnumerable<ConsistencyIssue> Detect(AudiobookCheckContext context)
+    public IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context)
     {
         foreach (var issue in DetectDescTxt(context)) yield return issue;
         foreach (var issue in DetectReaderTxt(context)) yield return issue;
@@ -22,7 +22,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
     // cleared is a file actively serving stale metadata. It used to be invisible here - the whole
     // check was skipped when the tag was empty - and WriteMetadata never rewrote it either, so it
     // survived every save and every consistency run.
-    private static IEnumerable<ConsistencyIssue> DetectDescTxt(AudiobookCheckContext context)
+    private static IEnumerable<BookConsistencyIssue> DetectDescTxt(AudiobookCheckContext context)
     {
         var descPath = AudiobookFileHandler.JoinPaths(context.DirectoryPath, "desc.txt");
 
@@ -30,7 +30,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
         {
             if (!File.Exists(descPath))
             {
-                yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.MissingDescTxt,
+                yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.MissingDescTxt,
                     "desc.txt missing but m4b has Description tag",
                     context.Parsed.Description, null);
             }
@@ -39,7 +39,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
                 var descContent = File.ReadAllText(descPath);
                 if (!string.Equals(descContent, context.Parsed.Description, StringComparison.Ordinal))
                 {
-                    yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
+                    yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.IncorrectDescTxt,
                         "desc.txt content does not match Description tag",
                         context.Parsed.Description, descContent);
                 }
@@ -47,13 +47,13 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
         }
         else if (File.Exists(descPath))
         {
-            yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.IncorrectDescTxt,
+            yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.IncorrectDescTxt,
                 "desc.txt present but m4b has no Description tag",
                 null, File.ReadAllText(descPath));
         }
     }
 
-    private static IEnumerable<ConsistencyIssue> DetectReaderTxt(AudiobookCheckContext context)
+    private static IEnumerable<BookConsistencyIssue> DetectReaderTxt(AudiobookCheckContext context)
     {
         var readerPath = AudiobookFileHandler.JoinPaths(context.DirectoryPath, "reader.txt");
 
@@ -62,7 +62,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
             var expectedNarrators = string.Join(", ", context.Parsed.Narrators.Select(n => n.Name));
             if (!File.Exists(readerPath))
             {
-                yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.MissingReaderTxt,
+                yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.MissingReaderTxt,
                     "reader.txt missing but m4b has Narrators tag",
                     expectedNarrators, null);
             }
@@ -71,7 +71,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
                 var readerContent = File.ReadAllText(readerPath);
                 if (!string.Equals(readerContent, expectedNarrators, StringComparison.Ordinal))
                 {
-                    yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
+                    yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.IncorrectReaderTxt,
                         "reader.txt content does not match Narrators tag",
                         expectedNarrators, readerContent);
                 }
@@ -79,7 +79,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
         }
         else if (File.Exists(readerPath))
         {
-            yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.IncorrectReaderTxt,
+            yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.IncorrectReaderTxt,
                 "reader.txt present but m4b has no Narrators tag",
                 null, File.ReadAllText(readerPath));
         }
@@ -87,14 +87,14 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
 
     // Unlike desc.txt/reader.txt, metadata.opf is expected unconditionally once the book has tags
     // at all, since it always carries at least the title/authors.
-    private static IEnumerable<ConsistencyIssue> DetectOpfFile(AudiobookCheckContext context)
+    private static IEnumerable<BookConsistencyIssue> DetectOpfFile(AudiobookCheckContext context)
     {
         var opfPath = AudiobookFileHandler.JoinPaths(context.DirectoryPath, "metadata.opf");
         var expectedOpfContent = AudiobookFileHandler.BuildOpfContent(context.Parsed);
 
         if (!File.Exists(opfPath))
         {
-            yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.MissingOpfFile,
+            yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.MissingOpfFile,
                 "metadata.opf missing",
                 expectedOpfContent, null);
         }
@@ -103,7 +103,7 @@ public sealed class SidecarFilesDetector : IConsistencyIssueDetector
             var opfContent = File.ReadAllText(opfPath);
             if (!string.Equals(opfContent, expectedOpfContent, StringComparison.Ordinal))
             {
-                yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.IncorrectOpfFile,
+                yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.IncorrectOpfFile,
                     "metadata.opf content does not match library metadata",
                     expectedOpfContent, opfContent);
             }

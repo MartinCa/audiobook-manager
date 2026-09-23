@@ -7,24 +7,24 @@ using Microsoft.Extensions.Logging;
 namespace AudiobookManager.Services;
 
 /// <summary>
-/// Resolves a <see cref="ConsistencyIssueType.MetadataRefreshFailed"/> issue by retrying the
+/// Resolves a <see cref="BookConsistencyIssueType.MetadataRefreshFailed"/> issue by retrying the
 /// refresh - "resolve" here means "look again", exactly like
-/// <see cref="ConsistencyIssueType.UnreadableFile"/>: the source may have come back, the network
+/// <see cref="BookConsistencyIssueType.UnreadableFile"/>: the source may have come back, the network
 /// may have healed. There is nothing to repair on the book: a refresh never touches files or
 /// tags, so no cleanup precedes the retry.
 /// </summary>
-public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
+public class MetadataRefreshFailedResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } =
-        new[] { ConsistencyIssueType.MetadataRefreshFailed };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } =
+        new[] { BookConsistencyIssueType.MetadataRefreshFailed };
 
     private readonly IMetadataRefreshService _metadataRefreshService;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ILogger<MetadataRefreshFailedResolver> _logger;
 
     public MetadataRefreshFailedResolver(
         IMetadataRefreshService metadataRefreshService,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ILogger<MetadataRefreshFailedResolver> logger)
     {
         _metadataRefreshService = metadataRefreshService;
@@ -32,7 +32,7 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -51,7 +51,7 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
             // bulk sweep only counts exceptions as failed, so a normal result here would count
             // every remaining limited issue as "succeeded" - and NotResolved (rather than
             // rethrowing) also keeps other sources' issues resolvable further down the batch.
-            return (ResolveScope.NotResolved, new ConsistencyResolveResult(
+            return (ResolveScope.NotResolved, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "daily_limit_reached",
@@ -64,13 +64,13 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
             // differences, a pending snapshot now exists as its own state). Delete only this
             // type: the book may carry unrelated issues this resolve never evaluated.
             await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
-                audiobook.Id, new[] { ConsistencyIssueType.MetadataRefreshFailed });
+                audiobook.Id, new[] { BookConsistencyIssueType.MetadataRefreshFailed });
 
             _logger.LogInformation(
                 "Metadata refresh for audiobook {AudiobookId} ('{Title}') succeeded on retry.",
                 audiobook.Id, audiobook.BookName);
 
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "refresh_succeeded",
@@ -79,7 +79,7 @@ public class MetadataRefreshFailedResolver : IConsistencyIssueResolver
 
         // Still failing - the service has already replaced this book's issue row with the fresh
         // error, so the stored issue stays current. Nothing else was touched.
-        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+        return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "still_failing",

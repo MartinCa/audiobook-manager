@@ -45,7 +45,7 @@ public class InitialsSpacingIssueDetectorTests
 
         Assert.AreEqual(1, issues.Count, "one issue per distinct person value, not per book");
         var issue = issues[0];
-        Assert.AreEqual(ConsistencyIssueType.InitialsSpacingMismatch, issue.IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.InitialsSpacingMismatch, issue.IssueType);
         Assert.AreEqual("J. K. Rowling", issue.ActualValue);
         Assert.AreEqual("J.K. Rowling", issue.ExpectedValue);
         StringAssert.Contains(issue.Description, "3 books");

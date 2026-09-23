@@ -5,21 +5,21 @@ using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
-public class MissingCoverResolver : IConsistencyIssueResolver
+public class MissingCoverResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[] { ConsistencyIssueType.MissingCoverFile };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[] { BookConsistencyIssueType.MissingCoverFile };
 
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly IAudiobookFileHandler _fileHandler;
     private readonly IAudiobookRepository _audiobookRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly ILogger<MissingCoverResolver> _logger;
 
     public MissingCoverResolver(
         IAudiobookTagHandler tagHandler,
         IAudiobookFileHandler fileHandler,
         IAudiobookRepository audiobookRepository,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         ILogger<MissingCoverResolver> logger)
     {
         _tagHandler = tagHandler;
@@ -29,7 +29,7 @@ public class MissingCoverResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
@@ -44,7 +44,7 @@ public class MissingCoverResolver : IConsistencyIssueResolver
 
         await _issueRepository.DeleteAsync(issue.Id);
 
-        return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+        return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "resolved",
