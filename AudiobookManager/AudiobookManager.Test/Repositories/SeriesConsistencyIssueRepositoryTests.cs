@@ -90,6 +90,45 @@ public class SeriesConsistencyIssueRepositoryTests
         Assert.AreEqual(0, totalCount);
     }
 
+    // Regression: series_id is unique and UpsertFailureAsync reads before it inserts, across an
+    // await on a request-scoped context. A single refresh and the fire-and-forget bulk sweep can
+    // both fail the same series concurrently, both find the row missing, and both insert - the
+    // loser used to fail with a raw "UNIQUE constraint failed" instead of recording its error.
+    [TestMethod]
+    public async Task UpsertFailureAsync_ConcurrentFirstWrites_AllSucceedAndCreateOneRow()
+    {
+        var series = await SeedSeriesAsync("Mistborn");
+        var contexts = new List<DatabaseContext>();
+
+        try
+        {
+            var settings = Options.Create(new AudiobookManagerSettings { DbLocation = _dbPath });
+            var calls = new List<Task>();
+            for (var i = 0; i < 8; i++)
+            {
+                // A context per caller, as each request scope gets its own.
+                var context = new DatabaseContext(new DbContextOptions<DatabaseContext>(), settings);
+                contexts.Add(context);
+                var repository = new SeriesConsistencyIssueRepository(context);
+                var errorMessage = $"error {i}";
+                calls.Add(Task.Run(() => repository.UpsertFailureAsync(series.Id, errorMessage)));
+            }
+
+            await Task.WhenAll(calls);
+
+            var rows = await _db.SeriesConsistencyIssues.AsNoTracking()
+                .Where(i => i.SeriesId == series.Id).ToListAsync();
+            Assert.AreEqual(1, rows.Count);
+        }
+        finally
+        {
+            foreach (var context in contexts)
+            {
+                context.Dispose();
+            }
+        }
+    }
+
     [TestMethod]
     public async Task GetPageWithSeriesAsync_OrdersNewestFirst_AndIncludesTheSeries()
     {

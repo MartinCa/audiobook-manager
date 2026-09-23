@@ -34,22 +34,51 @@ public class AuthorConsistencyIssueRepository : IAuthorConsistencyIssueRepositor
         var existing = await _db.AuthorConsistencyIssues
             .FirstOrDefaultAsync(i => i.PersonId == personId);
 
-        if (existing is null)
+        if (existing is not null)
         {
-            _db.Add(new AuthorConsistencyIssue
-            {
-                PersonId = personId,
-                ErrorMessage = errorMessage,
-                DetectedAt = DateTime.UtcNow,
-            });
-        }
-        else
-        {
-            existing.ErrorMessage = errorMessage;
-            existing.DetectedAt = DateTime.UtcNow;
+            Apply(existing, errorMessage);
+            await _db.SaveChangesAsync();
+            return;
         }
 
-        await _db.SaveChangesAsync();
+        var issue = new AuthorConsistencyIssue
+        {
+            PersonId = personId,
+            ErrorMessage = errorMessage,
+            DetectedAt = DateTime.UtcNow,
+        };
+        _db.Add(issue);
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            // person_id is unique and this reads before it inserts, across an await on a
+            // request-scoped context - RefreshAuthorRosterTrackedAsync is reachable concurrently
+            // from three controller endpoints, so two failing refreshes for the same author can
+            // both miss this read and both insert. Adopt the winner's row the same way
+            // PendingSeriesRefreshRepository.UpsertAsync does.
+            _db.Entry(issue).State = EntityState.Detached;
+
+            var winner = await _db.AuthorConsistencyIssues
+                .FirstOrDefaultAsync(i => i.PersonId == personId);
+            if (winner is null)
+            {
+                // Some other uniqueness constraint failed - not the race this handler is for.
+                throw;
+            }
+
+            Apply(winner, errorMessage);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    private static void Apply(AuthorConsistencyIssue target, string errorMessage)
+    {
+        target.ErrorMessage = errorMessage;
+        target.DetectedAt = DateTime.UtcNow;
     }
 
     public async Task DeleteByPersonIdAsync(long personId)

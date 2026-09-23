@@ -655,6 +655,32 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     }
 
     /// <summary>
+    /// Wraps <see cref="RefreshAuthorRosterCoreAsync"/> with the same failure bookkeeping
+    /// <c>SeriesService.RefreshOneSeriesTrackedAsync</c> gives series refreshes: a fresh error
+    /// replaces the author's stale one, a success clears it, and both the single and bulk refresh
+    /// paths go through here so the tracked state never depends on which one was used. The daily
+    /// request-budget exception is not a per-author failure - the bulk sweep stops on it rather
+    /// than counting it - so it is re-thrown untouched rather than recorded.
+    /// </summary>
+    private async Task RefreshAuthorRosterTrackedAsync(IScraper scraper, Person person)
+    {
+        try
+        {
+            await RefreshAuthorRosterCoreAsync(scraper, person);
+            await _authorConsistencyIssueRepository.DeleteByPersonIdAsync(person.Id);
+        }
+        catch (HardcoverDailyLimitExceededException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await _authorConsistencyIssueRepository.UpsertFailureAsync(person.Id, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// The one-author workload shared by the single, bulk and match-triggered refresh: fetch the
     /// author's full bibliography from the matched source - series books INCLUDED, since the
     /// unified <see cref="ExpectedBook"/> roster attributes every book to its author here while
@@ -697,32 +723,6 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     /// resolve the author is NOT an empty bibliography, and this method must abort before the
     /// upsert/prune so the stored roster - ignore history included - is left untouched.
     /// </summary>
-    /// <summary>
-    /// Wraps <see cref="RefreshAuthorRosterCoreAsync"/> with the same failure bookkeeping
-    /// <c>SeriesService.RefreshOneSeriesTrackedAsync</c> gives series refreshes: a fresh error
-    /// replaces the author's stale one, a success clears it, and both the single and bulk refresh
-    /// paths go through here so the tracked state never depends on which one was used. The daily
-    /// request-budget exception is not a per-author failure - the bulk sweep stops on it rather
-    /// than counting it - so it is re-thrown untouched rather than recorded.
-    /// </summary>
-    private async Task RefreshAuthorRosterTrackedAsync(IScraper scraper, Person person)
-    {
-        try
-        {
-            await RefreshAuthorRosterCoreAsync(scraper, person);
-            await _authorConsistencyIssueRepository.DeleteByPersonIdAsync(person.Id);
-        }
-        catch (HardcoverDailyLimitExceededException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            await _authorConsistencyIssueRepository.UpsertFailureAsync(person.Id, ex.Message);
-            throw;
-        }
-    }
-
     private async Task RefreshAuthorRosterCoreAsync(IScraper scraper, Person person)
     {
         // The local series names this refresh can change, collected up front and invalidated at

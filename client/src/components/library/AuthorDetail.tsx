@@ -160,6 +160,10 @@ export function AuthorDetail() {
       notifications.error(handleApiError(err).message);
     } finally {
       setRefreshing(false);
+      // A refresh here goes through the same RefreshAuthorRosterTrackedAsync as the metadata
+      // refresh page's bulk sweep and retry action, so it clears or replaces this author's
+      // consistency-issue row either way - refetch that list regardless of outcome.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.authorConsistencyIssues.all() });
     }
   };
 

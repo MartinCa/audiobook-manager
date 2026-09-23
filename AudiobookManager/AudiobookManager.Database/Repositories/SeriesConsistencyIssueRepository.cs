@@ -34,22 +34,50 @@ public class SeriesConsistencyIssueRepository : ISeriesConsistencyIssueRepositor
         var existing = await _db.SeriesConsistencyIssues
             .FirstOrDefaultAsync(i => i.SeriesId == seriesId);
 
-        if (existing is null)
+        if (existing is not null)
         {
-            _db.Add(new SeriesConsistencyIssue
-            {
-                SeriesId = seriesId,
-                ErrorMessage = errorMessage,
-                DetectedAt = DateTime.UtcNow,
-            });
-        }
-        else
-        {
-            existing.ErrorMessage = errorMessage;
-            existing.DetectedAt = DateTime.UtcNow;
+            Apply(existing, errorMessage);
+            await _db.SaveChangesAsync();
+            return;
         }
 
-        await _db.SaveChangesAsync();
+        var issue = new SeriesConsistencyIssue
+        {
+            SeriesId = seriesId,
+            ErrorMessage = errorMessage,
+            DetectedAt = DateTime.UtcNow,
+        };
+        _db.Add(issue);
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueViolation(ex))
+        {
+            // series_id is unique and this reads before it inserts, across an await on a
+            // request-scoped context - a single refresh and the fire-and-forget bulk sweep can
+            // both fail the same series concurrently, both miss this read, and both insert.
+            // Adopt the winner's row the same way PendingSeriesRefreshRepository.UpsertAsync does.
+            _db.Entry(issue).State = EntityState.Detached;
+
+            var winner = await _db.SeriesConsistencyIssues
+                .FirstOrDefaultAsync(i => i.SeriesId == seriesId);
+            if (winner is null)
+            {
+                // Some other uniqueness constraint failed - not the race this handler is for.
+                throw;
+            }
+
+            Apply(winner, errorMessage);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    private static void Apply(SeriesConsistencyIssue target, string errorMessage)
+    {
+        target.ErrorMessage = errorMessage;
+        target.DetectedAt = DateTime.UtcNow;
     }
 
     public async Task DeleteBySeriesIdAsync(long seriesId)
