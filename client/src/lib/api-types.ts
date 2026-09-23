@@ -3459,6 +3459,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/consistency-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["SeriesConsistencyIssuePageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/expected-books/candidates": {
         parameters: {
             query?: never;
@@ -4946,6 +4986,32 @@ export interface components {
             total?: number;
             items?: components["schemas"]["AuthorSummaryDto"][] | null;
         };
+        BookConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            authors?: string[] | null;
+            issueType?: string | null;
+            description?: string | null;
+            expectedValue?: string | null;
+            actualValue?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        BookConsistencyIssuePageDto: {
+            items?: components["schemas"]["BookConsistencyIssueDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
+        BookConsistencyResolveResultDto: {
+            /** Format: int64 */
+            issueId?: number;
+            issueType?: string | null;
+            actionTaken?: string | null;
+            message?: string | null;
+        };
         BrowseFilterOptionsDto: {
             sources?: string[] | null;
             genres?: string[] | null;
@@ -5019,32 +5085,6 @@ export interface components {
         };
         BulkSelectionDto: {
             audiobookIds: number[];
-        };
-        BookConsistencyIssueDto: {
-            /** Format: int64 */
-            id?: number;
-            /** Format: int64 */
-            audiobookId?: number;
-            bookName?: string | null;
-            authors?: string[] | null;
-            issueType?: string | null;
-            description?: string | null;
-            expectedValue?: string | null;
-            actualValue?: string | null;
-            /** Format: date-time */
-            detectedAt?: string;
-        };
-        BookConsistencyIssuePageDto: {
-            items?: components["schemas"]["BookConsistencyIssueDto"][] | null;
-            /** Format: int32 */
-            totalCount?: number;
-        };
-        BookConsistencyResolveResultDto: {
-            /** Format: int64 */
-            issueId?: number;
-            issueType?: string | null;
-            actionTaken?: string | null;
-            message?: string | null;
         };
         DiscoveredAudiobookDto: {
             fullPath?: string | null;
@@ -5411,6 +5451,21 @@ export interface components {
         };
         SeriesBulkCandidatePageDto: {
             items?: components["schemas"]["SeriesBulkCandidateItemDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
+        SeriesConsistencyIssueDto: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            seriesId?: number;
+            seriesName?: string | null;
+            errorMessage?: string | null;
+            /** Format: date-time */
+            detectedAt?: string;
+        };
+        SeriesConsistencyIssuePageDto: {
+            items?: components["schemas"]["SeriesConsistencyIssueDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
         };

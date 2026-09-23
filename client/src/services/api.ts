@@ -48,6 +48,7 @@ import type {
   SeriesRefreshPendingPage,
   SeriesRefreshResult,
 } from "@/types/SeriesRefresh";
+import type { SeriesConsistencyIssuePage } from "@/types/SeriesConsistencyIssue";
 import type { SeriesMapping, SeriesMappingBase } from "@/types/SeriesMapping";
 import type { SeriesPartConflictCheck } from "@/types/SeriesPartConflict";
 import type { ScheduledTask } from "@/types/ScheduledTask";
@@ -668,6 +669,13 @@ export const seriesApi = {
     }),
 
   getSeriesPendingCount: () => api.get<number>("/series/pending/count"),
+
+  // Paged server-side: one page of series whose most recent refresh (single or bulk) failed,
+  // newest first. Retrying is just calling refreshSeries again for the same series name.
+  getConsistencyIssuesPage: (page: number, pageSize: number) =>
+    api.get<SeriesConsistencyIssuePage>("/series/consistency-issues", {
+      query: { page, pageSize },
+    }),
 
   // The stored pending snapshot for one series; the backend 404s when none exists (a refresh that
   // found no changes leaves nothing pending), so this resolves to undefined there - the absence

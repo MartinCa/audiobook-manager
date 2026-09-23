@@ -24,6 +24,7 @@ public class SeriesServiceTests
     private Mock<ISeriesFollowRepository> _seriesFollowRepository = null!;
     private Mock<ISeriesMappingRepository> _seriesMappingRepository = null!;
     private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
+    private Mock<ISeriesConsistencyIssueRepository> _seriesConsistencyIssueRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<ISimilarValueDetectionCache> _similarValueDetectionCache = null!;
@@ -60,6 +61,7 @@ public class SeriesServiceTests
             .ReturnsAsync(new HashSet<string>(StringComparer.Ordinal));
         _seriesMappingRepository = new Mock<ISeriesMappingRepository>();
         _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
+        _seriesConsistencyIssueRepository = new Mock<ISeriesConsistencyIssueRepository>();
         _audiobookService = new Mock<IAudiobookService>();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _similarValueDetectionCache = new Mock<ISimilarValueDetectionCache>();
@@ -76,6 +78,7 @@ public class SeriesServiceTests
             _seriesFollowRepository.Object,
             _seriesMappingRepository.Object,
             _pendingSeriesRefreshRepository.Object,
+            _seriesConsistencyIssueRepository.Object,
             _audiobookService.Object,
             new AudiobookSaveGate(),
             _libraryConsistencyService.Object,
@@ -2193,6 +2196,98 @@ public class SeriesServiceTests
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => MakeService().RefreshSeriesAsync("Mistborn"));
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_Success_ClearsAnyStaleConsistencyIssue()
+    {
+        var existing = new Series
+        {
+            Id = 7,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<ExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+        _seriesRepository.Setup(r => r.UpsertSeriesAsync(It.IsAny<Series>()))
+            .ReturnsAsync((Series row) => { row.Id = 7; return row; });
+        _audiobookRepository.Setup(r => r.GetSeriesOwnedKeysAsync("Mistborn", It.IsAny<int>()))
+            .ReturnsAsync((new List<SeriesOwnedKey>(), false));
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ReturnsAsync(new SeriesSearchResult("42", "Mistborn") { Books = new List<SeriesExpectedBookResult>() });
+
+        await MakeService(scraper.Object).RefreshSeriesAsync("Mistborn");
+
+        _seriesConsistencyIssueRepository.Verify(r => r.DeleteBySeriesIdAsync(7), Times.Once);
+        _seriesConsistencyIssueRepository.Verify(r => r.UpsertFailureAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_ScraperThrows_RecordsConsistencyIssueAndRethrows()
+    {
+        var existing = new Series
+        {
+            Id = 7,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<ExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ThrowsAsync(new InvalidOperationException("The source returned an error."));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => MakeService(scraper.Object).RefreshSeriesAsync("Mistborn"));
+
+        _seriesConsistencyIssueRepository.Verify(
+            r => r.UpsertFailureAsync(7, "The source returned an error."), Times.Once);
+        _seriesConsistencyIssueRepository.Verify(r => r.DeleteBySeriesIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshSeriesAsync_HardcoverDailyLimitExceeded_IsNotRecordedAsAFailure()
+    {
+        var existing = new Series
+        {
+            Id = 7,
+            Name = "Mistborn",
+            MatchedSourceName = "Hardcover",
+            MatchedSourceId = "42",
+            ExpectedBooks = new List<ExpectedBook>(),
+        };
+
+        _seriesRepository.Setup(r => r.GetByNameWithExpectedBooksAsync("Mistborn")).ReturnsAsync(existing);
+
+        var scraper = new Mock<IScraper>();
+        scraper.SetupGet(s => s.SourceName).Returns("Hardcover");
+        scraper.SetupGet(s => s.SupportsSeriesLookup).Returns(true);
+        scraper.SetupGet(s => s.RequiresApiKey).Returns(false);
+        scraper.Setup(s => s.IsSource("Hardcover")).Returns(true);
+        scraper.Setup(s => s.GetSeriesBooks(It.IsAny<string>()))
+            .ThrowsAsync(new HardcoverDailyLimitExceededException(55));
+
+        await Assert.ThrowsExactlyAsync<HardcoverDailyLimitExceededException>(
+            () => MakeService(scraper.Object).RefreshSeriesAsync("Mistborn"));
+
+        _seriesConsistencyIssueRepository.Verify(
+            r => r.UpsertFailureAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+        _seriesConsistencyIssueRepository.Verify(r => r.DeleteBySeriesIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     // Regression for the refresh review finding: an entry the user has already ignored must not

@@ -29,6 +29,7 @@ public class SeriesControllerTests
     private AudiobookSaveGate _saveGate = null!;
     private Mock<ILibraryConsistencyService> _libraryConsistencyService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
+    private Mock<ISeriesConsistencyIssueRepository> _seriesConsistencyIssueRepository = null!;
     private ExpectedBookWriteGate _expectedBookWriteGate = null!;
     private Mock<ILogger<SeriesController>> _logger = null!;
     private SeriesController _controller = null!;
@@ -84,6 +85,7 @@ public class SeriesControllerTests
         _saveGate = new AudiobookSaveGate();
         _libraryConsistencyService = new Mock<ILibraryConsistencyService>();
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
+        _seriesConsistencyIssueRepository = new Mock<ISeriesConsistencyIssueRepository>();
         _expectedBookWriteGate = new ExpectedBookWriteGate();
         _logger = new Mock<ILogger<SeriesController>>();
 
@@ -102,6 +104,7 @@ public class SeriesControllerTests
             _saveGate,
             _libraryConsistencyService.Object,
             _upcomingReleaseService.Object,
+            _seriesConsistencyIssueRepository.Object,
             _expectedBookWriteGate,
             Mock.Of<IHostApplicationLifetime>(),
             _logger.Object);
@@ -1798,5 +1801,50 @@ public class SeriesControllerTests
 
         Assert.IsInstanceOfType<OkResult>(result);
         _upcomingReleaseService.Verify(s => s.UnfollowSeriesAsync("Mistborn"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetConsistencyIssues_ReturnsMappedDtoList()
+    {
+        var issues = new List<Database.Models.SeriesConsistencyIssue>
+        {
+            new Database.Models.SeriesConsistencyIssue
+            {
+                Id = 1,
+                SeriesId = 7,
+                Series = new Database.Models.Series { Id = 7, Name = "Mistborn" },
+                ErrorMessage = "The source returned an error.",
+                DetectedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            },
+        };
+
+        _seriesConsistencyIssueRepository
+            .Setup(r => r.GetPageWithSeriesAsync(0, 50))
+            .ReturnsAsync((issues, 1));
+
+        var result = await _controller.GetConsistencyIssues();
+
+        var page = ((OkObjectResult)result.Result!).Value as SeriesConsistencyIssuePageDto;
+        Assert.IsNotNull(page);
+        Assert.AreEqual(1, page.TotalCount);
+        Assert.AreEqual(1, page.Items.Count);
+        Assert.AreEqual(1, page.Items[0].Id);
+        Assert.AreEqual(7, page.Items[0].SeriesId);
+        Assert.AreEqual("Mistborn", page.Items[0].SeriesName);
+        Assert.AreEqual("The source returned an error.", page.Items[0].ErrorMessage);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetConsistencyIssues_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetConsistencyIssues(page: page, pageSize: pageSize);
+
+        Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _seriesConsistencyIssueRepository.Verify(
+            r => r.GetPageWithSeriesAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 }
