@@ -72,9 +72,12 @@ public interface IMetadataRefreshService
     /// <summary>
     /// Applies one book's pending snapshot immediately and dismisses it, for the metadata-refresh
     /// page's per-row quick apply. <paramref name="fields"/> null or empty applies every field the
-    /// snapshot recorded as changed; an explicit list applies only those. Returns false when the
-    /// book has no pending snapshot (or its payload could not be parsed); throws only for an
-    /// unexpected save failure.
+    /// snapshot recorded as changed; an explicit list applies only those. Returns false only when
+    /// the book has no pending snapshot (or the book itself no longer exists) - a snapshot whose
+    /// stored payload cannot be parsed throws <see cref="InvalidOperationException"/> instead, so
+    /// a caller can never mistake "the stored data is corrupt" for the ordinary "nothing to
+    /// apply" case. A save failure (including <see cref="AudiobookBusyException"/> from the
+    /// shared per-book save gate) also throws.
     /// </summary>
     Task<bool> ApplyPendingRefreshAsync(long audiobookId, IReadOnlyCollection<string>? fields = null);
 

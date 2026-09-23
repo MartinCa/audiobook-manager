@@ -302,10 +302,12 @@ public class MetadataRefreshServiceTests
         _audiobookRepository.Verify(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
     }
 
-    // Regression (review finding): AudiobookBusyException from the shared per-book save gate
-    // must propagate out of the service uncaught, so the controller's catch maps it to 409
-    // rather than the generic InvalidOperationException catch swallowing it into a 400 - or,
-    // absent that catch entirely, an unhandled 500.
+    // Behavioral assertion, not a regression guard: ApplyOneAsync never caught
+    // AudiobookBusyException, so this passes with or without the fix - the actual regression was
+    // the controller's missing catch, which
+    // MetadataRefreshControllerTests.ApplyPending_BookBusy_Returns409NotA500 covers (and does
+    // fail without that fix). This test documents that the service's contract is, and must stay,
+    // "let the busy exception propagate" - the controller relies on that to map it to 409.
     [TestMethod]
     public async Task ApplyPendingRefreshAsync_BookAlreadyBusy_PropagatesAudiobookBusyException()
     {

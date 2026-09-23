@@ -192,10 +192,12 @@ public class MetadataRefreshControllerTests
             "Another operation is already modifying audiobook 55");
     }
 
-    // Regression (review finding): a corrupt/unparseable stored payload now throws
-    // InvalidOperationException out of the service rather than returning false indistinguishably
-    // from "book no longer exists" - both used to map to 204, so the client toasted success and
-    // discarded a snapshot it never actually applied.
+    // Mapping test, not a regression guard: the controller's InvalidOperationException catch
+    // predates this fix, so mocking the service to throw passes with or without it. The actual
+    // regression guard - a corrupt/unparseable payload throwing InvalidOperationException instead
+    // of returning false indistinguishably from "book no longer exists" - is
+    // MetadataRefreshServiceTests.ApplyPendingRefreshAsync_UnparseablePayload_ThrowsInsteadOfReturningFalse.
+    // This test only documents that once the service throws, the controller answers 400 not 204.
     [TestMethod]
     public async Task ApplyPending_UnparseablePayload_Returns400NotA204()
     {
