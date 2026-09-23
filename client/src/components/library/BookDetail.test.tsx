@@ -185,6 +185,39 @@ describe("BookDetail", () => {
     expect(screen.queryByText(/^eng$/)).toBeNull();
   });
 
+  it("shows the book's cover on the read-only page", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      coverFilePath: "/library/Brandon Sanderson/cover.jpg",
+    });
+
+    renderWithProviders();
+
+    const cover = await screen.findByRole("img", { name: "The Way of Kings" });
+    expect(cover.getAttribute("src")).toBe("/api/browse/audiobooks/42/cover");
+    expect(screen.queryByText("No cover")).toBeNull();
+  });
+
+  it("shows a placeholder instead of a cover image when the book has no cover", async () => {
+    renderWithProviders();
+
+    expect(await screen.findByText("No cover")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "The Way of Kings" })).toBeNull();
+  });
+
+  it("falls back to the placeholder when the cover image fails to load", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      coverFilePath: "/library/Brandon Sanderson/cover.jpg",
+    });
+
+    renderWithProviders();
+
+    fireEvent.error(await screen.findByRole("img", { name: "The Way of Kings" }));
+
+    expect(await screen.findByText("No cover")).toBeInTheDocument();
+  });
+
   it("renders the book detail fields in the agreed order, with Book name present", async () => {
     vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
       ...sampleBookDetail,
