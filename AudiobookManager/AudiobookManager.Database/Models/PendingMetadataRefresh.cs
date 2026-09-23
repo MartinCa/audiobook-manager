@@ -42,4 +42,15 @@ public class PendingMetadataRefresh
     [Required]
     [Column("payload_json")]
     public string PayloadJson { get; set; } = string.Empty;
+
+    /// <summary>
+    /// JSON array of the field names (see Services.MetadataRefreshFields) that differed when
+    /// this snapshot was fetched - stamped once, at write time, from the same differences list
+    /// the payload itself was built from. Read back for the pending-list badges, the field
+    /// filter, and to decide which fields a full "apply" actually applies, rather than
+    /// re-diffing the book against the snapshot every time it is read (the book may have moved
+    /// on since the fetch).
+    /// </summary>
+    [Column("changed_fields_json")]
+    public string? ChangedFieldsJson { get; set; }
 }

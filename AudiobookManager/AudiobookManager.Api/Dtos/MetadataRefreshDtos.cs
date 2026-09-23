@@ -45,10 +45,24 @@ public record PendingMetadataRefreshListItemDto(
     string BookName,
     IReadOnlyList<string> Authors,
     DateTime FetchedAt,
-    string SourceName);
+    string SourceName,
+    IReadOnlyList<string> ChangedFields);
 
 /// <summary>A page of the pending-refresh list (bounded; server-side paged).</summary>
 public record PendingMetadataRefreshPageDto(IReadOnlyList<PendingMetadataRefreshListItemDto> Items, int Total);
 
 /// <summary>The body of POST api/metadata-refresh/bulk.</summary>
 public record BulkMetadataRefreshDto(DateTime? OlderThanUtc);
+
+/// <summary>
+/// The body of POST api/metadata-refresh/apply-filtered: apply the full pending snapshot to
+/// every book whose stored changed-fields are entirely contained in <see cref="Fields"/> - the
+/// same subset rule the pending list's filter uses to decide which rows match.
+/// </summary>
+public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields);
+
+/// <summary>
+/// The body of POST api/metadata-refresh/{id}/apply. Null or empty <see cref="Fields"/> applies
+/// every field the stored snapshot recorded as changed; an explicit list applies only those.
+/// </summary>
+public record ApplyPendingRefreshDto(List<string>? Fields);

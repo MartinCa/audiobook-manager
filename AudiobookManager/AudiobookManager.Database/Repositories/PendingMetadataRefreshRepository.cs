@@ -27,6 +27,7 @@ public class PendingMetadataRefreshRepository : IPendingMetadataRefreshRepositor
             existing.SourceName = refresh.SourceName;
             existing.SourceUrl = refresh.SourceUrl;
             existing.PayloadJson = refresh.PayloadJson;
+            existing.ChangedFieldsJson = refresh.ChangedFieldsJson;
         }
 
         await _db.SaveChangesAsync();
@@ -70,6 +71,41 @@ public class PendingMetadataRefreshRepository : IPendingMetadataRefreshRepositor
             .AsNoTracking()
             .Select(p => p.AudiobookId)
             .ToListAsync();
+
+    public Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync() =>
+        _db.PendingMetadataRefreshes
+            .AsNoTracking()
+            .Select(p => new PendingRefreshFieldsRow(p.AudiobookId, p.FetchedAt, p.ChangedFieldsJson))
+            .ToListAsync();
+
+    public Task<List<PendingMetadataRefresh>> GetByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds)
+    {
+        if (audiobookIds.Count == 0)
+        {
+            return Task.FromResult(new List<PendingMetadataRefresh>());
+        }
+
+        return _db.PendingMetadataRefreshes
+            .AsNoTracking()
+            .Where(p => audiobookIds.Contains(p.AudiobookId))
+            .ToListAsync();
+    }
+
+    public async Task<List<PendingMetadataRefresh>> GetByAudiobookIdsWithAudiobookAsync(IReadOnlyCollection<long> audiobookIds)
+    {
+        if (audiobookIds.Count == 0)
+        {
+            return new List<PendingMetadataRefresh>();
+        }
+
+        return await _db.PendingMetadataRefreshes
+            .AsNoTracking()
+            .Include(p => p.Audiobook)
+                .ThenInclude(a => a.Authors)
+            .AsSplitQuery()
+            .Where(p => audiobookIds.Contains(p.AudiobookId))
+            .ToListAsync();
+    }
 
     public async Task<int> DeleteAllByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds)
     {

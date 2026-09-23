@@ -29,6 +29,8 @@ public interface IOrganize
     Task AudiobookSaveError(AudiobookSaveError error);
     Task MetadataRefreshProgress(MetadataRefreshProgress progress);
     Task MetadataRefreshComplete(MetadataRefreshComplete result);
+    Task MetadataApplyProgress(MetadataApplyProgress progress);
+    Task MetadataApplyComplete(MetadataApplyComplete result);
     Task BulkEditProgress(BulkEditProgress progress);
     Task BulkEditComplete(BulkEditComplete result);
     Task UrlCleanupProgress(UrlCleanupProgress progress);

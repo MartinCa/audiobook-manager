@@ -22,6 +22,9 @@ vi.mock("@/services/api", async (importOriginal) => {
       getPendingSummary: vi.fn().mockResolvedValue([]),
       getPendingForAudiobook: vi.fn(),
       dismissPending: vi.fn().mockResolvedValue(undefined),
+      applyPending: vi.fn().mockResolvedValue(undefined),
+      applySelected: vi.fn().mockResolvedValue(undefined),
+      applyFiltered: vi.fn().mockResolvedValue(undefined),
     },
     operationsApi: {
       getStatus: vi.fn().mockResolvedValue({ isRunning: false }),
@@ -53,6 +56,7 @@ describe("MetadataRefresh", () => {
       authors: ["Brandon Sanderson"],
       fetchedAt: "2026-09-01T12:00:00Z",
       sourceName: "Goodreads",
+      changedFields: ["Rating"],
     },
     {
       audiobookId: 2,
@@ -60,6 +64,7 @@ describe("MetadataRefresh", () => {
       authors: ["Brandon Sanderson"],
       fetchedAt: "2026-09-01T12:05:00Z",
       sourceName: "Goodreads",
+      changedFields: ["Publisher"],
     },
   ];
 
@@ -186,7 +191,7 @@ describe("MetadataRefresh", () => {
     fireEvent.click(next);
 
     await waitFor(() => {
-      expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledWith(1, 50);
+      expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledWith(1, 50, []);
     });
     const prev = screen.getByRole("button", { name: /previous/i });
     expect(prev).not.toBeDisabled();

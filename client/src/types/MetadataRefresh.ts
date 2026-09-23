@@ -27,10 +27,10 @@ export type PendingRefreshSnapshot = Require<
 >;
 
 // AudiobookManager.Api/Dtos/MetadataRefreshDtos.cs: every field on the list item is
-// non-nullable (AudibookId/BookName/Authors/FetchedAt/SourceName).
+// non-nullable (AudibookId/BookName/Authors/FetchedAt/SourceName/ChangedFields).
 export type PendingMetadataRefreshListItem = Require<
   components["schemas"]["PendingMetadataRefreshListItemDto"],
-  "audiobookId" | "bookName" | "authors" | "fetchedAt" | "sourceName"
+  "audiobookId" | "bookName" | "authors" | "fetchedAt" | "sourceName" | "changedFields"
 >;
 
 export type PendingMetadataRefreshPage = Require<
@@ -42,6 +42,45 @@ export type PendingMetadataRefreshPage = Require<
 // only" — the backend interprets null the same way.
 export type BulkMetadataRefresh = {
   olderThanUtc?: string;
+};
+
+// Every field name a pending snapshot can offer as a change (AudiobookManager.Services/
+// MetadataRefreshFields.cs) - the vocabulary the filter picker and per-book field badges use.
+export const METADATA_REFRESH_FIELDS = [
+  "Authors",
+  "Narrators",
+  "BookName",
+  "Subtitle",
+  "Series",
+  "SeriesPart",
+  "Year",
+  "Genres",
+  "Description",
+  "Language",
+  "Rating",
+  "Copyright",
+  "Publisher",
+  "Asin",
+] as const;
+
+export type MetadataRefreshFieldName = (typeof METADATA_REFRESH_FIELDS)[number];
+
+/** Display label for a stored changed-field name; SeriesPart folds into "Series" since the two are edited together. */
+export const METADATA_REFRESH_FIELD_LABELS: Record<string, string> = {
+  Authors: "Authors",
+  Narrators: "Narrators",
+  BookName: "Book Name",
+  Subtitle: "Subtitle",
+  Series: "Series",
+  SeriesPart: "Series Part",
+  Year: "Year",
+  Genres: "Genres",
+  Description: "Description",
+  Language: "Language",
+  Rating: "Rating",
+  Copyright: "Copyright",
+  Publisher: "Publisher",
+  Asin: "ASIN",
 };
 
 export type { MetadataRefreshResult as default };

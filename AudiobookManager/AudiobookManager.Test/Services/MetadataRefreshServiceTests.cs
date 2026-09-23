@@ -5,6 +5,7 @@ using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -18,6 +19,9 @@ public class MetadataRefreshServiceTests
     private readonly Mock<IBookConsistencyIssueRepository> _issueRepository = new();
     private readonly Mock<IScrapingService> _scrapingService = new();
     private readonly Mock<ILibrarySettingsRepository> _librarySettingsRepository = new();
+    private readonly Mock<IAudiobookService> _audiobookService = new();
+    private readonly IAudiobookSaveGate _saveGate = new AudiobookSaveGate();
+    private readonly Mock<IServiceScopeFactory> _serviceScopeFactory = new();
     private readonly Mock<ILogger<MetadataRefreshService>> _logger = new();
 
     private MetadataRefreshService CreateService(IEnumerable<IScraper>? scrapers = null) =>
@@ -28,6 +32,9 @@ public class MetadataRefreshServiceTests
             _scrapingService.Object,
             scrapers ?? Array.Empty<IScraper>(),
             _librarySettingsRepository.Object,
+            _audiobookService.Object,
+            _saveGate,
+            _serviceScopeFactory.Object,
             _logger.Object);
 
     private static Database.Models.Audiobook Book(string www) => new(
@@ -264,6 +271,76 @@ public class MetadataRefreshServiceTests
         _scrapingService.Verify(s => s.GetBookDetails(It.IsAny<string>()), Times.Exactly(2));
         _audiobookRepository.Verify(
             r => r.GetByIdWithIncludesAsync(It.IsAny<long>()), Times.Exactly(2));
+    }
+
+    #endregion
+
+    #region ApplyPendingRefreshAsync
+
+    // Regression (review finding): a corrupt/unparseable stored payload used to return false,
+    // indistinguishable from "book no longer exists" - both mapped to 204 at the controller, so
+    // a caller could not tell "nothing to apply" from "the stored snapshot is unreadable" and
+    // reported success without applying anything. It must now throw instead.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_UnparseablePayload_ThrowsInsteadOfReturningFalse()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(99))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 99,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = "not valid json",
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => CreateService().ApplyPendingRefreshAsync(99));
+
+        // Never reached the point of touching the book or the save gate.
+        _audiobookRepository.Verify(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    // Behavioral assertion, not a regression guard: ApplyOneAsync never caught
+    // AudiobookBusyException, so this passes with or without the fix - the actual regression was
+    // the controller's missing catch, which
+    // MetadataRefreshControllerTests.ApplyPending_BookBusy_Returns409NotA500 covers (and does
+    // fail without that fix). This test documents that the service's contract is, and must stay,
+    // "let the busy exception propagate" - the controller relies on that to map it to 409.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_BookAlreadyBusy_PropagatesAudiobookBusyException()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(101))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 101,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://example.com/book",
+                    "Audible",
+                    new List<string> { "A Person" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+        var busyBook = Book("https://example.com/book");
+        busyBook.Id = 101;
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { busyBook });
+
+        using var lease = _saveGate.Acquire(101);
+
+        await Assert.ThrowsExactlyAsync<AudiobookBusyException>(
+            () => CreateService().ApplyPendingRefreshAsync(101));
     }
 
     #endregion

@@ -29,23 +29,23 @@ public static class MetadataRefreshDiffer
             }
         }
 
-        Add("Authors", JoinNames(book.Authors.Select(a => a.Name)), JoinNames(fetched.Authors.Select(a => a.Name)));
-        Add("Narrators", JoinNames(book.Narrators.Select(n => n.Name)), JoinNames(fetched.Narrators.Select(n => n.Name)));
-        Add("BookName", book.BookName, fetched.BookName);
-        Add("Subtitle", book.Subtitle, fetched.Subtitle);
-        Add("Series", book.Series, fetched.Series?.FirstOrDefault()?.SeriesName);
-        Add("SeriesPart", book.SeriesPart, fetched.Series?.FirstOrDefault()?.SeriesPart);
+        Add(MetadataRefreshFields.Authors, JoinNames(book.Authors.Select(a => a.Name)), JoinNames(fetched.Authors.Select(a => a.Name)));
+        Add(MetadataRefreshFields.Narrators, JoinNames(book.Narrators.Select(n => n.Name)), JoinNames(fetched.Narrators.Select(n => n.Name)));
+        Add(MetadataRefreshFields.BookName, book.BookName, fetched.BookName);
+        Add(MetadataRefreshFields.Subtitle, book.Subtitle, fetched.Subtitle);
+        Add(MetadataRefreshFields.Series, book.Series, fetched.Series?.FirstOrDefault()?.SeriesName);
+        Add(MetadataRefreshFields.SeriesPart, book.SeriesPart, fetched.Series?.FirstOrDefault()?.SeriesPart);
 
         // Year is non-nullable on the DB model; a source that reports no year must not offer
         // blanking it, so a null source year never becomes a diff.
         if (fetched.Year.HasValue)
         {
-            Add("Year", book.Year.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Add(MetadataRefreshFields.Year, book.Year.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 fetched.Year.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
-        Add("Genres", JoinList(book.Genres.Select(g => g.Name)), JoinList(fetched.Genres));
-        Add("Description", book.Description, fetched.Description);
+        Add(MetadataRefreshFields.Genres, JoinList(book.Genres.Select(g => g.Name)), JoinList(fetched.Genres));
+        Add(MetadataRefreshFields.Description, book.Description, fetched.Description);
 
         // Language: both sides fold through the managed alias table, so "English" (source) does
         // not differ from "en" (stored) - and an unrecognizable source value is left alone rather
@@ -53,13 +53,13 @@ public static class MetadataRefreshDiffer
         // stored value is ALSO unrecognized (e.g. backfilled "spa" from an m4b tag), both sides
         // normalize to null, and the source fallback has to land on the stored value too -
         // otherwise a nothing-changed pair reads as "spa → (blank)".
-        Add("Language", Languages.Normalize(book.Language) ?? book.Language,
+        Add(MetadataRefreshFields.Language, Languages.Normalize(book.Language) ?? book.Language,
             Languages.Normalize(fetched.Language) ?? (Languages.Normalize(book.Language) ?? book.Language));
 
-        Add("Rating", book.Rating, fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        Add("Copyright", book.Copyright, fetched.Copyright);
-        Add("Publisher", book.Publisher, fetched.Publisher);
-        Add("Asin", book.Asin, fetched.Asin);
+        Add(MetadataRefreshFields.Rating, book.Rating, fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(MetadataRefreshFields.Copyright, book.Copyright, fetched.Copyright);
+        Add(MetadataRefreshFields.Publisher, book.Publisher, fetched.Publisher);
+        Add(MetadataRefreshFields.Asin, book.Asin, fetched.Asin);
 
         return diffs;
     }
