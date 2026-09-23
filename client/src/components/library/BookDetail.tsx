@@ -1,7 +1,15 @@
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, AlertTriangle, CheckCircle2, RefreshCw, Loader2, Pencil } from "lucide-react";
+import {
+  ArrowLeft,
+  AlertTriangle,
+  CheckCircle2,
+  Image as ImageIcon,
+  RefreshCw,
+  Loader2,
+  Pencil,
+} from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
@@ -481,8 +489,12 @@ export function BookDetail({ mode }: BookDetailProps) {
               <CardHeader>
                 <CardTitle className="text-lg">Book Details</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+              <CardContent className="flex flex-col gap-6 text-sm sm:flex-row sm:items-start">
+                <BookCover
+                  coverUrl={bookDetail.coverFilePath ? browseApi.getCoverUrl(id) : undefined}
+                  alt={bookDetail.bookName ?? "Cover"}
+                />
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
                   <DetailRow label="Authors">
                     {bookDetail.authorRefs.length > 0 ? (
                       <span className="flex flex-wrap gap-x-2 gap-y-1">
@@ -679,6 +691,34 @@ export function BookDetail({ mode }: BookDetailProps) {
         title="Delete Audiobook"
         description={`Are you sure you want to permanently delete "${bookDetail.bookName}"? This removes the audiobook directory and all its files from your library storage.`}
       />
+    </div>
+  );
+}
+
+/**
+ * Read-only cover on the view page - the edit page shows the same image through CoverEditor.
+ * A book with no cover on disk (or a cover URL that fails to load) falls back to a placeholder
+ * rather than a broken-image icon.
+ */
+function BookCover({ coverUrl, alt }: { coverUrl: string | undefined; alt: string }) {
+  const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
+  const src = coverUrl && coverUrl !== failedUrl ? coverUrl : undefined;
+
+  return (
+    <div className="border-border bg-muted flex h-48 w-48 shrink-0 items-center justify-center self-center overflow-hidden rounded-lg border sm:self-start">
+      {src ? (
+        <img
+          src={src}
+          alt={alt}
+          className="h-full w-full object-contain"
+          onError={() => setFailedUrl(src)}
+        />
+      ) : (
+        <div className="text-muted-foreground flex flex-col items-center p-4 text-center">
+          <ImageIcon className="mb-2 h-10 w-10" />
+          <span className="text-xs font-medium">No cover</span>
+        </div>
+      )}
     </div>
   );
 }
