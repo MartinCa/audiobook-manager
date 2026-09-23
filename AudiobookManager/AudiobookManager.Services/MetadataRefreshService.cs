@@ -254,6 +254,11 @@ public class MetadataRefreshService : IMetadataRefreshService
     public async Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
         int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null)
     {
+        // One-time cost per legacy row (a stored-row read, a book-with-includes read, and a
+        // write), run sequentially on the request thread. Bounded by how many pending rows
+        // predate ChangedFieldsJson and never recurs once they're all backfilled, but on a
+        // library with a large pending set this first page load after upgrading can be
+        // noticeably slower than every one after it.
         await EnsureChangedFieldsBackfilledAsync();
 
         if (fieldsFilter is null || fieldsFilter.Count == 0)
@@ -298,7 +303,20 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// persists the result - or, if the book has since caught up with (or never actually
     /// differed from) the snapshot, supersedes the row the same way a fresh no-diff check does.
     /// A no-op once every row has been backfilled: the lookup that finds candidates is a cheap
-    /// "is this column null" scan with no book graph attached.
+    /// "is this column null" scan with no book graph attached - except for a row whose
+    /// PayloadJson cannot be parsed, which is skipped every time rather than backfilled, so it
+    /// never leaves that candidate list. That costs only a repeated cheap scan (its column stays
+    /// null forever), not repeated book loads, so it is left as-is rather than papered over with
+    /// a sentinel value that would then need its own "is this the corrupt-marker" handling.
+    /// <para>
+    /// The recompute is a re-diff against the book's CURRENT state, not a replay of what the
+    /// original fetch recorded. If the book was edited after the snapshot was stored but before
+    /// this backfill ever ran, that can add fields the original fetch never flagged (the book
+    /// diverged further from the snapshot since) as well as drop ones it did (the book caught
+    /// up). That is the intended behavior - a pending snapshot's job is to converge the book
+    /// toward what the source last reported, and "which fields would still change it" is exactly
+    /// what should be re-evaluated against the book as it is now, not as it was at fetch time.
+    /// </para>
     /// </summary>
     private async Task EnsureChangedFieldsBackfilledAsync()
     {
@@ -444,6 +462,13 @@ public class MetadataRefreshService : IMetadataRefreshService
         // once from the stored snapshot rather than assuming "nothing to apply" - a caller can
         // reach this row through apply-selected/apply-filtered before any list view has had a
         // chance to backfill it.
+        //
+        // This reads dbBook before the save gate below is acquired, so a concurrent save could
+        // in principle mutate the book between this diff and the gated apply, leaving the
+        // recomputed field set stale by the time it's used. That is not a new race: the ordinary
+        // path (stored fields applied against this same pre-gate book read) already has the
+        // identical shape, so this recompute just inherits the existing window rather than
+        // opening a new one.
         if ((fields is null || fields.Count == 0) && storedChangedFields.Count == 0 && dbBook is not null)
         {
             storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload).Select(d => d.Field).ToList();
