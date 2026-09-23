@@ -183,6 +183,18 @@ public class Client : IOrganize
         return Task.CompletedTask;
     }
 
+    public Task MetadataApplyProgress(MetadataApplyProgress progress)
+    {
+        Console.WriteLine($"Metadata apply: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");
+        return Task.CompletedTask;
+    }
+
+    public Task MetadataApplyComplete(MetadataApplyComplete result)
+    {
+        Console.WriteLine($"Metadata apply complete: {result.Processed}/{result.Total} processed, {result.Succeeded} succeeded, {result.Failed} failed");
+        return Task.CompletedTask;
+    }
+
     public Task BulkEditProgress(BulkEditProgress progress)
     {
         Console.WriteLine($"Bulk edit: {progress.Processed}/{progress.Total}, succeeded: {progress.Succeeded}, failed: {progress.Failed}");

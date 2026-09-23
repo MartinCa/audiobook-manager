@@ -13,8 +13,10 @@ namespace AudiobookManager.Api.Controllers;
 public class MetadataRefreshController : ControllerBase
 {
     public const string BulkOperationKey = "metadata-refresh";
+    public const string ApplyOperationKey = "metadata-apply";
 
     private static readonly SemaphoreSlim _bulkLock = new(1, 1);
+    private static readonly SemaphoreSlim _applyLock = new(1, 1);
 
     private readonly IMetadataRefreshService _metadataRefreshService;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
@@ -154,7 +156,8 @@ public class MetadataRefreshController : ControllerBase
     [HttpGet("pending")]
     public async Task<ActionResult<PendingMetadataRefreshPageDto>> GetPending(
         [FromQuery] int page = 0,
-        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize,
+        [FromQuery] List<string>? fields = null)
     {
         if (page < 0)
         {
@@ -172,7 +175,7 @@ public class MetadataRefreshController : ControllerBase
             return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} entries.");
         }
 
-        var (items, total) = await _metadataRefreshService.GetPendingPageAsync(page, pageSize);
+        var (items, total) = await _metadataRefreshService.GetPendingPageAsync(page, pageSize, fields);
 
         return Ok(new PendingMetadataRefreshPageDto(
             items
@@ -181,16 +184,128 @@ public class MetadataRefreshController : ControllerBase
                     p.Audiobook.BookName,
                     p.Audiobook.Authors.Select(a => a.Name).ToList(),
                     p.FetchedAt,
-                    p.SourceName))
+                    p.SourceName,
+                    MetadataRefreshFields.ParseChangedFieldsJson(p.ChangedFieldsJson)))
                 .ToList(),
             total));
     }
 
-    /// <summary>The sparse id list of books with a pending snapshot, for the library-list badges.</summary>
+    /// <summary>
+    /// The sparse id list of books with a pending snapshot, for the library-list badges when
+    /// <paramref name="fields"/> is omitted, or every id matching that field-subset filter - the
+    /// full match set (not one page) that "apply every book matching this filter" resolves ids
+    /// through, so the client never has to walk every page to find them all.
+    /// </summary>
     [HttpGet("pending-summary")]
-    public async Task<List<long>> GetPendingSummary()
+    public async Task<List<long>> GetPendingSummary([FromQuery] List<string>? fields = null)
     {
-        return await _metadataRefreshService.GetPendingAudiobookIdsAsync();
+        return await _metadataRefreshService.GetPendingAudiobookIdsAsync(fields);
+    }
+
+    /// <summary>
+    /// Applies one book's pending snapshot immediately - the metadata-refresh page's per-row
+    /// quick apply. Synchronous (one book, one save) unlike the bulk endpoints below.
+    /// </summary>
+    [HttpPost("{id:long}/apply")]
+    public async Task<IActionResult> ApplyPending(long id, [FromBody] ApplyPendingRefreshDto? dto)
+    {
+        try
+        {
+            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields);
+            return applied ? Ok() : NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Applies every explicitly selected book's full pending snapshot. Fire-and-forget through
+    /// <see cref="BackgroundOperationRunner"/> with SignalR progress, the same shape as the
+    /// bulk-edit/bulk-refresh endpoints; capped by <see cref="BulkSelectionValidation.MaxSelection"/>
+    /// like every other explicit-selection endpoint.
+    /// </summary>
+    [HttpPost("apply-selected")]
+    public IActionResult StartApplySelected([FromBody] BulkSelectionDto? dto)
+    {
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
+        if (error != null)
+        {
+            return error;
+        }
+
+        var audiobookIds = dto!.AudiobookIds;
+
+        return BackgroundOperationRunner.Start(
+            _applyLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ApplyOperationKey,
+            async sp =>
+            {
+                var refreshService = sp.GetRequiredService<IMetadataRefreshService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(ApplyOperationKey, processed, total);
+                    return _organizeHub.Clients.All.MetadataApplyProgress(
+                        new MetadataApplyProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) =
+                    await refreshService.ApplySelectedPendingRefreshesAsync(audiobookIds, ProgressAction);
+
+                await _organizeHub.Clients.All.MetadataApplyComplete(
+                    new MetadataApplyComplete(processed, audiobookIds.Count, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.MetadataApplyComplete(new MetadataApplyComplete(0, 0, 0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
+    /// <summary>
+    /// Applies every pending book whose stored changed-fields are entirely contained in the
+    /// given field list - "apply every book matching this filter", unbounded by page or the
+    /// explicit-selection cap, resolved and run entirely server-side. Same fire-and-forget shape
+    /// as <see cref="StartApplySelected"/>, sharing its lock: the two must not run concurrently,
+    /// since either can touch the same book.
+    /// </summary>
+    [HttpPost("apply-filtered")]
+    public IActionResult StartApplyFiltered([FromBody] BulkApplyFilteredMetadataRefreshDto? dto)
+    {
+        if (dto?.Fields is null || dto.Fields.Count == 0)
+        {
+            return this.InvalidRequest("At least one field must be selected.");
+        }
+
+        var fields = dto.Fields;
+
+        return BackgroundOperationRunner.Start(
+            _applyLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ApplyOperationKey,
+            async sp =>
+            {
+                var refreshService = sp.GetRequiredService<IMetadataRefreshService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(ApplyOperationKey, processed, total);
+                    return _organizeHub.Clients.All.MetadataApplyProgress(
+                        new MetadataApplyProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) =
+                    await refreshService.ApplyFilteredPendingRefreshesAsync(fields, ProgressAction);
+
+                await _organizeHub.Clients.All.MetadataApplyComplete(
+                    new MetadataApplyComplete(processed, processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.MetadataApplyComplete(new MetadataApplyComplete(0, 0, 0, 0)),
+            _appLifetime.ApplicationStopping);
     }
 
     [HttpGet("{id:long}/pending")]

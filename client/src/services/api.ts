@@ -520,13 +520,20 @@ export const metadataRefreshApi = {
 
   // Paged server-side (bounded-list invariant). The unpaged response would return every book
   // with a pending snapshot in one payload — the same unbounded shape UrlCleanupController
-  // replaced before this list.
-  getPendingPage: (page: number, pageSize: number) =>
+  // replaced before this list. An optional field-name filter (subset match, server-side) narrows
+  // both the page and its total.
+  getPendingPage: (page: number, pageSize: number, fields?: readonly string[]) =>
     api.get<PendingMetadataRefreshPage>("/metadata-refresh/pending", {
-      query: { page, pageSize },
+      query: { page, pageSize, fields: fields && fields.length > 0 ? fields : undefined },
     }),
 
-  getPendingSummary: () => api.get<number[]>("/metadata-refresh/pending-summary"),
+  // Every id with a pending snapshot when fields is omitted (library-list badges), or every id
+  // matching the same subset filter getPendingPage applies - the full match set, not one page,
+  // for "apply every book matching this filter".
+  getPendingSummary: (fields?: readonly string[]) =>
+    api.get<number[]>("/metadata-refresh/pending-summary", {
+      query: { fields: fields && fields.length > 0 ? fields : undefined },
+    }),
 
   // Single book's pending snapshot; the backend 404s when the book has none, so this resolves to
   // undefined there (the snapshot's absence is the normal state, not an error). Other failures
@@ -540,6 +547,23 @@ export const metadataRefreshApi = {
   // operation key, so a selected refresh and the all-books sweep stay mutually exclusive.
   refreshSelected: (audiobookIds: number[]) =>
     api.post<void>("/metadata-refresh/bulk-selected", { audiobookIds }),
+
+  // Synchronous single-book apply, for the pending list's per-row quick apply. Omitted/empty
+  // fields applies every field the snapshot recorded as changed.
+  applyPending: (id: number, fields?: readonly string[]) =>
+    api.post<void>(`/metadata-refresh/${id}/apply`, {
+      fields: fields && fields.length > 0 ? fields : undefined,
+    }),
+
+  // Fire-and-forget: applies the full pending snapshot to every explicitly selected book.
+  // Progress/completion arrive over SignalR (MetadataApplyProgress/Complete).
+  applySelected: (audiobookIds: number[]) =>
+    api.post<void>("/metadata-refresh/apply-selected", { audiobookIds }),
+
+  // Fire-and-forget: applies the full pending snapshot to every book whose stored changed-fields
+  // are entirely contained in `fields` - unbounded by page or selection size.
+  applyFiltered: (fields: readonly string[]) =>
+    api.post<void>("/metadata-refresh/apply-filtered", { fields }),
 };
 
 // Url cleanup

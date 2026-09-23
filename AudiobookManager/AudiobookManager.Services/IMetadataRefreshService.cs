@@ -51,9 +51,48 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<(PendingMetadataRefresh Row, PendingRefreshPayload.Snapshot Payload)?> GetPendingRefreshAsync(long audiobookId);
 
-    /// <summary>One page of pending snapshots, with the book names/authors the list renders.</summary>
-    Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(int page, int pageSize);
+    /// <summary>
+    /// One page of pending snapshots, with the book names/authors the list renders. When
+    /// <paramref name="fieldsFilter"/> is non-empty, only rows whose stored changed-fields are
+    /// entirely contained in it are included (a book with a Rating-only change matches a filter
+    /// of {Rating, Publisher}; a book that also changed Genres does not) - null or empty means
+    /// no filter.
+    /// </summary>
+    Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
+        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null);
 
-    /// <summary>The sparse id list of books holding a pending snapshot, for library-list badges.</summary>
-    Task<List<long>> GetPendingAudiobookIdsAsync();
+    /// <summary>
+    /// The sparse id list of books holding a pending snapshot, for library-list badges when
+    /// <paramref name="fieldsFilter"/> is omitted, or every id matching the same subset filter
+    /// <see cref="GetPendingPageAsync"/> applies - the full match set, not just one page, for
+    /// "apply every book matching this filter".
+    /// </summary>
+    Task<List<long>> GetPendingAudiobookIdsAsync(IReadOnlyCollection<string>? fieldsFilter = null);
+
+    /// <summary>
+    /// Applies one book's pending snapshot immediately and dismisses it, for the metadata-refresh
+    /// page's per-row quick apply. <paramref name="fields"/> null or empty applies every field the
+    /// snapshot recorded as changed; an explicit list applies only those. Returns false when the
+    /// book has no pending snapshot (or its payload could not be parsed); throws only for an
+    /// unexpected save failure.
+    /// </summary>
+    Task<bool> ApplyPendingRefreshAsync(long audiobookId, IReadOnlyCollection<string>? fields = null);
+
+    /// <summary>
+    /// Applies every explicitly selected book's full pending snapshot and dismisses it, tolerating
+    /// per-book failure (a book with no pending snapshot, or that failed to save, counts as
+    /// Failed and the batch carries on) - the same per-item contract as
+    /// <see cref="RefreshSelectedAudiobooksAsync"/>.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction);
+
+    /// <summary>
+    /// Resolves every pending book whose stored changed-fields are entirely contained in
+    /// <paramref name="fieldsFilter"/>, then applies each one's full snapshot the same way
+    /// <see cref="ApplySelectedPendingRefreshesAsync"/> does - for "apply every book matching this
+    /// filter", unbounded by page or selection size.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
+        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction);
 }

@@ -10,6 +10,9 @@ namespace AudiobookManager.Database.Repositories;
 /// </summary>
 public record MetadataRefreshEligibleBook(long Id, string? Www, DateTime? LastMetadataRefreshedAt);
 
+/// <summary>The lightweight projection <see cref="IPendingMetadataRefreshRepository.GetAllChangedFieldsAsync"/> reads to filter/order the pending set without loading every book graph.</summary>
+public record PendingRefreshFieldsRow(long AudiobookId, DateTime FetchedAt, string? ChangedFieldsJson);
+
 public interface IPendingMetadataRefreshRepository
 {
     /// <summary>
@@ -34,6 +37,18 @@ public interface IPendingMetadataRefreshRepository
     /// not every row in the table - for library-list badges.
     /// </summary>
     Task<List<long>> GetPendingAudiobookIdsAsync();
+
+    /// <summary>
+    /// Every pending row's id, fetch time and stored changed-fields JSON - no book graph - for
+    /// filtering/paging the pending set by which fields changed without loading every book.
+    /// </summary>
+    Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync();
+
+    /// <summary>The pending rows for the given books (no book graph included), for a bulk apply.</summary>
+    Task<List<PendingMetadataRefresh>> GetByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds);
+
+    /// <summary>The pending rows for the given books, with the book/author graph the list renders - for a filtered page.</summary>
+    Task<List<PendingMetadataRefresh>> GetByAudiobookIdsWithAudiobookAsync(IReadOnlyCollection<long> audiobookIds);
 
     /// <summary>Deletes all pending snapshots for books that no longer exist (defensive; the FK cascade usually covers this).</summary>
     Task<int> DeleteAllByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds);

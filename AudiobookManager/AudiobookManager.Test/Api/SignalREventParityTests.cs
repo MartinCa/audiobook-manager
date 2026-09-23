@@ -96,6 +96,7 @@ public class SignalREventParityTests
             SeriesController.PendingApplyOperationKey,
             SeriesController.DeleteOperationKey,
             MetadataRefreshController.BulkOperationKey,
+            MetadataRefreshController.ApplyOperationKey,
             MissingTagsController.LanguageBackfillOperationKey,
             AudiobookController.BulkEditOperationKey,
             UrlCleanupController.ApplyAllOperationKey,

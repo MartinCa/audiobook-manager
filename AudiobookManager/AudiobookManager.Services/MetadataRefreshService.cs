@@ -1,20 +1,27 @@
+using System.Text.Json;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
 public class MetadataRefreshService : IMetadataRefreshService
 {
+    private static readonly JsonSerializerOptions ChangedFieldsJsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPendingMetadataRefreshRepository _pendingRepository;
     private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IScrapingService _scrapingService;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
+    private readonly IAudiobookService _audiobookService;
+    private readonly IAudiobookSaveGate _saveGate;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<MetadataRefreshService> _logger;
 
     public MetadataRefreshService(
@@ -24,6 +31,9 @@ public class MetadataRefreshService : IMetadataRefreshService
         IScrapingService scrapingService,
         IEnumerable<IScraper> scrapers,
         ILibrarySettingsRepository librarySettingsRepository,
+        IAudiobookService audiobookService,
+        IAudiobookSaveGate saveGate,
+        IServiceScopeFactory serviceScopeFactory,
         ILogger<MetadataRefreshService> logger)
     {
         _audiobookRepository = audiobookRepository;
@@ -32,6 +42,9 @@ public class MetadataRefreshService : IMetadataRefreshService
         _scrapingService = scrapingService;
         _scrapers = scrapers;
         _librarySettingsRepository = librarySettingsRepository;
+        _audiobookService = audiobookService;
+        _saveGate = saveGate;
+        _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
 
@@ -238,11 +251,178 @@ public class MetadataRefreshService : IMetadataRefreshService
         return payload is null ? null : (row, payload);
     }
 
-    public Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(int page, int pageSize) =>
-        _pendingRepository.GetPageWithAudiobookAsync(page * pageSize, pageSize);
+    public async Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
+        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null)
+    {
+        if (fieldsFilter is null || fieldsFilter.Count == 0)
+        {
+            return await _pendingRepository.GetPageWithAudiobookAsync(page * pageSize, pageSize);
+        }
 
-    public Task<List<long>> GetPendingAudiobookIdsAsync() =>
-        _pendingRepository.GetPendingAudiobookIdsAsync();
+        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        var total = matches.Count;
+        var pageIds = matches.Skip(page * pageSize).Take(pageSize).Select(m => m.AudiobookId).ToList();
+
+        var rows = await _pendingRepository.GetByAudiobookIdsWithAudiobookAsync(pageIds);
+        var byId = rows.ToDictionary(r => r.AudiobookId);
+
+        // GetByAudiobookIdsWithAudiobookAsync makes no ordering promise; re-impose the
+        // FetchedAt-desc order GetFilterMatchesAsync already computed. A row can be legitimately
+        // absent (dismissed/applied between the two reads) and is simply dropped rather than
+        // failing the whole page.
+        var items = pageIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+        return (items, total);
+    }
+
+    public async Task<List<long>> GetPendingAudiobookIdsAsync(IReadOnlyCollection<string>? fieldsFilter = null)
+    {
+        if (fieldsFilter is null || fieldsFilter.Count == 0)
+        {
+            return await _pendingRepository.GetPendingAudiobookIdsAsync();
+        }
+
+        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        return matches.Select(m => m.AudiobookId).ToList();
+    }
+
+    /// <summary>
+    /// Every pending row whose stored changed-fields are entirely contained in
+    /// <paramref name="fieldsFilter"/>, newest-fetched first - the same subset rule and order
+    /// both filtered read paths above share, computed once against the lightweight projection so
+    /// filtering thousands of rows never loads a book graph.
+    /// </summary>
+    private async Task<List<PendingRefreshFieldsRow>> GetFilterMatchesAsync(IReadOnlyCollection<string> fieldsFilter)
+    {
+        var filterSet = new HashSet<string>(fieldsFilter);
+        var all = await _pendingRepository.GetAllChangedFieldsAsync();
+
+        return all
+            .Where(row => MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson) is { Count: > 0 } changed && changed.All(filterSet.Contains))
+            .OrderByDescending(row => row.FetchedAt)
+            .ThenBy(row => row.AudiobookId)
+            .ToList();
+    }
+
+    public async Task<bool> ApplyPendingRefreshAsync(long audiobookId, IReadOnlyCollection<string>? fields = null)
+    {
+        var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
+        if (row is null)
+        {
+            return false;
+        }
+
+        return await ApplyOneAsync(row, fields);
+    }
+
+    public Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction) =>
+        ApplyManyAsync(audiobookIds, progressAction);
+
+    public async Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
+        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction)
+    {
+        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        return await ApplyManyAsync(matches.Select(m => m.AudiobookId).ToList(), progressAction);
+    }
+
+    /// <summary>
+    /// The shared "apply this book's full pending snapshot, tolerate per-book failure" loop
+    /// behind both bulk-apply endpoints - explicit selection and filter-resolved - so the two
+    /// cannot drift. A requested id with no pending row (already applied/dismissed since the
+    /// client loaded it) counts as Failed rather than being silently dropped, mirroring
+    /// RefreshSelectedAudiobooksAsync's "every requested id counts" contract.
+    /// </summary>
+    private async Task<(int Processed, int Succeeded, int Failed)> ApplyManyAsync(
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction)
+    {
+        var rows = await _pendingRepository.GetByAudiobookIdsAsync(audiobookIds);
+        var rowsById = rows.ToDictionary(r => r.AudiobookId);
+
+        return await BulkOperationRunner.RunAsync(
+            audiobookIds,
+            async id =>
+            {
+                if (!rowsById.TryGetValue(id, out var row))
+                {
+                    throw new KeyNotFoundException($"Audiobook {id} has no pending metadata refresh.");
+                }
+
+                var applied = await ApplyOneAsync(row, fields: null);
+                if (!applied)
+                {
+                    throw new KeyNotFoundException($"Audiobook {id}'s pending metadata refresh could not be read.");
+                }
+            },
+            _logger,
+            id => $"Failed to apply pending metadata refresh for audiobook {id}",
+            progressAction);
+    }
+
+    /// <summary>
+    /// Applies one pending row's snapshot (the fields it recorded as changed, or the caller's
+    /// explicit subset of them) to the live book and dismisses the row - the write path every
+    /// apply entry point (single quick-apply, bulk-selected, bulk-filtered) funnels through, so
+    /// they share one save-gate/recheck/dismiss sequence. Returns false only when the row's
+    /// payload cannot be parsed or the book no longer exists; a save failure throws.
+    /// </summary>
+    private async Task<bool> ApplyOneAsync(PendingMetadataRefresh row, IReadOnlyCollection<string>? fields)
+    {
+        var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
+        if (payload is null)
+        {
+            return false;
+        }
+
+        var storedChangedFields = MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson);
+        var fieldsToApply = new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
+        if (fieldsToApply.Count == 0)
+        {
+            // Nothing recorded to apply (an old row from before ChangedFieldsJson existed, with
+            // no explicit fields given either) - dismiss it rather than silently no-op forever.
+            await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
+            return true;
+        }
+
+        var books = await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId });
+        var dbBook = books.FirstOrDefault();
+        if (dbBook is null)
+        {
+            return false;
+        }
+
+        using var lease = _saveGate.Acquire(dbBook.Id);
+
+        var domain = AudiobookService.FromDb(dbBook);
+        domain.Id = dbBook.Id;
+        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply);
+
+        if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
+        {
+            throw new InvalidOperationException(
+                $"Applying the pending metadata refresh would leave audiobook {dbBook.Id} without an author or a title; the apply was refused.");
+        }
+
+        await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
+
+        try
+        {
+            // Resolved from a fresh scope, not injected, because ILibraryConsistencyService's own
+            // constructor pulls in every IBookConsistencyIssueResolver - including the one that
+            // depends on this service - and a direct constructor dependency here would make that
+            // a circular service graph. IServiceScopeFactory has no such cycle: it is a singleton
+            // that only reaches into the container at the point of use.
+            using var scope = _serviceScopeFactory.CreateScope();
+            var libraryConsistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
+            await libraryConsistencyService.RecheckAudiobookAsync(dbBook.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to recheck consistency issues for audiobook {AudiobookId} after applying a pending metadata refresh", dbBook.Id);
+        }
+
+        await _pendingRepository.DeleteByAudiobookIdAsync(dbBook.Id);
+        return true;
+    }
 
     /// <summary>
     /// Persists the fetch outcome. A snapshot with differences is stored for approval; a no-diff
@@ -264,6 +444,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                 SourceName = fetched.Source,
                 SourceUrl = fetched.CleanUrl,
                 PayloadJson = PendingRefreshPayload.Serialize(ToSnapshot(fetched)),
+                ChangedFieldsJson = JsonSerializer.Serialize(differences.Select(d => d.Field).ToList(), ChangedFieldsJsonOptions),
             });
         }
         else

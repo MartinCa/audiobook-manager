@@ -5,6 +5,7 @@ using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -18,6 +19,9 @@ public class MetadataRefreshServiceTests
     private readonly Mock<IBookConsistencyIssueRepository> _issueRepository = new();
     private readonly Mock<IScrapingService> _scrapingService = new();
     private readonly Mock<ILibrarySettingsRepository> _librarySettingsRepository = new();
+    private readonly Mock<IAudiobookService> _audiobookService = new();
+    private readonly IAudiobookSaveGate _saveGate = new AudiobookSaveGate();
+    private readonly Mock<IServiceScopeFactory> _serviceScopeFactory = new();
     private readonly Mock<ILogger<MetadataRefreshService>> _logger = new();
 
     private MetadataRefreshService CreateService(IEnumerable<IScraper>? scrapers = null) =>
@@ -28,6 +32,9 @@ public class MetadataRefreshServiceTests
             _scrapingService.Object,
             scrapers ?? Array.Empty<IScraper>(),
             _librarySettingsRepository.Object,
+            _audiobookService.Object,
+            _saveGate,
+            _serviceScopeFactory.Object,
             _logger.Object);
 
     private static Database.Models.Audiobook Book(string www) => new(
