@@ -252,7 +252,7 @@ public class AudiobookControllerTests
             new AudiobookFileInfo("/library/Test Author/Some Series/Book 02 - 2024 - Updated Book Name/test.m4b", "test.m4b", 1000));
 
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false)).ReturnsAsync(updated);
-        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         var result = _controller.UpdateAudiobook(1, dto);
 
@@ -284,7 +284,7 @@ public class AudiobookControllerTests
             new AudiobookFileInfo("/library/Test Author/Book 01 - 2024 - Test Book/test.m4b", "test.m4b", 1000));
 
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), true)).ReturnsAsync(updated);
-        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         var result = _controller.UpdateAudiobook(1, dto);
 
@@ -309,7 +309,7 @@ public class AudiobookControllerTests
 
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .Returns((long id, Audiobook a, Func<string, int, Task> progressAction, bool _) => InvokeProgressThenReturn(progressAction, updated));
-        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1)).ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         _controller.UpdateAudiobook(1, dto);
 
@@ -401,7 +401,7 @@ public class AudiobookControllerTests
                 return updated;
             });
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(202))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         Assert.IsFalse(_controller.GetSaveStatus(202).IsSaving, "nothing in flight before the save starts");
 
@@ -510,7 +510,7 @@ public class AudiobookControllerTests
                 return updated;
             });
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(101))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         try
         {
@@ -570,7 +570,7 @@ public class AudiobookControllerTests
             .Setup(s => s.UpdateAudiobook(103, It.IsAny<Audiobook>(), It.IsAny<Func<string, int, Task>>(), false))
             .ReturnsAsync(updated);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         try
         {

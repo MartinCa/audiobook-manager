@@ -1,5 +1,5 @@
 import { notifications } from "@/lib/notifications";
-import type { ConsistencyResolveResult } from "@/types/ConsistencyIssue";
+import type { BookConsistencyResolveResult } from "@/types/BookConsistencyIssue";
 import type { OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
 
 export const ISSUE_TYPE_LABELS: Record<string, string> = {
@@ -71,7 +71,7 @@ export function getBulkResolveDescription(issueType: string): string {
   return BULK_RESOLVE_DESCRIPTIONS[issueType] ?? "Continue?";
 }
 
-export function notifyConsistencyResolveResult(result: ConsistencyResolveResult): void {
+export function notifyBookConsistencyResolveResult(result: BookConsistencyResolveResult): void {
   if (result.actionTaken === "still_unreadable") {
     // Not a success: the resolve ran, found the file no more readable than before, and left the
     // issue in place. A green "Issue resolved" would say the opposite of what happened.

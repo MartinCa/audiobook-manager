@@ -2,9 +2,9 @@ using AudiobookManager.Database.Models;
 
 namespace AudiobookManager.Services;
 
-public sealed class TagMismatchDetector : IConsistencyIssueDetector
+public sealed class TagMismatchDetector : IBookConsistencyIssueDetector
 {
-    public IEnumerable<ConsistencyIssue> Detect(AudiobookCheckContext context)
+    public IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context)
     {
         var mismatches = TagConsistencyChecker.FindMismatches(AudiobookService.FromDb(context.Audiobook), context.Parsed);
         if (mismatches.Count == 0)
@@ -18,6 +18,6 @@ public sealed class TagMismatchDetector : IConsistencyIssueDetector
         var actualValue = TagMismatchPayload.Serialize(
             mismatches.Select(m => new TagMismatchPayload.FieldValue(m.Field, m.Actual)));
 
-        yield return ConsistencyIssueFactory.Create(context.Audiobook.Id, ConsistencyIssueType.TagMismatch, description, expectedValue, actualValue);
+        yield return BookConsistencyIssueFactory.Create(context.Audiobook.Id, BookConsistencyIssueType.TagMismatch, description, expectedValue, actualValue);
     }
 }

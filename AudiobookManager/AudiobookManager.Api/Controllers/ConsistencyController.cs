@@ -27,7 +27,7 @@ public class ConsistencyController : ControllerBase
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IOrphanDirectoryRepository _orphanDirectoryRepository;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly AudiobookManagerSettings _settings;
@@ -37,7 +37,7 @@ public class ConsistencyController : ControllerBase
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IOrphanDirectoryRepository orphanDirectoryRepository,
         IHostApplicationLifetime appLifetime,
         IOptions<AudiobookManagerSettings> settings,
@@ -112,7 +112,7 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpGet("issues")]
-    public async Task<ActionResult<ConsistencyIssuePageDto>> GetIssues(
+    public async Task<ActionResult<BookConsistencyIssuePageDto>> GetIssues(
         [FromQuery] string? issueType = null,
         [FromQuery] int page = 0,
         [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
@@ -134,10 +134,10 @@ public class ConsistencyController : ControllerBase
             return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} issues.");
         }
 
-        ConsistencyIssueType? parsedType = null;
+        BookConsistencyIssueType? parsedType = null;
         if (!string.IsNullOrWhiteSpace(issueType))
         {
-            if (!Enum.TryParse<ConsistencyIssueType>(issueType, ignoreCase: true, out var value))
+            if (!Enum.TryParse<BookConsistencyIssueType>(issueType, ignoreCase: true, out var value))
             {
                 return this.InvalidRequest($"'{issueType}' is not a known consistency issue type.");
             }
@@ -148,7 +148,7 @@ public class ConsistencyController : ControllerBase
         var (issues, totalCount) = await _issueRepository.GetPageWithAudiobookAsync(
             parsedType, (int)skip, pageSize);
 
-        return Ok(new ConsistencyIssuePageDto(issues.Select(ToDto).ToList(), totalCount));
+        return Ok(new BookConsistencyIssuePageDto(issues.Select(ToDto).ToList(), totalCount));
     }
 
     /// <summary>
@@ -162,7 +162,7 @@ public class ConsistencyController : ControllerBase
         return counts.ToDictionary(entry => entry.Key.ToString(), entry => entry.Value);
     }
 
-    private static ConsistencyIssueDto ToDto(ConsistencyIssue issue) => new(
+    private static BookConsistencyIssueDto ToDto(BookConsistencyIssue issue) => new(
         issue.Id,
         issue.AudiobookId,
         issue.Audiobook.BookName,
@@ -181,7 +181,7 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpGet("issues/by-audiobook/{audiobookId}")]
-    public async Task<List<ConsistencyIssueDto>> GetIssuesByAudiobook(long audiobookId)
+    public async Task<List<BookConsistencyIssueDto>> GetIssuesByAudiobook(long audiobookId)
     {
         var issues = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
         return issues.Select(ToDto).ToList();
@@ -199,7 +199,7 @@ public class ConsistencyController : ControllerBase
             // RecheckAudiobookAsync persists issues without a populated Audiobook navigation
             // property; reload from the repository (like GetIssuesByAudiobook) so BookName/Authors are available.
             var issues = await _issueRepository.GetByAudiobookIdAsync(audiobookId);
-            return Ok(issues.Select(i => new ConsistencyIssueDto(
+            return Ok(issues.Select(i => new BookConsistencyIssueDto(
                 i.Id,
                 i.AudiobookId,
                 i.Audiobook.BookName,
@@ -334,14 +334,14 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpPost("issues/{id}/tag-mismatch/resolve")]
-    public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveTagMismatch(long id, [FromBody] ResolveTagMismatchRequest request)
+    public async Task<ActionResult<BookConsistencyResolveResultDto>> ResolveTagMismatch(long id, [FromBody] ResolveTagMismatchRequest request)
     {
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
             var result = await consistencyService.ResolveTagMismatchSelectivelyAsync(id, request.FieldValues);
-            return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
+            return Ok(new BookConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
         }
         catch (KeyNotFoundException)
         {
@@ -363,7 +363,7 @@ public class ConsistencyController : ControllerBase
     }
 
     [HttpPost("issues/{id}/resolve")]
-    public async Task<ActionResult<ConsistencyResolveResultDto>> ResolveIssue(long id)
+    public async Task<ActionResult<BookConsistencyResolveResultDto>> ResolveIssue(long id)
     {
         var issue = await _issueRepository.GetByIdAsync(id);
         if (issue == null)
@@ -374,7 +374,7 @@ public class ConsistencyController : ControllerBase
             using var scope = _serviceScopeFactory.CreateScope();
             var consistencyService = scope.ServiceProvider.GetRequiredService<ILibraryConsistencyService>();
             var result = await consistencyService.ResolveIssue(id);
-            return Ok(new ConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
+            return Ok(new BookConsistencyResolveResultDto(result.IssueId, result.IssueType.ToString(), result.ActionTaken, result.Message));
         }
         catch (AudiobookBusyException ex)
         {

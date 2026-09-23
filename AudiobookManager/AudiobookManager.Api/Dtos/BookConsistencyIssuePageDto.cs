@@ -10,7 +10,7 @@ namespace AudiobookManager.Api.Dtos;
 /// client's own comment records groups of ~3,700 - made that a multi-megabyte response, parsed and
 /// then held for the session, to render fifty rows.
 /// </summary>
-public record ConsistencyIssuePageDto(
-    List<ConsistencyIssueDto> Items,
+public record BookConsistencyIssuePageDto(
+    List<BookConsistencyIssueDto> Items,
     int TotalCount
 );

@@ -15,7 +15,7 @@ public class MetadataRefreshServiceTests
 {
     private readonly Mock<IAudiobookRepository> _audiobookRepository = new();
     private readonly Mock<IPendingMetadataRefreshRepository> _pendingRepository = new();
-    private readonly Mock<IConsistencyIssueRepository> _issueRepository = new();
+    private readonly Mock<IBookConsistencyIssueRepository> _issueRepository = new();
     private readonly Mock<IScrapingService> _scrapingService = new();
     private readonly Mock<ILibrarySettingsRepository> _librarySettingsRepository = new();
     private readonly Mock<ILogger<MetadataRefreshService>> _logger = new();
@@ -57,24 +57,24 @@ public class MetadataRefreshServiceTests
         _scrapingService.Setup(s => s.GetBookDetails(book.Www!))
             .ThrowsAsync(new HttpRequestException("network down"));
 
-        var stale = new ConsistencyIssue
+        var stale = new BookConsistencyIssue
         {
             Id = 7, AudiobookId = 42,
-            IssueType = ConsistencyIssueType.MetadataRefreshFailed,
+            IssueType = BookConsistencyIssueType.MetadataRefreshFailed,
             Description = "Metadata refresh failed",
             DetectedAt = DateTime.UtcNow,
         };
         _issueRepository.Setup(r => r.GetByAudiobookIdAsync(42))
-            .ReturnsAsync(new List<ConsistencyIssue> { stale });
+            .ReturnsAsync(new List<BookConsistencyIssue> { stale });
         _issueRepository
-            .Setup(r => r.UpdateAsync(It.IsAny<ConsistencyIssue>()))
+            .Setup(r => r.UpdateAsync(It.IsAny<BookConsistencyIssue>()))
             .ThrowsAsync(new KeyNotFoundException("Consistency issue 7 does not exist."));
 
         var result = await CreateService(new[] { scraper.Object }).RefreshAudiobookAsync(42);
 
         Assert.IsFalse(result.Success);
         Assert.AreEqual("network down", result.Error);
-        _issueRepository.Verify(r => r.InsertAsync(It.IsAny<ConsistencyIssue>()), Times.Never);
+        _issueRepository.Verify(r => r.InsertAsync(It.IsAny<BookConsistencyIssue>()), Times.Never);
     }
 
     [TestMethod]
@@ -90,15 +90,15 @@ public class MetadataRefreshServiceTests
             .ThrowsAsync(new HttpRequestException("network down"));
 
         _issueRepository.Setup(r => r.GetByAudiobookIdAsync(42))
-            .ReturnsAsync(new List<ConsistencyIssue>());
+            .ReturnsAsync(new List<BookConsistencyIssue>());
 
         var result = await CreateService(new[] { scraper.Object }).RefreshAudiobookAsync(42);
 
         Assert.IsFalse(result.Success);
         _issueRepository.Verify(
-            r => r.InsertAsync(It.Is<ConsistencyIssue>(i =>
+            r => r.InsertAsync(It.Is<BookConsistencyIssue>(i =>
                 i.AudiobookId == 42 &&
-                i.IssueType == ConsistencyIssueType.MetadataRefreshFailed &&
+                i.IssueType == BookConsistencyIssueType.MetadataRefreshFailed &&
                 i.ActualValue == "network down")),
             Times.Once);
     }
@@ -115,7 +115,7 @@ public class MetadataRefreshServiceTests
         _scrapingService.Setup(s => s.GetBookDetails(book.Www!))
             .ThrowsAsync(new HttpRequestException("network down"));
         _issueRepository.Setup(r => r.GetByAudiobookIdAsync(42))
-            .ReturnsAsync(new List<ConsistencyIssue>());
+            .ReturnsAsync(new List<BookConsistencyIssue>());
 
         await CreateService(new[] { scraper.Object }).RefreshAudiobookAsync(42);
 

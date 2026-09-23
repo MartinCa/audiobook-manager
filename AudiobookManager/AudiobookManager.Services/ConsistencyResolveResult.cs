@@ -2,9 +2,9 @@ using AudiobookManager.Database.Models;
 
 namespace AudiobookManager.Services;
 
-public record ConsistencyResolveResult(
+public record BookConsistencyResolveResult(
     long IssueId,
-    ConsistencyIssueType IssueType,
+    BookConsistencyIssueType IssueType,
     string ActionTaken,
     string Message
 );

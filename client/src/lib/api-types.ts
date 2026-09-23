@@ -1288,9 +1288,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyIssuePageDto"];
-                        "application/json": components["schemas"]["ConsistencyIssuePageDto"];
-                        "text/json": components["schemas"]["ConsistencyIssuePageDto"];
+                        "text/plain": components["schemas"]["BookConsistencyIssuePageDto"];
+                        "application/json": components["schemas"]["BookConsistencyIssuePageDto"];
+                        "text/json": components["schemas"]["BookConsistencyIssuePageDto"];
                     };
                 };
             };
@@ -1413,9 +1413,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyIssueDto"][];
-                        "application/json": components["schemas"]["ConsistencyIssueDto"][];
-                        "text/json": components["schemas"]["ConsistencyIssueDto"][];
+                        "text/plain": components["schemas"]["BookConsistencyIssueDto"][];
+                        "application/json": components["schemas"]["BookConsistencyIssueDto"][];
+                        "text/json": components["schemas"]["BookConsistencyIssueDto"][];
                     };
                 };
             };
@@ -1608,9 +1608,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
-                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
-                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/plain": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["BookConsistencyResolveResultDto"];
                     };
                 };
             };
@@ -1647,9 +1647,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["ConsistencyResolveResultDto"];
-                        "application/json": components["schemas"]["ConsistencyResolveResultDto"];
-                        "text/json": components["schemas"]["ConsistencyResolveResultDto"];
+                        "text/plain": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "application/json": components["schemas"]["BookConsistencyResolveResultDto"];
+                        "text/json": components["schemas"]["BookConsistencyResolveResultDto"];
                     };
                 };
             };
@@ -5020,7 +5020,7 @@ export interface components {
         BulkSelectionDto: {
             audiobookIds: number[];
         };
-        ConsistencyIssueDto: {
+        BookConsistencyIssueDto: {
             /** Format: int64 */
             id?: number;
             /** Format: int64 */
@@ -5034,12 +5034,12 @@ export interface components {
             /** Format: date-time */
             detectedAt?: string;
         };
-        ConsistencyIssuePageDto: {
-            items?: components["schemas"]["ConsistencyIssueDto"][] | null;
+        BookConsistencyIssuePageDto: {
+            items?: components["schemas"]["BookConsistencyIssueDto"][] | null;
             /** Format: int32 */
             totalCount?: number;
         };
-        ConsistencyResolveResultDto: {
+        BookConsistencyResolveResultDto: {
             /** Format: int64 */
             issueId?: number;
             issueType?: string | null;

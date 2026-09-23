@@ -8,7 +8,7 @@ namespace AudiobookManager.Services;
 /// <see cref="IAudiobookIssueDetectionService"/>; each detector is independent and order between
 /// them does not matter.
 /// </summary>
-public interface IConsistencyIssueDetector
+public interface IBookConsistencyIssueDetector
 {
-    IEnumerable<ConsistencyIssue> Detect(AudiobookCheckContext context);
+    IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context);
 }

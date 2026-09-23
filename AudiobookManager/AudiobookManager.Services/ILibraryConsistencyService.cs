@@ -14,7 +14,7 @@ public interface ILibraryConsistencyService
     Task<(int BooksChecked, int IssuesFound)> RunConsistencyCheck(
         Func<string, int, int, int, Task> progressAction,
         ConsistencyCheckInput input);
-    Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId);
+    Task<List<BookConsistencyIssue>> RecheckAudiobookAsync(long audiobookId);
 
     /// <summary>
     /// Re-checks only the selected books, leaving every other row's stored issues alone. The
@@ -28,8 +28,8 @@ public interface ILibraryConsistencyService
         IReadOnlyList<long> audiobookIds,
         Func<string, int, int, int, Task> progressAction);
     Task<List<TagMismatchField>> GetTagMismatchFieldsAsync(long issueId);
-    Task<ConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues);
-    Task<ConsistencyResolveResult> ResolveIssue(long issueId);
+    Task<BookConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues);
+    Task<BookConsistencyResolveResult> ResolveIssue(long issueId);
     /// <summary>
     /// Resolves every stored issue of the given type. The tuple is
     /// <c>(processed, resolved, failed)</c>: <c>processed</c> counts every issue in the batch,

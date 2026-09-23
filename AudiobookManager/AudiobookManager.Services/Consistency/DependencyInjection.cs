@@ -12,25 +12,25 @@ public static class DependencyInjection
     /// <summary>
     /// Consistency issue detection and resolution, split into one detector/resolver per concern
     /// and registered as DI collections; LibraryConsistencyService dispatches to them rather than
-    /// switching on ConsistencyIssueType itself. See AudiobookCheckContext,
-    /// IConsistencyIssueDetector and IConsistencyIssueResolver for how they're composed.
+    /// switching on BookConsistencyIssueType itself. See AudiobookCheckContext,
+    /// IBookConsistencyIssueDetector and IBookConsistencyIssueResolver for how they're composed.
     /// </summary>
     public static IServiceCollection SetupConsistencyServices(this IServiceCollection services) => services
-        .AddSingleton<IConsistencyIssueDetector, PathMismatchDetector>()
-        .AddSingleton<IConsistencyIssueDetector, TagMismatchDetector>()
-        .AddSingleton<IConsistencyIssueDetector, SidecarFilesDetector>()
-        .AddSingleton<IConsistencyIssueDetector, CoverFileDetector>()
+        .AddSingleton<IBookConsistencyIssueDetector, PathMismatchDetector>()
+        .AddSingleton<IBookConsistencyIssueDetector, TagMismatchDetector>()
+        .AddSingleton<IBookConsistencyIssueDetector, SidecarFilesDetector>()
+        .AddSingleton<IBookConsistencyIssueDetector, CoverFileDetector>()
         .AddScoped<IInitialsSpacingIssueDetector, InitialsSpacingIssueDetector>()
         .AddScoped<IPartMismatchIssueDetector, PartMismatchIssueDetector>()
         .AddScoped<IAudiobookIssueDetectionService, AudiobookIssueDetectionService>()
-        .AddScoped<IConsistencyIssueResolver, MissingMediaFileResolver>()
-        .AddScoped<IConsistencyIssueResolver, LibraryPathUnavailableResolver>()
-        .AddScoped<IConsistencyIssueResolver, MetadataSidecarResolver>()
-        .AddScoped<IConsistencyIssueResolver, TagOrPathMismatchResolver>()
-        .AddScoped<IConsistencyIssueResolver, SeriesPartMismatchResolver>()
-        .AddScoped<IConsistencyIssueResolver, MissingCoverResolver>()
-        .AddScoped<IConsistencyIssueResolver, UnreadableFileResolver>()
-        .AddScoped<IConsistencyIssueResolver, InitialsSpacingResolver>()
-        .AddScoped<IConsistencyIssueResolver, MetadataRefreshFailedResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, MissingMediaFileResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, LibraryPathUnavailableResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, MetadataSidecarResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, TagOrPathMismatchResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, SeriesPartMismatchResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, MissingCoverResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, UnreadableFileResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, InitialsSpacingResolver>()
+        .AddScoped<IBookConsistencyIssueResolver, MetadataRefreshFailedResolver>()
         .AddScoped<IOrphanDirectoryConsistencyService, OrphanDirectoryConsistencyService>();
 }

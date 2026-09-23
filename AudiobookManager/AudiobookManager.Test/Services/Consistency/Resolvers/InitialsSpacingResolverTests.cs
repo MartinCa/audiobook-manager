@@ -14,7 +14,7 @@ public class InitialsSpacingResolverTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
     private Mock<IAudiobookService> _audiobookService = null!;
-    private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IBookConsistencyIssueRepository> _issueRepository = null!;
     private AudiobookSaveGate _saveGate = null!;
     private InitialsSpacingResolver _resolver = null!;
 
@@ -23,7 +23,7 @@ public class InitialsSpacingResolverTests
     {
         _audiobookRepository = new Mock<IAudiobookRepository>();
         _audiobookService = new Mock<IAudiobookService>();
-        _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _issueRepository = new Mock<IBookConsistencyIssueRepository>();
         _saveGate = new AudiobookSaveGate();
         _resolver = new InitialsSpacingResolver(
             _audiobookRepository.Object,
@@ -41,11 +41,11 @@ public class InitialsSpacingResolverTests
             Authors = authorNames.Select(name => new DbPerson(default, name)).ToList()
         };
 
-    private static ConsistencyIssue Issue(long id, string actual, string expected) => new()
+    private static BookConsistencyIssue Issue(long id, string actual, string expected) => new()
     {
         Id = id,
         AudiobookId = 1,
-        IssueType = ConsistencyIssueType.InitialsSpacingMismatch,
+        IssueType = BookConsistencyIssueType.InitialsSpacingMismatch,
         Description = "test",
         ActualValue = actual,
         ExpectedValue = expected,
@@ -93,9 +93,9 @@ public class InitialsSpacingResolverTests
         {
             _issueRepository.Verify(
                 r => r.DeleteByAudiobookIdAndTypesAsync(id,
-                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                        types.Contains(ConsistencyIssueType.TagMismatch)
-                        && !types.Contains(ConsistencyIssueType.InitialsSpacingMismatch))),
+                    It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                        types.Contains(BookConsistencyIssueType.TagMismatch)
+                        && !types.Contains(BookConsistencyIssueType.InitialsSpacingMismatch))),
                 Times.Once);
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(id), Times.Never);
         }
@@ -131,11 +131,11 @@ public class InitialsSpacingResolverTests
 
         // The shared book's InitialsSpacingMismatch rows are never even enumerated for deletion.
         _issueRepository.Verify(
-            r => r.DeleteByAudiobookIdAndTypesAsync(1, It.IsAny<IEnumerable<ConsistencyIssueType>>()),
+            r => r.DeleteByAudiobookIdAndTypesAsync(1, It.IsAny<IEnumerable<BookConsistencyIssueType>>()),
             Times.Once);
         _issueRepository.Verify(
             r => r.DeleteByAudiobookIdAndTypesAsync(1,
-                It.Is<IEnumerable<ConsistencyIssueType>>(types => types.Contains(ConsistencyIssueType.InitialsSpacingMismatch))),
+                It.Is<IEnumerable<BookConsistencyIssueType>>(types => types.Contains(BookConsistencyIssueType.InitialsSpacingMismatch))),
             Times.Never);
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Never);
 
@@ -195,10 +195,10 @@ public class InitialsSpacingResolverTests
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Never);
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(2), Times.Never);
         _issueRepository.Verify(
-            r => r.DeleteByAudiobookIdAndTypesAsync(1, It.IsAny<IEnumerable<ConsistencyIssueType>>()),
+            r => r.DeleteByAudiobookIdAndTypesAsync(1, It.IsAny<IEnumerable<BookConsistencyIssueType>>()),
             Times.Never);
         _issueRepository.Verify(
-            r => r.DeleteByAudiobookIdAndTypesAsync(2, It.IsAny<IEnumerable<ConsistencyIssueType>>()),
+            r => r.DeleteByAudiobookIdAndTypesAsync(2, It.IsAny<IEnumerable<BookConsistencyIssueType>>()),
             Times.Once);
 
         // The rename did not fully succeed, so the person still appears on a book: this issue row

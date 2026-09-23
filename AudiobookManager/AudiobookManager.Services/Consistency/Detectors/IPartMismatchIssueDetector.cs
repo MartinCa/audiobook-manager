@@ -6,7 +6,7 @@ namespace AudiobookManager.Services;
 /// <summary>
 /// Detects owned books of a matched series whose stored <c>SeriesPart</c> is missing or differs
 /// from the position the series' roster assigns them. Like <see cref="IInitialsSpacingIssueDetector"/>
-/// this is a library-wide sweep rather than an <see cref="IConsistencyIssueDetector"/> (which
+/// this is a library-wide sweep rather than an <see cref="IBookConsistencyIssueDetector"/> (which
 /// checks one book's on-disk state): the finding comes from the *match* between a roster and the
 /// series' owned books, so the whole series' reconciliation is the unit of work. Both here and in
 /// the series detail, that reconciliation is the same cached computation
@@ -29,11 +29,11 @@ public interface IPartMismatchIssueDetector
     /// through the caller's scoped database context, which must not be driven from concurrent
     /// tasks.
     /// </summary>
-    Task<IReadOnlyList<ConsistencyIssue>> DetectLibraryWideAsync();
+    Task<IReadOnlyList<BookConsistencyIssue>> DetectLibraryWideAsync();
 
     /// <summary>
     /// The part mismatches for a single book, for the single-book recheck (which deletes and
     /// re-inserts only that book's issues). A book outside a matched series produces nothing.
     /// </summary>
-    Task<IReadOnlyList<ConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook);
+    Task<IReadOnlyList<BookConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook);
 }

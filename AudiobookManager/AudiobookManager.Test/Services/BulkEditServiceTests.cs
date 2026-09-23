@@ -196,7 +196,7 @@ public class BulkEditServiceTests
         _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1 }))
             .ReturnsAsync(new List<DbAudiobook> { dbBook });
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         Audiobook? captured = null;
         _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
@@ -229,7 +229,7 @@ public class BulkEditServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
             .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         using var lease = _saveGate.Acquire(4001);
 
@@ -319,7 +319,7 @@ public class BulkEditServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
             .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         await _service.ApplyAsync(
             new AudiobookBulkChanges { Authors = new BulkMultiChange("replace", new List<string> { "New Author" }) },
@@ -338,7 +338,7 @@ public class BulkEditServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
             .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         await _service.ApplyAsync(
             new AudiobookBulkChanges { Series = new BulkSingleChange("New Series", Clear: false) },
@@ -357,7 +357,7 @@ public class BulkEditServiceTests
         _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
             .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
         _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
-            .ReturnsAsync(new List<Database.Models.ConsistencyIssue>());
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
 
         await _service.ApplyAsync(
             new AudiobookBulkChanges { BookName = new BulkSingleChange("Renamed", Clear: false) },

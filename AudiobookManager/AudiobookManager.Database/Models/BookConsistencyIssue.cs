@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AudiobookManager.Database.Models;
 
-[Table("consistency_issues")]
-public class ConsistencyIssue
+[Table("book_consistency_issues")]
+public class BookConsistencyIssue
 {
     [Key]
     [Column("id")]
@@ -19,7 +19,7 @@ public class ConsistencyIssue
 
     [Required]
     [Column("issue_type")]
-    public ConsistencyIssueType IssueType { get; set; }
+    public BookConsistencyIssueType IssueType { get; set; }
 
     [Required]
     [Column("description")]

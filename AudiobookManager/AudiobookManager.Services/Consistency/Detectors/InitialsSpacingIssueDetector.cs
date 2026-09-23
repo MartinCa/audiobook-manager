@@ -12,7 +12,7 @@ namespace AudiobookManager.Services;
 /// </summary>
 public class InitialsSpacingIssueDetector : IInitialsSpacingIssueDetector
 {
-    public IEnumerable<ConsistencyIssue> Detect(
+    public IEnumerable<BookConsistencyIssue> Detect(
         IReadOnlyList<DbAudiobook> audiobooks, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
     {
         // name -> (representative audiobook id, book count)
@@ -51,10 +51,10 @@ public class InitialsSpacingIssueDetector : IInitialsSpacingIssueDetector
 
             var spacingLabel = spacing == Domain.InitialsSpacing.Spaced ? "spaced" : "unspaced";
             var punctuationLabel = punctuation == Domain.InitialsPunctuation.Dotted ? "dotted" : "undotted";
-            yield return new ConsistencyIssue
+            yield return new BookConsistencyIssue
             {
                 AudiobookId = representativeAudiobookId,
-                IssueType = ConsistencyIssueType.InitialsSpacingMismatch,
+                IssueType = BookConsistencyIssueType.InitialsSpacingMismatch,
                 Description =
                     $"'{name}' ({count} book{(count == 1 ? "" : "s")}) does not follow the configured "
                     + $"{spacingLabel}, {punctuationLabel} initials style. Resolving renames it to '{canonical}' on every book.",

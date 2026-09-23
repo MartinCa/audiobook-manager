@@ -17,7 +17,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private const int ProgressBroadcastInterval = 25;
 
     private readonly IAudiobookRepository _audiobookRepository;
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookTagHandler _tagHandler;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
@@ -26,13 +26,13 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
     private readonly IOrphanDirectoryConsistencyService _orphanDirectoryConsistencyService;
-    private readonly Dictionary<ConsistencyIssueType, IConsistencyIssueResolver> _resolversByType;
+    private readonly Dictionary<BookConsistencyIssueType, IBookConsistencyIssueResolver> _resolversByType;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<LibraryConsistencyService> _logger;
 
     public LibraryConsistencyService(
         IAudiobookRepository audiobookRepository,
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IAudiobookTagHandler tagHandler,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
@@ -40,7 +40,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         IInitialsSpacingIssueDetector initialsSpacingIssueDetector,
         IPartMismatchIssueDetector partMismatchIssueDetector,
         ILibrarySettingsRepository librarySettingsRepository,
-        IEnumerable<IConsistencyIssueResolver> resolvers,
+        IEnumerable<IBookConsistencyIssueResolver> resolvers,
         IOrphanDirectoryConsistencyService orphanDirectoryConsistencyService,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<LibraryConsistencyService> logger)
@@ -58,7 +58,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         _orphanDirectoryConsistencyService = orphanDirectoryConsistencyService;
         _logger = logger;
 
-        // Every ConsistencyIssueType must resolve to exactly one registered resolver. Checked here,
+        // Every BookConsistencyIssueType must resolve to exactly one registered resolver. Checked here,
         // eagerly, rather than only at dispatch time (see ResolveLoadedIssueCore): the type is a
         // closed, statically known enum, so a forgotten resolver is a wiring bug that should fail
         // the moment this service is constructed, not surface later as one counted failure buried
@@ -67,7 +67,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             .SelectMany(resolver => resolver.HandledTypes.Select(type => (Type: type, Resolver: resolver)))
             .ToDictionary(x => x.Type, x => x.Resolver);
 
-        var unhandledTypes = Enum.GetValues<ConsistencyIssueType>().Except(_resolversByType.Keys).ToList();
+        var unhandledTypes = Enum.GetValues<BookConsistencyIssueType>().Except(_resolversByType.Keys).ToList();
         if (unhandledTypes.Count > 0)
         {
             throw new InvalidOperationException(
@@ -108,7 +108,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // also broadcasts progress every ProgressBroadcastInterval books rather than every book -
         // the client throttles the bar to ~4fps anyway, so one message per book is thousands of
         // hub sends nobody can see.
-        var pending = new List<ConsistencyIssue>(InsertBatchSize);
+        var pending = new List<BookConsistencyIssue>(InsertBatchSize);
 
         foreach (var audiobook in audiobooks)
         {
@@ -127,7 +127,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
             if (booksChecked % ProgressBroadcastInterval == 0 || booksChecked == totalBooks)
             {
-                var message = issues.Any(i => i.IssueType is ConsistencyIssueType.MissingMediaFile or ConsistencyIssueType.LibraryPathUnavailable)
+                var message = issues.Any(i => i.IssueType is BookConsistencyIssueType.MissingMediaFile or BookConsistencyIssueType.LibraryPathUnavailable)
                     ? $"Missing: {bookLabel}"
                     : $"Checked: {bookLabel}";
                 await progressAction(message, booksChecked, totalBooks, issuesFound);
@@ -170,7 +170,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return (totalBooks, issuesFound);
     }
 
-    public async Task<ConsistencyResolveResult> ResolveIssue(long issueId)
+    public async Task<BookConsistencyResolveResult> ResolveIssue(long issueId)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
@@ -190,7 +190,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
             throw new KeyNotFoundException($"Issue {issueId} not found");
-        if (issue.IssueType != ConsistencyIssueType.TagMismatch)
+        if (issue.IssueType != BookConsistencyIssueType.TagMismatch)
             throw new ArgumentException($"Issue {issueId} is not a TagMismatch");
 
         var dbAudiobook = issue.Audiobook;
@@ -216,12 +216,12 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// m4b tags, library path, and sidecars consistent - this is the same binding-invariant
     /// pipeline a normal save uses - without the two duplicating that persist/log/clear sequence.
     /// </summary>
-    public async Task<ConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues)
+    public async Task<BookConsistencyResolveResult> ResolveTagMismatchSelectivelyAsync(long issueId, IReadOnlyDictionary<string, string?> fieldValues)
     {
         var issue = await _issueRepository.GetByIdAsync(issueId);
         if (issue == null)
             throw new KeyNotFoundException($"Issue {issueId} not found");
-        if (issue.IssueType != ConsistencyIssueType.TagMismatch)
+        if (issue.IssueType != BookConsistencyIssueType.TagMismatch)
             throw new ArgumentException($"Issue {issueId} is not a TagMismatch");
 
         var dbAudiobook = issue.Audiobook;
@@ -238,7 +238,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
 
         return await TagOrPathMismatchResolver.RewriteTagsAndClearIssuesAsync(
             _audiobookService, _issueRepository, _logger,
-            dbAudiobook, domain, issue.Id, ConsistencyIssueType.TagMismatch,
+            dbAudiobook, domain, issue.Id, BookConsistencyIssueType.TagMismatch,
             logVerb: "Resolved tag mismatch selectively",
             resultMessage: "Selected tag values applied and file path updated.");
     }
@@ -250,14 +250,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// resolver runs. A book that is busy fails just this issue: the callers' per-item try/catch
     /// counts it and carries on, and the next check picks the issue up again.
     ///
-    /// An <see cref="ConsistencyIssueType.InitialsSpacingMismatch"/> issue is the exception: it is
+    /// An <see cref="BookConsistencyIssueType.InitialsSpacingMismatch"/> issue is the exception: it is
     /// person-scoped and its resolver takes the per-book gate itself, once per book, over its own
     /// loop (mirroring similar-value alignment). The outer gate would only pin it to one
     /// representative book, and nothing a resolver below would do is already covered by that lease.
     /// </summary>
-    private async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveLoadedIssue(ConsistencyIssue issue)
+    private async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveLoadedIssue(BookConsistencyIssue issue)
     {
-        if (issue.IssueType is ConsistencyIssueType.InitialsSpacingMismatch)
+        if (issue.IssueType is BookConsistencyIssueType.InitialsSpacingMismatch)
         {
             return await ResolveLoadedIssueCore(issue);
         }
@@ -267,7 +267,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         return await ResolveLoadedIssueCore(issue);
     }
 
-    private Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveLoadedIssueCore(ConsistencyIssue issue)
+    private Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveLoadedIssueCore(BookConsistencyIssue issue)
     {
         if (!_resolversByType.TryGetValue(issue.IssueType, out var resolver))
             throw new InvalidOperationException($"No consistency issue resolver registered for {issue.IssueType}");
@@ -289,20 +289,20 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// The scope each resolver reports is what drives the skipping, so the cascade rules stay in
     /// the resolvers that perform them rather than being restated here (or, worse, in the client).
     /// A SidecarsForAudiobook cascade is tracked by resolver *identity*, not by a separately
-    /// maintained list of "which issue types count as sidecars": every ConsistencyIssueType a
+    /// maintained list of "which issue types count as sidecars": every BookConsistencyIssueType a
     /// resolver handles maps to that same resolver instance in <see cref="_resolversByType"/>, so
     /// "another issue in this batch that this same resolver would also clear" falls out of that
     /// dictionary for free, with nothing left to drift out of sync with it.
     /// </summary>
     private async Task<(int processed, int resolved, int failed)> ResolveLoadedIssuesAsync(
-        IReadOnlyList<ConsistencyIssue> issues,
+        IReadOnlyList<BookConsistencyIssue> issues,
         Func<int, int, int, int, Task>? progressAction = null)
     {
         var succeeded = 0;
         var failed = 0;
         var processed = 0;
         var cascadedAll = new HashSet<long>();
-        var cascadedByResolver = new HashSet<(long AudiobookId, IConsistencyIssueResolver Resolver)>();
+        var cascadedByResolver = new HashSet<(long AudiobookId, IBookConsistencyIssueResolver Resolver)>();
 
         foreach (var issue in issues)
         {
@@ -392,17 +392,17 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         await EnsureSweepIsPlausibleAsync(parsedType, issues);
     }
 
-    private static ConsistencyIssueType ParseIssueType(string issueType)
+    private static BookConsistencyIssueType ParseIssueType(string issueType)
     {
-        if (!Enum.TryParse<ConsistencyIssueType>(issueType, out var parsedType))
+        if (!Enum.TryParse<BookConsistencyIssueType>(issueType, out var parsedType))
             throw new ArgumentException($"Unknown issue type: {issueType}");
 
         return parsedType;
     }
 
-    private async Task EnsureSweepIsPlausibleAsync(ConsistencyIssueType parsedType, List<ConsistencyIssue> issues)
+    private async Task EnsureSweepIsPlausibleAsync(BookConsistencyIssueType parsedType, List<BookConsistencyIssue> issues)
     {
-        if (parsedType != ConsistencyIssueType.MissingMediaFile)
+        if (parsedType != BookConsistencyIssueType.MissingMediaFile)
         {
             return;
         }
@@ -464,7 +464,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
             + "re-run the consistency check; resolve individual books if they really are gone.");
     }
 
-    public async Task<List<ConsistencyIssue>> RecheckAudiobookAsync(long audiobookId)
+    public async Task<List<BookConsistencyIssue>> RecheckAudiobookAsync(long audiobookId)
     {
         var audiobook = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
         if (audiobook == null)
@@ -529,7 +529,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// <see cref="IAudiobookIssueDetectionService"/> directly with batched inserts instead, since
     /// it already cleared the table up front.
     /// </summary>
-    private async Task<List<ConsistencyIssue>> DetectIssuesForAudiobookAsync(Audiobook audiobook)
+    private async Task<List<BookConsistencyIssue>> DetectIssuesForAudiobookAsync(Audiobook audiobook)
     {
         await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
 

@@ -29,7 +29,7 @@ public class AudiobookIssueDetectionServiceTests
         _service = new AudiobookIssueDetectionService(
             Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = _libraryPath }),
             _tagHandler.Object,
-            Array.Empty<IConsistencyIssueDetector>(),
+            Array.Empty<IBookConsistencyIssueDetector>(),
             NullLogger<AudiobookIssueDetectionService>.Instance);
     }
 
@@ -62,7 +62,7 @@ public class AudiobookIssueDetectionServiceTests
         var issues = _service.DetectIssues(MakeAudiobook(_filePath));
 
         Assert.AreEqual(1, issues.Count);
-        Assert.AreEqual(ConsistencyIssueType.UnreadableFile, issues[0].IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues[0].IssueType);
         Assert.IsTrue(
             string.Equals(_filePath, issues[0].ExpectedValue, StringComparison.Ordinal),
             $"Expected the issue to name '{_filePath}', got '{issues[0].ExpectedValue}'.");
@@ -77,7 +77,7 @@ public class AudiobookIssueDetectionServiceTests
 
         var issues = _service.DetectIssues(MakeAudiobook(_filePath));
 
-        Assert.AreEqual(ConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
     }
 
     // Unreadable and missing are different states with different resolutions - one deletes the
@@ -87,7 +87,7 @@ public class AudiobookIssueDetectionServiceTests
     {
         var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(_libraryPath, "gone.m4b")));
 
-        Assert.AreEqual(ConsistencyIssueType.MissingMediaFile, issues.Single().IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.MissingMediaFile, issues.Single().IssueType);
     }
 
     // #1311: an unmounted subtree - a dead per-author or per-share mount - makes the whole
@@ -100,7 +100,7 @@ public class AudiobookIssueDetectionServiceTests
         var bookSubtree = Path.Combine(_libraryPath, "Dead Author");
         var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(bookSubtree, "gone.m4b")));
 
-        Assert.AreEqual(ConsistencyIssueType.LibraryPathUnavailable, issues.Single().IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.LibraryPathUnavailable, issues.Single().IssueType);
     }
 
     // The gap a reviewer found: File.Exists is documented to return false "if the caller does not
@@ -143,7 +143,7 @@ public class AudiobookIssueDetectionServiceTests
             var issues = _service.DetectIssues(MakeAudiobook(bookInDeniedDirectory));
 
             Assert.AreEqual(
-                ConsistencyIssueType.UnreadableFile,
+                BookConsistencyIssueType.UnreadableFile,
                 issues.Single().IssueType,
                 "A file that is present but unreachable must never be answered with the resolution that deletes the record.");
         }
@@ -165,7 +165,7 @@ public class AudiobookIssueDetectionServiceTests
 
         var issues = _service.DetectIssues(MakeAudiobook(directoryPath));
 
-        Assert.AreEqual(ConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
     }
 
     [TestMethod]

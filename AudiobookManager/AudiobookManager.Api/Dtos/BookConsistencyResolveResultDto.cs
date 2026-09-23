@@ -1,6 +1,6 @@
 namespace AudiobookManager.Api.Dtos;
 
-public record ConsistencyResolveResultDto(
+public record BookConsistencyResolveResultDto(
     long IssueId,
     string IssueType,
     string ActionTaken,

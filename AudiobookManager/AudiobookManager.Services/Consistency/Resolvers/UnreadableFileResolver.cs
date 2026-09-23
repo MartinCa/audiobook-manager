@@ -13,17 +13,17 @@ namespace AudiobookManager.Services;
 /// deletes the library record when the file is really gone - an unreadable file is still a file,
 /// and the record is the only place the curated metadata lives.
 /// </summary>
-public class UnreadableFileResolver : IConsistencyIssueResolver
+public class UnreadableFileResolver : IBookConsistencyIssueResolver
 {
-    public IReadOnlyCollection<ConsistencyIssueType> HandledTypes { get; } = new[] { ConsistencyIssueType.UnreadableFile };
+    public IReadOnlyCollection<BookConsistencyIssueType> HandledTypes { get; } = new[] { BookConsistencyIssueType.UnreadableFile };
 
-    private readonly IConsistencyIssueRepository _issueRepository;
+    private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IAudiobookIssueDetectionService _detectionService;
     private readonly IPartMismatchIssueDetector _partMismatchIssueDetector;
     private readonly ILogger<UnreadableFileResolver> _logger;
 
     public UnreadableFileResolver(
-        IConsistencyIssueRepository issueRepository,
+        IBookConsistencyIssueRepository issueRepository,
         IAudiobookIssueDetectionService detectionService,
         IPartMismatchIssueDetector partMismatchIssueDetector,
         ILogger<UnreadableFileResolver> logger)
@@ -34,7 +34,7 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
         _logger = logger;
     }
 
-    public async Task<(ResolveScope Scope, ConsistencyResolveResult Result)> ResolveAsync(ConsistencyIssue issue)
+    public async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveAsync(BookConsistencyIssue issue)
     {
         var audiobook = issue.Audiobook;
 
@@ -43,7 +43,7 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
         var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
 
         var stillUnreadable = newIssues
-            .Where(newIssue => newIssue.IssueType == ConsistencyIssueType.UnreadableFile)
+            .Where(newIssue => newIssue.IssueType == BookConsistencyIssueType.UnreadableFile)
             .ToList();
 
         if (stillUnreadable.Count > 0)
@@ -57,7 +57,7 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
             // resolver that cleared every issue for a book on success, silently taking a
             // coexisting mismatch it had never touched with it.
             await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
-                audiobook.Id, new[] { ConsistencyIssueType.UnreadableFile });
+                audiobook.Id, new[] { BookConsistencyIssueType.UnreadableFile });
             await _issueRepository.InsertRangeAsync(stillUnreadable);
 
             _logger.LogInformation(
@@ -66,7 +66,7 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
 
             // IssueOnly, not AllForAudiobook: nothing else about this book was touched, so a bulk
             // resolve must not treat the book's other issues as settled by this one.
-            return (ResolveScope.IssueOnly, new ConsistencyResolveResult(
+            return (ResolveScope.IssueOnly, new BookConsistencyResolveResult(
                 issue.Id,
                 issue.IssueType,
                 "still_unreadable",
@@ -91,7 +91,7 @@ public class UnreadableFileResolver : IConsistencyIssueResolver
             "Media file for audiobook {AudiobookId} ('{Title}') at '{FilePath}' can be read again; refreshed consistency status.",
             audiobook.Id, audiobook.BookName, audiobook.FileInfoFullPath);
 
-        return (ResolveScope.AllForAudiobook, new ConsistencyResolveResult(
+        return (ResolveScope.AllForAudiobook, new BookConsistencyResolveResult(
             issue.Id,
             issue.IssueType,
             "file_readable",

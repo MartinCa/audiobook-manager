@@ -17,7 +17,7 @@ namespace AudiobookManager.Test.Services;
 public class LibraryConsistencyServiceTests
 {
     private Mock<IAudiobookRepository> _audiobookRepository = null!;
-    private Mock<IConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IBookConsistencyIssueRepository> _issueRepository = null!;
     private Mock<IOrphanDirectoryRepository> _orphanDirectoryRepository = null!;
     private Mock<IAudiobookTagHandler> _tagHandler = null!;
     private IAudiobookFileHandler _fileHandler = null!;
@@ -42,7 +42,7 @@ public class LibraryConsistencyServiceTests
     {
         var effectiveSettings = settings ?? _settings;
 
-        var detectors = new IConsistencyIssueDetector[]
+        var detectors = new IBookConsistencyIssueDetector[]
         {
             new PathMismatchDetector(),
             new TagMismatchDetector(),
@@ -52,7 +52,7 @@ public class LibraryConsistencyServiceTests
         var detectionService = new AudiobookIssueDetectionService(
             effectiveSettings, _tagHandler.Object, detectors, NullLogger<AudiobookIssueDetectionService>.Instance);
 
-        var resolvers = new IConsistencyIssueResolver[]
+        var resolvers = new IBookConsistencyIssueResolver[]
         {
             new MissingMediaFileResolver(
                 _audiobookRepository.Object, _issueRepository.Object, _fileHandler, detectionService,
@@ -118,7 +118,7 @@ public class LibraryConsistencyServiceTests
         Directory.CreateDirectory(_libraryPath);
 
         _audiobookRepository = new Mock<IAudiobookRepository>();
-        _issueRepository = new Mock<IConsistencyIssueRepository>();
+        _issueRepository = new Mock<IBookConsistencyIssueRepository>();
         _orphanDirectoryRepository = new Mock<IOrphanDirectoryRepository>();
         _tagHandler = new Mock<IAudiobookTagHandler>();
         _fileOperations = new FileOperations();
@@ -148,13 +148,13 @@ public class LibraryConsistencyServiceTests
                 It.IsAny<IReadOnlyList<Database.Models.Audiobook>>(),
                 It.IsAny<Domain.InitialsSpacing>(),
                 It.IsAny<Domain.InitialsPunctuation>()))
-            .Returns(new List<ConsistencyIssue>());
+            .Returns(new List<BookConsistencyIssue>());
         _partMismatchIssueDetector
             .Setup(d => d.DetectLibraryWideAsync())
-            .ReturnsAsync(new List<ConsistencyIssue>());
+            .ReturnsAsync(new List<BookConsistencyIssue>());
         _partMismatchIssueDetector
             .Setup(d => d.DetectForAudiobookAsync(It.IsAny<Database.Models.Audiobook>()))
-            .ReturnsAsync(new List<ConsistencyIssue>());
+            .ReturnsAsync(new List<BookConsistencyIssue>());
 
         _service = CreateService();
     }
@@ -198,26 +198,26 @@ public class LibraryConsistencyServiceTests
         {
             var book = MakeMissingFileBook(audiobookId, Path.Combine(goneDir, "missing.m4b"));
 
-            var missingFileIssue = new ConsistencyIssue
+            var missingFileIssue = new BookConsistencyIssue
             {
                 Id = 1,
                 AudiobookId = audiobookId,
                 Audiobook = book,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "missing",
             };
-            var opfIssue = new ConsistencyIssue
+            var opfIssue = new BookConsistencyIssue
             {
                 Id = 2,
                 AudiobookId = audiobookId,
                 Audiobook = book,
-                IssueType = ConsistencyIssueType.MissingOpfFile,
+                IssueType = BookConsistencyIssueType.MissingOpfFile,
                 Description = "no opf",
             };
 
             _issueRepository
                 .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-                .ReturnsAsync(new List<ConsistencyIssue> { missingFileIssue, opfIssue });
+                .ReturnsAsync(new List<BookConsistencyIssue> { missingFileIssue, opfIssue });
 
             var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
 
@@ -254,26 +254,26 @@ public class LibraryConsistencyServiceTests
                     new List<Domain.Person> { new("Author") }, "Book 9", 2024,
                     new Domain.AudiobookFileInfo(path, Path.GetFileName(path), 1000)));
 
-            var descIssue = new ConsistencyIssue
+            var descIssue = new BookConsistencyIssue
             {
                 Id = 1,
                 AudiobookId = audiobookId,
                 Audiobook = book,
-                IssueType = ConsistencyIssueType.MissingDescTxt,
+                IssueType = BookConsistencyIssueType.MissingDescTxt,
                 Description = "no desc",
             };
-            var opfIssue = new ConsistencyIssue
+            var opfIssue = new BookConsistencyIssue
             {
                 Id = 2,
                 AudiobookId = audiobookId,
                 Audiobook = book,
-                IssueType = ConsistencyIssueType.MissingOpfFile,
+                IssueType = BookConsistencyIssueType.MissingOpfFile,
                 Description = "no opf",
             };
 
             _issueRepository
                 .Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
-                .ReturnsAsync(new List<ConsistencyIssue> { descIssue, opfIssue });
+                .ReturnsAsync(new List<BookConsistencyIssue> { descIssue, opfIssue });
 
             var (_, resolved, failed) = await _service.ResolveIssues(new[] { 1L, 2L });
 
@@ -311,11 +311,11 @@ public class LibraryConsistencyServiceTests
             var bookA = MakeMissingFileBook(1, Path.Combine(goneA, "a.m4b"));
             var bookB = MakeMissingFileBook(2, Path.Combine(goneB, "b.m4b"));
 
-            var issues = new List<ConsistencyIssue>
+            var issues = new List<BookConsistencyIssue>
             {
-                new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
-                new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
-                new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+                new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "a" },
+                new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = BookConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
+                new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "b" },
             };
 
             _issueRepository
@@ -361,11 +361,11 @@ public class LibraryConsistencyServiceTests
 
             // Three issues, two books: resolving book A's MissingMediaFile cascades its
             // MissingOpfFile sibling away, so the batch resolves 2 and processes 3.
-            var issues = new List<ConsistencyIssue>
+            var issues = new List<BookConsistencyIssue>
             {
-                new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
-                new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = ConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
-                new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+                new() { Id = 1, AudiobookId = 1, Audiobook = bookA, IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "a" },
+                new() { Id = 2, AudiobookId = 1, Audiobook = bookA, IssueType = BookConsistencyIssueType.MissingOpfFile, Description = "a-opf" },
+                new() { Id = 3, AudiobookId = 2, Audiobook = bookB, IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "b" },
             };
 
             _issueRepository
@@ -407,9 +407,9 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssues_WithoutProgressAction_StillResolves()
     {
-        var issues = new List<ConsistencyIssue>
+        var issues = new List<BookConsistencyIssue>
         {
-            new() { Id = 1, AudiobookId = 1, Audiobook = MakeMissingFileBook(1, "/library/gone/a.m4b"), IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
+            new() { Id = 1, AudiobookId = 1, Audiobook = MakeMissingFileBook(1, "/library/gone/a.m4b"), IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "a" },
         };
 
         _issueRepository
@@ -429,14 +429,14 @@ public class LibraryConsistencyServiceTests
     public async Task ValidateResolveByType_MissingMediaFileAcrossMostOfLibrary_IsRefused()
     {
         var issues = Enumerable.Range(1, 8)
-            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingMediaFile))
+            .Select(i => MakeIssue(i, i, BookConsistencyIssueType.MissingMediaFile))
             .ToList();
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile))
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingMediaFile))
             .ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(10);
 
         await Assert.ThrowsExactlyAsync<LibraryUnavailableException>(
-            () => _service.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingMediaFile)));
+            () => _service.ValidateResolveByTypeAsync(nameof(BookConsistencyIssueType.MissingMediaFile)));
     }
 
     [TestMethod]
@@ -449,10 +449,10 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ValidateResolveByType_APlausibleSweep_Passes()
     {
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingDescTxt))
-            .ReturnsAsync(new List<ConsistencyIssue>());
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingDescTxt))
+            .ReturnsAsync(new List<BookConsistencyIssue>());
 
-        await _service.ValidateResolveByTypeAsync(nameof(ConsistencyIssueType.MissingDescTxt));
+        await _service.ValidateResolveByTypeAsync(nameof(BookConsistencyIssueType.MissingDescTxt));
     }
 
     [TestMethod]
@@ -462,13 +462,13 @@ public class LibraryConsistencyServiceTests
         // normal non-throwing result, so the bulk sweep must consult the scope - counting every
         // limited issue as "succeeded" would toast "Resolved N issues (0 failed)" while nothing
         // was refreshed and every issue row is left stale.
-        var issues = new List<ConsistencyIssue>
+        var issues = new List<BookConsistencyIssue>
         {
-            MakeIssue(81, 9101, ConsistencyIssueType.MetadataRefreshFailed),
-            MakeIssue(82, 9102, ConsistencyIssueType.MetadataRefreshFailed),
-            MakeIssue(83, 9103, ConsistencyIssueType.MetadataRefreshFailed),
+            MakeIssue(81, 9101, BookConsistencyIssueType.MetadataRefreshFailed),
+            MakeIssue(82, 9102, BookConsistencyIssueType.MetadataRefreshFailed),
+            MakeIssue(83, 9103, BookConsistencyIssueType.MetadataRefreshFailed),
         };
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MetadataRefreshFailed))
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MetadataRefreshFailed))
             .ReturnsAsync(issues);
 
         var refreshService = new Mock<IMetadataRefreshService>();
@@ -479,7 +479,7 @@ public class LibraryConsistencyServiceTests
         var service = CreateService(metadataRefreshService: refreshService.Object);
 
         var (processed, resolved, failed) = await service.ResolveIssuesByType(
-            nameof(ConsistencyIssueType.MetadataRefreshFailed));
+            nameof(BookConsistencyIssueType.MetadataRefreshFailed));
 
         Assert.AreEqual(3, processed);
         Assert.AreEqual(0, resolved, "nothing was refreshed; none of these may count as resolved");
@@ -492,16 +492,16 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssuesByType_DoesNotRefetchEachIssueById()
     {
-        var issues = new List<ConsistencyIssue>
+        var issues = new List<BookConsistencyIssue>
         {
-            new() { Id = 1, AudiobookId = 1, Audiobook = MakeMissingFileBook(1, "/library/gone/a.m4b"), IssueType = ConsistencyIssueType.MissingMediaFile, Description = "a" },
-            new() { Id = 2, AudiobookId = 2, Audiobook = MakeMissingFileBook(2, "/library/gone/b.m4b"), IssueType = ConsistencyIssueType.MissingMediaFile, Description = "b" },
+            new() { Id = 1, AudiobookId = 1, Audiobook = MakeMissingFileBook(1, "/library/gone/a.m4b"), IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "a" },
+            new() { Id = 2, AudiobookId = 2, Audiobook = MakeMissingFileBook(2, "/library/gone/b.m4b"), IssueType = BookConsistencyIssueType.MissingMediaFile, Description = "b" },
         };
 
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile))
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingMediaFile))
             .ReturnsAsync(issues);
 
-        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(2, resolved);
         Assert.AreEqual(0, failed);
@@ -513,7 +513,7 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssue_UnknownId_StillThrows()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(It.IsAny<long>())).ReturnsAsync((ConsistencyIssue?)null);
+        _issueRepository.Setup(r => r.GetByIdAsync(It.IsAny<long>())).ReturnsAsync((BookConsistencyIssue?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => _service.ResolveIssue(404));
     }
@@ -550,8 +550,8 @@ public class LibraryConsistencyServiceTests
         var dirs = new LibraryTreeWalker().Walk(_libraryPath, AudiobookTagHandler.IsSupported).Directories;
         await _service.RunConsistencyCheck(progressAction, new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, dirs));
 
-        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
-            i.IssueType == ConsistencyIssueType.MissingMediaFile &&
+        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(i =>
+            i.IssueType == BookConsistencyIssueType.MissingMediaFile &&
             i.AudiobookId == 1
         ))), Times.Once);
 
@@ -624,8 +624,8 @@ public class LibraryConsistencyServiceTests
                 new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
             // File exists, so MissingMediaFile should NOT be inserted
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
-                i.IssueType == ConsistencyIssueType.MissingMediaFile
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(i =>
+                i.IssueType == BookConsistencyIssueType.MissingMediaFile
             ))), Times.Never);
 
             // Per-book report plus the orphan-directory sweep's own - see the note in
@@ -676,8 +676,8 @@ public class LibraryConsistencyServiceTests
                 (_, _, _, _) => Task.CompletedTask,
                 new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
-                iss.IssueType == ConsistencyIssueType.MissingCoverFile &&
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(iss =>
+                iss.IssueType == BookConsistencyIssueType.MissingCoverFile &&
                 iss.Description.Contains("Conflicting cover files")
             ))), Times.Once);
         }
@@ -702,12 +702,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 Path.Combine(goneDir, "test.m4b"), "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 10,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "File missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -746,12 +746,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 21,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.UnreadableFile,
+                IssueType = BookConsistencyIssueType.UnreadableFile,
                 Description = "File could not be read",
                 DetectedAt = DateTime.UtcNow
             };
@@ -770,8 +770,8 @@ public class LibraryConsistencyServiceTests
             Assert.IsTrue(File.Exists(tempFile), "the unreadable file should not be touched");
 
             // Re-inserted, so the book stays on the consistency screen instead of quietly leaving it.
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.UnreadableFile && i.AudiobookId == 1))), Times.Once);
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.UnreadableFile && i.AudiobookId == 1))), Times.Once);
 
             // The book's other stored issues are left alone. Detection short-circuits on an
             // unreadable file, so it said nothing about the sidecars or tags - and clearing them
@@ -781,8 +781,8 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(
                 r => r.DeleteByAudiobookIdAndTypesAsync(
                     1,
-                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                        types.Single() == ConsistencyIssueType.UnreadableFile)),
+                    It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                        types.Single() == BookConsistencyIssueType.UnreadableFile)),
                 Times.Once);
         }
         finally
@@ -807,12 +807,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 22,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.UnreadableFile,
+                IssueType = BookConsistencyIssueType.UnreadableFile,
                 Description = "File could not be read",
                 DetectedAt = DateTime.UtcNow
             };
@@ -856,12 +856,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 23,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.UnreadableFile,
+                IssueType = BookConsistencyIssueType.UnreadableFile,
                 Description = "File could not be read",
                 DetectedAt = DateTime.UtcNow
             };
@@ -873,12 +873,12 @@ public class LibraryConsistencyServiceTests
                     new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
             _partMismatchIssueDetector
                 .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
-                .ReturnsAsync(new List<ConsistencyIssue>
+                .ReturnsAsync(new List<BookConsistencyIssue>
                 {
                     new()
                     {
                         AudiobookId = 1,
-                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                         Description = "stored part differs from part 2",
                         ExpectedValue = "2",
                         ActualValue = "7",
@@ -891,8 +891,8 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("file_readable", result.ActionTaken);
             _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
                 "the readable-again refresh must re-run the part-mismatch check for the book");
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
                 "the stored SeriesPartMismatch must not be silently dropped by the refresh");
         }
         finally
@@ -919,12 +919,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 31,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                IssueType = BookConsistencyIssueType.LibraryPathUnavailable,
                 Description = "Media file's directory is not available",
                 DetectedAt = DateTime.UtcNow
             };
@@ -940,8 +940,8 @@ public class LibraryConsistencyServiceTests
             _audiobookRepository.Verify(r => r.DeleteAudiobookAsync(It.IsAny<long>()), Times.Never);
 
             // Re-inserted, so the book stays on the consistency screen instead of quietly leaving it.
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
 
             // Only the handled type is replaced: detection short-circuited, so it said nothing
             // about the sidecars, tags or path, and clearing those would discard findings that
@@ -950,8 +950,8 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(
                 r => r.DeleteByAudiobookIdAndTypesAsync(
                     1,
-                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                        types.Single() == ConsistencyIssueType.LibraryPathUnavailable)),
+                    It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                        types.Single() == BookConsistencyIssueType.LibraryPathUnavailable)),
                 Times.Once);
         }
         finally
@@ -979,12 +979,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 32,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                IssueType = BookConsistencyIssueType.LibraryPathUnavailable,
                 Description = "Media file's directory is not available",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1028,12 +1028,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 34,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.LibraryPathUnavailable,
+                IssueType = BookConsistencyIssueType.LibraryPathUnavailable,
                 Description = "Media file's directory is not available",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1045,12 +1045,12 @@ public class LibraryConsistencyServiceTests
                     new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
             _partMismatchIssueDetector
                 .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
-                .ReturnsAsync(new List<ConsistencyIssue>
+                .ReturnsAsync(new List<BookConsistencyIssue>
                 {
                     new()
                     {
                         AudiobookId = 1,
-                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                         Description = "stored part differs from part 2",
                         ExpectedValue = "2",
                         ActualValue = "7",
@@ -1063,8 +1063,8 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("directory_readable_again", result.ActionTaken);
             _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
                 "the directory-back refresh must re-run the part-mismatch check for the book");
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
                 "the stored SeriesPartMismatch must not be silently dropped by the refresh");
         }
         finally
@@ -1091,12 +1091,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 33,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "Media file not found",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1116,14 +1116,14 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(
                 r => r.DeleteByAudiobookIdAndTypesAsync(
                     1,
-                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                        types.Single() == ConsistencyIssueType.MissingMediaFile)),
+                    It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                        types.Single() == BookConsistencyIssueType.MissingMediaFile)),
                 Times.Once);
 
             // The re-check re-inserts the real finding (LibraryPathUnavailable), so the book
             // stays on the consistency screen under the correct heading.
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.LibraryPathUnavailable && i.AudiobookId == 1))), Times.Once);
         }
         finally
         {
@@ -1152,12 +1152,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 Path.Combine(lostSubtree, "test.m4b"), "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 33,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "Media file not found",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1172,8 +1172,8 @@ public class LibraryConsistencyServiceTests
             _issueRepository.Verify(
                 r => r.DeleteByAudiobookIdAndTypesAsync(
                     1,
-                    It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                        types.Single() == ConsistencyIssueType.MissingMediaFile)),
+                    It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                        types.Single() == BookConsistencyIssueType.MissingMediaFile)),
                 Times.Once);
         }
         finally
@@ -1198,12 +1198,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 11,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "File missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1244,12 +1244,12 @@ public class LibraryConsistencyServiceTests
                 null, null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 12,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingMediaFile,
+                IssueType = BookConsistencyIssueType.MissingMediaFile,
                 Description = "File missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1261,12 +1261,12 @@ public class LibraryConsistencyServiceTests
                     new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000)));
             _partMismatchIssueDetector
                 .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
-                .ReturnsAsync(new List<ConsistencyIssue>
+                .ReturnsAsync(new List<BookConsistencyIssue>
                 {
                     new()
                     {
                         AudiobookId = 1,
-                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                         Description = "stored part differs from part 2",
                         ExpectedValue = "2",
                         ActualValue = "7",
@@ -1279,8 +1279,8 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("file_recovered", result.ActionTaken);
             _partMismatchIssueDetector.Verify(d => d.DetectForAudiobookAsync(dbAudiobook), Times.Once,
                 "the recovered-file refresh must re-run the part-mismatch check for the book");
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.SeriesPartMismatch && i.AudiobookId == 1))), Times.Once,
                 "the stored SeriesPartMismatch must not be silently dropped by the refresh");
         }
         finally
@@ -1305,12 +1305,12 @@ public class LibraryConsistencyServiceTests
                 "desc", null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 20,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingDescTxt,
+                IssueType = BookConsistencyIssueType.MissingDescTxt,
                 Description = "desc.txt missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1336,11 +1336,11 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual("A description", await File.ReadAllTextAsync(descPath));
 
             _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1,
-                It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                    types.Contains(ConsistencyIssueType.MissingDescTxt) &&
-                    types.Contains(ConsistencyIssueType.IncorrectDescTxt) &&
-                    types.Contains(ConsistencyIssueType.MissingReaderTxt) &&
-                    types.Contains(ConsistencyIssueType.IncorrectReaderTxt)
+                It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                    types.Contains(BookConsistencyIssueType.MissingDescTxt) &&
+                    types.Contains(BookConsistencyIssueType.IncorrectDescTxt) &&
+                    types.Contains(BookConsistencyIssueType.MissingReaderTxt) &&
+                    types.Contains(BookConsistencyIssueType.IncorrectReaderTxt)
                 )), Times.Once);
         }
         finally
@@ -1370,12 +1370,12 @@ public class LibraryConsistencyServiceTests
                 "desc", null, null, null, null, null, null, null, null,
                 tempFile, "test.m4b", 1000);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 21,
                 AudiobookId = 5101,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingDescTxt,
+                IssueType = BookConsistencyIssueType.MissingDescTxt,
                 Description = "desc.txt missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -1399,7 +1399,7 @@ public class LibraryConsistencyServiceTests
                 File.Exists(Path.Combine(tempDir, "desc.txt")),
                 "no sidecar should be written for a book another operation is modifying");
             _issueRepository.Verify(
-                r => r.DeleteByAudiobookIdAndTypesAsync(It.IsAny<long>(), It.IsAny<IEnumerable<ConsistencyIssueType>>()),
+                r => r.DeleteByAudiobookIdAndTypesAsync(It.IsAny<long>(), It.IsAny<IEnumerable<BookConsistencyIssueType>>()),
                 Times.Never);
         }
         finally
@@ -1425,7 +1425,7 @@ public class LibraryConsistencyServiceTests
             await File.WriteAllTextAsync(busyFile, "fake");
             await File.WriteAllTextAsync(freeFile, "fake");
 
-            ConsistencyIssue MakeIssue(long id, long audiobookId, string path, string fileName) => new()
+            BookConsistencyIssue MakeIssue(long id, long audiobookId, string path, string fileName) => new()
             {
                 Id = id,
                 AudiobookId = audiobookId,
@@ -1433,12 +1433,12 @@ public class LibraryConsistencyServiceTests
                     audiobookId, "Book", null, null, null, 2024,
                     "desc", null, null, null, null, null, null, null, null,
                     path, fileName, 1000),
-                IssueType = ConsistencyIssueType.MissingDescTxt,
+                IssueType = BookConsistencyIssueType.MissingDescTxt,
                 Description = "desc.txt missing",
                 DetectedAt = DateTime.UtcNow
             };
 
-            var issues = new List<ConsistencyIssue>
+            var issues = new List<BookConsistencyIssue>
             {
                 MakeIssue(31, 5201, busyFile, "busy.m4b"),
                 MakeIssue(32, 5202, freeFile, "free.m4b"),
@@ -1515,8 +1515,8 @@ public class LibraryConsistencyServiceTests
                 progressAction,
                 new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
-                iss.IssueType == ConsistencyIssueType.TagMismatch &&
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(iss =>
+                iss.IssueType == BookConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
                 TagMismatchPayloadHasField(iss.ExpectedValue, "Series Part", "0.5") &&
                 TagMismatchPayloadHasField(iss.ActualValue, "Series Part", "0") &&
@@ -1579,8 +1579,8 @@ public class LibraryConsistencyServiceTests
                 progressAction,
                 new ConsistencyCheckInput(new List<DbAudiobook> { dbAudiobook }, new List<LibraryDirectory>()));
 
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(iss =>
-                iss.IssueType == ConsistencyIssueType.TagMismatch &&
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(iss =>
+                iss.IssueType == BookConsistencyIssueType.TagMismatch &&
                 iss.AudiobookId == 1 &&
                 TagMismatchPayloadHasField(iss.ExpectedValue, "Description", "DB description") &&
                 TagMismatchPayloadHasField(iss.ActualValue, "Description", "File description") &&
@@ -1610,12 +1610,12 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 40,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.TagMismatch,
+            IssueType = BookConsistencyIssueType.TagMismatch,
             Description = "m4b tags do not match library metadata: Series Part",
             DetectedAt = DateTime.UtcNow
         };
@@ -1657,12 +1657,12 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 41,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             Description = "stored part differs from part 2",
             ExpectedValue = "2",
             ActualValue = "7",
@@ -1731,12 +1731,12 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 44,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             // Stale: detected before the refresh, when the roster assigned part 2.
             Description = "stored part differs from part 2",
             ExpectedValue = "2",
@@ -1781,12 +1781,12 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 45,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             // Detected when the roster assigned part 2; the roster now says 7, which is what the
             // book already carries.
             Description = "stored part differs from part 2",
@@ -1835,12 +1835,12 @@ public class LibraryConsistencyServiceTests
             null, null, null, null, null, null, null, null, null,
             "/library/test.m4b", "test.m4b", 1000);
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 46,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             Description = "stored part differs from part 2",
             ExpectedValue = "2",
             ActualValue = "7",
@@ -1866,11 +1866,11 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssue_SeriesPartMismatch_MissingAudiobook_Throws()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(42)).ReturnsAsync(new ConsistencyIssue
+        _issueRepository.Setup(r => r.GetByIdAsync(42)).ReturnsAsync(new BookConsistencyIssue
         {
             Id = 42,
             AudiobookId = 404,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             ExpectedValue = "2",
             ActualValue = null,
             DetectedAt = DateTime.UtcNow
@@ -1892,11 +1892,11 @@ public class LibraryConsistencyServiceTests
             null, null, null, null, null, null, null, null, null,
             "/library/test.m4b", "test.m4b", 1000);
 
-        _issueRepository.Setup(r => r.GetByIdAsync(43)).ReturnsAsync(new ConsistencyIssue
+        _issueRepository.Setup(r => r.GetByIdAsync(43)).ReturnsAsync(new BookConsistencyIssue
         {
             Id = 43,
             AudiobookId = 1,
-            IssueType = ConsistencyIssueType.SeriesPartMismatch,
+            IssueType = BookConsistencyIssueType.SeriesPartMismatch,
             Description = "corrupt",
             DetectedAt = DateTime.UtcNow
         });
@@ -1924,12 +1924,12 @@ public class LibraryConsistencyServiceTests
             Authors = new List<Database.Models.Person> { new Database.Models.Person(1, "Author One") }
         };
 
-        var issue = new ConsistencyIssue
+        var issue = new BookConsistencyIssue
         {
             Id = 30,
             AudiobookId = 1,
             Audiobook = dbAudiobook,
-            IssueType = ConsistencyIssueType.WrongFilePath,
+            IssueType = BookConsistencyIssueType.WrongFilePath,
             Description = "File path does not match expected path from tags",
             DetectedAt = DateTime.UtcNow
         };
@@ -2384,11 +2384,11 @@ public class LibraryConsistencyServiceTests
         var issues = await _service.RecheckAudiobookAsync(1);
 
         Assert.AreEqual(1, issues.Count);
-        Assert.AreEqual(ConsistencyIssueType.MissingMediaFile, issues[0].IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.MissingMediaFile, issues[0].IssueType);
 
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
-        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues => issues.Any(i =>
-            i.IssueType == ConsistencyIssueType.MissingMediaFile &&
+        _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues => issues.Any(i =>
+            i.IssueType == BookConsistencyIssueType.MissingMediaFile &&
             i.AudiobookId == 1
         ))), Times.Once);
     }
@@ -2490,7 +2490,7 @@ public class LibraryConsistencyServiceTests
 
             var issues = await service.RecheckAudiobookAsync(1);
 
-            Assert.IsTrue(issues.Any(i => i.IssueType == ConsistencyIssueType.MissingOpfFile));
+            Assert.IsTrue(issues.Any(i => i.IssueType == BookConsistencyIssueType.MissingOpfFile));
         }
         finally
         {
@@ -2543,7 +2543,7 @@ public class LibraryConsistencyServiceTests
 
             var issues = await service.RecheckAudiobookAsync(1);
 
-            Assert.IsTrue(issues.Any(i => i.IssueType == ConsistencyIssueType.IncorrectOpfFile));
+            Assert.IsTrue(issues.Any(i => i.IssueType == BookConsistencyIssueType.IncorrectOpfFile));
         }
         finally
         {
@@ -2603,11 +2603,11 @@ public class LibraryConsistencyServiceTests
 
             var issues = await service.RecheckAudiobookAsync(1);
 
-            var desc = issues.SingleOrDefault(i => i.IssueType == ConsistencyIssueType.IncorrectDescTxt);
+            var desc = issues.SingleOrDefault(i => i.IssueType == BookConsistencyIssueType.IncorrectDescTxt);
             Assert.IsNotNull(desc);
             Assert.AreEqual("a description that was removed", desc!.ActualValue);
 
-            var reader = issues.SingleOrDefault(i => i.IssueType == ConsistencyIssueType.IncorrectReaderTxt);
+            var reader = issues.SingleOrDefault(i => i.IssueType == BookConsistencyIssueType.IncorrectReaderTxt);
             Assert.IsNotNull(reader);
             Assert.AreEqual("Narrator Who Left", reader!.ActualValue);
         }
@@ -2663,7 +2663,7 @@ public class LibraryConsistencyServiceTests
             var issues = await service.RecheckAudiobookAsync(1);
 
             CollectionAssert.AreEqual(
-                Array.Empty<ConsistencyIssueType>(),
+                Array.Empty<BookConsistencyIssueType>(),
                 issues.Select(i => i.IssueType).ToArray());
         }
         finally
@@ -2698,12 +2698,12 @@ public class LibraryConsistencyServiceTests
                 new Domain.AudiobookFileInfo(tempFile, "test.m4b", 1000));
             _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(parsed);
 
-            var issue = new ConsistencyIssue
+            var issue = new BookConsistencyIssue
             {
                 Id = 20,
                 AudiobookId = 1,
                 Audiobook = dbAudiobook,
-                IssueType = ConsistencyIssueType.MissingOpfFile,
+                IssueType = BookConsistencyIssueType.MissingOpfFile,
                 Description = "metadata.opf missing",
                 DetectedAt = DateTime.UtcNow
             };
@@ -2716,9 +2716,9 @@ public class LibraryConsistencyServiceTests
             Assert.IsTrue(File.Exists(opfPath));
             Assert.AreEqual(AudiobookFileHandler.BuildOpfContent(parsed), File.ReadAllText(opfPath));
 
-            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1, It.Is<IEnumerable<ConsistencyIssueType>>(types =>
-                types.Contains(ConsistencyIssueType.MissingOpfFile) &&
-                types.Contains(ConsistencyIssueType.IncorrectOpfFile)
+            _issueRepository.Verify(r => r.DeleteByAudiobookIdAndTypesAsync(1, It.Is<IEnumerable<BookConsistencyIssueType>>(types =>
+                types.Contains(BookConsistencyIssueType.MissingOpfFile) &&
+                types.Contains(BookConsistencyIssueType.IncorrectOpfFile)
             )), Times.Once);
         }
         finally
@@ -2783,7 +2783,7 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssue_NotFound_ThrowsKeyNotFound()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((BookConsistencyIssue?)null);
 
         var exception = await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _service.ResolveIssue(999));
@@ -2809,12 +2809,12 @@ public class LibraryConsistencyServiceTests
     private static bool TagMismatchPayloadHasField(string? serialized, string field, string expectedValue) =>
         TagMismatchPayload.TryParse(serialized)?.Any(f => f.Field == field && f.Value == expectedValue) == true;
 
-    private static ConsistencyIssue MakeTagMismatchIssue(DbAudiobook book, long id = 5) => new()
+    private static BookConsistencyIssue MakeTagMismatchIssue(DbAudiobook book, long id = 5) => new()
     {
         Id = id,
         AudiobookId = book.Id,
         Audiobook = book,
-        IssueType = ConsistencyIssueType.TagMismatch,
+        IssueType = BookConsistencyIssueType.TagMismatch,
         Description = "tags differ",
         DetectedAt = DateTime.UtcNow
     };
@@ -2822,7 +2822,7 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task GetTagMismatchFieldsAsync_NotFound_ThrowsKeyNotFound()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((BookConsistencyIssue?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _service.GetTagMismatchFieldsAsync(999));
@@ -2832,12 +2832,12 @@ public class LibraryConsistencyServiceTests
     public async Task GetTagMismatchFieldsAsync_NonTagMismatch_ThrowsArgument()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
-        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new ConsistencyIssue
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new BookConsistencyIssue
         {
             Id = 5,
             AudiobookId = 1,
             Audiobook = book,
-            IssueType = ConsistencyIssueType.WrongFilePath,
+            IssueType = BookConsistencyIssueType.WrongFilePath,
             Description = "wrong path"
         });
 
@@ -2887,7 +2887,7 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveTagMismatchSelectivelyAsync_NotFound_ThrowsKeyNotFound()
     {
-        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((ConsistencyIssue?)null);
+        _issueRepository.Setup(r => r.GetByIdAsync(999)).ReturnsAsync((BookConsistencyIssue?)null);
 
         await Assert.ThrowsExactlyAsync<KeyNotFoundException>(
             () => _service.ResolveTagMismatchSelectivelyAsync(999, new Dictionary<string, string?>()));
@@ -2897,12 +2897,12 @@ public class LibraryConsistencyServiceTests
     public async Task ResolveTagMismatchSelectivelyAsync_NonTagMismatch_ThrowsArgument()
     {
         var book = MakeFullBook(1, "/library/book.m4b");
-        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new ConsistencyIssue
+        _issueRepository.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(new BookConsistencyIssue
         {
             Id = 5,
             AudiobookId = 1,
             Audiobook = book,
-            IssueType = ConsistencyIssueType.MissingDescTxt,
+            IssueType = BookConsistencyIssueType.MissingDescTxt,
             Description = "no desc"
         });
 
@@ -2973,7 +2973,7 @@ public class LibraryConsistencyServiceTests
     /// An issue whose audiobook points at a path that does not exist, so MissingMediaFile
     /// resolves take the "file really is gone" branch and delete the record.
     /// </summary>
-    private static ConsistencyIssue MakeIssue(long id, long audiobookId, ConsistencyIssueType type) => new()
+    private static BookConsistencyIssue MakeIssue(long id, long audiobookId, BookConsistencyIssueType type) => new()
     {
         Id = id,
         AudiobookId = audiobookId,
@@ -3013,13 +3013,13 @@ public class LibraryConsistencyServiceTests
     public async Task ResolveIssuesByType_MissingMediaFileAcrossMostOfLibrary_IsRefused()
     {
         var issues = Enumerable.Range(1, 8)
-            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingMediaFile))
+            .Select(i => MakeIssue(i, i, BookConsistencyIssueType.MissingMediaFile))
             .ToList();
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(10);
 
         var ex = await Assert.ThrowsExactlyAsync<LibraryUnavailableException>(
-            () => _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile)));
+            () => _service.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingMediaFile)));
 
         StringAssert.Contains(ex.Message, "8 of 10");
 
@@ -3030,11 +3030,11 @@ public class LibraryConsistencyServiceTests
     [TestMethod]
     public async Task ResolveIssuesByType_MissingMediaFileForAFewBooks_IsAllowed()
     {
-        var issues = new List<ConsistencyIssue> { MakeIssue(1, 1, ConsistencyIssueType.MissingMediaFile) };
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        var issues = new List<BookConsistencyIssue> { MakeIssue(1, 1, BookConsistencyIssueType.MissingMediaFile) };
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(50);
 
-        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(1, resolved);
         Assert.AreEqual(0, failed);
@@ -3045,12 +3045,12 @@ public class LibraryConsistencyServiceTests
     {
         // Deleting 2 of 3 books is a legitimate 67%; a fraction says nothing useful at that size.
         var issues = Enumerable.Range(1, 2)
-            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingMediaFile))
+            .Select(i => MakeIssue(i, i, BookConsistencyIssueType.MissingMediaFile))
             .ToList();
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingMediaFile)).ReturnsAsync(issues);
         _audiobookRepository.Setup(r => r.CountAsync()).ReturnsAsync(3);
 
-        var (_, resolved, _) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingMediaFile));
+        var (_, resolved, _) = await _service.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingMediaFile));
 
         Assert.AreEqual(2, resolved);
     }
@@ -3061,11 +3061,11 @@ public class LibraryConsistencyServiceTests
         // Only MissingMediaFile deletes records; a sweep of sidecar rewrites is not destructive
         // and must not be refused just because it covers the whole library.
         var issues = Enumerable.Range(1, 10)
-            .Select(i => MakeIssue(i, i, ConsistencyIssueType.MissingOpfFile))
+            .Select(i => MakeIssue(i, i, BookConsistencyIssueType.MissingOpfFile))
             .ToList();
-        _issueRepository.Setup(r => r.GetByTypeAsync(ConsistencyIssueType.MissingOpfFile)).ReturnsAsync(issues);
+        _issueRepository.Setup(r => r.GetByTypeAsync(BookConsistencyIssueType.MissingOpfFile)).ReturnsAsync(issues);
 
-        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(ConsistencyIssueType.MissingOpfFile));
+        var (_, resolved, failed) = await _service.ResolveIssuesByType(nameof(BookConsistencyIssueType.MissingOpfFile));
 
         // Whether each one succeeds is this fixture's business (these books have no real files);
         // what matters is that the sweep ran over all ten rather than being refused, and that the
@@ -3106,12 +3106,12 @@ public class LibraryConsistencyServiceTests
 
             _partMismatchIssueDetector
                 .Setup(d => d.DetectLibraryWideAsync())
-                .ReturnsAsync(new List<ConsistencyIssue>
+                .ReturnsAsync(new List<BookConsistencyIssue>
                 {
                     new()
                     {
                         AudiobookId = 1,
-                        IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                        IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                         Description = "stored part differs from part 2",
                         ExpectedValue = "2",
                         ActualValue = "7",
@@ -3126,8 +3126,8 @@ public class LibraryConsistencyServiceTests
             Assert.AreEqual(1, booksChecked);
             Assert.IsTrue(issuesFound >= 1, "the run reports findings including the sweep's");
             _partMismatchIssueDetector.Verify(d => d.DetectLibraryWideAsync(), Times.Once);
-            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<ConsistencyIssue>>(issues =>
-                issues.Any(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch))), Times.AtLeastOnce);
+            _issueRepository.Verify(r => r.InsertRangeAsync(It.Is<IEnumerable<BookConsistencyIssue>>(issues =>
+                issues.Any(i => i.IssueType == BookConsistencyIssueType.SeriesPartMismatch))), Times.AtLeastOnce);
         }
         finally
         {
@@ -3156,12 +3156,12 @@ public class LibraryConsistencyServiceTests
 
         _partMismatchIssueDetector
             .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
-            .ReturnsAsync(new List<ConsistencyIssue>
+            .ReturnsAsync(new List<BookConsistencyIssue>
             {
                 new()
                 {
                     AudiobookId = 1,
-                    IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                    IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                     Description = "stored part differs from part 2",
                     ExpectedValue = "2",
                     ActualValue = "7",
@@ -3172,7 +3172,7 @@ public class LibraryConsistencyServiceTests
         var issues = await _service.RecheckAudiobookAsync(1);
 
         CollectionAssert.AreEqual(
-            new[] { ConsistencyIssueType.MissingMediaFile, ConsistencyIssueType.SeriesPartMismatch },
+            new[] { BookConsistencyIssueType.MissingMediaFile, BookConsistencyIssueType.SeriesPartMismatch },
             issues.Select(i => i.IssueType).ToArray(),
             "the on-disk finding and the part mismatch are both reported by the single-book recheck");
         _issueRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
@@ -3197,12 +3197,12 @@ public class LibraryConsistencyServiceTests
 
         _partMismatchIssueDetector
             .Setup(d => d.DetectForAudiobookAsync(dbAudiobook))
-            .ReturnsAsync(new List<ConsistencyIssue>
+            .ReturnsAsync(new List<BookConsistencyIssue>
             {
                 new()
                 {
                     AudiobookId = 1,
-                    IssueType = ConsistencyIssueType.SeriesPartMismatch,
+                    IssueType = BookConsistencyIssueType.SeriesPartMismatch,
                     Description = "stored part differs from part 3",
                     ExpectedValue = "3",
                     ActualValue = "9",

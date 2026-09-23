@@ -60,7 +60,7 @@ public class PartMismatchIssueDetectorTests
         var issues = await _detector.DetectLibraryWideAsync();
 
         Assert.AreEqual(3, issues.Count);
-        Assert.IsTrue(issues.All(i => i.IssueType == ConsistencyIssueType.SeriesPartMismatch));
+        Assert.IsTrue(issues.All(i => i.IssueType == BookConsistencyIssueType.SeriesPartMismatch));
 
         var byBook = issues.ToDictionary(i => i.AudiobookId);
         Assert.AreEqual("2", byBook[1].ExpectedValue);
@@ -160,7 +160,7 @@ public class PartMismatchIssueDetectorTests
         Assert.AreEqual(1, issues.Count);
         var issue = issues[0];
         Assert.AreEqual(1, issue.AudiobookId);
-        Assert.AreEqual(ConsistencyIssueType.SeriesPartMismatch, issue.IssueType);
+        Assert.AreEqual(BookConsistencyIssueType.SeriesPartMismatch, issue.IssueType);
         Assert.AreEqual("2", issue.ExpectedValue);
     }
 

@@ -8,10 +8,10 @@ import type { BookFileInfo } from "@/types/BookFileInfo";
 import type { BulkEditAudiobooksRequest, BulkEditPreviewResponse } from "@/types/BulkEdit";
 import type { PaginatedResult } from "@/types/Common";
 import type {
-  ConsistencyIssue,
+  BookConsistencyIssue,
   ConsistencyIssuePage,
-  ConsistencyResolveResult,
-} from "@/types/ConsistencyIssue";
+  BookConsistencyResolveResult,
+} from "@/types/BookConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
 import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
@@ -362,19 +362,19 @@ export const consistencyApi = {
   getIssueSummary: () => api.get<Record<number, number>>("/consistency/issues/summary"),
 
   getIssuesByAudiobook: (audiobookId: number) =>
-    api.get<ConsistencyIssue[]>(`/consistency/issues/by-audiobook/${audiobookId}`),
+    api.get<BookConsistencyIssue[]>(`/consistency/issues/by-audiobook/${audiobookId}`),
 
   recheckAudiobook: (audiobookId: number) =>
-    api.post<ConsistencyIssue[]>(`/consistency/issues/recheck/${audiobookId}`),
+    api.post<BookConsistencyIssue[]>(`/consistency/issues/recheck/${audiobookId}`),
 
   resolveIssue: (id: number) =>
-    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
+    api.post<BookConsistencyResolveResult>(`/consistency/issues/${id}/resolve`),
 
   getTagMismatch: (id: number) =>
     api.get<TagMismatchField[]>(`/consistency/issues/${id}/tag-mismatch`),
 
   resolveTagMismatch: (id: number, fieldValues: Record<string, string | null>) =>
-    api.post<ConsistencyResolveResult>(`/consistency/issues/${id}/tag-mismatch/resolve`, {
+    api.post<BookConsistencyResolveResult>(`/consistency/issues/${id}/tag-mismatch/resolve`, {
       fieldValues,
     }),
 

@@ -10,5 +10,5 @@ namespace AudiobookManager.Services;
 /// </summary>
 public interface IAudiobookIssueDetectionService
 {
-    List<ConsistencyIssue> DetectIssues(Audiobook audiobook);
+    List<BookConsistencyIssue> DetectIssues(Audiobook audiobook);
 }
