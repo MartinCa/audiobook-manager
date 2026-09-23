@@ -44,6 +44,15 @@ public interface IPendingMetadataRefreshRepository
     /// </summary>
     Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync();
 
+    /// <summary>
+    /// The ids of pending rows with no stored changed-fields JSON at all (written before that
+    /// column existed) - the self-heal backfill's work list.
+    /// </summary>
+    Task<List<long>> GetAudiobookIdsMissingChangedFieldsAsync();
+
+    /// <summary>Sets one row's changed-fields JSON in place, for the self-heal backfill.</summary>
+    Task SetChangedFieldsJsonAsync(long audiobookId, string changedFieldsJson);
+
     /// <summary>The pending rows for the given books (no book graph included), for a bulk apply.</summary>
     Task<List<PendingMetadataRefresh>> GetByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds);
 

@@ -343,5 +343,115 @@ public class MetadataRefreshServiceTests
             () => CreateService().ApplyPendingRefreshAsync(101));
     }
 
+    // Regression: every pending row an existing library already had on disk before this feature
+    // shipped has ChangedFieldsJson stored as null (the column did not exist when those rows were
+    // written). Left unhandled, that made the field filter permanently exclude every such row
+    // (a subset check against an empty "changed" list never matches) and the list's per-row
+    // badges stayed empty forever. The read paths must self-heal these rows by recomputing and
+    // persisting the changed-field list from the row's own stored snapshot.
+    [TestMethod]
+    public async Task GetPendingAudiobookIdsAsync_LegacyRowMissingChangedFields_BackfillsFromStoredSnapshot()
+    {
+        var book = new Database.Models.Audiobook(
+            200, "A Book", null, null, null, 2024,
+            null, null, null, null, "4.0", null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
+
+        _pendingRepository.Setup(r => r.GetAudiobookIdsMissingChangedFieldsAsync())
+            .ReturnsAsync(new List<long> { 200 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(200))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 200,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://example.com/book",
+                    "Audible",
+                    new List<string> { "Author A" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                ChangedFieldsJson = null,
+            });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(200)).ReturnsAsync(book);
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 200 });
+
+        var ids = await CreateService().GetPendingAudiobookIdsAsync();
+
+        Assert.AreSequenceEqual(new List<long> { 200 }, ids);
+        // Only Rating actually differs (Authors/BookName/Year are identical) - the backfill must
+        // persist exactly that, not every field the snapshot happens to carry a value for.
+        _pendingRepository.Verify(
+            r => r.SetChangedFieldsJsonAsync(200, "[\"Rating\"]"), Times.Once);
+    }
+
+    // Companion to the backfill test above: a caller can reach a legacy row directly through
+    // apply-selected/apply-filtered before any list view has had a chance to backfill it. Before
+    // the fix, an empty stored changed-fields list (with no explicit fields given either) was
+    // treated as "nothing to apply" and the row was dismissed without ever touching the book.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_LegacyRowMissingChangedFields_RecomputesAndAppliesTheActualDiff()
+    {
+        var book = new Database.Models.Audiobook(
+            300, "A Book", null, null, null, 2024,
+            null, null, null, null, "4.0", null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(300))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 300,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://example.com/book",
+                    "Audible",
+                    new List<string> { "Author A" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                ChangedFieldsJson = null,
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(300, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(300))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(300);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("4.5", captured!.Rating);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(300), Times.Once);
+    }
+
     #endregion
 }
