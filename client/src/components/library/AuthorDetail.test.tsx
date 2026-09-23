@@ -6,6 +6,7 @@ import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { browseApi, upcomingReleasesApi } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type { AuthorDetail } from "@/types/AuthorDetail";
 
 const mockSignalRValue = {
@@ -93,6 +94,7 @@ function renderWithProviders(initialEntry = "/library/authors/7") {
 
   return {
     router,
+    queryClient,
     ...render(
       <ThemeProvider defaultTheme="system" storageKey="theme">
         <SignalRContext.Provider value={mockSignalRValue}>
@@ -683,6 +685,62 @@ describe("AuthorDetail", () => {
 
     await waitFor(() => {
       expect(refresh).toHaveBeenCalledWith(7);
+    });
+  });
+
+  // Regression: a refresh from this page goes through the same RefreshAuthorRosterTrackedAsync
+  // as the metadata refresh page's bulk sweep and retry action, so it clears or replaces this
+  // author's consistency-issue row - but AuthorDetail's own success/error handlers used to only
+  // invalidate the author-detail query, leaving the metadata refresh page's failures list stale
+  // for its 30s staleTime after navigating back.
+  it("invalidates the author consistency-issues list after a successful Refresh Online", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 0));
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({
+      sourceId: "123",
+      sourceName: "Hardcover",
+      sourceUrl: "https://hardcover.app/authors/brandon-sanderson",
+    });
+    vi.spyOn(browseApi, "refreshAuthor").mockResolvedValue({
+      success: true,
+      lastRefreshedAt: "2026-09-19T00:00:00Z",
+    });
+
+    const { queryClient } = renderWithProviders();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    expect(await screen.findByRole("button", { name: "Refresh Online" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Online" }));
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: queryKeys.authorConsistencyIssues.all(),
+      });
+    });
+  });
+
+  it("invalidates the author consistency-issues list after a failed Refresh Online", async () => {
+    vi.spyOn(browseApi, "getAuthorDetail").mockResolvedValue(makeDetail(0, 0));
+    vi.spyOn(browseApi, "getAuthorFollowStatus").mockResolvedValue({ isFollowed: false });
+    vi.spyOn(browseApi, "getAuthorHardcoverMatch").mockResolvedValue({
+      sourceId: "123",
+      sourceName: "Hardcover",
+      sourceUrl: "https://hardcover.app/authors/brandon-sanderson",
+    });
+    vi.spyOn(browseApi, "refreshAuthor").mockRejectedValue(
+      new Error("The source returned an error."),
+    );
+
+    const { queryClient } = renderWithProviders();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    expect(await screen.findByRole("button", { name: "Refresh Online" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Online" }));
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: queryKeys.authorConsistencyIssues.all(),
+      });
     });
   });
 
