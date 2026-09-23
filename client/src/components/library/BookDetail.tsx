@@ -32,7 +32,10 @@ import { toAudiobook } from "@/helpers/audiobookMapping";
 import { languageLabel } from "@/helpers/languages";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
 import { handleApiError } from "@/lib/api";
-import { notifyBookConsistencyResolveResult, getIssueTypeLabel } from "@/helpers/consistencyHelpers";
+import {
+  notifyBookConsistencyResolveResult,
+  getIssueTypeLabel,
+} from "@/helpers/consistencyHelpers";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { notifications } from "@/lib/notifications";

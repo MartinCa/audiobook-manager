@@ -62,9 +62,7 @@ export function AuthorConsistencyIssueList() {
 
   return (
     <div className="space-y-3">
-      <h2 className="text-foreground text-lg font-bold">
-        Author Refresh Failures ({totalCount})
-      </h2>
+      <h2 className="text-foreground text-lg font-bold">Author Refresh Failures ({totalCount})</h2>
 
       {isLoading ? (
         <div className="text-muted-foreground flex flex-col items-center justify-center py-12">
