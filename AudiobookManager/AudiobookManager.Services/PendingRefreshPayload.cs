@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AudiobookManager.Services;
 
@@ -25,7 +26,16 @@ public static class PendingRefreshPayload
     /// </summary>
     public const int CurrentVersion = 2;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
+    // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
+    // against what is already stored. Without it, a version-1 row (written before
+    // OriginalSeriesName existed) re-serializes with a newly-appended "originalSeriesName":null
+    // that was never in the original bytes, so every legacy row would be reported (and persisted)
+    // as "updated" on the very first re-evaluation even though nothing about it actually changed.
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public sealed record Snapshot(
         int Version,

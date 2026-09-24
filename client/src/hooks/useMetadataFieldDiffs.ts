@@ -8,10 +8,23 @@ import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
 
 /**
+ * A plain code-point, case-insensitive comparison - what backend `StringComparer.OrdinalIgnoreCase`
+ * means. Deliberately NOT `localeCompare`, even with a `sensitivity` option: locale-aware
+ * comparison also folds accents (e.g. treats "Cafe" and "Café" as equal for sorting), which
+ * `OrdinalIgnoreCase` does not, so a set mixing both forms could sort to a different joined
+ * string on the two layers even though the visible order looks the same.
+ */
+function ordinalCompare(a: string, b: string): number {
+  const al = a.toLowerCase();
+  const bl = b.toLowerCase();
+  return al < bl ? -1 : al > bl ? 1 : 0;
+}
+
+/**
  * Order/casing/duplication is presentation, not data: the same set of genre names in a
  * different order is not a change worth flagging - mirrors the backend's
- * MetadataRefreshDiffer.JoinList (trim, dedupe, sort ordinal-ignore-case) so this comparison
- * agrees with what actually gets stored as the pending row's changed-fields list.
+ * MetadataRefreshDiffer.JoinList (trim, dedupe case-sensitive, sort ordinal-ignore-case) so this
+ * comparison agrees with what actually gets stored as the pending row's changed-fields list.
  */
 function comparableGenres(
   genres: readonly (string | null | undefined)[] | null | undefined,
@@ -19,18 +32,24 @@ function comparableGenres(
   const meaningful = new Set(
     (genres ?? []).map((g) => g?.trim()).filter((g): g is string => Boolean(g)),
   );
-  return Array.from(meaningful)
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
-    .join("/");
+  return Array.from(meaningful).sort(ordinalCompare).join("/");
 }
 
 /**
- * "M. R." vs "M.R." is a typographical variant of the same name, not a content difference -
- * mirrors the backend's MetadataRefreshDiffer initials-spacing fold, and the fold this hook's
- * own foldInitialSpacing collapse already applies for type-ahead matching.
+ * Mirrors the backend's MetadataRefreshDiffer.JoinNames (trim, dedupe case-sensitive, sort
+ * ordinal-ignore-case) applied to an already-joined "A, B, C" display string, plus the
+ * initials-spacing fold ("M. R." vs "M.R." is a typographical variant, not a content difference -
+ * mirrors the backend's own fold, and the fold this hook's own foldInitialSpacing collapse
+ * already applies for type-ahead matching).
  */
 function comparablePersonNames(joined: string): string {
-  return foldInitialSpacing(joined);
+  const meaningful = new Set(
+    joined
+      .split(",")
+      .map((name) => foldInitialSpacing(name.trim()))
+      .filter((name) => name.length > 0),
+  );
+  return Array.from(meaningful).sort(ordinalCompare).join(", ");
 }
 
 export interface FieldDiff {

@@ -80,4 +80,58 @@ public class PendingRefreshPayloadTests
         StringAssert.Contains(serialized, "\"bookName\"");
         Assert.IsFalse(serialized.Contains("\"BookName\""), "the payload must not use CLR PascalCase keys");
     }
+
+    // Regression: without ignoring null fields on write, a row parsed from JSON that predates a
+    // field (e.g. OriginalSeriesName, missing entirely from the stored bytes) would re-serialize
+    // with that field spelled out as an explicit null - a byte-level difference from the
+    // originally-stored payload with no underlying content change behind it. That is exactly what
+    // MetadataRefreshService.ReevaluatePendingRefreshesAsync's ordinal payload comparison uses to
+    // decide whether a row's snapshot actually changed, so a null field must never be written.
+    [TestMethod]
+    public void Serialize_NullFields_AreOmittedNotWrittenAsExplicitNull()
+    {
+        var serialized = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion,
+            "https://x",
+            "Audible",
+            new List<string>(),
+            new List<string>(),
+            "Book",
+            Subtitle: null,
+            SeriesName: null,
+            SeriesPart: null,
+            Year: null,
+            Genres: new List<string>(),
+            Description: null,
+            Language: null,
+            Rating: null,
+            Copyright: null,
+            Publisher: null,
+            Asin: null,
+            OriginalSeriesName: null));
+
+        Assert.IsFalse(serialized.Contains("null"), $"no field should serialize as an explicit null: {serialized}");
+        Assert.IsFalse(serialized.Contains("originalSeriesName"));
+        Assert.IsFalse(serialized.Contains("subtitle"));
+    }
+
+    // A legacy row written before OriginalSeriesName existed - no such key in the stored JSON at
+    // all - must still parse (as null) and, once re-serialized, must not have that field
+    // reappear: TryParse tolerates a missing key exactly the same way whether it predates the
+    // field or the current write path simply omitted a null value.
+    [TestMethod]
+    public void TryParse_JsonPredatingOriginalSeriesName_ParsesWithNullAndRoundTripsWithoutTheKey()
+    {
+        const string legacyJson =
+            "{\"version\":1,\"url\":\"https://x\",\"source\":\"Audible\"," +
+            "\"authors\":[],\"narrators\":[],\"bookName\":\"Book\",\"genres\":[]}";
+
+        var parsed = PendingRefreshPayload.TryParse(legacyJson);
+
+        Assert.IsNotNull(parsed);
+        Assert.IsNull(parsed.OriginalSeriesName);
+
+        var reserialized = PendingRefreshPayload.Serialize(parsed);
+        Assert.IsFalse(reserialized.Contains("originalSeriesName"));
+    }
 }
