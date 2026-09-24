@@ -223,4 +223,21 @@ public class MetadataRefreshControllerTests
 
         Assert.IsInstanceOfType(result.Result, typeof(NoContentResult));
     }
+
+    [TestMethod]
+    public async Task ReevaluatePending_ReturnsTheServiceResultAsDto()
+    {
+        _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1));
+
+        var result = await _controller.ReevaluatePending();
+
+        var ok = result.Result as OkObjectResult;
+        Assert.IsNotNull(ok);
+        var dto = ok.Value as MetadataRefreshReevaluateResultDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual(5, dto.Processed);
+        Assert.AreEqual(2, dto.Updated);
+        Assert.AreEqual(1, dto.Removed);
+    }
 }

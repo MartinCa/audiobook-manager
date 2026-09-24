@@ -19,7 +19,7 @@ export function normalizeForMatch(value: string | null | undefined): string {
 // the dots, so the two forms compare equal when matching. Deliberately surgical: only a space
 // between a dotted initial and the next letter is collapsed, so "Harry Pot ter" still does NOT
 // match "Harry Potter".
-function foldInitialSpacing(value: string): string {
+export function foldInitialSpacing(value: string): string {
   return value.replace(/([A-Za-z]\.)\s+(?=[A-Za-z])/g, "$1");
 }
 

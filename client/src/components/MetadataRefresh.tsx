@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Filter,
+  ListRestart,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -161,6 +162,23 @@ export function MetadataRefresh() {
     mutationFn: () => metadataRefreshApi.applyFiltered(fieldFilterList),
     onSuccess: () => {
       notifications.success("Applying every book matching the filter in background");
+    },
+    onError: (err: unknown) => {
+      notifications.error(handleApiError(err).message);
+    },
+  });
+
+  // Synchronous (no scraper calls, so no SignalR progress needed): re-diffs every pending row
+  // against the library, series mapping patterns, and changed-fields logic as they stand right
+  // now. Reflects a mapping pattern (or any other setting) added after a snapshot was captured
+  // without waiting for the book's next scheduled refresh.
+  const reevaluateMutation = useMutation({
+    mutationFn: () => metadataRefreshApi.reevaluatePending(),
+    onSuccess: (result) => {
+      notifications.success(
+        `Re-evaluated ${result.processed} pending change(s): ${result.updated} updated, ${result.removed} resolved`,
+      );
+      invalidateRefreshViews();
     },
     onError: (err: unknown) => {
       notifications.error(handleApiError(err).message);
@@ -428,27 +446,44 @@ export function MetadataRefresh() {
             Books with Pending Metadata Changes ({totalCount})
           </h2>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="outline" size="sm">
-                  <Filter className="mr-2 h-4 w-4" />
-                  Filter fields{fieldFilter.size > 0 ? ` (${fieldFilter.size})` : ""}
-                </Button>
-              }
-            />
-            <DropdownMenuContent>
-              {METADATA_REFRESH_FIELDS.map((field) => (
-                <DropdownMenuCheckboxItem
-                  key={field}
-                  checked={fieldFilter.has(field)}
-                  onCheckedChange={() => toggleFieldFilter(field)}
-                >
-                  {METADATA_REFRESH_FIELD_LABELS[field] ?? field}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reevaluateMutation.isPending}
+              onClick={() => reevaluateMutation.mutate()}
+              title="Re-diff every pending change against the library, series mapping patterns, and changed-fields logic as they stand right now, without re-fetching anything from a source"
+            >
+              {reevaluateMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ListRestart className="mr-2 h-4 w-4" />
+              )}
+              Re-evaluate Pending Changes
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    <Filter className="mr-2 h-4 w-4" />
+                    Filter fields{fieldFilter.size > 0 ? ` (${fieldFilter.size})` : ""}
+                  </Button>
+                }
+              />
+              <DropdownMenuContent>
+                {METADATA_REFRESH_FIELDS.map((field) => (
+                  <DropdownMenuCheckboxItem
+                    key={field}
+                    checked={fieldFilter.has(field)}
+                    onCheckedChange={() => toggleFieldFilter(field)}
+                  >
+                    {METADATA_REFRESH_FIELD_LABELS[field] ?? field}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {fieldFilter.size > 0 && (

@@ -17,7 +17,13 @@ namespace AudiobookManager.Services;
 /// </summary>
 public static class PendingRefreshPayload
 {
-    public const int CurrentVersion = 1;
+    /// <summary>
+    /// Version 2 added <see cref="Snapshot.OriginalSeriesName"/>. A version-1 row on disk simply
+    /// deserializes with that property null - nothing about the shape changed enough to need a
+    /// conversion step, so the version bump exists only to record when the field became
+    /// available, per this class's own convention.
+    /// </summary>
+    public const int CurrentVersion = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -38,7 +44,16 @@ public static class PendingRefreshPayload
         string? Rating,
         string? Copyright,
         string? Publisher,
-        string? Asin);
+        string? Asin,
+        /// <summary>
+        /// The series name the source reported BEFORE <see cref="AudiobookManager.Scraping.IBookSeriesMapper"/> ran
+        /// - null on a row written before this field existed (Version 1), and whenever the source
+        /// reported no series at all. Kept alongside the already-mapped <see cref="SeriesName"/>
+        /// so a mapping pattern added or changed after this snapshot was captured can still be
+        /// re-applied to it later (<see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>)
+        /// without re-fetching the book from its source.
+        /// </summary>
+        string? OriginalSeriesName = null);
 
     public static string Serialize(Snapshot snapshot) =>
         JsonSerializer.Serialize(snapshot, JsonOptions);

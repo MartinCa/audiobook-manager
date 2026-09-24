@@ -1,9 +1,37 @@
 import { useMemo } from "react";
 import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
+import { splitList } from "@/helpers/organizeAudiobookInput";
+import { foldInitialSpacing } from "@/helpers/similarValueMatcher";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
+
+/**
+ * Order/casing/duplication is presentation, not data: the same set of genre names in a
+ * different order is not a change worth flagging - mirrors the backend's
+ * MetadataRefreshDiffer.JoinList (trim, dedupe, sort ordinal-ignore-case) so this comparison
+ * agrees with what actually gets stored as the pending row's changed-fields list.
+ */
+function comparableGenres(
+  genres: readonly (string | null | undefined)[] | null | undefined,
+): string {
+  const meaningful = new Set(
+    (genres ?? []).map((g) => g?.trim()).filter((g): g is string => Boolean(g)),
+  );
+  return Array.from(meaningful)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    .join("/");
+}
+
+/**
+ * "M. R." vs "M.R." is a typographical variant of the same name, not a content difference -
+ * mirrors the backend's MetadataRefreshDiffer initials-spacing fold, and the fold this hook's
+ * own foldInitialSpacing collapse already applies for type-ahead matching.
+ */
+function comparablePersonNames(joined: string): string {
+  return foldInitialSpacing(joined);
+}
 
 export interface FieldDiff {
   key: string;
@@ -49,14 +77,14 @@ export function useMetadataFieldDiffs(
         label: "Authors",
         currentValue: cur.authors ?? "",
         newValue: newAuthors,
-        changed: (cur.authors ?? "") !== newAuthors,
+        changed: comparablePersonNames(cur.authors ?? "") !== comparablePersonNames(newAuthors),
       },
       {
         key: "narrators",
         label: "Narrators",
         currentValue: cur.narrators ?? "",
         newValue: newNarrators,
-        changed: (cur.narrators ?? "") !== newNarrators,
+        changed: comparablePersonNames(cur.narrators ?? "") !== comparablePersonNames(newNarrators),
       },
       {
         key: "bookName",
@@ -94,7 +122,7 @@ export function useMetadataFieldDiffs(
         label: "Genres",
         currentValue: cur.genres ?? "",
         newValue: newGenres,
-        changed: (cur.genres ?? "") !== newGenres,
+        changed: comparableGenres(splitList(cur.genres)) !== comparableGenres(res.genres),
       },
       {
         key: "description",

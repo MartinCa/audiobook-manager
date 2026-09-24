@@ -86,6 +86,15 @@ public class PendingMetadataRefreshRepository : IPendingMetadataRefreshRepositor
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.ChangedFieldsJson, changedFieldsJson));
     }
 
+    public async Task UpdatePayloadAndChangedFieldsAsync(long audiobookId, string payloadJson, string changedFieldsJson)
+    {
+        await _db.PendingMetadataRefreshes
+            .Where(p => p.AudiobookId == audiobookId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.PayloadJson, payloadJson)
+                .SetProperty(p => p.ChangedFieldsJson, changedFieldsJson));
+    }
+
     public Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync() =>
         _db.PendingMetadataRefreshes
             .AsNoTracking()

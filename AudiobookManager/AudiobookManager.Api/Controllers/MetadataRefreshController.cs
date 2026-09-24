@@ -315,6 +315,21 @@ public class MetadataRefreshController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    /// <summary>
+    /// Re-evaluates every pending snapshot against the library, series mapping patterns, and
+    /// changed-fields logic as they stand right now, without re-scraping anything - so a mapping
+    /// pattern added after a snapshot was captured (or any other setting/book change since) is
+    /// reflected without waiting for the book's next scheduled refresh. Synchronous: pure DB/CPU
+    /// work, no scraper calls, sized the same way the self-heal backfill is.
+    /// </summary>
+    [HttpPost("reevaluate")]
+    public async Task<ActionResult<MetadataRefreshReevaluateResultDto>> ReevaluatePending()
+    {
+        var result = await _metadataRefreshService.ReevaluatePendingRefreshesAsync();
+        var dto = new MetadataRefreshReevaluateResultDto(result.Processed, result.Updated, result.Removed);
+        return Ok(dto);
+    }
+
     [HttpGet("{id:long}/pending")]
     public async Task<ActionResult<PendingMetadataRefreshDto>> GetPendingForAudiobook(long id)
     {

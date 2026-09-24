@@ -22,6 +22,7 @@ import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearc
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type {
+  MetadataRefreshReevaluateResult,
   MetadataRefreshResult,
   PendingMetadataRefresh,
   PendingMetadataRefreshPage,
@@ -564,6 +565,12 @@ export const metadataRefreshApi = {
   // are entirely contained in `fields` - unbounded by page or selection size.
   applyFiltered: (fields: readonly string[]) =>
     api.post<void>("/metadata-refresh/apply-filtered", { fields }),
+
+  // Synchronous: re-diffs every pending snapshot against the library, series mapping patterns,
+  // and changed-fields logic as they stand right now, without re-fetching anything from a
+  // source. No SignalR progress - it never touches a scraper, so it runs and returns in one call.
+  reevaluatePending: () =>
+    api.post<MetadataRefreshReevaluateResult>("/metadata-refresh/reevaluate", undefined),
 };
 
 // Url cleanup

@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
@@ -21,8 +22,18 @@ public class MetadataRefreshServiceTests
     private readonly Mock<ILibrarySettingsRepository> _librarySettingsRepository = new();
     private readonly Mock<IAudiobookService> _audiobookService = new();
     private readonly IAudiobookSaveGate _saveGate = new AudiobookSaveGate();
+    private readonly Mock<IBookSeriesMapper> _bookSeriesMapper = new();
     private readonly Mock<IServiceScopeFactory> _serviceScopeFactory = new();
     private readonly Mock<ILogger<MetadataRefreshService>> _logger = new();
+
+    public MetadataRefreshServiceTests()
+    {
+        // Pass-through by default: most tests here do not exercise series mapping at all, so the
+        // mapper should not silently rewrite series names it was never asked to.
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results => Task.FromResult(results));
+    }
 
     private MetadataRefreshService CreateService(IEnumerable<IScraper>? scrapers = null) =>
         new(
@@ -34,6 +45,7 @@ public class MetadataRefreshServiceTests
             _librarySettingsRepository.Object,
             _audiobookService.Object,
             _saveGate,
+            _bookSeriesMapper.Object,
             _serviceScopeFactory.Object,
             _logger.Object);
 
@@ -451,6 +463,166 @@ public class MetadataRefreshServiceTests
         Assert.IsNotNull(captured);
         Assert.AreEqual("4.5", captured!.Rating);
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(300), Times.Once);
+    }
+
+    #endregion
+
+    #region ReevaluatePendingRefreshesAsync
+
+    private static PendingMetadataRefresh PendingRow(long audiobookId, PendingRefreshPayload.Snapshot payload, string? changedFieldsJson) =>
+        new()
+        {
+            AudiobookId = audiobookId,
+            FetchedAt = DateTime.UtcNow,
+            SourceName = payload.Source,
+            SourceUrl = payload.Url,
+            PayloadJson = PendingRefreshPayload.Serialize(payload),
+            ChangedFieldsJson = changedFieldsJson,
+        };
+
+    // Regression: a mapping pattern added after a snapshot was captured used to never take
+    // effect on that snapshot - the stored SeriesName was whatever the mapper produced at fetch
+    // time and was never revisited. Re-evaluating must re-run the mapper against the snapshot's
+    // pre-mapping OriginalSeriesName with today's patterns and persist the corrected name.
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_SeriesMappingAddedSinceFetch_RemapsAndSupersedesTheDiff()
+    {
+        var book = new Database.Models.Audiobook(
+            400, "Book Four", null, "Thursday Murder Club", "4", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
+
+        var payload = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion,
+            "https://example.com/book",
+            "Audible",
+            new List<string> { "Author A" },
+            new List<string>(),
+            "Book Four",
+            null,
+            "A Thursday Murder Club Mystery", // the unmapped name stored before the pattern existed
+            "4",
+            null,
+            new List<string>(),
+            null, null, null, null, null, null,
+            "A Thursday Murder Club Mystery"); // OriginalSeriesName - what the source actually reported
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 400 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { PendingRow(400, payload, "[\"Series\"]") });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results =>
+                Task.FromResult<IList<MetadataSeriesSearchResult>>(results
+                    .Select(r => new MetadataSeriesSearchResult("Thursday Murder Club") { SeriesPart = r.SeriesPart })
+                    .ToList()));
+
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(0, result.Updated);
+        Assert.AreEqual(1, result.Removed);
+        // The remapped series now agrees with the book, so nothing differs any more: the row is
+        // dismissed rather than left showing a change the user cannot want.
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(400), Times.Once);
+        _pendingRepository.Verify(
+            r => r.UpdatePayloadAndChangedFieldsAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_RemapStillDiffers_UpdatesStoredPayloadAndChangedFields()
+    {
+        var book = new Database.Models.Audiobook(
+            401, "Book Five", null, "Old Series Name", "5", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
+
+        var payload = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion,
+            "https://example.com/book",
+            "Audible",
+            new List<string> { "Author A" },
+            new List<string>(),
+            "Book Five",
+            null,
+            "Raw Source Series Name",
+            "5",
+            null,
+            new List<string>(),
+            null, null, null, null, null, null,
+            "Raw Source Series Name");
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 401 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { PendingRow(401, payload, "[\"Series\"]") });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results =>
+                Task.FromResult<IList<MetadataSeriesSearchResult>>(results
+                    .Select(r => new MetadataSeriesSearchResult("Newly Mapped Series") { SeriesPart = r.SeriesPart })
+                    .ToList()));
+
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(1, result.Updated);
+        Assert.AreEqual(0, result.Removed);
+        _pendingRepository.Verify(
+            r => r.UpdatePayloadAndChangedFieldsAsync(
+                401,
+                It.Is<string>(json => json.Contains("Newly Mapped Series")),
+                "[\"Series\"]"),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_BookNoLongerExists_RemovesTheRow()
+    {
+        var payload = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion,
+            "https://example.com/book",
+            "Audible",
+            new List<string> { "Author A" },
+            new List<string>(),
+            "Book Six",
+            null, null, null, null,
+            new List<string>(),
+            null, null, null, null, null, null);
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 402 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { PendingRow(402, payload, "[\"BookName\"]") });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook>());
+
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(0, result.Updated);
+        Assert.AreEqual(1, result.Removed);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(402), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_NoPendingRows_ReturnsZeroes()
+    {
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long>());
+
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(0, result.Processed);
+        Assert.AreEqual(0, result.Updated);
+        Assert.AreEqual(0, result.Removed);
+        _audiobookRepository.Verify(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
     }
 
     #endregion

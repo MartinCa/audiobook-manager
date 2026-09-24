@@ -2407,6 +2407,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metadata-refresh/reevaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataRefreshReevaluateResultDto"];
+                        "application/json": components["schemas"]["MetadataRefreshReevaluateResultDto"];
+                        "text/json": components["schemas"]["MetadataRefreshReevaluateResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata-refresh/{id}/pending": {
         parameters: {
             query?: never;
@@ -5440,6 +5477,14 @@ export interface components {
             field?: string | null;
             libraryValue?: string | null;
             sourceValue?: string | null;
+        };
+        MetadataRefreshReevaluateResultDto: {
+            /** Format: int32 */
+            processed?: number;
+            /** Format: int32 */
+            updated?: number;
+            /** Format: int32 */
+            removed?: number;
         };
         MetadataRefreshResultDto: {
             success?: boolean;
