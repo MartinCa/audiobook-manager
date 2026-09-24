@@ -534,6 +534,62 @@ public class MetadataRefreshServiceTests
             Times.Never);
     }
 
+    // Regression (reported live against a real library, PR #1523): every pending row that
+    // existed before OriginalSeriesName shipped has it stored as null - it never had a chance to
+    // be captured. RemapSeriesAsync used to skip remapping entirely for such a row, so
+    // re-evaluation could never fix the exact "add a mapping pattern for an existing pending
+    // change" scenario the feature exists for. It must fall back to the already-recorded
+    // SeriesName as the remap input instead of no-opping.
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_LegacyRowWithNoOriginalSeriesName_StillRemapsUsingStoredSeriesName()
+    {
+        var book = new Database.Models.Audiobook(
+            404, "The Thursday Murder Club", null, "Thursday Murder Club", "1", 2020,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<Database.Models.Person> { new(default, "Richard Osman") };
+
+        // A row written before OriginalSeriesName existed at all - Version 1, that field simply
+        // absent (default null), matching every pre-existing pending row in a real database.
+        var legacyPayload = new PendingRefreshPayload.Snapshot(
+            1,
+            "https://example.com/book",
+            "Audible",
+            new List<string> { "Richard Osman" },
+            new List<string>(),
+            "The Thursday Murder Club",
+            null,
+            "A Thursday Murder Club Mystery", // the only place the raw scraped name survives
+            "1",
+            null,
+            new List<string>(),
+            null, null, null, null, null, null);
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 404 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { PendingRow(404, legacyPayload, "[\"Series\"]") });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results =>
+                Task.FromResult<IList<MetadataSeriesSearchResult>>(results
+                    .Select(r => new MetadataSeriesSearchResult("Thursday Murder Club") { SeriesPart = r.SeriesPart })
+                    .ToList()));
+
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(0, result.Updated);
+        Assert.AreEqual(1, result.Removed);
+        _bookSeriesMapper.Verify(
+            m => m.MapBookSeries(It.Is<IList<MetadataSeriesSearchResult>>(
+                list => list.Count == 1 && list[0].SeriesName == "A Thursday Murder Club Mystery")),
+            Times.Once);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(404), Times.Once);
+    }
+
     [TestMethod]
     public async Task ReevaluatePendingRefreshesAsync_RemapStillDiffers_UpdatesStoredPayloadAndChangedFields()
     {

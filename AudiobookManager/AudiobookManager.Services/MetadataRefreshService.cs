@@ -638,8 +638,10 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// <see cref="IBookSeriesMapper"/> produced at fetch time and is never revisited on its own -
     /// see the class remarks on <see cref="PendingRefreshPayload.Snapshot.OriginalSeriesName"/>.
     /// This re-runs the mapper against that original (pre-mapping) name with today's patterns and
-    /// rewrites the stored snapshot when the mapped name changes. A row predating that field
-    /// (<c>OriginalSeriesName</c> null) cannot be remapped and is left as-is here.</item>
+    /// rewrites the stored snapshot when the mapped name changes - including a row predating that
+    /// field (<c>OriginalSeriesName</c> null), which falls back to the stored
+    /// <c>SeriesName</c> itself (see <see cref="RemapSeriesAsync"/> for why that fallback is
+    /// correct, not a guess).</item>
     /// <item>The changed-fields list itself can simply be out of date - the same recompute
     /// <see cref="EnsureChangedFieldsBackfilledAsync"/> performs for legacy rows, applied to every
     /// row rather than only ones missing the column.</item>
@@ -711,19 +713,29 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// <summary>
     /// Re-runs the series mapper against a snapshot's pre-mapping series name with the mapping
     /// patterns as they exist right now, returning the snapshot unchanged when there is nothing to
-    /// remap (no series, or a row too old to carry <c>OriginalSeriesName</c>) or when the mapped
-    /// name did not change.
+    /// remap (no series at all) or when the mapped name did not change.
+    ///
+    /// A row written before <c>OriginalSeriesName</c> existed has it stored as null - falls back
+    /// to the already-recorded <see cref="PendingRefreshPayload.Snapshot.SeriesName"/> as the
+    /// remap input for such a row rather than skipping it. That fallback is not a guess: at fetch
+    /// time no mapping pattern matched this book's series (if one had, the user would not be
+    /// adding a new pattern for it now), so <see cref="IBookSeriesMapper.MapSingleBookSeries"/>
+    /// returned the cleaned name unchanged - the stored <c>SeriesName</c> on such a row already
+    /// IS the pre-mapping name, it was just never labeled as such. Skipping the fallback here left
+    /// every pending row that predates this feature permanently un-remappable by re-evaluation,
+    /// which defeated the point for exactly the rows a user is most likely to want fixed.
     /// </summary>
     private async Task<PendingRefreshPayload.Snapshot> RemapSeriesAsync(PendingRefreshPayload.Snapshot payload)
     {
-        if (string.IsNullOrWhiteSpace(payload.OriginalSeriesName))
+        var sourceName = payload.OriginalSeriesName ?? payload.SeriesName;
+        if (string.IsNullOrWhiteSpace(sourceName))
         {
             return payload;
         }
 
         var mapped = await _bookSeriesMapper.MapBookSeries(new List<MetadataSeriesSearchResult>
         {
-            new(payload.OriginalSeriesName) { SeriesPart = payload.SeriesPart },
+            new(sourceName) { SeriesPart = payload.SeriesPart },
         });
         var mappedName = mapped[0].SeriesName;
 
