@@ -2,12 +2,17 @@ using System.Text.Json;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping;
+using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
+
+/// <summary>The outcome of <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>.</summary>
+public record MetadataRefreshReevaluateResult(int Processed, int Updated, int Removed);
 
 public class MetadataRefreshService : IMetadataRefreshService
 {
@@ -21,6 +26,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
     private readonly IAudiobookService _audiobookService;
     private readonly IAudiobookSaveGate _saveGate;
+    private readonly IBookSeriesMapper _bookSeriesMapper;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<MetadataRefreshService> _logger;
 
@@ -33,6 +39,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         ILibrarySettingsRepository librarySettingsRepository,
         IAudiobookService audiobookService,
         IAudiobookSaveGate saveGate,
+        IBookSeriesMapper bookSeriesMapper,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<MetadataRefreshService> logger)
     {
@@ -44,6 +51,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         _librarySettingsRepository = librarySettingsRepository;
         _audiobookService = audiobookService;
         _saveGate = saveGate;
+        _bookSeriesMapper = bookSeriesMapper;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
@@ -617,5 +625,110 @@ public class MetadataRefreshService : IMetadataRefreshService
         fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture),
         fetched.Copyright,
         fetched.Publisher,
-        fetched.Asin);
+        fetched.Asin,
+        fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName);
+
+    /// <summary>
+    /// Re-evaluates every pending snapshot against the library and mapping rules as they stand
+    /// right now, without re-scraping anything. Two things can make a stored snapshot stale
+    /// besides the book itself changing:
+    /// <list type="bullet">
+    /// <item>A series mapping pattern was added or edited after the snapshot was captured. The
+    /// stored <see cref="PendingRefreshPayload.Snapshot.SeriesName"/> is whatever
+    /// <see cref="IBookSeriesMapper"/> produced at fetch time and is never revisited on its own -
+    /// see the class remarks on <see cref="PendingRefreshPayload.Snapshot.OriginalSeriesName"/>.
+    /// This re-runs the mapper against that original (pre-mapping) name with today's patterns and
+    /// rewrites the stored snapshot when the mapped name changes. A row predating that field
+    /// (<c>OriginalSeriesName</c> null) cannot be remapped and is left as-is here.</item>
+    /// <item>The changed-fields list itself can simply be out of date - the same recompute
+    /// <see cref="EnsureChangedFieldsBackfilledAsync"/> performs for legacy rows, applied to every
+    /// row rather than only ones missing the column.</item>
+    /// </list>
+    /// A row that no longer differs from its book (the book caught up, or remapping made the
+    /// series agree) is deleted rather than left to linger as a no-op. Pure DB/CPU work - no
+    /// scraper is contacted - so this runs synchronously rather than through
+    /// <c>BackgroundOperationRunner</c>.
+    /// </summary>
+    public async Task<MetadataRefreshReevaluateResult> ReevaluatePendingRefreshesAsync()
+    {
+        var ids = await _pendingRepository.GetPendingAudiobookIdsAsync();
+        if (ids.Count == 0)
+        {
+            return new MetadataRefreshReevaluateResult(0, 0, 0);
+        }
+
+        var rows = await _pendingRepository.GetByAudiobookIdsAsync(ids);
+        var books = await _audiobookRepository.GetByIdsWithIncludesAsync(ids);
+        var booksById = books.ToDictionary(b => b.Id);
+
+        var processed = 0;
+        var updated = 0;
+        var removed = 0;
+
+        foreach (var row in rows)
+        {
+            processed++;
+
+            var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
+            if (payload is null)
+            {
+                // Corrupt/foreign payload - left alone, same as the self-heal backfill; apply
+                // already surfaces this as an error if the row is ever applied.
+                continue;
+            }
+
+            if (!booksById.TryGetValue(row.AudiobookId, out var book))
+            {
+                await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
+                removed++;
+                continue;
+            }
+
+            var remapped = await RemapSeriesAsync(payload);
+
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped).ToList();
+            if (diffs.Count == 0)
+            {
+                await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
+                removed++;
+                continue;
+            }
+
+            var changedFieldsJson = JsonSerializer.Serialize(diffs.Select(d => d.Field).ToList(), ChangedFieldsJsonOptions);
+            var payloadJson = PendingRefreshPayload.Serialize(remapped);
+
+            if (!string.Equals(payloadJson, row.PayloadJson, StringComparison.Ordinal) ||
+                !string.Equals(changedFieldsJson, row.ChangedFieldsJson, StringComparison.Ordinal))
+            {
+                await _pendingRepository.UpdatePayloadAndChangedFieldsAsync(row.AudiobookId, payloadJson, changedFieldsJson);
+                updated++;
+            }
+        }
+
+        return new MetadataRefreshReevaluateResult(processed, updated, removed);
+    }
+
+    /// <summary>
+    /// Re-runs the series mapper against a snapshot's pre-mapping series name with the mapping
+    /// patterns as they exist right now, returning the snapshot unchanged when there is nothing to
+    /// remap (no series, or a row too old to carry <c>OriginalSeriesName</c>) or when the mapped
+    /// name did not change.
+    /// </summary>
+    private async Task<PendingRefreshPayload.Snapshot> RemapSeriesAsync(PendingRefreshPayload.Snapshot payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.OriginalSeriesName))
+        {
+            return payload;
+        }
+
+        var mapped = await _bookSeriesMapper.MapBookSeries(new List<MetadataSeriesSearchResult>
+        {
+            new(payload.OriginalSeriesName) { SeriesPart = payload.SeriesPart },
+        });
+        var mappedName = mapped[0].SeriesName;
+
+        return string.Equals(mappedName, payload.SeriesName, StringComparison.Ordinal)
+            ? payload
+            : payload with { SeriesName = mappedName };
+    }
 }

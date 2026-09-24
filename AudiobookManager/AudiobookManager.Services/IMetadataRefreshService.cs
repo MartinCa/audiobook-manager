@@ -98,4 +98,12 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
         IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction);
+
+    /// <summary>
+    /// Re-evaluates every pending snapshot against the library, series mapping patterns and
+    /// changed-fields logic as they stand right now, without re-scraping anything - see
+    /// <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/> for what "re-evaluates"
+    /// covers. A row that no longer differs from its book afterward is dismissed.
+    /// </summary>
+    Task<MetadataRefreshReevaluateResult> ReevaluatePendingRefreshesAsync();
 }

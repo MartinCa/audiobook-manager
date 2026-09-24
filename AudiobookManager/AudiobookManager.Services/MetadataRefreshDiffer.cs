@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
@@ -102,14 +103,39 @@ public static class MetadataRefreshDiffer
     private static Action<string, string?, string?> MakeAdd(List<MetadataRefreshDiff> diffs) =>
         (field, libraryValue, sourceValue) =>
         {
-            if (!string.Equals(Trim(libraryValue), Trim(sourceValue), StringComparison.Ordinal))
+            var trimmedLibrary = Trim(libraryValue);
+            var trimmedSource = Trim(sourceValue);
+            if (!string.Equals(ComparableValue(field, trimmedLibrary), ComparableValue(field, trimmedSource), StringComparison.Ordinal))
             {
-                diffs.Add(new MetadataRefreshDiff(field, Trim(libraryValue), Trim(sourceValue)));
+                diffs.Add(new MetadataRefreshDiff(field, trimmedLibrary, trimmedSource));
             }
         };
 
     private static string? Trim(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// The space right after a dotted initial ("M. R." vs "M.R.") is a typographical variant of
+    /// the same name, not a content difference - without folding it, every book scraped from a
+    /// source using the other spacing convention than this library's own would show a spurious
+    /// Authors/Narrators change on every refresh. Comparison-only: the diff's displayed
+    /// LibraryValue/SourceValue (and anything actually written by an apply) keep the real
+    /// spacing, matching the client-side fold `similarValueMatcher.ts` applies for the same reason
+    /// when matching typed text against stored names.
+    /// </summary>
+    private static readonly Regex InitialsSpacingRegex = new(@"(?<=[A-Za-z]\.)\s+(?=[A-Za-z])", RegexOptions.Compiled);
+
+    private static string? ComparableValue(string field, string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return field is MetadataRefreshFields.Authors or MetadataRefreshFields.Narrators
+            ? InitialsSpacingRegex.Replace(value, "")
+            : value;
+    }
 
     private static string? JoinNames(IEnumerable<string?> names) =>
         JoinList(names);

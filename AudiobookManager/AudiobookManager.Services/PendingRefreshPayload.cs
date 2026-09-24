@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AudiobookManager.Services;
 
@@ -17,9 +18,24 @@ namespace AudiobookManager.Services;
 /// </summary>
 public static class PendingRefreshPayload
 {
-    public const int CurrentVersion = 1;
+    /// <summary>
+    /// Version 2 added <see cref="Snapshot.OriginalSeriesName"/>. A version-1 row on disk simply
+    /// deserializes with that property null - nothing about the shape changed enough to need a
+    /// conversion step, so the version bump exists only to record when the field became
+    /// available, per this class's own convention.
+    /// </summary>
+    public const int CurrentVersion = 2;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
+    // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
+    // against what is already stored. Without it, a version-1 row (written before
+    // OriginalSeriesName existed) re-serializes with a newly-appended "originalSeriesName":null
+    // that was never in the original bytes, so every legacy row would be reported (and persisted)
+    // as "updated" on the very first re-evaluation even though nothing about it actually changed.
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public sealed record Snapshot(
         int Version,
@@ -38,7 +54,16 @@ public static class PendingRefreshPayload
         string? Rating,
         string? Copyright,
         string? Publisher,
-        string? Asin);
+        string? Asin,
+        /// <summary>
+        /// The series name the source reported BEFORE <see cref="AudiobookManager.Scraping.IBookSeriesMapper"/> ran
+        /// - null on a row written before this field existed (Version 1), and whenever the source
+        /// reported no series at all. Kept alongside the already-mapped <see cref="SeriesName"/>
+        /// so a mapping pattern added or changed after this snapshot was captured can still be
+        /// re-applied to it later (<see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>)
+        /// without re-fetching the book from its source.
+        /// </summary>
+        string? OriginalSeriesName = null);
 
     public static string Serialize(Snapshot snapshot) =>
         JsonSerializer.Serialize(snapshot, JsonOptions);

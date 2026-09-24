@@ -53,6 +53,13 @@ public interface IPendingMetadataRefreshRepository
     /// <summary>Sets one row's changed-fields JSON in place, for the self-heal backfill.</summary>
     Task SetChangedFieldsJsonAsync(long audiobookId, string changedFieldsJson);
 
+    /// <summary>
+    /// Sets one row's payload and changed-fields JSON in place, for the pending-refresh
+    /// re-evaluation pass - unlike <see cref="SetChangedFieldsJsonAsync"/>, the payload itself can
+    /// also change (a series mapping remap rewrites the stored series name).
+    /// </summary>
+    Task UpdatePayloadAndChangedFieldsAsync(long audiobookId, string payloadJson, string changedFieldsJson);
+
     /// <summary>The pending rows for the given books (no book graph included), for a bulk apply.</summary>
     Task<List<PendingMetadataRefresh>> GetByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds);
 

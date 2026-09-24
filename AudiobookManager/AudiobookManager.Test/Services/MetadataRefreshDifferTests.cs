@@ -220,6 +220,58 @@ public class MetadataRefreshDifferTests
     }
 
     [TestMethod]
+    public void Diff_AuthorInitialsSpacingOnlyDiffers_ProducesNoDiff()
+    {
+        // Regression: "Stephen M. R. Covey" (spaced) vs "Stephen M.R. Covey" (unspaced) is the
+        // same author under a different initials-spacing convention, not a real content change.
+        var book = Book();
+        book.Authors = new List<Database.Models.Person> { new(1, "Stephen M. R. Covey") };
+
+        var fetched = Fetched(r =>
+        {
+            r.Authors = new List<ScrapingPerson> { new("Stephen M.R. Covey") };
+        });
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
+    public void Diff_NarratorInitialsSpacingOnlyDiffers_ProducesNoDiff()
+    {
+        var book = Book();
+        book.Narrators = new List<Database.Models.Person> { new(1, "J.K. Rowling") };
+
+        var fetched = Fetched(r =>
+        {
+            r.Narrators = new List<ScrapingPerson> { new("J. K. Rowling") };
+        });
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
+    public void Diff_AuthorNameActuallyDifferent_StillDetectedDespiteInitialsFold()
+    {
+        // Proves the initials-spacing fold does not swallow real changes.
+        var book = Book();
+        book.Authors = new List<Database.Models.Person> { new(1, "Stephen R. Covey") };
+
+        var fetched = Fetched(r =>
+        {
+            r.Authors = new List<ScrapingPerson> { new("Stephen M.R. Covey") };
+        });
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+
+        Assert.AreEqual(1, diffs.Count);
+        Assert.AreEqual("Authors", diffs[0].Field);
+    }
+
+    [TestMethod]
     public void Diff_UnrecognizedStoredLanguage_RecognizedSource_OffersTheManagedCode()
     {
         var book = Book(language: "spa");

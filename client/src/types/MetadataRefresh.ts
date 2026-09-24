@@ -44,6 +44,13 @@ export type BulkMetadataRefresh = {
   olderThanUtc?: string;
 };
 
+// AudiobookManager.Api/Dtos/MetadataRefreshDtos.cs: Processed/Updated/Removed on
+// MetadataRefreshReevaluateResultDto are non-nullable.
+export type MetadataRefreshReevaluateResult = Require<
+  components["schemas"]["MetadataRefreshReevaluateResultDto"],
+  "processed" | "updated" | "removed"
+>;
+
 // Every field name a pending snapshot can offer as a change (AudiobookManager.Services/
 // MetadataRefreshFields.cs) - the vocabulary the filter picker and per-book field badges use.
 export const METADATA_REFRESH_FIELDS = [

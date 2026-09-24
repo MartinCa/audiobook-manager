@@ -66,3 +66,6 @@ public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields);
 /// every field the stored snapshot recorded as changed; an explicit list applies only those.
 /// </summary>
 public record ApplyPendingRefreshDto(List<string>? Fields);
+
+/// <summary>The result of POST api/metadata-refresh/reevaluate.</summary>
+public record MetadataRefreshReevaluateResultDto(int Processed, int Updated, int Removed);
