@@ -35,17 +35,26 @@ function comparableGenres(
   return Array.from(meaningful).sort(ordinalCompare).join("/");
 }
 
+// Matches both separators this hook's two call sites join `currentInput.authors`/`narrators`
+// with: TagPreviewDialog's `currentInput` (BookEditForm.tsx) uses organizeAudiobookInput's
+// `joinList` (" / "), while PendingRefreshRowPanel's uses `joinPersons` (", "). Splitting on a
+// single hardcoded separator broke the other call site entirely (every comparison there was a
+// one-token string vs the ", "-joined fetched value, so Authors/Narrators looked changed even
+// when the sets were identical) - this accepts either shape so both callers get a real
+// order/dedupe-insensitive comparison rather than just one of them.
+const PERSON_LIST_SEPARATOR = /\s*\/\s*|,\s*/;
+
 /**
  * Mirrors the backend's MetadataRefreshDiffer.JoinNames (trim, dedupe case-sensitive, sort
- * ordinal-ignore-case) applied to an already-joined "A, B, C" display string, plus the
- * initials-spacing fold ("M. R." vs "M.R." is a typographical variant, not a content difference -
- * mirrors the backend's own fold, and the fold this hook's own foldInitialSpacing collapse
- * already applies for type-ahead matching).
+ * ordinal-ignore-case) applied to an already-joined display string, plus the initials-spacing
+ * fold ("M. R." vs "M.R." is a typographical variant, not a content difference - mirrors the
+ * backend's own fold, and the fold this hook's own foldInitialSpacing collapse already applies
+ * for type-ahead matching).
  */
 function comparablePersonNames(joined: string): string {
   const meaningful = new Set(
     joined
-      .split(",")
+      .split(PERSON_LIST_SEPARATOR)
       .map((name) => foldInitialSpacing(name.trim()))
       .filter((name) => name.length > 0),
   );

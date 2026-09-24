@@ -144,6 +144,22 @@ describe("useMetadataFieldDiffs", () => {
     expect(findField(result.current, "narrators").changed).toBe(false);
   });
 
+  // Regression: TagPreviewDialog's call site (BookEditForm.tsx) builds `currentInput.authors`
+  // via organizeAudiobookInput's `joinList`, which uses " / " rather than PendingRefreshRowPanel's
+  // ", "-joined `joinPersons` shape. Splitting only on "," left this call site entirely broken -
+  // a multi-author value came through as one unsplit token, so Authors/Narrators showed changed
+  // even when the actual sets matched exactly.
+  it("does not flag an Authors change for a slash-joined current value (BookEditForm's shape)", () => {
+    const current: OrganizeAudiobookInput = { authors: "Author A / Author B" };
+    const searchResult = baseSearchResult({
+      authors: [{ name: "Author B" }, { name: "Author A" }],
+    });
+
+    const { result } = renderHook(() => useMetadataFieldDiffs(current, searchResult, []));
+
+    expect(findField(result.current, "authors").changed).toBe(false);
+  });
+
   it("still flags a genuinely different Authors set despite order-insensitive comparison", () => {
     const current: OrganizeAudiobookInput = { authors: "Author A, Author B" };
     const searchResult = baseSearchResult({
