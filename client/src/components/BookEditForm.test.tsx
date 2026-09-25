@@ -1,8 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookEditForm } from "./BookEditForm";
 import type { Audiobook } from "@/types/Audiobook";
+
+// A few tests below stub FileReader/fetch (the cover-fetch mocking pattern from
+// CoverEditor.test.tsx) via vi.stubGlobal - restore them after each test so the stub doesn't
+// leak into later tests in this file that need the real globals.
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 vi.mock("@/services/api", () => ({
   audiobookApi: {
@@ -1207,11 +1214,12 @@ describe("BookEditForm", () => {
     vi.stubGlobal("FileReader", MockFileReader);
 
     const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       blob: vi.fn().mockResolvedValue(mockBlob),
     });
+    vi.stubGlobal("fetch", fetchMock);
 
     const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
     renderWithProviders(
@@ -1237,7 +1245,7 @@ describe("BookEditForm", () => {
     fireEvent.click(applyAllButton);
 
     await waitFor(() =>
-      expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect(fetchMock).toHaveBeenCalledWith(
         "/api/metadata-search/proxy-image?url=https%3A%2F%2Faudible.com%2Fcovers%2Fnew-cover.jpg",
         expect.anything(),
       ),
@@ -1246,5 +1254,76 @@ describe("BookEditForm", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const saved = onSave.mock.calls[0]?.[0] as Audiobook;
     expect(saved.cover).toEqual({ base64Data: "ZnJlc2gtY292ZXI=", mimeType: "image/jpeg" });
+  });
+
+  // Regression test: handleApplySearchResult sets saving=true before awaiting the cover fetch
+  // (so the Save button shows its disabled/saving state for the whole apply, not just the
+  // eventual submit) - but that fix shipped with nothing exercising the disabled window itself.
+  // A deferred fetch lets the test observe the button disabled while the fetch is in flight and
+  // re-enabled once the auto-submit completes.
+  it("disables Save for the whole cover-fetch window during an auto-save apply, not just the final submit", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    let resolveFetch!: (value: { ok: boolean; status: number; blob: () => Promise<Blob> }) => void;
+    const fetchPromise = new Promise<{ ok: boolean; status: number; blob: () => Promise<Blob> }>(
+      (resolve) => {
+        resolveFetch = resolve;
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(fetchPromise));
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    // The fetch is still pending: Save must already be disabled, before the auto-submit itself
+    // has anything to do.
+    await waitFor(() =>
+      expect(screen.getByText("Save Audiobook").closest("button")).toBeDisabled(),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    resolveFetch({ ok: true, status: 200, blob: vi.fn().mockResolvedValue(mockBlob) });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
   });
 });

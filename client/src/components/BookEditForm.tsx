@@ -37,6 +37,7 @@ import {
   type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
 import { normalizeLanguage } from "@/helpers/languages";
+import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -468,7 +469,12 @@ export function BookEditForm({
         });
         updateCover({ base64Data, mimeType: blob.type || "image/jpeg" });
       } catch {
-        // Best-effort: leave the cover as it was rather than blocking the rest of the apply.
+        // Best-effort: leave the cover as it was rather than blocking the rest of the apply -
+        // but the diff table advertised a cover change that silently didn't happen, so surface
+        // it rather than letting the user believe the cover was updated.
+        notifications.warning(
+          "Couldn't fetch the new cover image; the rest of the apply proceeded.",
+        );
       }
     }
   };
