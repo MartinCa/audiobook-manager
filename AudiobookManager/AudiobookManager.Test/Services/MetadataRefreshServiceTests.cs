@@ -33,6 +33,14 @@ public class MetadataRefreshServiceTests
         _bookSeriesMapper
             .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
             .Returns<IList<MetadataSeriesSearchResult>>(results => Task.FromResult(results));
+
+        // Every diff computation now reads the initials-spacing settings; default to the
+        // library's own default (Unspaced/Dotted per Domain.LibrarySettings) so a test that
+        // never touches this repository doesn't NRE on GetInitialsSettingsAsync's .ToDomain()
+        // call. Tests exercising initials-spacing formatting itself override this explicitly.
+        _librarySettingsRepository
+            .Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new Database.Models.LibrarySettings());
     }
 
     private MetadataRefreshService CreateService(IEnumerable<IScraper>? scrapers = null) =>
