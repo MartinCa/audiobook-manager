@@ -92,5 +92,15 @@ public static class MetadataRefreshApplier
         {
             book.Asin = snapshot.Asin;
         }
+
+        // snapshot.Url is already the cleaned source URL (see MetadataRefreshDiffer's matching
+        // comment). Writing it here is what lets a bulk-applied pending refresh actually record
+        // which online source a book was matched to - MatchedSourceName then follows
+        // automatically from AccentFoldedColumnsInterceptor on save, the same way it does for any
+        // other write path that changes Www.
+        if (fields.Contains(MetadataRefreshFields.Www))
+        {
+            book.Www = snapshot.Url;
+        }
     }
 }
