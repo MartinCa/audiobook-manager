@@ -94,6 +94,7 @@ function buildAudiobook(
   initialBook: Audiobook,
   metadataAppliedFromSearch = false,
   pendingRefreshApplied = false,
+  autoSavedFromSearch = false,
 ): Audiobook {
   return {
     authors: (values.authors ?? []).map((name) => ({ name })),
@@ -116,6 +117,7 @@ function buildAudiobook(
     durationInSeconds: initialBook.durationInSeconds,
     metadataAppliedFromSearch,
     pendingRefreshApplied,
+    autoSavedFromSearch,
   };
 }
 
@@ -164,13 +166,6 @@ export interface BookEditFormProps {
    * own; it navigates here and asks the freshly-mounted form to open it).
    */
   autoOpenSearchDialog?: boolean;
-  /**
-   * Fires synchronously, before the auto-submit, the moment a search result is applied with the
-   * auto-save toggle left off (see TagPreviewDialog's showAutoSaveToggle). BookDetail uses this to
-   * know a save it's about to observe complete was this direct-apply flow, so it can navigate back
-   * to the view page once the save finishes — a plain manual edit/save never fires this.
-   */
-  onAutoSaveFromSearch?: () => void;
 }
 
 export function BookEditForm({
@@ -193,7 +188,6 @@ export function BookEditForm({
   onPendingRefreshOpenChange,
   currentBookId,
   autoOpenSearchDialog = false,
-  onAutoSaveFromSearch,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   const [newPath, setNewPath] = useState<string | null>(null);
@@ -322,6 +316,13 @@ export function BookEditForm({
   // to handleValidSubmit's closure until the next render - a ref reads the value set moments
   // earlier, in the same tick.
   const pendingRefreshAppliedRef = useRef(false);
+  // Same one-shot-ref pattern, for the interactive search flow's own auto-save specifically: the
+  // caller (BookDetail) reads this marker on the saved object — not a side-channel callback — to
+  // know the completing save is this direct-apply flow, so it only rides through to BookDetail if
+  // this exact save actually goes out (see BookDetail.proceedSave). A cancelled target-collision
+  // dialog or a failed zod validation discards the built object along with the marker, instead of
+  // arming an external ref that could outlive this specific save attempt.
+  const autoSavedFromSearchRef = useRef(false);
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
@@ -351,7 +352,10 @@ export function BookEditForm({
     setTagPreviewOpen(true);
   };
 
-  const handleApplyPreviewedTags = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+  const handleApplyPreviewedTags = async (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+  ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
@@ -424,25 +428,33 @@ export function BookEditForm({
 
     const coverUrlToFetch = result.imageUrl;
     if (selectedFields.has("cover") && coverUrlToFetch) {
-      // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
-      // the backend's write guard does not apply to it.
-      // eslint-disable-next-line no-restricted-globals -- binary response, see above
-      void fetch(`/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`)
-        .then((res) => res.blob())
-        .then((blob) => {
+      // Awaited (not fire-and-forget): callers that auto-submit right after this function
+      // returns (the auto-save toggle left off, and the pending-refresh apply) must have the
+      // fetched cover in state before buildAudiobook reads it - otherwise the save goes out with
+      // the pre-apply cover despite the diff table showing a cover change, with nothing to
+      // indicate that to the user.
+      try {
+        // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
+        // the backend's write guard does not apply to it.
+        // eslint-disable-next-line no-restricted-globals -- binary response, see above
+        const res = await fetch(
+          `/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`,
+        );
+        const blob = await res.blob();
+        const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             const resStr = reader.result as string;
             const idx = resStr.indexOf(";base64,");
-            const clean = idx !== -1 ? resStr.substring(idx + 8) : resStr;
-            setCover({
-              base64Data: clean,
-              mimeType: blob.type || "image/jpeg",
-            });
+            resolve(idx !== -1 ? resStr.substring(idx + 8) : resStr);
           };
+          reader.onerror = () => reject(reader.error ?? new Error("Failed to read cover image"));
           reader.readAsDataURL(blob);
-        })
-        .catch(() => {});
+        });
+        setCover({ base64Data, mimeType: blob.type || "image/jpeg" });
+      } catch {
+        // Best-effort: leave the cover as it was rather than blocking the rest of the apply.
+      }
     }
   };
 
@@ -464,13 +476,15 @@ export function BookEditForm({
           initialBook,
           metadataAppliedFromSearchRef.current,
           pendingRefreshAppliedRef.current,
+          autoSavedFromSearchRef.current,
         ),
       );
-      // Both signals are one-shot: they must ride exactly the save that carried the applied
-      // result. A later plain edit of the same book must not re-stamp the refresh timestamp or
-      // re-arm the pending-snapshot dismiss flow.
+      // All three signals are one-shot: they must ride exactly the save that carried the applied
+      // result. A later plain edit of the same book must not re-stamp the refresh timestamp,
+      // re-arm the pending-snapshot dismiss flow, or re-arm the return-to-view flow.
       metadataAppliedFromSearchRef.current = false;
       pendingRefreshAppliedRef.current = false;
+      autoSavedFromSearchRef.current = false;
     } finally {
       setSaving(false);
     }
@@ -485,9 +499,12 @@ export function BookEditForm({
   // Tradeoff: if form.handleSubmit rejects the auto-submit on validation failure, the refs stay
   // armed until a later successful submit. Currently unreachable - no real scraper result can
   // leave the form with zero authors, the only field whose clearing would fail validation.
-  const handleApplyPendingRefresh = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+  const handleApplyPendingRefresh = async (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+  ) => {
     if (selectedFields.size === 0) return;
-    handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields);
     pendingRefreshAppliedRef.current = true;
     void form.handleSubmit(handleValidSubmit)();
   };
@@ -495,17 +512,21 @@ export function BookEditForm({
   // The interactive "Search Online Metadata" flow's own apply step: unlike the pending-refresh
   // snapshot above, this one offers the "don't save automatically" opt-out (TagPreviewDialog's
   // showAutoSaveToggle), so whether it auto-submits depends on that toggle's state at apply time.
-  // When it does auto-submit, onAutoSaveFromSearch fires first so the caller (BookDetail) can
-  // recognize the save it's about to observe complete as this direct-apply flow.
-  const handleApplySearchResult = (
+  // When it does auto-submit, autoSavedFromSearchRef arms the same client-only marker
+  // pendingRefreshAppliedRef already rides on the built Audiobook (buildAudiobook's
+  // autoSavedFromSearch) - not a separate callback - so it only reaches BookDetail if this
+  // specific save actually goes out (see BookDetail.proceedSave): a cancelled target-collision
+  // dialog or a failed zod validation discards the object along with the marker, instead of
+  // leaving a side-channel ref armed for whatever save happens to complete next.
+  const handleApplySearchResult = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
   ) => {
     if (selectedFields.size === 0) return;
-    handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields);
     if (saveImmediately) {
-      onAutoSaveFromSearch?.();
+      autoSavedFromSearchRef.current = true;
       void form.handleSubmit(handleValidSubmit)();
     }
   };
@@ -516,6 +537,7 @@ export function BookEditForm({
     setShowAllOptionalFields(false);
     metadataAppliedFromSearchRef.current = false;
     pendingRefreshAppliedRef.current = false;
+    autoSavedFromSearchRef.current = false;
     onReset?.();
   };
 
@@ -863,7 +885,9 @@ export function BookEditForm({
           onOpenChange={setTagPreviewOpen}
           currentInput={currentOrganizeInput}
           searchResult={pendingSearchResult}
-          onApply={handleApplySearchResult}
+          onApply={(result, selectedFields, saveImmediately) => {
+            void handleApplySearchResult(result, selectedFields, saveImmediately);
+          }}
           showAutoSaveToggle
         />
       )}
@@ -874,7 +898,9 @@ export function BookEditForm({
           onOpenChange={(open) => onPendingRefreshOpenChange?.(open)}
           currentInput={currentOrganizeInput}
           searchResult={pendingRefreshResult}
-          onApply={handleApplyPendingRefresh}
+          onApply={(result, selectedFields) => {
+            void handleApplyPendingRefresh(result, selectedFields);
+          }}
         />
       )}
     </form>

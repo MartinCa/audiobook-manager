@@ -66,6 +66,17 @@ export function TagPreviewDialog({
     setDontSaveAutomatically(false);
   }
 
+  // Belt-and-suspenders reset alongside the identity check above: that check assumes every new
+  // flow hands in a fresh searchResult object, which holds today (BookSearchDialog builds a new
+  // one per search) but is not guaranteed forever - a future cache hit for an identical query
+  // could hand back the same reference. Re-opening the dialog is a stronger, independent signal
+  // that a new flow has started, so it resets the toggle too regardless of object identity.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setDontSaveAutomatically(false);
+  }
+
   const toggleField = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -123,21 +134,25 @@ export function TagPreviewDialog({
         </div>
 
         {showAutoSaveToggle && (
-          // A plain div, not a <label>: wrapping the Checkbox in a <label> makes its wrapped text
-          // concatenate onto the aria-label instead of the aria-label standing alone, which broke
-          // this control's accessible name. The div's own onClick keeps the "click the text to
-          // toggle" behavior a <label> would have given for free.
-          <div
-            className="text-muted-foreground flex items-center gap-2 pt-2 text-xs"
-            onClick={() => setDontSaveAutomatically((prev) => !prev)}
-          >
+          // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate onto
+          // the aria-label instead of the aria-label standing alone, which broke this control's
+          // accessible name (and a custom role="checkbox" span isn't a "labelable element" a
+          // native <label> click would activate anyway). The description is instead its own
+          // sibling <button>, keyboard-focusable and Enter/Space-activatable, toggling the same
+          // state as the checkbox rather than only being clickable text.
+          <div className="text-muted-foreground flex items-center gap-2 pt-2 text-xs">
             <Checkbox
               checked={dontSaveAutomatically}
               onCheckedChange={(next) => setDontSaveAutomatically(next === true)}
-              onClick={(e) => e.stopPropagation()}
               aria-label="Don't save automatically"
             />
-            <span>Don&apos;t save automatically — apply to the edit form for review instead</span>
+            <button
+              type="button"
+              className="text-left hover:underline"
+              onClick={() => setDontSaveAutomatically((prev) => !prev)}
+            >
+              Don&apos;t save automatically — apply to the edit form for review instead
+            </button>
           </div>
         )}
 

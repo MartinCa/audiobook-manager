@@ -55,6 +55,14 @@ export interface Audiobook {
   // the next unrelated save.
   pendingRefreshApplied?: boolean;
 
+  // Client-only, never sent to the server (toAudiobookDto ignores it): marks a save as the
+  // interactive "Search Online Metadata" flow's own auto-save (the opt-out toggle left off,
+  // TagPreviewDialog's showAutoSaveToggle) so BookDetail can route back to the view page once
+  // the save completes. Rides on the audiobook object for the same reason
+  // pendingRefreshApplied does - discarded if the save is cancelled at the target-collision
+  // dialog or fails validation, instead of leaking into whatever unrelated save happens next.
+  autoSavedFromSearch?: boolean;
+
   fileInfo?: BookFileInfo;
 }
 

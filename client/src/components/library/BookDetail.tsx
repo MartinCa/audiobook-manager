@@ -79,10 +79,13 @@ export function BookDetail({ mode }: BookDetailProps) {
   // matched route validated instead of requiring this component to be mounted under one specific
   // route (BookDetail backs both /library/book/$bookId and its /edit sibling).
   const { openSearch } = useSearch({ strict: false });
-  // Armed by BookEditForm's onAutoSaveFromSearch the instant a "Search Online Metadata" apply
-  // auto-saves (the default, opt-out toggle left off) — tells the AudiobookSaveComplete handler
-  // below to route back to the view page once that save lands, matching the read-only page's
-  // search entry point round-tripping back once metadata is applied directly.
+  // Armed in proceedSave when the saved object carries the autoSavedFromSearch marker (a "Search
+  // Online Metadata" apply with the opt-out toggle left off) and the queue call actually
+  // succeeded — tells the AudiobookSaveComplete handler below to route back to the view page once
+  // that save lands, matching the read-only page's search entry point round-tripping back once
+  // metadata is applied directly. Only armed after a real save is in flight, not merely requested:
+  // a cancelled target-collision dialog or a failed zod validation never reaches proceedSave, so
+  // it never leaves this armed for whatever unrelated save happens to complete next.
   const returnToViewAfterSaveRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
@@ -199,14 +202,16 @@ export function BookDetail({ mode }: BookDetailProps) {
 
   const proceedSave = async (updated: Audiobook) => {
     setSaving(true);
-    // The pending-refresh marker rides on the audiobook object (survives the target-collision
-    // dialog, which keeps the same book), so only an actual apply save arms the dismiss-after-
-    // -completion flow. A cancelled dialog discards the object; a failed queue leaves the arm
-    // clear. Either way the next unrelated save can't silently dismiss the stored snapshot.
+    // Both markers ride on the audiobook object (survives the target-collision dialog, which
+    // keeps the same book), so only an actual apply save arms their respective after-completion
+    // behavior. A cancelled dialog discards the object; a failed queue leaves both arms clear.
+    // Either way, an unrelated save can't inherit either flow.
     const applyingPendingRefresh = Boolean(updated.pendingRefreshApplied);
+    const isAutoSaveFromSearch = Boolean(updated.autoSavedFromSearch);
     try {
       await audiobookApi.updateBook(id, updated);
       if (applyingPendingRefresh) setPendingApplied(true);
+      if (isAutoSaveFromSearch) returnToViewAfterSaveRef.current = true;
       notifications.success("Update queued");
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -519,9 +524,6 @@ export function BookDetail({ mode }: BookDetailProps) {
                   onPendingRefreshOpenChange={setPendingOpen}
                   currentBookId={id}
                   autoOpenSearchDialog={openSearch === true}
-                  onAutoSaveFromSearch={() => {
-                    returnToViewAfterSaveRef.current = true;
-                  }}
                 />
               </CardContent>
             </Card>

@@ -1085,7 +1085,7 @@ describe("BookEditForm", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("calls onAutoSaveFromSearch right before the auto-submit when a search result auto-saves", async () => {
+  it("marks the built audiobook autoSavedFromSearch when a search result auto-saves", async () => {
     const { metadataSearchApi } = await import("@/services/api");
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
@@ -1103,15 +1103,8 @@ describe("BookEditForm", () => {
       sourceStatuses: [],
     });
 
-    const onAutoSaveFromSearch = vi.fn();
     const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
-    renderWithProviders(
-      <BookEditForm
-        initialBook={initialBook}
-        onSave={onSave}
-        onAutoSaveFromSearch={onAutoSaveFromSearch}
-      />,
-    );
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
 
     fireEvent.click(screen.getByText("Search Online Metadata"));
     const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
@@ -1122,11 +1115,16 @@ describe("BookEditForm", () => {
     const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
-    expect(onAutoSaveFromSearch).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].autoSavedFromSearch).toBe(true);
+
+    // One-shot, same as the other apply markers: a later plain save must not repeat it.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1]?.[0].autoSavedFromSearch).toBe(false);
   });
 
-  it("does not call onAutoSaveFromSearch when the don't-save-automatically toggle is checked", async () => {
+  it("does not mark autoSavedFromSearch or save when the don't-save-automatically toggle is checked", async () => {
     const { metadataSearchApi } = await import("@/services/api");
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
@@ -1144,15 +1142,8 @@ describe("BookEditForm", () => {
       sourceStatuses: [],
     });
 
-    const onAutoSaveFromSearch = vi.fn();
     const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
-    renderWithProviders(
-      <BookEditForm
-        initialBook={initialBook}
-        onSave={onSave}
-        onAutoSaveFromSearch={onAutoSaveFromSearch}
-      />,
-    );
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
 
     fireEvent.click(screen.getByText("Search Online Metadata"));
     const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
@@ -1165,7 +1156,12 @@ describe("BookEditForm", () => {
     fireEvent.click(applyAllButton);
 
     expect(await screen.findByDisplayValue("Scraped Book")).toBeInTheDocument();
-    expect(onAutoSaveFromSearch).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
+
+    // A subsequent manual save is a plain save, not this direct-apply flow: it must not carry
+    // the marker either (the toggle suppressed the auto-submit, not just its marker).
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].autoSavedFromSearch).toBe(false);
   });
 });
