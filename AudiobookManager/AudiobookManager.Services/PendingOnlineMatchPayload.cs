@@ -47,7 +47,7 @@ public static class PendingOnlineMatchPayload
             var envelope = JsonSerializer.Deserialize<Envelope>(serialized, JsonOptions);
             return envelope is null || envelope.Version < 1 || envelope.Version > CurrentVersion
                 ? Array.Empty<PendingRefreshPayload.Snapshot>()
-                : envelope.Results;
+                : envelope.Results ?? Array.Empty<PendingRefreshPayload.Snapshot>();
         }
         catch (JsonException)
         {

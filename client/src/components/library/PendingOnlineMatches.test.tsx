@@ -165,38 +165,35 @@ describe("PendingOnlineMatches", () => {
 
   // Regression test: rejecting the sole item on the last page used to leave the list
   // permanently empty. The query kept fetching the now out-of-range page (items: [] with a
-  // lower total, since the deletion already happened server-side), and the pager - clamped only
-  // for *display* - collapsed to one page and hid itself, with nothing left to click back with.
-  // The fetched page must self-correct instead.
-  it("self-corrects to the last valid page after rejecting the sole item on the final page, instead of staying permanently empty", async () => {
+  // lower total, since the deletion already happened server-side); with the total now fitting in
+  // one page, the pager - clamped only for *display* - hides itself entirely (pageCount === 1),
+  // leaving nothing to click back with. 51 -> 50 items is the case that actually reproduces this:
+  // two pages shrinking to exactly one, not merely three pages shrinking to two (where the pager
+  // stays visible and "Previous" alone would have recovered it even pre-fix). The fetched page
+  // must self-correct instead.
+  it("self-corrects to the last valid page after rejecting the sole item drops the list to a single page, instead of staying permanently empty", async () => {
     // A stateful mock (rather than a fixed sequence of mockResolvedValueOnce calls) because the
     // count query (always page 0) and the items query for whatever page is displayed are two
     // independent queries once the user is past page 0 - both refetch on invalidation, and their
-    // relative arrival order isn't guaranteed. Modeling the real backend (101 items, page 2 down
-    // to 100 the moment the sole item on it is rejected) keeps the test correct regardless of
-    // that order, while still exercising the real self-correction path.
+    // relative arrival order isn't guaranteed. Modeling the real backend (51 items, page 1's sole
+    // item gone once rejected, dropping to 50 = exactly one page) keeps the test correct
+    // regardless of that order, while still exercising the real self-correction path.
     let rejected = false;
     vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page) => {
-      const total = rejected ? 100 : 101;
+      const total = rejected ? 50 : 51;
       if (page === 0) {
-        return Promise.resolve({
-          items: [pendingItem({ audiobookId: 1, bookName: "First" })],
-          total,
-        });
-      }
-      if (page === 1) {
         return Promise.resolve(
           rejected
-            ? { items: [pendingItem({ audiobookId: 60, bookName: "Still Here" })], total }
-            : { items: [pendingItem({ audiobookId: 51, bookName: "Second" })], total },
+            ? { items: [pendingItem({ audiobookId: 1, bookName: "Still Here" })], total }
+            : { items: [pendingItem({ audiobookId: 1, bookName: "First" })], total },
         );
       }
-      // page === 2: the sole item on the final page, gone once rejected (100 items = pages 0-1
-      // only, so page 2 no longer exists).
+      // page === 1: the sole item on the final page, gone once rejected (50 items = page 0 only,
+      // so page 1 no longer exists - the pager itself disappears, not just "Previous" recovering).
       return Promise.resolve(
         rejected
           ? { items: [], total }
-          : { items: [pendingItem({ audiobookId: 101, bookName: "Last Book" })], total },
+          : { items: [pendingItem({ audiobookId: 51, bookName: "Last Book" })], total },
       );
     });
     vi.mocked(pendingOnlineMatchApi.reject).mockImplementation(() => {
@@ -205,20 +202,19 @@ describe("PendingOnlineMatches", () => {
     });
 
     renderPage();
-    // Wait for page 0 to render, then page to page 2.
+    // Wait for page 0 to render, then page to the final page.
     expect(await screen.findByText(/First/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /next/i }));
-    expect(await screen.findByText(/Second/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(await screen.findByText(/Last Book/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /reject/i }));
-    await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(101));
+    await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(51));
 
-    // Self-corrects to the clamped page (1) automatically - no further click needed - instead of
-    // being stuck showing zero rows for a page that no longer exists.
+    // Self-corrects to the clamped page (0) automatically - no further click needed, and no
+    // pager to click even if there were - instead of being stuck showing zero rows for a page
+    // that no longer exists.
     expect(await screen.findByText(/Still Here/, undefined, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByText("Pending (100)")).toBeInTheDocument();
+    expect(screen.getByText("Pending (50)")).toBeInTheDocument();
   });
 
   it("shows an error toast when reject fails", async () => {
