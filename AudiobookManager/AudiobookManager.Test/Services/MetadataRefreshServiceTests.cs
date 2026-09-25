@@ -473,6 +473,49 @@ public class MetadataRefreshServiceTests
         Assert.IsNotNull(captured);
         Assert.AreEqual("4.5", captured!.Rating);
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(300), Times.Once);
+        // Regression guard for the binding invariant "a book is removed from Pending/Failed Online
+        // Matches whenever it gets metadata refreshed from any location" - applying a pending
+        // metadata-refresh snapshot (this book's own Refresh Now, or a selected bulk online-match
+        // candidate that became this pending row) is one of those locations, and ApplyOneAsync is
+        // the single write path every apply entry point funnels through.
+        _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(300), Times.Once);
+    }
+
+    // Companion to the test above, isolating the cleanup call on its own rather than piggybacking
+    // on an existing scenario's assertions - a corrupt/unreadable row (ApplyPendingRefreshAsync_
+    // UnparseablePayload_ThrowsInsteadOfReturningFalse) and a book that no longer exists must NOT
+    // touch the online-match table, since nothing was actually resolved in either case.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_BookNoLongerExists_DoesNotDeletePendingOnlineMatchRow()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(999))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 999,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://example.com/book",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://example.com/book",
+                    "Audible",
+                    new List<string> { "A Person" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook>());
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(999);
+
+        Assert.IsFalse(applied);
+        _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     #endregion

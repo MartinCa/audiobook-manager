@@ -8,7 +8,12 @@ import { BookBulkActionBar } from "./BookBulkActionBar";
 import { useBookSelection, type SelectedBookInfo } from "@/hooks/useBookSelection";
 import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
-import { consistencyApi, metadataRefreshApi, operationsApi } from "@/services/api";
+import {
+  consistencyApi,
+  metadataRefreshApi,
+  operationsApi,
+  pendingOnlineMatchApi,
+} from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 
 vi.mock("@/lib/notifications", () => ({
@@ -33,6 +38,14 @@ vi.mock("@/services/api", async (importOriginal) => {
     consistencyApi: {
       ...actual.consistencyApi,
       checkSelected: vi.fn().mockResolvedValue(undefined),
+    },
+    pendingOnlineMatchApi: {
+      ...actual.pendingOnlineMatchApi,
+      startSearchSelected: vi.fn().mockResolvedValue(undefined),
+    },
+    metadataSearchApi: {
+      ...actual.metadataSearchApi,
+      getServices: vi.fn().mockResolvedValue([{ name: "Audible", enabled: true }]),
     },
   };
 });
@@ -163,6 +176,97 @@ describe("BookBulkActionBar", () => {
     });
   });
 
+  it("opens the source-picker dialog, confirms, and starts a selected online-match search with exactly the selected ids", async () => {
+    renderBar(books);
+    await screen.findByText("2 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Search Online Metadata" }));
+
+    const dialogTitle = await screen.findByText("Search Online Metadata", {
+      selector: "h2, [role=heading]",
+    });
+    expect(dialogTitle).toBeInTheDocument();
+    await screen.findByText("Audible");
+
+    fireEvent.click(screen.getByRole("button", { name: /start search/i }));
+
+    await waitFor(() => {
+      expect(pendingOnlineMatchApi.startSearchSelected).toHaveBeenCalledWith([1, 7], ["Audible"]);
+    });
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Searching online metadata for 2 books…");
+    });
+  });
+
+  it("toasts the error when the online-match search start is refused", async () => {
+    vi.mocked(pendingOnlineMatchApi.startSearchSelected).mockRejectedValueOnce(
+      new Error("An operation is already in progress."),
+    );
+    renderBar(books);
+    await screen.findByText("2 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Search Online Metadata" }));
+    await screen.findByText("Audible");
+    fireEvent.click(screen.getByRole("button", { name: /start search/i }));
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("An operation is already in progress.");
+    });
+  });
+
+  it("shows online-match search progress and on completion toasts, invalidates the pending-match views, and clears the selection", async () => {
+    const { invalidateSpy } = renderBar(books);
+    await screen.findByText("2 selected");
+
+    handlerFor(SignalREvents.PendingOnlineMatchSearchProgress)({
+      processed: 1,
+      total: 2,
+      succeeded: 1,
+      failed: 0,
+    } as never);
+    expect(await screen.findByText("Searching online metadata...")).toBeInTheDocument();
+
+    handlerFor(SignalREvents.PendingOnlineMatchSearchComplete)({
+      totalProcessed: 2,
+      total: 2,
+      totalSucceeded: 2,
+      totalFailed: 0,
+    } as never);
+
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith(
+        "Online metadata search complete: 2 searched",
+      );
+    });
+    expect(screen.queryByText("Searching online metadata...")).not.toBeInTheDocument();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.pendingOnlineMatch.all() });
+    // A search does not itself change any book field - the common-views invalidation
+    // (books/author/series/consistency/missing-tags) must not fire for it.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.books.all() });
+    // The results are on a separate review page now: the selection here is cleared.
+    await waitFor(() => {
+      expect(screen.queryByText("2 selected")).not.toBeInTheDocument();
+    });
+  });
+
+  it("warns when the online-match search completes with failures", async () => {
+    renderBar(books);
+    await screen.findByText("2 selected");
+
+    handlerFor(SignalREvents.PendingOnlineMatchSearchComplete)({
+      totalProcessed: 2,
+      total: 2,
+      totalSucceeded: 1,
+      totalFailed: 1,
+    } as never);
+
+    await waitFor(() => {
+      expect(notifications.warning).toHaveBeenCalledWith(
+        "Online metadata search complete: 1 searched, 1 failed",
+      );
+    });
+  });
+
   it("toasts the error when the refresh start is refused", async () => {
     vi.mocked(metadataRefreshApi.refreshSelected).mockRejectedValueOnce(
       new Error("An operation is already in progress."),
@@ -201,7 +305,13 @@ describe("BookBulkActionBar", () => {
     // Idle and empty, but the running operation keeps the bar mounted with progress.
     expect(await screen.findByText("Bulk editing books...")).toBeInTheDocument();
 
-    const actions = ["Refresh Metadata", "Check Consistency", "Edit Metadata", "Clear selection"];
+    const actions = [
+      "Refresh Metadata",
+      "Check Consistency",
+      "Edit Metadata",
+      "Search Online Metadata",
+      "Clear selection",
+    ];
     for (const name of actions) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }

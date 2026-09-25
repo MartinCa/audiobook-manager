@@ -256,9 +256,7 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
           `Online metadata search complete: ${data.totalSucceeded} searched, ${data.totalFailed} failed`,
         );
       } else {
-        notifications.success(
-          `Online metadata search complete: ${data.totalSucceeded} searched`,
-        );
+        notifications.success(`Online metadata search complete: ${data.totalSucceeded} searched`);
       }
       // Books themselves are unchanged by a search - only the pending-match lists need to
       // refresh, not the book/author/series/consistency views invalidateCommonViews covers.

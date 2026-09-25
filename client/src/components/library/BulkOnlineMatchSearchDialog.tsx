@@ -63,8 +63,8 @@ export function BulkOnlineMatchSearchDialog({
         <div className="space-y-4 py-2 text-xs">
           <p className="text-muted-foreground">
             Searches {bookCount} selected {bookCount === 1 ? "book" : "books"} across the chosen
-            sources in the background. Review the results on the Pending Online Matches page once
-            it finishes.
+            sources in the background. Review the results on the Pending Online Matches page once it
+            finishes.
           </p>
 
           <MetadataSourceSelector

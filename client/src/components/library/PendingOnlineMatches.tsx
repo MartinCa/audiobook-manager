@@ -254,7 +254,10 @@ export function PendingOnlineMatches() {
                   variant="ghost"
                   size="sm"
                   render={
-                    <Link to="/library/book/$bookId" params={{ bookId: String(item.audiobookId) }} />
+                    <Link
+                      to="/library/book/$bookId"
+                      params={{ bookId: String(item.audiobookId) }}
+                    />
                   }
                 >
                   View
