@@ -49,7 +49,7 @@ describe("TagPreviewDialog", () => {
     expect(screen.getByText("New Author")).toBeInTheDocument();
   });
 
-  it("calls onApply with all keys when Apply All is clicked", () => {
+  it("calls onApply with all keys and saveImmediately=true when Apply All is clicked", () => {
     const onApply = vi.fn();
 
     renderWithQuery(
@@ -62,13 +62,65 @@ describe("TagPreviewDialog", () => {
       />,
     );
 
+    // Without showAutoSaveToggle (the pending-refresh snapshot flow), the label is unchanged
+    // ("Apply All"), but onApply still reports saveImmediately=true - that flow always saves.
     const applyAllBtn = screen.getByText("Apply All");
     fireEvent.click(applyAllBtn);
 
     expect(onApply).toHaveBeenCalledTimes(1);
-    const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    const [, appliedKeys, saveImmediately] = onApply.mock.calls[0] as [
+      MetadataSearchResult,
+      Set<string>,
+      boolean,
+    ];
     expect(appliedKeys.has("bookName")).toBe(true);
     expect(appliedKeys.has("authors")).toBe(true);
+    expect(saveImmediately).toBe(true);
+  });
+
+  it("defaults the auto-save toggle to off and lets it opt out of saving on each fresh flow", () => {
+    const onApply = vi.fn();
+    const { unmount } = renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={searchResult}
+        onApply={onApply}
+        showAutoSaveToggle
+      />,
+    );
+
+    // Default: toggle off, Apply saves immediately.
+    expect(screen.getByText("Apply & Save All")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("checkbox", { name: "Don't save automatically" });
+    fireEvent.click(toggle);
+    expect(screen.getByText("Apply All")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Apply All"));
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [, , saveImmediately] = onApply.mock.calls[0] as [
+      MetadataSearchResult,
+      Set<string>,
+      boolean,
+    ];
+    expect(saveImmediately).toBe(false);
+    unmount();
+
+    // A fresh mount of the dialog (a new flow) must not remember the previous flow's toggle
+    // state — it starts back at the default (off = save immediately).
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={searchResult}
+        onApply={() => {}}
+        showAutoSaveToggle
+      />,
+    );
+    expect(screen.getByText("Apply & Save All")).toBeInTheDocument();
   });
 
   it("displays normalized language name in preview diff", () => {
@@ -103,7 +155,7 @@ describe("TagPreviewDialog", () => {
       />,
     );
 
-    const applySelectedBtn = screen.getByRole("button", { name: /apply selected/i });
+    const applySelectedBtn = screen.getByRole("button", { name: /selected/i });
     fireEvent.click(applySelectedBtn);
 
     expect(onApply).toHaveBeenCalledTimes(1);
@@ -124,7 +176,7 @@ describe("TagPreviewDialog", () => {
       />,
     );
 
-    const applySelectedBtn = screen.getByRole("button", { name: /apply selected/i });
+    const applySelectedBtn = screen.getByRole("button", { name: /selected/i });
     fireEvent.click(applySelectedBtn);
 
     expect(onApply).toHaveBeenCalledTimes(1);

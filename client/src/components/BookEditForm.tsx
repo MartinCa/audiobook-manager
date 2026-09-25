@@ -158,6 +158,19 @@ export interface BookEditFormProps {
    * check never prevents a save.
    */
   currentBookId?: number;
+  /**
+   * Opens the "Search Online Metadata" dialog once, on mount — set by BookDetail when the search
+   * flow was launched from the read-only view page (the view page has no BookSearchDialog of its
+   * own; it navigates here and asks the freshly-mounted form to open it).
+   */
+  autoOpenSearchDialog?: boolean;
+  /**
+   * Fires synchronously, before the auto-submit, the moment a search result is applied with the
+   * auto-save toggle left off (see TagPreviewDialog's showAutoSaveToggle). BookDetail uses this to
+   * know a save it's about to observe complete was this direct-apply flow, so it can navigate back
+   * to the view page once the save finishes — a plain manual edit/save never fires this.
+   */
+  onAutoSaveFromSearch?: () => void;
 }
 
 export function BookEditForm({
@@ -179,10 +192,25 @@ export function BookEditForm({
   pendingRefreshOpen,
   onPendingRefreshOpenChange,
   currentBookId,
+  autoOpenSearchDialog = false,
+  onAutoSaveFromSearch,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
+  // derives it from the route's search params, which can settle a render or two after this form
+  // itself mounts (the router commits the path and the validated search separately) - a
+  // mount-only effect would catch it as false and never open the dialog. The ref makes it
+  // one-shot regardless: once fired, a later parent re-render (or the value flickering) must not
+  // reopen a dialog the user already closed.
+  const autoOpenedSearchDialogRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenSearchDialog && !autoOpenedSearchDialogRef.current) {
+      autoOpenedSearchDialogRef.current = true;
+      setSearchDialogOpen(true);
+    }
+  }, [autoOpenSearchDialog]);
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
 
@@ -462,6 +490,24 @@ export function BookEditForm({
     handleApplyPreviewedTags(result, selectedFields);
     pendingRefreshAppliedRef.current = true;
     void form.handleSubmit(handleValidSubmit)();
+  };
+
+  // The interactive "Search Online Metadata" flow's own apply step: unlike the pending-refresh
+  // snapshot above, this one offers the "don't save automatically" opt-out (TagPreviewDialog's
+  // showAutoSaveToggle), so whether it auto-submits depends on that toggle's state at apply time.
+  // When it does auto-submit, onAutoSaveFromSearch fires first so the caller (BookDetail) can
+  // recognize the save it's about to observe complete as this direct-apply flow.
+  const handleApplySearchResult = (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+    saveImmediately: boolean,
+  ) => {
+    if (selectedFields.size === 0) return;
+    handleApplyPreviewedTags(result, selectedFields);
+    if (saveImmediately) {
+      onAutoSaveFromSearch?.();
+      void form.handleSubmit(handleValidSubmit)();
+    }
   };
 
   const handleReset = () => {
@@ -817,7 +863,8 @@ export function BookEditForm({
           onOpenChange={setTagPreviewOpen}
           currentInput={currentOrganizeInput}
           searchResult={pendingSearchResult}
-          onApply={handleApplyPreviewedTags}
+          onApply={handleApplySearchResult}
+          showAutoSaveToggle
         />
       )}
 

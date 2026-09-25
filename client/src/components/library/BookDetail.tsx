@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Loader2,
   Pencil,
+  Search,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +75,15 @@ export function BookDetail({ mode }: BookDetailProps) {
   // mode is derived from the matched path instead. The prop stays as an explicit override for
   // direct renders/tests.
   const isEditMode = (mode ?? (pathname.endsWith("/edit") ? "edit" : "view")) === "edit";
+  // Only the edit route declares this search param; `strict: false` reads whatever the currently
+  // matched route validated instead of requiring this component to be mounted under one specific
+  // route (BookDetail backs both /library/book/$bookId and its /edit sibling).
+  const { openSearch } = useSearch({ strict: false });
+  // Armed by BookEditForm's onAutoSaveFromSearch the instant a "Search Online Metadata" apply
+  // auto-saves (the default, opt-out toggle left off) — tells the AudiobookSaveComplete handler
+  // below to route back to the view page once that save lands, matching the read-only page's
+  // search entry point round-tripping back once metadata is applied directly.
+  const returnToViewAfterSaveRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -150,6 +160,10 @@ export function BookDetail({ mode }: BookDetailProps) {
         setPendingApplied(false);
         void metadataRefreshApi.dismissPending(id).catch(() => {});
       }
+      if (returnToViewAfterSaveRef.current) {
+        returnToViewAfterSaveRef.current = false;
+        void navigate({ to: "/library/book/$bookId", params: { bookId } });
+      }
     }
   });
 
@@ -160,6 +174,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       // The save that carried an applied pending-refresh snapshot failed, so there is nothing
       // to dismiss — clear the arm so a later unrelated save can't dismiss it either.
       setPendingApplied(false);
+      // Same reasoning: a failed save leaves nothing to return to the view page for, and the
+      // user needs to stay on the edit page to see why it failed.
+      returnToViewAfterSaveRef.current = false;
       notifications.error(`Save error: ${payload.error}`);
     }
   });
@@ -390,6 +407,23 @@ export function BookDetail({ mode }: BookDetailProps) {
             </Button>
           )}
 
+          {!isEditMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void navigate({
+                  to: "/library/book/$bookId/edit",
+                  params: { bookId },
+                  search: { openSearch: true },
+                })
+              }
+            >
+              <Search className="mr-1.5 h-4 w-4" />
+              Search Online Metadata
+            </Button>
+          )}
+
           {isEditMode ? (
             <Button
               size="sm"
@@ -484,6 +518,10 @@ export function BookDetail({ mode }: BookDetailProps) {
                   pendingRefreshOpen={pendingOpen}
                   onPendingRefreshOpenChange={setPendingOpen}
                   currentBookId={id}
+                  autoOpenSearchDialog={openSearch === true}
+                  onAutoSaveFromSearch={() => {
+                    returnToViewAfterSaveRef.current = true;
+                  }}
                 />
               </CardContent>
             </Card>

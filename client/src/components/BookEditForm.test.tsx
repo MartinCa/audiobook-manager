@@ -266,7 +266,7 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // The bulk-applied author never goes through TagsInput's own draft-entry flow, so this only
@@ -279,7 +279,7 @@ describe("BookEditForm", () => {
 
   // The applied-search signal is bookkeeping the backend stamps LastMetadataRefreshedAt from:
   // it must ride exactly the save that carried the applied search result, and nothing else.
-  it("sends metadataAppliedFromSearch with a save that follows applying a search result, then clears it for the next save", async () => {
+  it("sends metadataAppliedFromSearch with the auto-save that follows applying a search result, then clears it for the next save", async () => {
     const { metadataSearchApi } = await import("@/services/api");
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
@@ -305,7 +305,8 @@ describe("BookEditForm", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].metadataAppliedFromSearch).toBe(false);
 
-    // Apply a search result, then save - this save carries the signal.
+    // Apply a search result — with the auto-save opt-out toggle left at its default (off), this
+    // saves immediately, with no separate manual Save click.
     fireEvent.click(screen.getByText("Search Online Metadata"));
     const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
     fireEvent.change(searchInput, { target: { value: "Scraped" } });
@@ -313,10 +314,9 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1]?.[0].metadataAppliedFromSearch).toBe(true);
     expect(onSave.mock.calls[1]?.[0].bookName).toBe("Scraped Book");
@@ -325,6 +325,67 @@ describe("BookEditForm", () => {
     fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(3));
     expect(onSave.mock.calls[2]?.[0].metadataAppliedFromSearch).toBe(false);
+  });
+
+  // The auto-save toggle is the opt-out for the new default behavior (item 1): checking it means
+  // "just apply to the edit form for review, like before" - and it must default to off (i.e. save
+  // immediately) on every fresh apply flow, never remembering a previous flow's choice.
+  it("does not auto-save when the don't-save-automatically toggle is checked, and defaults back to off on the next flow", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    // Two distinct result objects (not the same mockResolvedValue reused): TagPreviewDialog resets
+    // its toggle by comparing the incoming searchResult against the last one it saw, so the test
+    // needs a second flow whose result is a genuinely different object, matching what a real
+    // second search response would be.
+    const scrapedResult = {
+      url: "https://audible.com/pd/B09KDG66KL",
+      cleanUrl: "https://audible.com/pd/B09KDG66KL",
+      source: "Audible",
+      bookName: "Scraped Book",
+      authors: [{ name: "Jane Author" }],
+      narrators: [],
+      series: [],
+      genres: [],
+    };
+    vi.mocked(metadataSearchApi.searchMultiple)
+      .mockResolvedValueOnce({ results: [scrapedResult], sourceStatuses: [] })
+      .mockResolvedValueOnce({ results: [{ ...scrapedResult }], sourceStatuses: [] });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    let searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    let applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    // Opt out of auto-save for this flow.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // Fields are populated, but nothing was saved.
+    expect(await screen.findByDisplayValue("Scraped Book")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    // A manual save is still required, and still carries the applied-search signal.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].metadataAppliedFromSearch).toBe(true);
+
+    // A new flow must not remember the previous one's toggle state: this Apply & Save All click
+    // saves immediately again, with no toggle interaction.
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const secondApplyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(secondApplyAllButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
   });
 
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
@@ -415,16 +476,15 @@ describe("BookEditForm", () => {
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
 
-    // Tag preview dialog opens, click Apply All
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Tag preview dialog opens; Apply & Save All applies the fields and, since the auto-save
+    // toggle is off by default, saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // Language should be normalized to English (code: en)
     expect(await screen.findByText("English")).toBeInTheDocument();
     expect(screen.queryByText("english (unrecognized)")).not.toBeInTheDocument();
 
-    // Submit form and verify saved structure
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const saved = onSave.mock.calls[0]?.[0] as Audiobook;
     expect(saved.language).toBe("en");
@@ -636,7 +696,7 @@ describe("BookEditForm", () => {
     fireEvent.submit(searchInput.closest("form")!);
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     expect(
@@ -759,13 +819,14 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // The narrator chip is gone; the field, now empty, collapses back under "additional fields".
     await waitFor(() => expect(screen.queryByText("Michael Kramer")).not.toBeInTheDocument());
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].narrators).toEqual([]);
   });
@@ -807,7 +868,9 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     await waitFor(() =>
@@ -815,7 +878,6 @@ describe("BookEditForm", () => {
     );
     expect(screen.getByPlaceholderText("Series name")).toHaveValue("");
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].series).toBeUndefined();
     expect(onSave.mock.calls[0]?.[0].seriesPart).toBeUndefined();
@@ -858,14 +920,15 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     await waitFor(() =>
       expect(screen.queryByDisplayValue("A Great Subtitle")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].subtitle).toBeUndefined();
   });
@@ -1002,5 +1065,107 @@ describe("BookEditForm", () => {
     // deterministic - not a fixed-sleep race.
     const { audiobookApi } = await import("@/services/api");
     expect(audiobookApi.getSeriesPartConflicts).not.toHaveBeenCalled();
+  });
+
+  it("opens the search dialog on mount when autoOpenSearchDialog is set", async () => {
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} autoOpenSearchDialog />,
+    );
+
+    expect(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not open the search dialog on mount when autoOpenSearchDialog is unset", () => {
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    expect(
+      screen.queryByPlaceholderText("Search title, author, or paste URL..."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("calls onAutoSaveFromSearch right before the auto-submit when a search result auto-saves", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onAutoSaveFromSearch = vi.fn();
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={onSave}
+        onAutoSaveFromSearch={onAutoSaveFromSearch}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    expect(onAutoSaveFromSearch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not call onAutoSaveFromSearch when the don't-save-automatically toggle is checked", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onAutoSaveFromSearch = vi.fn();
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={onSave}
+        onAutoSaveFromSearch={onAutoSaveFromSearch}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    expect(await screen.findByDisplayValue("Scraped Book")).toBeInTheDocument();
+    expect(onAutoSaveFromSearch).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });
