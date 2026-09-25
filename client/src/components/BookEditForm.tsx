@@ -167,6 +167,13 @@ export interface BookEditFormProps {
    * own; it navigates here and asks the freshly-mounted form to open it).
    */
   autoOpenSearchDialog?: boolean;
+  /**
+   * Reports whether the form currently has unsaved changes (react-hook-form's own dirty tracking,
+   * plus the cover - a separate piece of local state react-hook-form doesn't see). The caller
+   * (BookDetail) uses this to show its own "unsaved changes" indicator next to the Done button
+   * and to warn before navigating away.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function BookEditForm({
@@ -189,6 +196,7 @@ export function BookEditForm({
   onPendingRefreshOpenChange,
   currentBookId,
   autoOpenSearchDialog = false,
+  onDirtyChange,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
   // Mirrors `cover` for synchronous reads. `handleValidSubmit` is invoked via
@@ -219,6 +227,13 @@ export function BookEditForm({
   }, [autoOpenSearchDialog]);
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
+  // The cover isn't a react-hook-form field, so its own dirty tracking has to compare against the
+  // last-known-saved cover directly - state (not just initialBook.cover) so a successful save
+  // updates the baseline without needing the caller to pass a fresh initialBook prop back down.
+  // Read during render (for isDirty below), so it has to be state rather than a ref.
+  const [lastSavedCover, setLastSavedCover] = useState<AudiobookImage | undefined>(
+    initialBook.cover,
+  );
 
   const form = useForm<BookEditFormValues>({
     resolver: zodResolver(bookEditFormSchema),
@@ -232,6 +247,17 @@ export function BookEditForm({
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
 
   const watchedValues = useWatch({ control: form.control });
+
+  const coverIsDirty =
+    cover?.base64Data !== lastSavedCover?.base64Data ||
+    cover?.mimeType !== lastSavedCover?.mimeType;
+  const isDirty = form.formState.isDirty || coverIsDirty;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+    // onDirtyChange is expected to be a stable setState-style callback from the caller; only the
+    // dirty value itself should retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   // Advisory series-part conflict check: does another book already carry this (series, part)?
   // Server-backed and bounded (per-book, part-equivalence applied server-side, capped result).
@@ -498,6 +524,11 @@ export function BookEditForm({
 
   const handleValidSubmit = async (values: BookEditFormValues) => {
     setSaving(true);
+    // Captured synchronously, before the await below - fields stay editable while the save is
+    // in flight (nothing disables the inputs during the request), so reading form.getValues()
+    // again *after* the await would pick up an edit made during that window and clear isDirty
+    // for a change that was never actually sent. This snapshot is exactly what was submitted.
+    const submittedRawValues = form.getValues();
     try {
       await onSave(
         buildAudiobook(
@@ -512,9 +543,21 @@ export function BookEditForm({
       // All three signals are one-shot: they must ride exactly the save that carried the applied
       // result. A later plain edit of the same book must not re-stamp the refresh timestamp,
       // re-arm the pending-snapshot dismiss flow, or re-arm the return-to-view flow.
+      autoSavedFromSearchRef.current = false;
       metadataAppliedFromSearchRef.current = false;
       pendingRefreshAppliedRef.current = false;
-      autoSavedFromSearchRef.current = false;
+      // The just-submitted values are now the saved baseline: reset react-hook-form's dirty
+      // tracking against them and move the cover's own baseline forward the same way, so the
+      // unsaved-changes indicator and navigation guard clear immediately rather than staying
+      // armed against the pre-save values until the caller's data refetches and remounts the
+      // form. Reset against the captured raw values, not the zod-resolved `values` - the schema
+      // trims bookName/year, so resetting against the trimmed values while the display keeps
+      // untrimmed input (e.g. trailing whitespace the user typed) would make isDirty recompute
+      // true immediately after a successful save. Same reasoning for coverRef.current over the
+      // `cover` state variable: this closure can be stale the same way the pre-fix buildAudiobook
+      // call above this block was - coverRef is what's synchronously current.
+      form.reset(submittedRawValues, { keepValues: true });
+      setLastSavedCover(coverRef.current);
     } finally {
       setSaving(false);
     }
@@ -575,6 +618,7 @@ export function BookEditForm({
   const handleReset = () => {
     form.reset(valuesFromBook(initialBook));
     updateCover(initialBook.cover);
+    setLastSavedCover(initialBook.cover);
     setShowAllOptionalFields(false);
     metadataAppliedFromSearchRef.current = false;
     pendingRefreshAppliedRef.current = false;
@@ -900,6 +944,12 @@ export function BookEditForm({
         </div>
 
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+          {isDirty && !saving && !isSaving && (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Unsaved changes
+            </span>
+          )}
           {formActions || (
             <Button type="submit" disabled={saving || isSaving} className="w-full sm:w-auto">
               {saving || isSaving ? (
