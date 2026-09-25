@@ -2873,6 +2873,236 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pending-online-match/search-selected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkOnlineMatchSearchDto"];
+                    "text/json": components["schemas"]["BulkOnlineMatchSearchDto"];
+                    "application/*+json": components["schemas"]["BulkOnlineMatchSearchDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending-online-match/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PendingOnlineMatchPageDto"];
+                        "application/json": components["schemas"]["PendingOnlineMatchPageDto"];
+                        "text/json": components["schemas"]["PendingOnlineMatchPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending-online-match/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PendingOnlineMatchPageDto"];
+                        "application/json": components["schemas"]["PendingOnlineMatchPageDto"];
+                        "text/json": components["schemas"]["PendingOnlineMatchPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending-online-match/{id}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SelectOnlineMatchResultDto"];
+                    "text/json": components["schemas"]["SelectOnlineMatchResultDto"];
+                    "application/*+json": components["schemas"]["SelectOnlineMatchResultDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending-online-match/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pending-online-match/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/books": {
         parameters: {
             query?: never;
@@ -5303,6 +5533,10 @@ export interface components {
             /** Format: date-time */
             olderThanUtc?: string | null;
         };
+        BulkOnlineMatchSearchDto: {
+            audiobookIds: number[];
+            sourceNames: string[];
+        };
         BulkSelectionDto: {
             audiobookIds: number[];
         };
@@ -5618,6 +5852,21 @@ export interface components {
             /** Format: int32 */
             total?: number;
         };
+        PendingOnlineMatchListItemDto: {
+            /** Format: int64 */
+            audiobookId?: number;
+            bookName?: string | null;
+            authors?: string[] | null;
+            /** Format: date-time */
+            searchedAt?: string;
+            sourceNames?: string[] | null;
+            results?: components["schemas"]["PendingRefreshSnapshotDto"][] | null;
+        };
+        PendingOnlineMatchPageDto: {
+            items?: components["schemas"]["PendingOnlineMatchListItemDto"][] | null;
+            /** Format: int32 */
+            total?: number;
+        };
         PendingRefreshSnapshotDto: {
             url?: string | null;
             source?: string | null;
@@ -5660,6 +5909,10 @@ export interface components {
             lastRunStatus?: string | null;
             /** Format: date-time */
             nextRunAt?: string | null;
+        };
+        SelectOnlineMatchResultDto: {
+            /** Format: int32 */
+            resultIndex?: number;
         };
         SeriesBookCandidateDto: {
             /** Format: int64 */

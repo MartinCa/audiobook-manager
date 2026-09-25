@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Info,
   CalendarClock,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +55,8 @@ export function RootLayout() {
     pathname.startsWith("/library/missing-tags") ||
     pathname.startsWith("/library/metadata-refresh") ||
     pathname.startsWith("/library/similar-values") ||
-    pathname.startsWith("/library/clean-urls");
+    pathname.startsWith("/library/clean-urls") ||
+    pathname.startsWith("/library/pending-online-match");
 
   const isSettingsActive =
     pathname === "/settings" ||
@@ -185,6 +187,15 @@ export function RootLayout() {
                   >
                     <Link2 className="text-primary mr-2 h-4 w-4" />
                     <span>Clean Book URLs</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/pending-online-match" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <Search className="text-primary mr-2 h-4 w-4" />
+                    <span>Pending Online Matches</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -380,6 +391,15 @@ export function RootLayout() {
                   >
                     <Link2 className="text-primary mr-2 h-4 w-4" />
                     <span>Clean Book URLs</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void navigate({ to: "/library/pending-online-match" });
+                    }}
+                    className="cursor-pointer text-xs"
+                  >
+                    <Search className="text-primary mr-2 h-4 w-4" />
+                    <span>Pending Online Matches</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 

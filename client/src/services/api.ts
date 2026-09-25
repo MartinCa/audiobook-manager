@@ -33,6 +33,7 @@ import type { MetadataSearchServiceInfo } from "@/types/MetadataSearchServiceInf
 import type { AudiobookMissingTagsPage, MissingTagField } from "@/types/MissingTag";
 import type { OperationStatus } from "@/types/OperationStatus";
 import type { OrphanDirectory, OrphanDirectoryResolveResult } from "@/types/OrphanDirectory";
+import type { PendingOnlineMatchPage } from "@/types/PendingOnlineMatch";
 import type {
   ApplyMissingBookSelection,
   SeriesBookCandidate,
@@ -571,6 +572,32 @@ export const metadataRefreshApi = {
   // source. No SignalR progress - it never touches a scraper, so it runs and returns in one call.
   reevaluatePending: () =>
     api.post<MetadataRefreshReevaluateResult>("/metadata-refresh/reevaluate", undefined),
+};
+
+// Bulk online-metadata search: fan out a search across the selected sources for many books at
+// once, and process the results as two paged lists (Pending / Failed-Rejected).
+export const pendingOnlineMatchApi = {
+  // Fire-and-forget: starts the background bulk search. Progress/completion arrive over SignalR
+  // (PendingOnlineMatchSearchProgress/Complete) and GET /operations/pending-online-match-search/
+  // status, which the page recovers from via useOperationResync.
+  startSearchSelected: (audiobookIds: number[], sourceNames: string[]) =>
+    api.post<void>("/pending-online-match/search-selected", { audiobookIds, sourceNames }),
+
+  // Paged server-side (bounded-list invariant), one list per status.
+  getPendingPage: (page: number, pageSize: number) =>
+    api.get<PendingOnlineMatchPage>("/pending-online-match/pending", { query: { page, pageSize } }),
+
+  getFailedPage: (page: number, pageSize: number) =>
+    api.get<PendingOnlineMatchPage>("/pending-online-match/failed", { query: { page, pageSize } }),
+
+  // Synchronous single-book action: fetches full details for the chosen candidate and hands them
+  // to the normal pending metadata-refresh review/apply flow; the book's row here is resolved.
+  selectResult: (id: number, resultIndex: number) =>
+    api.post<void>(`/pending-online-match/${id}/select`, { resultIndex }),
+
+  reject: (id: number) => api.post<void>(`/pending-online-match/${id}/reject`, undefined),
+
+  dismiss: (id: number) => api.delete<void>(`/pending-online-match/${id}`),
 };
 
 // Url cleanup

@@ -22,6 +22,7 @@ public class AudiobookServiceTests
     private Mock<IPersonRepository> _personRepository = null!;
     private Mock<IGenreRepository> _genreRepository = null!;
     private Mock<IBookConsistencyIssueRepository> _issueRepository = null!;
+    private Mock<IPendingOnlineMatchRepository> _pendingOnlineMatchRepository = null!;
     private Mock<ILogger<AudiobookService>> _logger = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private SeriesReconciliationCache _reconciliationCache = null!;
@@ -37,6 +38,7 @@ public class AudiobookServiceTests
         _personRepository = new Mock<IPersonRepository>();
         _genreRepository = new Mock<IGenreRepository>();
         _issueRepository = new Mock<IBookConsistencyIssueRepository>();
+        _pendingOnlineMatchRepository = new Mock<IPendingOnlineMatchRepository>();
         _logger = new Mock<ILogger<AudiobookService>>();
         _settings = Options.Create(new AudiobookManagerSettings
         {
@@ -53,6 +55,7 @@ public class AudiobookServiceTests
             _personRepository.Object,
             _genreRepository.Object,
             _issueRepository.Object,
+            _pendingOnlineMatchRepository.Object,
             _reconciliationCache,
             _logger.Object);
     }
@@ -304,6 +307,7 @@ public class AudiobookServiceTests
             _personRepository.Object,
             _genreRepository.Object,
             _issueRepository.Object,
+            _pendingOnlineMatchRepository.Object,
             _reconciliationCache,
             _logger.Object);
     }
@@ -1272,6 +1276,62 @@ public class AudiobookServiceTests
         await _service.UpdateAudiobook(1, updateDto);
 
         _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(It.IsAny<long>(), It.IsAny<DateTime?>()), Times.Never);
+    }
+
+    // Regression guard for the binding invariant "a book is removed from Pending/Failed Online
+    // Matches whenever it gets metadata refreshed from any location" - the interactive
+    // search-and-apply flow (metadataAppliedFromSearch: true) is one of those locations.
+    [TestMethod]
+    public async Task UpdateAudiobook_MetadataAppliedFromSearch_DeletesAnyPendingOnlineMatchRow()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        await _service.UpdateAudiobook(1, updateDto, null, true);
+
+        _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(1), Times.Once);
+    }
+
+    // Companion to the test above: a plain edit (metadataAppliedFromSearch: false, the overload
+    // every other caller - consistency resolves, similar-value alignment - uses) must NOT touch
+    // the online-match table, since nothing about it came from an online source.
+    [TestMethod]
+    public async Task UpdateAudiobook_WithoutMetadataAppliedFromSearch_DoesNotDeletePendingOnlineMatchRow()
+    {
+        SetupUpdateAudiobookTest();
+
+        var author = new Person("Same Author");
+        var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+        var expectedPath = _service.GenerateLibraryPath(probe);
+
+        var existing = CreateExistingDbAudiobook(1, expectedPath);
+        existing.BookName = "Same Book";
+        existing.Authors = new List<DbPerson> { new DbPerson(1, "Same Author") };
+        SetupCommonRepositoryMocks(1, existing);
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var updateDto = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        await _service.UpdateAudiobook(1, updateDto);
+
+        _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     [TestMethod]

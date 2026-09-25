@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ListChecks, Pencil, RefreshCw, X } from "lucide-react";
+import { ListChecks, Pencil, RefreshCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { BulkBookEditDialog } from "./BulkBookEditDialog";
-import { consistencyApi, metadataRefreshApi } from "@/services/api";
+import { BulkOnlineMatchSearchDialog } from "./BulkOnlineMatchSearchDialog";
+import { consistencyApi, metadataRefreshApi, pendingOnlineMatchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -59,6 +60,20 @@ interface CheckCompletePayload {
   scope: "library" | "selected";
 }
 
+interface OnlineMatchSearchProgressPayload {
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
+interface OnlineMatchSearchCompletePayload {
+  totalProcessed: number;
+  total: number;
+  totalSucceeded: number;
+  totalFailed: number;
+}
+
 export interface BookBulkActionBarProps {
   selection: BookSelection;
 }
@@ -75,10 +90,16 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   const [bulkEditProgress, setBulkEditProgress] = useState<BulkEditProgressPayload | null>(null);
   const [refreshProgress, setRefreshProgress] = useState<RefreshProgressPayload | null>(null);
   const [checkProgress, setCheckProgress] = useState<CheckProgressPayload | null>(null);
+  const [onlineMatchSearchProgress, setOnlineMatchSearchProgress] =
+    useState<OnlineMatchSearchProgressPayload | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [onlineMatchSearchOpen, setOnlineMatchSearchOpen] = useState(false);
 
   const anyOperationRunning =
-    bulkEditProgress !== null || refreshProgress !== null || checkProgress !== null;
+    bulkEditProgress !== null ||
+    refreshProgress !== null ||
+    checkProgress !== null ||
+    onlineMatchSearchProgress !== null;
 
   const invalidateCommonViews = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
@@ -144,6 +165,21 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     },
   );
 
+  const invalidateOnlineMatchSearch = useOperationResync(
+    OperationKeys.pendingOnlineMatchSearch,
+    (status) => {
+      if (status.isRunning) {
+        setOnlineMatchSearchProgress((prev) =>
+          prev && prev.total > 0
+            ? prev
+            : { processed: status.processed, total: status.total, succeeded: 0, failed: 0 },
+        );
+      } else {
+        setOnlineMatchSearchProgress(null);
+      }
+    },
+  );
+
   useSignalREvent<BulkEditProgressPayload>(SignalREvents.BulkEditProgress, (data) => {
     invalidateBulkEdit();
     setBulkEditProgress(data);
@@ -202,6 +238,33 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     invalidateCommonViews();
   });
 
+  useSignalREvent<OnlineMatchSearchProgressPayload>(
+    SignalREvents.PendingOnlineMatchSearchProgress,
+    (data) => {
+      invalidateOnlineMatchSearch();
+      setOnlineMatchSearchProgress(data);
+    },
+  );
+
+  useSignalREvent<OnlineMatchSearchCompletePayload>(
+    SignalREvents.PendingOnlineMatchSearchComplete,
+    (data) => {
+      invalidateOnlineMatchSearch();
+      setOnlineMatchSearchProgress(null);
+      if (data.totalFailed > 0) {
+        notifications.warning(
+          `Online metadata search complete: ${data.totalSucceeded} searched, ${data.totalFailed} failed`,
+        );
+      } else {
+        notifications.success(`Online metadata search complete: ${data.totalSucceeded} searched`);
+      }
+      // Books themselves are unchanged by a search - only the pending-match lists need to
+      // refresh, not the book/author/series/consistency views invalidateCommonViews covers.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pendingOnlineMatch.all() });
+      selection.clear();
+    },
+  );
+
   const handleRefresh = async () => {
     const ids = selection.selectedBooks.map((b) => b.id);
     try {
@@ -217,6 +280,16 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
     try {
       await consistencyApi.checkSelected(ids);
       notifications.success(`Consistency check started for ${selection.count} books`);
+    } catch (err: unknown) {
+      notifications.error(handleApiError(err).message);
+    }
+  };
+
+  const handleStartOnlineMatchSearch = async (sourceNames: string[]) => {
+    const ids = selection.selectedBooks.map((b) => b.id);
+    try {
+      await pendingOnlineMatchApi.startSearchSelected(ids, sourceNames);
+      notifications.success(`Searching online metadata for ${selection.count} books…`);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     }
@@ -279,6 +352,15 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
               Edit Metadata
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              disabled={anyOperationRunning}
+              onClick={() => setOnlineMatchSearchOpen(true)}
+            >
+              <Search className="mr-1.5 h-3.5 w-3.5" />
+              Search Online Metadata
+            </Button>
+            <Button
               variant="ghost"
               size="sm"
               disabled={anyOperationRunning}
@@ -323,6 +405,15 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
               label={`${checkProgress.message || "Checking consistency..."} (${checkProgress.issuesFound} issues found)`}
             />
           )}
+          {onlineMatchSearchProgress && (
+            <OperationProgressBar
+              compact
+              processed={onlineMatchSearchProgress.processed}
+              total={onlineMatchSearchProgress.total}
+              label="Searching online metadata..."
+              subText={`${onlineMatchSearchProgress.succeeded} searched, ${onlineMatchSearchProgress.failed} failed`}
+            />
+          )}
         </div>
       )}
 
@@ -330,6 +421,15 @@ export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
         open={bulkEditOpen}
         onOpenChange={setBulkEditOpen}
         selectedBooks={selection.selectedBooks}
+      />
+
+      <BulkOnlineMatchSearchDialog
+        open={onlineMatchSearchOpen}
+        onOpenChange={setOnlineMatchSearchOpen}
+        bookCount={selection.count}
+        onConfirm={(sourceNames) => {
+          void handleStartOnlineMatchSearch(sourceNames);
+        }}
       />
     </>
   );

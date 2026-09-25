@@ -32,6 +32,12 @@ export const queryKeys = {
     pendingSummary: () => ["metadataRefresh", "pending-summary"] as const,
   },
 
+  pendingOnlineMatch: {
+    all: () => ["pendingOnlineMatch"] as const,
+    pendingPage: (page: number) => ["pendingOnlineMatch", "pending", page] as const,
+    failedPage: (page: number) => ["pendingOnlineMatch", "failed", page] as const,
+  },
+
   librarySettings: () => ["librarySettings"] as const,
 
   scheduledTasks: () => ["scheduledTasks"] as const,

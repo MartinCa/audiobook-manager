@@ -93,4 +93,29 @@ public static class PendingRefreshPayload
             return null;
         }
     }
+
+    /// <summary>
+    /// Builds a snapshot from a scraper result - the one place that maps
+    /// <see cref="Scraping.Models.MetadataSearchResult"/> onto this stored shape, shared by every
+    /// writer (a book's own-URL refresh, and a bulk online-match candidate) so they cannot drift.
+    /// </summary>
+    public static Snapshot FromSearchResult(Scraping.Models.MetadataSearchResult fetched) => new(
+        CurrentVersion,
+        fetched.CleanUrl,
+        fetched.Source,
+        fetched.Authors.Select(a => a.Name).ToList(),
+        fetched.Narrators.Select(n => n.Name).ToList(),
+        fetched.BookName,
+        fetched.Subtitle,
+        fetched.Series?.FirstOrDefault()?.SeriesName,
+        fetched.Series?.FirstOrDefault()?.SeriesPart,
+        fetched.Year,
+        fetched.Genres.ToList(),
+        fetched.Description,
+        fetched.Language,
+        fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        fetched.Copyright,
+        fetched.Publisher,
+        fetched.Asin,
+        fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName);
 }

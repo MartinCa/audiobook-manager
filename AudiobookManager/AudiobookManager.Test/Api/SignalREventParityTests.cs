@@ -102,6 +102,7 @@ public class SignalREventParityTests
             UrlCleanupController.ApplyAllOperationKey,
             UpcomingReleasesController.RefreshOperationKey,
             BrowseController.RefreshAllOperationKey,
+            PendingOnlineMatchController.SearchOperationKey,
         };
 
         var entries = ExtractObjectEntries(ReadTextFile(FindClientFile(ClientEventConstantsFile)), "OperationKeys");

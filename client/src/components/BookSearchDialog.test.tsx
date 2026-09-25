@@ -154,4 +154,25 @@ describe("BookSearchDialog", () => {
     const row = apply.closest("div")!;
     expect(row.className).not.toContain("shrink-0");
   });
+
+  // Regression test: deselecting every source used to silently re-expand `activeSources` back to
+  // every enabled source (an `activeSources.length > 0 ? activeSources : allEnabled` fallback
+  // duplicated in this component, on top of the one useSelectedSearchSources itself already
+  // provides for "no preference yet"), making the Search button's own empty-selection guard
+  // unreachable. Search must disable instead, matching BulkOnlineMatchSearchDialog's identical
+  // fix for the same shared hook.
+  it("disables Search, rather than silently re-selecting every source, once the user toggles every source off", async () => {
+    renderDialog();
+    await screen.findByText("Audible");
+    // A query alone must not enable Search - it also needs a non-empty source selection, so
+    // typing one here isolates the assertion to that guard rather than the query's own.
+    fireEvent.change(screen.getByPlaceholderText("Search title, author, or paste URL..."), {
+      target: { value: "mole" },
+    });
+
+    fireEvent.click(screen.getByText("Audible"));
+    fireEvent.click(screen.getByText("Goodreads"));
+
+    expect(screen.getByRole("button", { name: /^search$/i })).toBeDisabled();
+  });
 });

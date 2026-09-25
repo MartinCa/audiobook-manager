@@ -136,6 +136,7 @@ describe("RootLayout", () => {
       "Metadata Refresh",
       "Similar Values",
       "Clean Book URLs",
+      "Pending Online Matches",
     ]);
   });
 

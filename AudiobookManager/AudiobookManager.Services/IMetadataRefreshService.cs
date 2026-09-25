@@ -21,6 +21,14 @@ public interface IMetadataRefreshService
     Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId);
 
     /// <summary>
+    /// Diffs an already-fetched scraper result against the book and records it as a pending
+    /// metadata-refresh snapshot - the same write path <see cref="RefreshAudiobookAsync"/> uses,
+    /// for a result that did not come from the book's own Www (a bulk online-match candidate).
+    /// </summary>
+    Task<MetadataRefreshResult> ApplyFetchedResultAsSnapshotAsync(
+        long audiobookId, Scraping.Models.MetadataSearchResult fetched);
+
+    /// <summary>
     /// Refreshes every book that is eligible (has a URL a scraper supports, and is stale per
     /// <paramref name="olderThanUtc"/> - null meaning never-refreshed counts as stale) with the
     /// shared bulk contract: per-item try/catch, a (processed, total, succeeded, failed) progress
