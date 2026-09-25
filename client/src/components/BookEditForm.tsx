@@ -190,6 +190,17 @@ export function BookEditForm({
   autoOpenSearchDialog = false,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
+  // Mirrors `cover` for synchronous reads. `handleValidSubmit` is invoked via
+  // `form.handleSubmit(handleValidSubmit)()` immediately after an auto-submit apply awaits the
+  // cover fetch below - but that await only guarantees setCover was *called*, not that React has
+  // re-rendered yet, so a closure over the `cover` state variable can still read the pre-apply
+  // value. A ref has no such lag: updateCover keeps it in lockstep with every setCover call, and
+  // buildAudiobook reads coverRef.current instead of the `cover` variable.
+  const coverRef = useRef<AudiobookImage | undefined>(initialBook.cover);
+  const updateCover = (next: AudiobookImage | undefined) => {
+    coverRef.current = next;
+    setCover(next);
+  };
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
@@ -432,13 +443,17 @@ export function BookEditForm({
       // returns (the auto-save toggle left off, and the pending-refresh apply) must have the
       // fetched cover in state before buildAudiobook reads it - otherwise the save goes out with
       // the pre-apply cover despite the diff table showing a cover change, with nothing to
-      // indicate that to the user.
+      // indicate that to the user. Callers also disable the form (setSaving(true)) before
+      // awaiting this, so a slow fetch shows as "saving" rather than a silently unresponsive
+      // form - and it cannot hang forever: the proxy has no client timeout of its own, so one is
+      // applied here.
       try {
         // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
         // the backend's write guard does not apply to it.
         // eslint-disable-next-line no-restricted-globals -- binary response, see above
         const res = await fetch(
           `/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`,
+          { signal: AbortSignal.timeout(15_000) },
         );
         const blob = await res.blob();
         const base64Data = await new Promise<string>((resolve, reject) => {
@@ -451,7 +466,7 @@ export function BookEditForm({
           reader.onerror = () => reject(reader.error ?? new Error("Failed to read cover image"));
           reader.readAsDataURL(blob);
         });
-        setCover({ base64Data, mimeType: blob.type || "image/jpeg" });
+        updateCover({ base64Data, mimeType: blob.type || "image/jpeg" });
       } catch {
         // Best-effort: leave the cover as it was rather than blocking the rest of the apply.
       }
@@ -460,9 +475,9 @@ export function BookEditForm({
 
   const handleCoverUpdate = (base64Data: string | undefined, mimeType: string | undefined) => {
     if (base64Data && mimeType) {
-      setCover({ base64Data, mimeType });
+      updateCover({ base64Data, mimeType });
     } else {
-      setCover(undefined);
+      updateCover(undefined);
     }
   };
 
@@ -472,7 +487,7 @@ export function BookEditForm({
       await onSave(
         buildAudiobook(
           values,
-          cover,
+          coverRef.current,
           initialBook,
           metadataAppliedFromSearchRef.current,
           pendingRefreshAppliedRef.current,
@@ -499,14 +514,24 @@ export function BookEditForm({
   // Tradeoff: if form.handleSubmit rejects the auto-submit on validation failure, the refs stay
   // armed until a later successful submit. Currently unreachable - no real scraper result can
   // leave the form with zero authors, the only field whose clearing would fail validation.
+  //
+  // resetSavingOnInvalidSubmit is form.handleSubmit's onInvalid callback: setSaving(true) below
+  // disables the form for the whole apply (including the awaited cover fetch, so a slow/hung
+  // fetch reads as "saving" instead of a silently unresponsive form, and a manual Save click
+  // can't race the auto-submit and fire a second, gate-rejected update). handleValidSubmit's own
+  // finally only runs when it is actually invoked - if validation rejects the auto-submit instead,
+  // nothing would ever clear `saving` without this.
+  const resetSavingOnInvalidSubmit = () => setSaving(false);
+
   const handleApplyPendingRefresh = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
   ) => {
     if (selectedFields.size === 0) return;
+    setSaving(true);
     await handleApplyPreviewedTags(result, selectedFields);
     pendingRefreshAppliedRef.current = true;
-    void form.handleSubmit(handleValidSubmit)();
+    void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
   };
 
   // The interactive "Search Online Metadata" flow's own apply step: unlike the pending-refresh
@@ -524,16 +549,17 @@ export function BookEditForm({
     saveImmediately: boolean,
   ) => {
     if (selectedFields.size === 0) return;
+    if (saveImmediately) setSaving(true);
     await handleApplyPreviewedTags(result, selectedFields);
     if (saveImmediately) {
       autoSavedFromSearchRef.current = true;
-      void form.handleSubmit(handleValidSubmit)();
+      void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
     }
   };
 
   const handleReset = () => {
     form.reset(valuesFromBook(initialBook));
-    setCover(initialBook.cover);
+    updateCover(initialBook.cover);
     setShowAllOptionalFields(false);
     metadataAppliedFromSearchRef.current = false;
     pendingRefreshAppliedRef.current = false;

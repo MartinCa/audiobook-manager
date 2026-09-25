@@ -123,6 +123,56 @@ describe("TagPreviewDialog", () => {
     expect(screen.getByText("Apply & Save All")).toBeInTheDocument();
   });
 
+  // Regression test for the wasOpen fix specifically: the identity-based reset alone would miss
+  // this, since the dialog stays mounted (BookEditForm never unmounts it between searches) and a
+  // future cache hit could hand back the exact same searchResult reference for a second flow.
+  it("resets the auto-save toggle when the dialog closes and reopens with the same result object", () => {
+    const onApply = vi.fn();
+    const { rerender } = renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={searchResult}
+        onApply={onApply}
+        showAutoSaveToggle
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+    expect(screen.getByText("Apply All")).toBeInTheDocument();
+
+    // Close the dialog (component stays mounted - only `open` flips) and reopen it with the
+    // exact same searchResult reference, as a real second flow reusing a cached search result
+    // would.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <TagPreviewDialog
+          open={false}
+          onOpenChange={() => {}}
+          currentInput={currentInput}
+          searchResult={searchResult}
+          onApply={onApply}
+          showAutoSaveToggle
+        />
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <TagPreviewDialog
+          open={true}
+          onOpenChange={() => {}}
+          currentInput={currentInput}
+          searchResult={searchResult}
+          onApply={onApply}
+          showAutoSaveToggle
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Apply & Save All")).toBeInTheDocument();
+  });
+
   it("displays normalized language name in preview diff", () => {
     renderWithQuery(
       <TagPreviewDialog

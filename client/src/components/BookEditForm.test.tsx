@@ -24,6 +24,9 @@ vi.mock("@/services/api", () => ({
   metadataSearchApi: {
     getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
     searchMultiple: vi.fn().mockResolvedValue({ results: [], sourceStatuses: [] }),
+    getProxyImageUrl: vi.fn(
+      (url: string) => `/api/metadata-search/proxy-image?url=${encodeURIComponent(url)}`,
+    ),
   },
 }));
 
@@ -1163,5 +1166,85 @@ describe("BookEditForm", () => {
     fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].autoSavedFromSearch).toBe(false);
+  });
+
+  // Regression test for the stale-closure cover bug: handleValidSubmit used to build the saved
+  // audiobook from the `cover` useState variable directly. The auto-submit that follows applying
+  // a search result runs in the same microtask chain as the awaited cover fetch/decode - setCover
+  // is called before the submit fires, but React has not necessarily re-rendered yet, so the
+  // closure could still see the pre-apply cover. buildAudiobook now reads coverRef.current
+  // instead, which is updated synchronously alongside setCover. Without that fix, this test's
+  // saved cover would be the initial one-pixel PNG, not the fetched/decoded one.
+  it("saves the freshly fetched cover (not the stale pre-apply one) on auto-save from search", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(mockBlob),
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          cover: { base64Data: "b2xkLWNvdmVy", mimeType: "image/png" },
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    // Cover is selected by default among the applied fields; leave the auto-save toggle at its
+    // default (off), so applying triggers the auto-submit through the stale-closure code path.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/metadata-search/proxy-image?url=https%3A%2F%2Faudible.com%2Fcovers%2Fnew-cover.jpg",
+        expect.anything(),
+      ),
+    );
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.cover).toEqual({ base64Data: "ZnJlc2gtY292ZXI=", mimeType: "image/jpeg" });
   });
 });
