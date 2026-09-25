@@ -1075,6 +1075,30 @@ describe("BookEditForm", () => {
     expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
   });
 
+  // Regression test: bookEditFormSchema trims bookName via zod, so handleValidSubmit's `values`
+  // (the zod-resolver output) is trimmed while the displayed input keeps the user's raw
+  // whitespace. Resetting the clean baseline against the trimmed `values` while the display
+  // still showed the untrimmed text made react-hook-form recompute isDirty as true immediately
+  // after a successful save - the indicator this test guards would incorrectly reappear.
+  it("does not re-show the unsaved-changes indicator after a save when the saved field had trailing whitespace", async () => {
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={onSave} onDirtyChange={onDirtyChange} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title  " },
+    });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
   it("treats a cover change as dirty even though it is not a react-hook-form field", async () => {
     const onDirtyChange = vi.fn();
     renderWithProviders(

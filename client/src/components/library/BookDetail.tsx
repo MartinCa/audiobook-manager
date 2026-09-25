@@ -89,12 +89,13 @@ export function BookDetail({ mode }: BookDetailProps) {
   const [formDirty, setFormDirty] = useState(false);
 
   // Warn before leaving the edit form with unsaved changes - both for in-app navigation (the
-  // confirm dialog below) and for closing/refreshing the tab (enableBeforeUnload wires the
-  // native browser prompt through the same shouldBlockFn). Scoped to edit mode: the view page has
-  // no form to lose changes from.
+  // confirm dialog below) and for closing/refreshing the tab. enableBeforeUnload must be the same
+  // conditional function as shouldBlockFn, not `true` - the boolean form skips shouldBlockFn
+  // entirely and fires the native prompt unconditionally for every mount of this component
+  // (view mode included, and edit mode with nothing dirty).
   const blocker = useBlocker({
     shouldBlockFn: () => isEditMode && formDirty,
-    enableBeforeUnload: true,
+    enableBeforeUnload: () => isEditMode && formDirty,
     withResolver: true,
   });
 
@@ -272,7 +273,11 @@ export function BookDetail({ mode }: BookDetailProps) {
       notifications.success("Audiobook deleted from library");
       void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
-      void navigate({ to: "/library" });
+      // The file (and any unsaved edits along with it) is already gone by this point, so the
+      // unsaved-changes blocker must not intercept this navigation - it would show "Discard
+      // unsaved changes?" for a book that no longer exists, and "Stay on this page" would strand
+      // the user editing it.
+      void navigate({ to: "/library", ignoreBlocker: true });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
       setDeleting(false);

@@ -941,4 +941,27 @@ describe("BookDetail", () => {
     });
     expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
   });
+
+  // Regression test: deleting a book with unsaved edits used to navigate through the same
+  // blocker as any other in-app navigation - by the time it fired, the file (and the unsaved
+  // edits with it) was already gone, so "Discard unsaved changes?" appeared for a book that no
+  // longer existed, and "Stay on this page" stranded the user editing it. The delete navigation
+  // must bypass the blocker instead.
+  it("navigates straight to the library after deleting a book with unsaved edits, without the discard-changes prompt", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const deleteTrigger = screen.getByRole("button", { name: /delete audiobook/i });
+    fireEvent.click(deleteTrigger);
+    expect(await screen.findByText(/removes the audiobook directory/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
 });

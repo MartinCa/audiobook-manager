@@ -470,11 +470,14 @@ export function BookEditForm({
       metadataAppliedFromSearchRef.current = false;
       pendingRefreshAppliedRef.current = false;
       // The just-submitted values are now the saved baseline: reset react-hook-form's dirty
-      // tracking against them (this does not change what's displayed - values is what's already
-      // shown) and move the cover's own baseline forward the same way, so the unsaved-changes
-      // indicator and navigation guard clear immediately rather than staying armed against the
-      // pre-save values until the caller's data refetches and remounts the form.
-      form.reset(values, { keepValues: true });
+      // tracking against them and move the cover's own baseline forward the same way, so the
+      // unsaved-changes indicator and navigation guard clear immediately rather than staying
+      // armed against the pre-save values until the caller's data refetches and remounts the
+      // form. Reset against form.getValues() (the raw, currently-displayed values), not the
+      // zod-resolved `values` - the schema trims bookName/year, so resetting against the trimmed
+      // values while the display keeps untrimmed input (e.g. trailing whitespace the user typed)
+      // would make isDirty recompute true immediately after a successful save.
+      form.reset(form.getValues(), { keepValues: true });
       setLastSavedCover(cover);
     } finally {
       setSaving(false);
