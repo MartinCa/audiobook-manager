@@ -254,7 +254,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       notifyBookConsistencyResolveResult(result);
       if (result.actionTaken === "audiobook_deleted") {
         invalidateConsistencyViews();
-        void navigate({ to: "/library" });
+        // Same reason as handleDeleteBook's navigate: the book (and any unsaved edits) is
+        // already gone, so the unsaved-changes blocker must not intercept this navigation.
+        void navigate({ to: "/library", ignoreBlocker: true });
         return;
       }
       invalidateConsistencyViews();

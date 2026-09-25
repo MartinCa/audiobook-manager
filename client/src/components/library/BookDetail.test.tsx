@@ -964,4 +964,45 @@ describe("BookDetail", () => {
     });
     expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
   });
+
+  // Regression test, same class as the delete-button fix above: resolving a consistency issue
+  // can also delete the audiobook record (actionTaken === "audiobook_deleted"), and that resolve
+  // control is edit-mode-only - so a dirty form can be present when it navigates away. That
+  // navigation must bypass the blocker too, or it collides the same way the delete button did.
+  it("navigates straight to the library after a consistency resolve deletes the book, even with unsaved edits", async () => {
+    const { consistencyApi } = await import("@/services/api");
+    vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
+      {
+        id: 101,
+        audiobookId: 42,
+        bookName: "The Way of Kings",
+        authors: ["Brandon Sanderson"],
+        issueType: "OrphanRecord",
+        description: "No file found for this record",
+        expectedValue: null,
+        actualValue: null,
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(consistencyApi.resolveIssue).mockResolvedValue({
+      issueId: 101,
+      issueType: "OrphanRecord",
+      actionTaken: "audiobook_deleted",
+      message: "Orphan record removed.",
+    });
+
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const resolveBtn = screen.getByRole("button", { name: /resolve/i });
+    fireEvent.click(resolveBtn);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
 });

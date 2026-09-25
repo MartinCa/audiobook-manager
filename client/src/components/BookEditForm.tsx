@@ -454,6 +454,11 @@ export function BookEditForm({
 
   const handleValidSubmit = async (values: BookEditFormValues) => {
     setSaving(true);
+    // Captured synchronously, before the await below - fields stay editable while the save is
+    // in flight (nothing disables the inputs during the request), so reading form.getValues()
+    // again *after* the await would pick up an edit made during that window and clear isDirty
+    // for a change that was never actually sent. This snapshot is exactly what was submitted.
+    const submittedRawValues = form.getValues();
     try {
       await onSave(
         buildAudiobook(
@@ -473,11 +478,11 @@ export function BookEditForm({
       // tracking against them and move the cover's own baseline forward the same way, so the
       // unsaved-changes indicator and navigation guard clear immediately rather than staying
       // armed against the pre-save values until the caller's data refetches and remounts the
-      // form. Reset against form.getValues() (the raw, currently-displayed values), not the
-      // zod-resolved `values` - the schema trims bookName/year, so resetting against the trimmed
-      // values while the display keeps untrimmed input (e.g. trailing whitespace the user typed)
-      // would make isDirty recompute true immediately after a successful save.
-      form.reset(form.getValues(), { keepValues: true });
+      // form. Reset against the captured raw values, not the zod-resolved `values` - the schema
+      // trims bookName/year, so resetting against the trimmed values while the display keeps
+      // untrimmed input (e.g. trailing whitespace the user typed) would make isDirty recompute
+      // true immediately after a successful save.
+      form.reset(submittedRawValues, { keepValues: true });
       setLastSavedCover(cover);
     } finally {
       setSaving(false);

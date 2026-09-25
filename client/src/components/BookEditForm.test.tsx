@@ -1099,6 +1099,44 @@ describe("BookEditForm", () => {
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 
+  // Regression test: nothing disables the inputs while a save is in flight (onSave is awaited,
+  // not synchronous), so an edit made in that window must still be reported dirty once the save
+  // completes and the baseline resets - it was never part of what was actually saved. The fix
+  // captures form.getValues() synchronously at submit time and resets against that snapshot,
+  // rather than re-reading form.getValues() after the await (which would pick up this in-flight
+  // edit and silently mark it clean, along with everything already saved).
+  it("keeps reporting dirty for an edit made while a save is still in flight", async () => {
+    let resolveSave!: () => void;
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={onSave} onDirtyChange={onDirtyChange} />,
+    );
+
+    const titleInput = screen.getByDisplayValue("Original Title");
+    fireEvent.change(titleInput, { target: { value: "Updated Title" } });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // Edit again while the save from the first click is still pending.
+    fireEvent.change(screen.getByDisplayValue("Updated Title"), {
+      target: { value: "Updated Title, Then Edited Again" },
+    });
+
+    resolveSave();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // The reset must not have absorbed the in-flight edit as clean - it's still unsaved.
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+    expect(onDirtyChange).not.toHaveBeenLastCalledWith(false);
+  });
+
   it("treats a cover change as dirty even though it is not a react-hook-form field", async () => {
     const onDirtyChange = vi.fn();
     renderWithProviders(
