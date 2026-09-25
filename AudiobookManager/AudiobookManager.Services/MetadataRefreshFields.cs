@@ -26,12 +26,13 @@ public static class MetadataRefreshFields
     public const string Copyright = "Copyright";
     public const string Publisher = "Publisher";
     public const string Asin = "Asin";
+    public const string Www = "Www";
 
     /// <summary>Every field name a pending snapshot can offer as a change, in display order.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
         Authors, Narrators, BookName, Subtitle, Series, SeriesPart, Year, Genres, Description,
-        Language, Rating, Copyright, Publisher, Asin,
+        Language, Rating, Copyright, Publisher, Asin, Www,
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

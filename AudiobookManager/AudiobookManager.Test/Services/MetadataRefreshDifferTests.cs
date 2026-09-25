@@ -8,10 +8,15 @@ namespace AudiobookManager.Test.Services;
 [TestClass]
 public class MetadataRefreshDifferTests
 {
+    // Defaults to the same URL Fetched() defaults to, so a test that doesn't care about Www (the
+    // vast majority) doesn't spuriously pick up a diff for it - matching how every other Book()
+    // default already mirrors Fetched()'s "The Test Book" title.
+    private const string DefaultWww = "https://www.audible.com/pd/test";
+
     private static Database.Models.Audiobook Book(
         string? bookName = null, string? subtitle = null, string? series = null,
         string? seriesPart = null, int year = 2010, string? language = "en",
-        string? rating = null, string? description = null)
+        string? rating = null, string? description = null, string? www = DefaultWww)
     {
         var book = new Database.Models.Audiobook(
             id: 1,
@@ -26,7 +31,7 @@ public class MetadataRefreshDifferTests
             language: language,
             rating: rating,
             asin: null,
-            www: null,
+            www: www,
             coverFilePath: null,
             durationInSeconds: null,
             fileInfoFullPath: "/library/book.m4b",
@@ -362,5 +367,85 @@ public class MetadataRefreshDifferTests
         Assert.AreEqual("Language", diffs[0].Field);
         Assert.AreEqual("spa", diffs[0].LibraryValue);
         Assert.AreEqual("en", diffs[0].SourceValue);
+    }
+
+    // Regression tests: a bulk online-match candidate is selected for a book that has never been
+    // matched to any source before (Www null), unlike "Refresh Now" which only ever re-fetches
+    // from a book's *already-known* source (Www already equal to what's being diffed against, so
+    // it never surfaced a diff and the differ never needed to compare it). Without a Www
+    // comparison, applying every other field via the bulk MetadataRefresh page's field-limited
+    // applier left the book fully re-tagged but still unmatched to the source it was just applied
+    // from - no Www, no MatchedSourceName, "matching" silently didn't stick.
+    [TestMethod]
+    public void Diff_BookHasNoWwwAndSourceHasUrl_OffersWwwDiff()
+    {
+        var book = Book(www: null);
+        var fetched = Fetched();
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(1, diffs.Count);
+        Assert.AreEqual("Www", diffs[0].Field);
+        Assert.IsNull(diffs[0].LibraryValue);
+        Assert.AreEqual("https://www.audible.com/pd/test", diffs[0].SourceValue);
+    }
+
+    [TestMethod]
+    public void Diff_SameUrlDifferentTrackingParams_ProducesNoWwwDiff()
+    {
+        // The comparison is against fetched.CleanUrl (tracking/session params stripped), not the
+        // raw Url - a source re-reporting the same book with different tracking params on the
+        // link must not look like a changed match.
+        var book = Book(www: "https://www.audible.com/pd/test");
+        var fetched = Fetched(r => r.Url = "https://www.audible.com/pd/test?ref=abc123&pf_rd_p=xyz");
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    private static PendingRefreshPayload.Snapshot Snapshot(string? www = "https://www.audible.com/pd/test") =>
+        new(
+            PendingRefreshPayload.CurrentVersion,
+            www ?? "",
+            "Audible",
+            new List<string>(),
+            new List<string>(),
+            "The Test Book",
+            null,
+            null,
+            null,
+            null,
+            new List<string>(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    [TestMethod]
+    public void DiffSnapshot_BookHasNoWwwAndSnapshotHasUrl_OffersWwwDiff()
+    {
+        var book = Book(www: null);
+        var snapshot = Snapshot();
+
+        var diffs = MetadataRefreshDiffer.DiffSnapshot(book, snapshot, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(1, diffs.Count);
+        Assert.AreEqual("Www", diffs[0].Field);
+        Assert.IsNull(diffs[0].LibraryValue);
+        Assert.AreEqual("https://www.audible.com/pd/test", diffs[0].SourceValue);
+    }
+
+    [TestMethod]
+    public void DiffSnapshot_SameWww_ProducesNoDiff()
+    {
+        var book = Book(www: "https://www.audible.com/pd/test");
+        var snapshot = Snapshot();
+
+        var diffs = MetadataRefreshDiffer.DiffSnapshot(book, snapshot, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
     }
 }
