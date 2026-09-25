@@ -1,8 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookEditForm } from "./BookEditForm";
 import type { Audiobook } from "@/types/Audiobook";
+
+// A few tests below stub FileReader/fetch (the cover-fetch mocking pattern from
+// CoverEditor.test.tsx) via vi.stubGlobal - restore them after each test so the stub doesn't
+// leak into later tests in this file that need the real globals.
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", () => ({
   audiobookApi: {
@@ -24,6 +35,9 @@ vi.mock("@/services/api", () => ({
   metadataSearchApi: {
     getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
     searchMultiple: vi.fn().mockResolvedValue({ results: [], sourceStatuses: [] }),
+    getProxyImageUrl: vi.fn(
+      (url: string) => `/api/metadata-search/proxy-image?url=${encodeURIComponent(url)}`,
+    ),
   },
 }));
 
@@ -274,7 +288,7 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // The bulk-applied author never goes through TagsInput's own draft-entry flow, so this only
@@ -287,7 +301,7 @@ describe("BookEditForm", () => {
 
   // The applied-search signal is bookkeeping the backend stamps LastMetadataRefreshedAt from:
   // it must ride exactly the save that carried the applied search result, and nothing else.
-  it("sends metadataAppliedFromSearch with a save that follows applying a search result, then clears it for the next save", async () => {
+  it("sends metadataAppliedFromSearch with the auto-save that follows applying a search result, then clears it for the next save", async () => {
     const { metadataSearchApi } = await import("@/services/api");
     vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
       results: [
@@ -313,7 +327,8 @@ describe("BookEditForm", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].metadataAppliedFromSearch).toBe(false);
 
-    // Apply a search result, then save - this save carries the signal.
+    // Apply a search result — with the auto-save opt-out toggle left at its default (off), this
+    // saves immediately, with no separate manual Save click.
     fireEvent.click(screen.getByText("Search Online Metadata"));
     const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
     fireEvent.change(searchInput, { target: { value: "Scraped" } });
@@ -321,10 +336,9 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1]?.[0].metadataAppliedFromSearch).toBe(true);
     expect(onSave.mock.calls[1]?.[0].bookName).toBe("Scraped Book");
@@ -333,6 +347,67 @@ describe("BookEditForm", () => {
     fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(3));
     expect(onSave.mock.calls[2]?.[0].metadataAppliedFromSearch).toBe(false);
+  });
+
+  // The auto-save toggle is the opt-out for the new default behavior (item 1): checking it means
+  // "just apply to the edit form for review, like before" - and it must default to off (i.e. save
+  // immediately) on every fresh apply flow, never remembering a previous flow's choice.
+  it("does not auto-save when the don't-save-automatically toggle is checked, and defaults back to off on the next flow", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    // Two distinct result objects (not the same mockResolvedValue reused): TagPreviewDialog resets
+    // its toggle by comparing the incoming searchResult against the last one it saw, so the test
+    // needs a second flow whose result is a genuinely different object, matching what a real
+    // second search response would be.
+    const scrapedResult = {
+      url: "https://audible.com/pd/B09KDG66KL",
+      cleanUrl: "https://audible.com/pd/B09KDG66KL",
+      source: "Audible",
+      bookName: "Scraped Book",
+      authors: [{ name: "Jane Author" }],
+      narrators: [],
+      series: [],
+      genres: [],
+    };
+    vi.mocked(metadataSearchApi.searchMultiple)
+      .mockResolvedValueOnce({ results: [scrapedResult], sourceStatuses: [] })
+      .mockResolvedValueOnce({ results: [{ ...scrapedResult }], sourceStatuses: [] });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    let searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    let applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    // Opt out of auto-save for this flow.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // Fields are populated, but nothing was saved.
+    expect(await screen.findByDisplayValue("Scraped Book")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    // A manual save is still required, and still carries the applied-search signal.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].metadataAppliedFromSearch).toBe(true);
+
+    // A new flow must not remember the previous one's toggle state: this Apply & Save All click
+    // saves immediately again, with no toggle interaction.
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const secondApplyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(secondApplyAllButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
   });
 
   it("does not submit the outer form when the search dialog's own form is submitted", async () => {
@@ -423,16 +498,15 @@ describe("BookEditForm", () => {
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
 
-    // Tag preview dialog opens, click Apply All
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Tag preview dialog opens; Apply & Save All applies the fields and, since the auto-save
+    // toggle is off by default, saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // Language should be normalized to English (code: en)
     expect(await screen.findByText("English")).toBeInTheDocument();
     expect(screen.queryByText("english (unrecognized)")).not.toBeInTheDocument();
 
-    // Submit form and verify saved structure
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const saved = onSave.mock.calls[0]?.[0] as Audiobook;
     expect(saved.language).toBe("en");
@@ -644,7 +718,7 @@ describe("BookEditForm", () => {
     fireEvent.submit(searchInput.closest("form")!);
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     expect(
@@ -767,13 +841,14 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     // The narrator chip is gone; the field, now empty, collapses back under "additional fields".
     await waitFor(() => expect(screen.queryByText("Michael Kramer")).not.toBeInTheDocument());
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].narrators).toEqual([]);
   });
@@ -815,7 +890,9 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     await waitFor(() =>
@@ -823,7 +900,6 @@ describe("BookEditForm", () => {
     );
     expect(screen.getByPlaceholderText("Series name")).toHaveValue("");
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].series).toBeUndefined();
     expect(onSave.mock.calls[0]?.[0].seriesPart).toBeUndefined();
@@ -866,14 +942,15 @@ describe("BookEditForm", () => {
 
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     fireEvent.click(applyButton);
-    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    // Apply & Save All applies the fields and, since the auto-save toggle is off by default,
+    // saves immediately without a separate manual Save click.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
     fireEvent.click(applyAllButton);
 
     await waitFor(() =>
       expect(screen.queryByDisplayValue("A Great Subtitle")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("Save Audiobook"));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]?.[0].subtitle).toBeUndefined();
   });
@@ -1010,6 +1087,380 @@ describe("BookEditForm", () => {
     // deterministic - not a fixed-sleep race.
     const { audiobookApi } = await import("@/services/api");
     expect(audiobookApi.getSeriesPartConflicts).not.toHaveBeenCalled();
+  });
+
+  it("opens the search dialog on mount when autoOpenSearchDialog is set", async () => {
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} autoOpenSearchDialog />,
+    );
+
+    expect(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not open the search dialog on mount when autoOpenSearchDialog is unset", () => {
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    expect(
+      screen.queryByPlaceholderText("Search title, author, or paste URL..."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks the built audiobook autoSavedFromSearch when a search result auto-saves", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].autoSavedFromSearch).toBe(true);
+
+    // One-shot, same as the other apply markers: a later plain save must not repeat it.
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1]?.[0].autoSavedFromSearch).toBe(false);
+  });
+
+  it("does not mark autoSavedFromSearch or save when the don't-save-automatically toggle is checked", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    expect(await screen.findByDisplayValue("Scraped Book")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    // A subsequent manual save is a plain save, not this direct-apply flow: it must not carry
+    // the marker either (the toggle suppressed the auto-submit, not just its marker).
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]?.[0].autoSavedFromSearch).toBe(false);
+  });
+
+  // Regression test for the stale-closure cover bug: handleValidSubmit used to build the saved
+  // audiobook from the `cover` useState variable directly. The auto-submit that follows applying
+  // a search result runs in the same microtask chain as the awaited cover fetch/decode - setCover
+  // is called before the submit fires, but React has not necessarily re-rendered yet, so the
+  // closure could still see the pre-apply cover. buildAudiobook now reads coverRef.current
+  // instead, which is updated synchronously alongside setCover. Without that fix, this test's
+  // saved cover would be the initial one-pixel PNG, not the fetched/decoded one.
+  it("saves the freshly fetched cover (not the stale pre-apply one) on auto-save from search", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(mockBlob),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          cover: { base64Data: "b2xkLWNvdmVy", mimeType: "image/png" },
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    // Cover is selected by default among the applied fields; leave the auto-save toggle at its
+    // default (off), so applying triggers the auto-submit through the stale-closure code path.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/metadata-search/proxy-image?url=https%3A%2F%2Faudible.com%2Fcovers%2Fnew-cover.jpg",
+        expect.anything(),
+      ),
+    );
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.cover).toEqual({ base64Data: "ZnJlc2gtY292ZXI=", mimeType: "image/jpeg" });
+  });
+
+  // Regression test: handleApplySearchResult sets saving=true before awaiting the cover fetch
+  // (so the Save button shows its disabled/saving state for the whole apply, not just the
+  // eventual submit) - but that fix shipped with nothing exercising the disabled window itself.
+  // A deferred fetch lets the test observe the button disabled while the fetch is in flight and
+  // re-enabled once the auto-submit completes.
+  it("disables Save for the whole cover-fetch window during an auto-save apply, not just the final submit", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    let resolveFetch!: (value: { ok: boolean; status: number; blob: () => Promise<Blob> }) => void;
+    const fetchPromise = new Promise<{ ok: boolean; status: number; blob: () => Promise<Blob> }>(
+      (resolve) => {
+        resolveFetch = resolve;
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(fetchPromise));
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    // The fetch is still pending: Save must already be disabled, before the auto-submit itself
+    // has anything to do.
+    await waitFor(() =>
+      expect(screen.getByText("Save Audiobook").closest("button")).toBeDisabled(),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    resolveFetch({ ok: true, status: 200, blob: vi.fn().mockResolvedValue(mockBlob) });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
+  });
+
+  // Same fix, other entry point: handleApplyPendingRefresh (the "Refresh Now" review-changes
+  // flow) has the identical setSaving(true)-before-fetch logic as handleApplySearchResult above,
+  // since both route through the shared handleApplyPreviewedTags. Unlike the search flow, this
+  // one has no auto-save toggle - applying always saves immediately.
+  it("disables Save for the whole cover-fetch window during a pending-refresh apply too", async () => {
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    let resolveFetch!: (value: { ok: boolean; status: number; blob: () => Promise<Blob> }) => void;
+    const fetchPromise = new Promise<{ ok: boolean; status: number; blob: () => Promise<Blob> }>(
+      (resolve) => {
+        resolveFetch = resolve;
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(fetchPromise));
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={onSave}
+        pendingRefreshResult={{
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Refreshed Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        }}
+        pendingRefreshOpen
+      />,
+    );
+
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(screen.getByText("Save Audiobook").closest("button")).toBeDisabled(),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    resolveFetch({ ok: true, status: 200, blob: vi.fn().mockResolvedValue(mockBlob) });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
+  });
+
+  // Regression test found via manual end-to-end testing (not by the unit suite, which always
+  // mocked `ok: true`): fetch() does not reject on a non-OK HTTP status - it resolves normally,
+  // with an error body (RFC 9457 problem+json here) in place of image bytes. Without checking
+  // res.ok, that error body got base64-encoded as if it were a valid cover and sent to the
+  // backend, which rejected the whole save with a confusing "not a recognised image format"
+  // error - instead of the best-effort fallback (keep the old cover, warn the user) actually
+  // running.
+  it("falls back to the pre-apply cover and warns, rather than encoding an error body as image data, when the proxy responds non-OK", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const errorBlob = new Blob([JSON.stringify({ title: "Refusing to connect" })], {
+      type: "application/problem+json",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 502, blob: vi.fn().mockResolvedValue(errorBlob) }),
+    );
+
+    const { notifications } = await import("@/lib/notifications");
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          cover: { base64Data: "b2xkLWNvdmVy", mimeType: "image/png" },
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    // The old cover, untouched - not the error body's bytes encoded as a "cover".
+    expect(saved.cover).toEqual({ base64Data: "b2xkLWNvdmVy", mimeType: "image/png" });
+    expect(notifications.warning).toHaveBeenCalled();
   });
 
   it("shows no unsaved-changes indicator and reports clean when nothing has been edited", () => {

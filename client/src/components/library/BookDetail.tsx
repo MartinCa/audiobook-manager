@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouterState, useBlocker } from "@tanstack/react-router";
+import { useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState, useSearch, useBlocker } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Loader2,
   Pencil,
+  Search,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,6 +76,18 @@ export function BookDetail({ mode }: BookDetailProps) {
   // mode is derived from the matched path instead. The prop stays as an explicit override for
   // direct renders/tests.
   const isEditMode = (mode ?? (pathname.endsWith("/edit") ? "edit" : "view")) === "edit";
+  // Only the edit route declares this search param; `strict: false` reads whatever the currently
+  // matched route validated instead of requiring this component to be mounted under one specific
+  // route (BookDetail backs both /library/book/$bookId and its /edit sibling).
+  const { openSearch } = useSearch({ strict: false });
+  // Armed in proceedSave when the saved object carries the autoSavedFromSearch marker (a "Search
+  // Online Metadata" apply with the opt-out toggle left off) and the queue call actually
+  // succeeded — tells the AudiobookSaveComplete handler below to route back to the view page once
+  // that save lands, matching the read-only page's search entry point round-tripping back once
+  // metadata is applied directly. Only armed after a real save is in flight, not merely requested:
+  // a cancelled target-collision dialog or a failed zod validation never reaches proceedSave, so
+  // it never leaves this armed for whatever unrelated save happens to complete next.
+  const returnToViewAfterSaveRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -163,6 +176,10 @@ export function BookDetail({ mode }: BookDetailProps) {
         setPendingApplied(false);
         void metadataRefreshApi.dismissPending(id).catch(() => {});
       }
+      if (returnToViewAfterSaveRef.current) {
+        returnToViewAfterSaveRef.current = false;
+        void navigate({ to: "/library/book/$bookId", params: { bookId } });
+      }
     }
   });
 
@@ -173,6 +190,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       // The save that carried an applied pending-refresh snapshot failed, so there is nothing
       // to dismiss — clear the arm so a later unrelated save can't dismiss it either.
       setPendingApplied(false);
+      // Same reasoning: a failed save leaves nothing to return to the view page for, and the
+      // user needs to stay on the edit page to see why it failed.
+      returnToViewAfterSaveRef.current = false;
       notifications.error(`Save error: ${payload.error}`);
     }
   });
@@ -195,14 +215,16 @@ export function BookDetail({ mode }: BookDetailProps) {
 
   const proceedSave = async (updated: Audiobook) => {
     setSaving(true);
-    // The pending-refresh marker rides on the audiobook object (survives the target-collision
-    // dialog, which keeps the same book), so only an actual apply save arms the dismiss-after-
-    // -completion flow. A cancelled dialog discards the object; a failed queue leaves the arm
-    // clear. Either way the next unrelated save can't silently dismiss the stored snapshot.
+    // Both markers ride on the audiobook object (survives the target-collision dialog, which
+    // keeps the same book), so only an actual apply save arms their respective after-completion
+    // behavior. A cancelled dialog discards the object; a failed queue leaves both arms clear.
+    // Either way, an unrelated save can't inherit either flow.
     const applyingPendingRefresh = Boolean(updated.pendingRefreshApplied);
+    const isAutoSaveFromSearch = Boolean(updated.autoSavedFromSearch);
     try {
       await audiobookApi.updateBook(id, updated);
       if (applyingPendingRefresh) setPendingApplied(true);
+      if (isAutoSaveFromSearch) returnToViewAfterSaveRef.current = true;
       notifications.success("Update queued");
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
@@ -409,6 +431,23 @@ export function BookDetail({ mode }: BookDetailProps) {
             </Button>
           )}
 
+          {!isEditMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void navigate({
+                  to: "/library/book/$bookId/edit",
+                  params: { bookId },
+                  search: { openSearch: true },
+                })
+              }
+            >
+              <Search className="mr-1.5 h-4 w-4" />
+              Search Online Metadata
+            </Button>
+          )}
+
           {isEditMode && formDirty && (
             <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
               <AlertTriangle className="h-3.5 w-3.5" />
@@ -510,6 +549,7 @@ export function BookDetail({ mode }: BookDetailProps) {
                   pendingRefreshOpen={pendingOpen}
                   onPendingRefreshOpenChange={setPendingOpen}
                   currentBookId={id}
+                  autoOpenSearchDialog={openSearch === true}
                   onDirtyChange={setFormDirty}
                 />
               </CardContent>

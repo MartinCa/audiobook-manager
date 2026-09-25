@@ -54,6 +54,11 @@ vi.mock("@/services/api", () => ({
     getPendingForAudiobook: vi.fn(),
     dismissPending: vi.fn().mockResolvedValue(undefined),
   },
+  metadataSearchApi: {
+    getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
+    searchMultiple: vi.fn().mockResolvedValue({ results: [], sourceStatuses: [] }),
+    getBookDetails: vi.fn(),
+  },
 }));
 
 import {
@@ -61,6 +66,7 @@ import {
   audiobookApi,
   consistencyApi,
   metadataRefreshApi,
+  metadataSearchApi,
   settingsApi,
   similarValuesApi,
 } from "@/services/api";
@@ -865,6 +871,119 @@ describe("BookDetail", () => {
         "The Stormlight Archive",
         3,
       );
+    });
+  });
+
+  // ---- Search Online Metadata from the view page (item 2) ----
+
+  it("Search Online Metadata button on the view page navigates to the edit route and auto-opens the search dialog", async () => {
+    const { router } = renderWithProviders();
+
+    const searchBtn = await screen.findByRole("button", { name: /search online metadata/i });
+    fireEvent.click(searchBtn);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/book/42/edit");
+    });
+    expect(router.state.location.search).toEqual({ openSearch: true });
+
+    // The freshly-mounted edit form opens the search dialog itself, without another click.
+    expect(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+    ).toBeInTheDocument();
+  });
+
+  it("returns to the view page once a search-result apply auto-saves (the default, toggle left off)", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Words of Radiance",
+          authors: [{ name: "Brandon Sanderson" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const { router } = renderWithProviders("/library/book/42/edit?openSearch=true");
+
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Words" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    // Toggle left at its default (off): applying saves immediately.
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() => {
+      expect(audiobookApi.updateBook).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ bookName: "Words of Radiance" }),
+      );
+    });
+
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/book/42");
+    });
+  });
+
+  it("stays on the edit page after a search-result apply when the don't-save-automatically toggle is checked", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Words of Radiance",
+          authors: [{ name: "Brandon Sanderson" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const { router } = renderWithProviders("/library/book/42/edit?openSearch=true");
+
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Words" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Don't save automatically" }));
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    // Nothing saved yet, so nothing should route back to the view page.
+    expect(audiobookApi.updateBook).not.toHaveBeenCalled();
+
+    const handlerFor = (event: string) => {
+      const call = mockSignalRValue.on.mock.calls.find(([name]) => name === event);
+      expect(call, `a ${event} handler was registered`).toBeDefined();
+      return call![1] as (data: never) => void;
+    };
+    // Even if some unrelated save for this book completes, this flow never armed the
+    // return-to-view marker.
+    handlerFor(SignalREvents.AudiobookSaveComplete)({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library/book/42/edit");
     });
   });
 

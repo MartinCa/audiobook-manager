@@ -37,6 +37,7 @@ import {
   type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
 import { normalizeLanguage } from "@/helpers/languages";
+import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -94,6 +95,7 @@ function buildAudiobook(
   initialBook: Audiobook,
   metadataAppliedFromSearch = false,
   pendingRefreshApplied = false,
+  autoSavedFromSearch = false,
 ): Audiobook {
   return {
     authors: (values.authors ?? []).map((name) => ({ name })),
@@ -116,6 +118,7 @@ function buildAudiobook(
     durationInSeconds: initialBook.durationInSeconds,
     metadataAppliedFromSearch,
     pendingRefreshApplied,
+    autoSavedFromSearch,
   };
 }
 
@@ -159,6 +162,12 @@ export interface BookEditFormProps {
    */
   currentBookId?: number;
   /**
+   * Opens the "Search Online Metadata" dialog once, on mount — set by BookDetail when the search
+   * flow was launched from the read-only view page (the view page has no BookSearchDialog of its
+   * own; it navigates here and asks the freshly-mounted form to open it).
+   */
+  autoOpenSearchDialog?: boolean;
+  /**
    * Reports whether the form currently has unsaved changes (react-hook-form's own dirty tracking,
    * plus the cover - a separate piece of local state react-hook-form doesn't see). The caller
    * (BookDetail) uses this to show its own "unsaved changes" indicator next to the Done button
@@ -186,11 +195,36 @@ export function BookEditForm({
   pendingRefreshOpen,
   onPendingRefreshOpenChange,
   currentBookId,
+  autoOpenSearchDialog = false,
   onDirtyChange,
 }: BookEditFormProps) {
   const [cover, setCover] = useState<AudiobookImage | undefined>(initialBook.cover);
+  // Mirrors `cover` for synchronous reads. `handleValidSubmit` is invoked via
+  // `form.handleSubmit(handleValidSubmit)()` immediately after an auto-submit apply awaits the
+  // cover fetch below - but that await only guarantees setCover was *called*, not that React has
+  // re-rendered yet, so a closure over the `cover` state variable can still read the pre-apply
+  // value. A ref has no such lag: updateCover keeps it in lockstep with every setCover call, and
+  // buildAudiobook reads coverRef.current instead of the `cover` variable.
+  const coverRef = useRef<AudiobookImage | undefined>(initialBook.cover);
+  const updateCover = (next: AudiobookImage | undefined) => {
+    coverRef.current = next;
+    setCover(next);
+  };
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
+  // derives it from the route's search params, which can settle a render or two after this form
+  // itself mounts (the router commits the path and the validated search separately) - a
+  // mount-only effect would catch it as false and never open the dialog. The ref makes it
+  // one-shot regardless: once fired, a later parent re-render (or the value flickering) must not
+  // reopen a dialog the user already closed.
+  const autoOpenedSearchDialogRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenSearchDialog && !autoOpenedSearchDialogRef.current) {
+      autoOpenedSearchDialogRef.current = true;
+      setSearchDialogOpen(true);
+    }
+  }, [autoOpenSearchDialog]);
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   // The cover isn't a react-hook-form field, so its own dirty tracking has to compare against the
@@ -320,6 +354,13 @@ export function BookEditForm({
   // to handleValidSubmit's closure until the next render - a ref reads the value set moments
   // earlier, in the same tick.
   const pendingRefreshAppliedRef = useRef(false);
+  // Same one-shot-ref pattern, for the interactive search flow's own auto-save specifically: the
+  // caller (BookDetail) reads this marker on the saved object — not a side-channel callback — to
+  // know the completing save is this direct-apply flow, so it only rides through to BookDetail if
+  // this exact save actually goes out (see BookDetail.proceedSave). A cancelled target-collision
+  // dialog or a failed zod validation discards the built object along with the marker, instead of
+  // arming an external ref that could outlive this specific save attempt.
+  const autoSavedFromSearchRef = useRef(false);
 
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
@@ -349,7 +390,10 @@ export function BookEditForm({
     setTagPreviewOpen(true);
   };
 
-  const handleApplyPreviewedTags = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+  const handleApplyPreviewedTags = async (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+  ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
@@ -422,33 +466,59 @@ export function BookEditForm({
 
     const coverUrlToFetch = result.imageUrl;
     if (selectedFields.has("cover") && coverUrlToFetch) {
-      // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
-      // the backend's write guard does not apply to it.
-      // eslint-disable-next-line no-restricted-globals -- binary response, see above
-      void fetch(`/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`)
-        .then((res) => res.blob())
-        .then((blob) => {
+      // Awaited (not fire-and-forget): callers that auto-submit right after this function
+      // returns (the auto-save toggle left off, and the pending-refresh apply) must have the
+      // fetched cover in state before buildAudiobook reads it - otherwise the save goes out with
+      // the pre-apply cover despite the diff table showing a cover change, with nothing to
+      // indicate that to the user. Callers also disable the form (setSaving(true)) before
+      // awaiting this, so a slow fetch shows as "saving" rather than a silently unresponsive
+      // form - and it cannot hang forever: the proxy has no client timeout of its own, so one is
+      // applied here.
+      try {
+        // lib/api.ts parses every response as JSON; this needs the raw image blob. A GET, so
+        // the backend's write guard does not apply to it.
+        // eslint-disable-next-line no-restricted-globals -- binary response, see above
+        const res = await fetch(
+          `/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`,
+          { signal: AbortSignal.timeout(15_000) },
+        );
+        // A non-OK response (e.g. the proxy refusing/failing to reach the source) still has a
+        // body - an RFC 9457 problem+json error, not image bytes - and fetch() does not reject
+        // for it. Without this check, that error body gets base64-encoded as if it were a valid
+        // cover and submitted as one, which the backend's ICoverImageProcessor then rejects with
+        // a confusing "not a recognised image format" error instead of the best-effort fallback
+        // below actually applying.
+        if (!res.ok) {
+          throw new Error(`Cover proxy fetch failed with status ${res.status}`);
+        }
+        const blob = await res.blob();
+        const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             const resStr = reader.result as string;
             const idx = resStr.indexOf(";base64,");
-            const clean = idx !== -1 ? resStr.substring(idx + 8) : resStr;
-            setCover({
-              base64Data: clean,
-              mimeType: blob.type || "image/jpeg",
-            });
+            resolve(idx !== -1 ? resStr.substring(idx + 8) : resStr);
           };
+          reader.onerror = () => reject(reader.error ?? new Error("Failed to read cover image"));
           reader.readAsDataURL(blob);
-        })
-        .catch(() => {});
+        });
+        updateCover({ base64Data, mimeType: blob.type || "image/jpeg" });
+      } catch {
+        // Best-effort: leave the cover as it was rather than blocking the rest of the apply -
+        // but the diff table advertised a cover change that silently didn't happen, so surface
+        // it rather than letting the user believe the cover was updated.
+        notifications.warning(
+          "Couldn't fetch the new cover image; the rest of the apply proceeded.",
+        );
+      }
     }
   };
 
   const handleCoverUpdate = (base64Data: string | undefined, mimeType: string | undefined) => {
     if (base64Data && mimeType) {
-      setCover({ base64Data, mimeType });
+      updateCover({ base64Data, mimeType });
     } else {
-      setCover(undefined);
+      updateCover(undefined);
     }
   };
 
@@ -463,15 +533,17 @@ export function BookEditForm({
       await onSave(
         buildAudiobook(
           values,
-          cover,
+          coverRef.current,
           initialBook,
           metadataAppliedFromSearchRef.current,
           pendingRefreshAppliedRef.current,
+          autoSavedFromSearchRef.current,
         ),
       );
-      // Both signals are one-shot: they must ride exactly the save that carried the applied
-      // result. A later plain edit of the same book must not re-stamp the refresh timestamp or
-      // re-arm the pending-snapshot dismiss flow.
+      // All three signals are one-shot: they must ride exactly the save that carried the applied
+      // result. A later plain edit of the same book must not re-stamp the refresh timestamp,
+      // re-arm the pending-snapshot dismiss flow, or re-arm the return-to-view flow.
+      autoSavedFromSearchRef.current = false;
       metadataAppliedFromSearchRef.current = false;
       pendingRefreshAppliedRef.current = false;
       // The just-submitted values are now the saved baseline: reset react-hook-form's dirty
@@ -481,9 +553,11 @@ export function BookEditForm({
       // form. Reset against the captured raw values, not the zod-resolved `values` - the schema
       // trims bookName/year, so resetting against the trimmed values while the display keeps
       // untrimmed input (e.g. trailing whitespace the user typed) would make isDirty recompute
-      // true immediately after a successful save.
+      // true immediately after a successful save. Same reasoning for coverRef.current over the
+      // `cover` state variable: this closure can be stale the same way the pre-fix buildAudiobook
+      // call above this block was - coverRef is what's synchronously current.
       form.reset(submittedRawValues, { keepValues: true });
-      setLastSavedCover(cover);
+      setLastSavedCover(coverRef.current);
     } finally {
       setSaving(false);
     }
@@ -498,20 +572,57 @@ export function BookEditForm({
   // Tradeoff: if form.handleSubmit rejects the auto-submit on validation failure, the refs stay
   // armed until a later successful submit. Currently unreachable - no real scraper result can
   // leave the form with zero authors, the only field whose clearing would fail validation.
-  const handleApplyPendingRefresh = (result: MetadataSearchResult, selectedFields: Set<string>) => {
+  //
+  // resetSavingOnInvalidSubmit is form.handleSubmit's onInvalid callback: setSaving(true) below
+  // disables the form for the whole apply (including the awaited cover fetch, so a slow/hung
+  // fetch reads as "saving" instead of a silently unresponsive form, and a manual Save click
+  // can't race the auto-submit and fire a second, gate-rejected update). handleValidSubmit's own
+  // finally only runs when it is actually invoked - if validation rejects the auto-submit instead,
+  // nothing would ever clear `saving` without this.
+  const resetSavingOnInvalidSubmit = () => setSaving(false);
+
+  const handleApplyPendingRefresh = async (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+  ) => {
     if (selectedFields.size === 0) return;
-    handleApplyPreviewedTags(result, selectedFields);
+    setSaving(true);
+    await handleApplyPreviewedTags(result, selectedFields);
     pendingRefreshAppliedRef.current = true;
-    void form.handleSubmit(handleValidSubmit)();
+    void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
+  };
+
+  // The interactive "Search Online Metadata" flow's own apply step: unlike the pending-refresh
+  // snapshot above, this one offers the "don't save automatically" opt-out (TagPreviewDialog's
+  // showAutoSaveToggle), so whether it auto-submits depends on that toggle's state at apply time.
+  // When it does auto-submit, autoSavedFromSearchRef arms the same client-only marker
+  // pendingRefreshAppliedRef already rides on the built Audiobook (buildAudiobook's
+  // autoSavedFromSearch) - not a separate callback - so it only reaches BookDetail if this
+  // specific save actually goes out (see BookDetail.proceedSave): a cancelled target-collision
+  // dialog or a failed zod validation discards the object along with the marker, instead of
+  // leaving a side-channel ref armed for whatever save happens to complete next.
+  const handleApplySearchResult = async (
+    result: MetadataSearchResult,
+    selectedFields: Set<string>,
+    saveImmediately: boolean,
+  ) => {
+    if (selectedFields.size === 0) return;
+    if (saveImmediately) setSaving(true);
+    await handleApplyPreviewedTags(result, selectedFields);
+    if (saveImmediately) {
+      autoSavedFromSearchRef.current = true;
+      void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
+    }
   };
 
   const handleReset = () => {
     form.reset(valuesFromBook(initialBook));
-    setCover(initialBook.cover);
+    updateCover(initialBook.cover);
     setLastSavedCover(initialBook.cover);
     setShowAllOptionalFields(false);
     metadataAppliedFromSearchRef.current = false;
     pendingRefreshAppliedRef.current = false;
+    autoSavedFromSearchRef.current = false;
     onReset?.();
   };
 
@@ -865,7 +976,10 @@ export function BookEditForm({
           onOpenChange={setTagPreviewOpen}
           currentInput={currentOrganizeInput}
           searchResult={pendingSearchResult}
-          onApply={handleApplyPreviewedTags}
+          onApply={(result, selectedFields, saveImmediately) => {
+            void handleApplySearchResult(result, selectedFields, saveImmediately);
+          }}
+          showAutoSaveToggle
         />
       )}
 
@@ -875,7 +989,9 @@ export function BookEditForm({
           onOpenChange={(open) => onPendingRefreshOpenChange?.(open)}
           currentInput={currentOrganizeInput}
           searchResult={pendingRefreshResult}
-          onApply={handleApplyPendingRefresh}
+          onApply={(result, selectedFields) => {
+            void handleApplyPendingRefresh(result, selectedFields);
+          }}
         />
       )}
     </form>
