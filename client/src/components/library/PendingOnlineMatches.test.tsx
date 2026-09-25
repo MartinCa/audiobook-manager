@@ -163,6 +163,64 @@ describe("PendingOnlineMatches", () => {
     expect(pendingOnlineMatchApi.getPendingPage).toHaveBeenLastCalledWith(1, 50);
   });
 
+  // Regression test: rejecting the sole item on the last page used to leave the list
+  // permanently empty. The query kept fetching the now out-of-range page (items: [] with a
+  // lower total, since the deletion already happened server-side), and the pager - clamped only
+  // for *display* - collapsed to one page and hid itself, with nothing left to click back with.
+  // The fetched page must self-correct instead.
+  it("self-corrects to the last valid page after rejecting the sole item on the final page, instead of staying permanently empty", async () => {
+    // A stateful mock (rather than a fixed sequence of mockResolvedValueOnce calls) because the
+    // count query (always page 0) and the items query for whatever page is displayed are two
+    // independent queries once the user is past page 0 - both refetch on invalidation, and their
+    // relative arrival order isn't guaranteed. Modeling the real backend (101 items, page 2 down
+    // to 100 the moment the sole item on it is rejected) keeps the test correct regardless of
+    // that order, while still exercising the real self-correction path.
+    let rejected = false;
+    vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page) => {
+      const total = rejected ? 100 : 101;
+      if (page === 0) {
+        return Promise.resolve({
+          items: [pendingItem({ audiobookId: 1, bookName: "First" })],
+          total,
+        });
+      }
+      if (page === 1) {
+        return Promise.resolve(
+          rejected
+            ? { items: [pendingItem({ audiobookId: 60, bookName: "Still Here" })], total }
+            : { items: [pendingItem({ audiobookId: 51, bookName: "Second" })], total },
+        );
+      }
+      // page === 2: the sole item on the final page, gone once rejected (100 items = pages 0-1
+      // only, so page 2 no longer exists).
+      return Promise.resolve(
+        rejected
+          ? { items: [], total }
+          : { items: [pendingItem({ audiobookId: 101, bookName: "Last Book" })], total },
+      );
+    });
+    vi.mocked(pendingOnlineMatchApi.reject).mockImplementation(() => {
+      rejected = true;
+      return Promise.resolve();
+    });
+
+    renderPage();
+    // Wait for page 0 to render, then page to page 2.
+    expect(await screen.findByText(/First/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(await screen.findByText(/Second/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(await screen.findByText(/Last Book/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+    await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(101));
+
+    // Self-corrects to the clamped page (1) automatically - no further click needed - instead of
+    // being stuck showing zero rows for a page that no longer exists.
+    expect(await screen.findByText(/Still Here/, undefined, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("Pending (100)")).toBeInTheDocument();
+  });
+
   it("shows an error toast when reject fails", async () => {
     vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
       items: [pendingItem()],

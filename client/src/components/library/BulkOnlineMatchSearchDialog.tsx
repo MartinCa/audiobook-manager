@@ -35,10 +35,15 @@ export function BulkOnlineMatchSearchDialog({
 
   const [selectedSources, setSelectedSources] = useSelectedSearchSources(services);
 
-  const activeSources =
-    selectedSources.length > 0
-      ? selectedSources
-      : services.filter((s) => s.enabled).map((s) => s.name);
+  // Unlike BookSearchDialog's own copy of this pattern, this dialog does not fall back to "every
+  // enabled source" when the user has toggled every source off - that fallback exists in
+  // useSelectedSearchSources itself for the *initial* restore (no stored selection yet falls back
+  // there), so by the time this component renders, selectedSources is only empty because the user
+  // explicitly cleared it. Silently re-expanding that back to "everything" here would search
+  // sources the user just turned off, across every selected book, in a background run there is no
+  // undoing mid-flight - "Start Search" disables instead, matching the same empty-selection
+  // guard the interactive dialog uses for its own Search button.
+  const activeSources = selectedSources;
 
   const toggleSource = (sourceName: string) => {
     setSelectedSources(

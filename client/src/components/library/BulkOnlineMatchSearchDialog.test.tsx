@@ -73,6 +73,20 @@ describe("BulkOnlineMatchSearchDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  // Regression test: unlike BookSearchDialog's interactive dialog, this one commits a background
+  // run over every selected book on confirm - re-expanding an intentional "nothing selected" back
+  // to "everything" (as BookSearchDialog's own copy of this logic does) would search sources the
+  // user just turned off, silently, with no way to notice or undo it mid-run.
+  it("disables Start Search, rather than silently re-selecting every source, once the user toggles every source off", async () => {
+    renderDialog();
+    await screen.findByText("Audible");
+
+    fireEvent.click(screen.getByText("Audible"));
+    fireEvent.click(screen.getByText("Goodreads"));
+
+    expect(screen.getByRole("button", { name: /start search/i })).toBeDisabled();
+  });
+
   it("disables Start Search when no metadata source is configured", async () => {
     vi.mocked(metadataSearchApi.getServices).mockResolvedValueOnce([
       { name: "Hardcover", enabled: false, disabledReason: "No API key configured" },

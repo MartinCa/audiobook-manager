@@ -28,27 +28,51 @@ export function PendingOnlineMatches() {
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [dismissingId, setDismissingId] = useState<number | null>(null);
 
-  const { data: pendingData, isLoading: pendingLoading } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.pendingPage(pendingPage),
-    placeholderData: keepPreviousData,
-    queryFn: () => pendingOnlineMatchApi.getPendingPage(pendingPage, PAGE_SIZE),
+  // The page actually fetched must never exceed what's known to exist, or a shrinking list
+  // (e.g. rejecting the last item on the final page) leaves the query asking for a page that no
+  // longer exists - it comes back with items: [] while total still reads > 0, and with the
+  // pager's own clamped page count landing at 1 the pager hides too: permanently empty, no way to
+  // page back. The fix (mirroring LibraryConsistency.tsx's overview/page split) is to source
+  // `total` from a query that is *not* the one whose page can go stale: a dedicated page-0 fetch,
+  // decoupled from wherever the user is paged to. `total` is the same number regardless of which
+  // page answered it, so this is always current (it refetches like any other query on
+  // invalidateViews) and never trusts a placeholder-carried total left over from a different
+  // page's cached response - the bug an earlier version of this fix hit, which computed the page
+  // count from the *displayed* page's own query and oscillated between two page counts (one from
+  // fresh data, one from a stale cached placeholder for a different key) instead of converging.
+  // When currentPendingPage is itself 0 this count query and the items query below share one
+  // queryKey, so TanStack Query dedups them into a single request rather than fetching twice.
+  const { data: pendingCountData } = useQuery({
+    queryKey: queryKeys.pendingOnlineMatch.pendingPage(0),
+    queryFn: () => pendingOnlineMatchApi.getPendingPage(0, PAGE_SIZE),
+  });
+  const { data: failedCountData } = useQuery({
+    queryKey: queryKeys.pendingOnlineMatch.failedPage(0),
+    queryFn: () => pendingOnlineMatchApi.getFailedPage(0, PAGE_SIZE),
   });
 
-  const { data: failedData, isLoading: failedLoading } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.failedPage(failedPage),
-    placeholderData: keepPreviousData,
-    queryFn: () => pendingOnlineMatchApi.getFailedPage(failedPage, PAGE_SIZE),
-  });
-
-  const pendingItems = (pendingData?.items ?? []) as PendingOnlineMatchListItem[];
-  const pendingTotal = pendingData?.total ?? 0;
+  const pendingTotal = pendingCountData?.total ?? 0;
   const pendingPageCount = Math.max(1, Math.ceil(pendingTotal / PAGE_SIZE));
   const currentPendingPage = Math.min(pendingPage, pendingPageCount - 1);
 
-  const failedItems = (failedData?.items ?? []) as PendingOnlineMatchListItem[];
-  const failedTotal = failedData?.total ?? 0;
+  const failedTotal = failedCountData?.total ?? 0;
   const failedPageCount = Math.max(1, Math.ceil(failedTotal / PAGE_SIZE));
   const currentFailedPage = Math.min(failedPage, failedPageCount - 1);
+
+  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+    queryKey: queryKeys.pendingOnlineMatch.pendingPage(currentPendingPage),
+    placeholderData: keepPreviousData,
+    queryFn: () => pendingOnlineMatchApi.getPendingPage(currentPendingPage, PAGE_SIZE),
+  });
+
+  const { data: failedData, isLoading: failedLoading } = useQuery({
+    queryKey: queryKeys.pendingOnlineMatch.failedPage(currentFailedPage),
+    placeholderData: keepPreviousData,
+    queryFn: () => pendingOnlineMatchApi.getFailedPage(currentFailedPage, PAGE_SIZE),
+  });
+
+  const pendingItems = (pendingData?.items ?? []) as PendingOnlineMatchListItem[];
+  const failedItems = (failedData?.items ?? []) as PendingOnlineMatchListItem[];
 
   const invalidateViews = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.pendingOnlineMatch.all() });
