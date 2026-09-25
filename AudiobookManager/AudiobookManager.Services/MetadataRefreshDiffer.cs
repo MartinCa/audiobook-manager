@@ -18,13 +18,19 @@ public static class MetadataRefreshDiffer
 {
     private const string ListSeparator = " / ";
 
-    public static IEnumerable<MetadataRefreshDiff> Diff(Database.Models.Audiobook book, MetadataSearchResult fetched)
+    public static IEnumerable<MetadataRefreshDiff> Diff(
+        Database.Models.Audiobook book, MetadataSearchResult fetched,
+        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
     {
         var diffs = new List<MetadataRefreshDiff>();
         var add = MakeAdd(diffs);
 
-        add(MetadataRefreshFields.Authors, JoinNames(book.Authors.Select(a => a.Name)), JoinNames(fetched.Authors.Select(a => a.Name)));
-        add(MetadataRefreshFields.Narrators, JoinNames(book.Narrators.Select(n => n.Name)), JoinNames(fetched.Narrators.Select(n => n.Name)));
+        add(MetadataRefreshFields.Authors,
+            JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
+            JoinNames(fetched.Authors.Select(a => a.Name), spacing, punctuation));
+        add(MetadataRefreshFields.Narrators,
+            JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
+            JoinNames(fetched.Narrators.Select(n => n.Name), spacing, punctuation));
         add(MetadataRefreshFields.BookName, book.BookName, fetched.BookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, fetched.Subtitle);
         add(MetadataRefreshFields.Series, book.Series, fetched.Series?.FirstOrDefault()?.SeriesName);
@@ -68,13 +74,19 @@ public static class MetadataRefreshDiffer
     /// not <see cref="Person"/>/richer objects), so sharing <see cref="Diff"/> would cost more in
     /// adapter code than the handful of comparisons this repeats.
     /// </summary>
-    public static IEnumerable<MetadataRefreshDiff> DiffSnapshot(Database.Models.Audiobook book, PendingRefreshPayload.Snapshot snapshot)
+    public static IEnumerable<MetadataRefreshDiff> DiffSnapshot(
+        Database.Models.Audiobook book, PendingRefreshPayload.Snapshot snapshot,
+        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
     {
         var diffs = new List<MetadataRefreshDiff>();
         var add = MakeAdd(diffs);
 
-        add(MetadataRefreshFields.Authors, JoinNames(book.Authors.Select(a => a.Name)), JoinList(snapshot.Authors));
-        add(MetadataRefreshFields.Narrators, JoinNames(book.Narrators.Select(n => n.Name)), JoinList(snapshot.Narrators));
+        add(MetadataRefreshFields.Authors,
+            JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
+            JoinNames(snapshot.Authors, spacing, punctuation));
+        add(MetadataRefreshFields.Narrators,
+            JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
+            JoinNames(snapshot.Narrators, spacing, punctuation));
         add(MetadataRefreshFields.BookName, book.BookName, snapshot.BookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, snapshot.Subtitle);
         add(MetadataRefreshFields.Series, book.Series, snapshot.SeriesName);
@@ -115,15 +127,20 @@ public static class MetadataRefreshDiffer
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
-    /// The space right after a dotted initial ("M. R." vs "M.R.") is a typographical variant of
-    /// the same name, not a content difference - without folding it, every book scraped from a
-    /// source using the other spacing convention than this library's own would show a spurious
-    /// Authors/Narrators change on every refresh. Comparison-only: the diff's displayed
-    /// LibraryValue/SourceValue (and anything actually written by an apply) keep the real
-    /// spacing, matching the client-side fold `similarValueMatcher.ts` applies for the same reason
-    /// when matching typed text against stored names.
+    /// A standalone single-letter token, dotted or not ("R." or "R"), surrounded by spaces or a
+    /// list boundary - matches a lone middle initial <see cref="InitialsSpacingFormatter"/>
+    /// deliberately leaves untouched. That formatter only promotes a bare (undotted) single
+    /// letter to an initial when it sits next to a dotted initial or another bare one (a run of
+    /// 2+) - a single stray letter like the "R" in "Andrew R Chow" has no such neighbor, so
+    /// Format() cannot tell it apart from a genuine one-letter English word and, correctly for a
+    /// value it might WRITE back to the library, leaves it alone. That conservatism is wrong for
+    /// comparison, though: this field is never anything but a person's name, so an isolated
+    /// capital letter is always a middle initial here, dot or no dot. Stripping the dot (if any)
+    /// from every standalone letter token - independent of whatever InitialsSpacingFormatter
+    /// already normalized - makes "Andrew R. Chow" and "Andrew R Chow" compare equal without
+    /// changing what JoinNames actually displays or writes.
     /// </summary>
-    private static readonly Regex InitialsSpacingRegex = new(@"(?<=[A-Za-z]\.)\s+(?=[A-Za-z])", RegexOptions.Compiled);
+    private static readonly Regex LoneInitialRegex = new(@"(?<=^|[\s/])([A-Za-z])\.(?=[\s/]|$)", RegexOptions.Compiled);
 
     private static string? ComparableValue(string field, string? value)
     {
@@ -133,12 +150,24 @@ public static class MetadataRefreshDiffer
         }
 
         return field is MetadataRefreshFields.Authors or MetadataRefreshFields.Narrators
-            ? InitialsSpacingRegex.Replace(value, "")
+            ? LoneInitialRegex.Replace(value, "$1")
             : value;
     }
 
-    private static string? JoinNames(IEnumerable<string?> names) =>
-        JoinList(names);
+    /// <summary>
+    /// Names are formatted to the library's configured <see cref="InitialsSpacing"/>/
+    /// <see cref="InitialsPunctuation"/> convention BEFORE joining/deduping/sorting - not just a
+    /// spacing fold. "Andrew R. Chow" (library, Dotted) vs "Andrew R Chow" (a source that omits
+    /// the period) is a punctuation difference, not merely a spacing one, and a source's
+    /// convention need not match the library's in either respect. Formatting both sides to the
+    /// SAME canonical form is what <see cref="Consistency.Detectors.InitialsSpacingIssueDetector"/>
+    /// already validates stored names against, so this reuses it rather than inventing a second,
+    /// narrower normalization - the diff's displayed LibraryValue/SourceValue therefore also show
+    /// the canonical form (consistent with how Genres already displays a sorted/deduped form
+    /// rather than the literal scraped order).
+    /// </summary>
+    private static string? JoinNames(IEnumerable<string?> names, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation) =>
+        JoinList(names.Select(n => string.IsNullOrWhiteSpace(n) ? n : InitialsSpacingFormatter.Format(n, spacing, punctuation)));
 
     private static string? JoinList(IEnumerable<string?> values)
     {

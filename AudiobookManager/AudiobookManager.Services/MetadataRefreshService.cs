@@ -6,6 +6,7 @@ using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
+using AudiobookManager.Services.MappingExtensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -92,7 +93,8 @@ public class MetadataRefreshService : IMetadataRefreshService
         try
         {
             var fetched = await _scrapingService.GetBookDetails(book.Www!);
-            var differences = MetadataRefreshDiffer.Diff(book, fetched).ToList();
+            var (spacing, punctuation) = await GetInitialsSettingsAsync();
+            var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
             await RecordFetchedSnapshotAsync(book, fetched, differences);
             return new MetadataRefreshResult
             {
@@ -334,6 +336,8 @@ public class MetadataRefreshService : IMetadataRefreshService
             return;
         }
 
+        var (spacing, punctuation) = await GetInitialsSettingsAsync();
+
         foreach (var audiobookId in missingIds)
         {
             var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
@@ -356,7 +360,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                 continue;
             }
 
-            var changedFields = MetadataRefreshDiffer.DiffSnapshot(book, payload).Select(d => d.Field).ToList();
+            var changedFields = MetadataRefreshDiffer.DiffSnapshot(book, payload, spacing, punctuation).Select(d => d.Field).ToList();
             if (changedFields.Count == 0)
             {
                 await _pendingRepository.DeleteByAudiobookIdAsync(audiobookId);
@@ -479,7 +483,8 @@ public class MetadataRefreshService : IMetadataRefreshService
         // opening a new one.
         if ((fields is null || fields.Count == 0) && storedChangedFields.Count == 0 && dbBook is not null)
         {
-            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload).Select(d => d.Field).ToList();
+            var (spacing, punctuation) = await GetInitialsSettingsAsync();
+            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation).Select(d => d.Field).ToList();
         }
 
         var fieldsToApply = new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
@@ -662,6 +667,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         var rows = await _pendingRepository.GetByAudiobookIdsAsync(ids);
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(ids);
         var booksById = books.ToDictionary(b => b.Id);
+        var (spacing, punctuation) = await GetInitialsSettingsAsync();
 
         var processed = 0;
         var updated = 0;
@@ -688,7 +694,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             var remapped = await RemapSeriesAsync(payload);
 
-            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped).ToList();
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation).ToList();
             if (diffs.Count == 0)
             {
                 await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
@@ -742,5 +748,18 @@ public class MetadataRefreshService : IMetadataRefreshService
         return string.Equals(mappedName, payload.SeriesName, StringComparison.Ordinal)
             ? payload
             : payload with { SeriesName = mappedName };
+    }
+
+    /// <summary>
+    /// The library's configured Authors/Narrators initials convention, for every diff computation
+    /// in this class - the same settings <see cref="Consistency.Detectors.InitialsSpacingIssueDetector"/>
+    /// validates stored names against. A source rarely follows the library's own convention (or
+    /// even a consistent one of its own), so both sides of a diff must be formatted to it before
+    /// comparing, not just the stored side.
+    /// </summary>
+    private async Task<(Domain.InitialsSpacing Spacing, Domain.InitialsPunctuation Punctuation)> GetInitialsSettingsAsync()
+    {
+        var settings = (await _librarySettingsRepository.GetOrCreateAsync()).ToDomain();
+        return (settings.InitialsSpacing, settings.InitialsPunctuation);
     }
 }

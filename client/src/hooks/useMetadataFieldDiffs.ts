@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
 import { splitList } from "@/helpers/organizeAudiobookInput";
-import { foldInitialSpacing } from "@/helpers/similarValueMatcher";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -44,18 +43,35 @@ function comparableGenres(
 // order/dedupe-insensitive comparison rather than just one of them.
 const PERSON_LIST_SEPARATOR = /\s*\/\s*|,\s*/;
 
+// A run of one or more single-letter-plus-dot tokens, fused ("M.R.") or spaced ("M. R."), sitting
+// between word boundaries - "Andrew R. Chow" vs "Andrew R Chow" is the same author under a
+// different punctuation convention, and "Stephen M. R. Covey" vs "Stephen M.R. Covey" the same
+// under a different spacing one, neither a content change. An optional trailing space is only
+// consumed when it is followed by ANOTHER letter-dot pair (the lookahead), so the space that
+// actually separates the initials from the surname is left alone rather than fused into it - the
+// bug an earlier, two-step version of this fold had (collapsing the space between "R." and
+// "Chow" itself when it only meant to collapse the space between two adjacent initials).
+// Comparison-only: the displayed values keep whatever punctuation the source and the library
+// actually used.
+const INITIALS_RUN = /(^|[\s/])((?:[A-Za-z]\.(?:\s+(?=[A-Za-z]\.))?)+)(?=[\s/]|$)/g;
+
+function collapseInitials(name: string): string {
+  return name.replace(INITIALS_RUN, (_match, boundary: string, run: string) => {
+    const letters = run.match(/[A-Za-z]/g) ?? [];
+    return boundary + letters.join(" ");
+  });
+}
+
 /**
  * Mirrors the backend's MetadataRefreshDiffer.JoinNames (trim, dedupe case-sensitive, sort
- * ordinal-ignore-case) applied to an already-joined display string, plus the initials-spacing
- * fold ("M. R." vs "M.R." is a typographical variant, not a content difference - mirrors the
- * backend's own fold, and the fold this hook's own foldInitialSpacing collapse already applies
- * for type-ahead matching).
+ * ordinal-ignore-case) applied to an already-joined display string, plus the initials-run fold
+ * above.
  */
 function comparablePersonNames(joined: string): string {
   const meaningful = new Set(
     joined
       .split(PERSON_LIST_SEPARATOR)
-      .map((name) => foldInitialSpacing(name.trim()))
+      .map((name) => collapseInitials(name.trim()))
       .filter((name) => name.length > 0),
   );
   return Array.from(meaningful).sort(ordinalCompare).join(", ");

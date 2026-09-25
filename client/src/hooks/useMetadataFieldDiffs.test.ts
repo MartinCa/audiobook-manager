@@ -51,6 +51,31 @@ describe("useMetadataFieldDiffs", () => {
     expect(findField(result.current, "authors").changed).toBe(true);
   });
 
+  // Regression (reported live against a real library): "Andrew R. Chow" vs "Andrew R Chow" is a
+  // missing-dot difference on a LONE middle initial, not a spacing one - foldInitialSpacing only
+  // collapses the space after a dotted initial and does nothing when the dot itself is absent.
+  it("does not flag an Authors change when a lone middle initial's dot is missing", () => {
+    const current: OrganizeAudiobookInput = { authors: "Andrew R. Chow" };
+    const searchResult = baseSearchResult({
+      authors: [{ name: "Andrew R Chow" }],
+    });
+
+    const { result } = renderHook(() => useMetadataFieldDiffs(current, searchResult, []));
+
+    expect(findField(result.current, "authors").changed).toBe(false);
+  });
+
+  it("still flags a genuinely different lone middle initial", () => {
+    const current: OrganizeAudiobookInput = { authors: "Andrew R. Chow" };
+    const searchResult = baseSearchResult({
+      authors: [{ name: "Andrew S Chow" }],
+    });
+
+    const { result } = renderHook(() => useMetadataFieldDiffs(current, searchResult, []));
+
+    expect(findField(result.current, "authors").changed).toBe(true);
+  });
+
   it("does not flag a Narrators change when only initials spacing differs", () => {
     const current: OrganizeAudiobookInput = { narrators: "J.K. Rowling" };
     const searchResult = baseSearchResult({
