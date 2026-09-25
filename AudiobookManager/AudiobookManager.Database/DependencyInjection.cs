@@ -18,6 +18,7 @@ public static class DependencyInjection
             .AddScoped<ISeriesConsistencyIssueRepository, SeriesConsistencyIssueRepository>()
             .AddScoped<IAuthorConsistencyIssueRepository, AuthorConsistencyIssueRepository>()
             .AddScoped<IPendingMetadataRefreshRepository, PendingMetadataRefreshRepository>()
+            .AddScoped<IPendingOnlineMatchRepository, PendingOnlineMatchRepository>()
             .AddScoped<IPendingSeriesRefreshRepository, PendingSeriesRefreshRepository>()
             .AddScoped<IOrphanDirectoryRepository, OrphanDirectoryRepository>()
             .AddScoped<ISeriesRepository, SeriesRepository>()

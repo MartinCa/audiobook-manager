@@ -20,6 +20,7 @@ public class AudiobookService : IAudiobookService
     private readonly IPersonRepository _personRepository;
     private readonly IGenreRepository _genreRepository;
     private readonly IBookConsistencyIssueRepository _issueRepository;
+    private readonly IPendingOnlineMatchRepository _pendingOnlineMatchRepository;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
 
     public AudiobookService(
@@ -31,6 +32,7 @@ public class AudiobookService : IAudiobookService
         IPersonRepository personRepository,
         IGenreRepository genreRepository,
         IBookConsistencyIssueRepository issueRepository,
+        IPendingOnlineMatchRepository pendingOnlineMatchRepository,
         ISeriesReconciliationCache seriesReconciliationCache,
         ILogger<AudiobookService> logger)
     {
@@ -42,6 +44,7 @@ public class AudiobookService : IAudiobookService
         _personRepository = personRepository;
         _genreRepository = genreRepository;
         _issueRepository = issueRepository;
+        _pendingOnlineMatchRepository = pendingOnlineMatchRepository;
         _seriesReconciliationCache = seriesReconciliationCache;
         _logger = logger;
     }
@@ -490,6 +493,16 @@ public class AudiobookService : IAudiobookService
         // Only the controller passes the online-search signal; consistency resolves and
         // similar-value alignment use the overload without it, so they never stamp.
         await MarkIfMetadataAppliedFromSearchAsync(metadataAppliedFromSearch, id);
+
+        if (metadataAppliedFromSearch)
+        {
+            // This save just applied metadata from an online source directly (the interactive
+            // search-and-apply flow, not the pending-refresh review flow - that one goes through
+            // MetadataRefreshService.ApplyOneAsync, which does the same cleanup for its own entry
+            // points). An outstanding online-match row (pending or rejected) for this book is
+            // stale either way: the book was just resolved.
+            await _pendingOnlineMatchRepository.DeleteByAudiobookIdAsync(id);
+        }
 
         await progressAction("Done", 100);
 

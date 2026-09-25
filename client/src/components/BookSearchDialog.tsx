@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ExternalLink, Loader2, Check } from "lucide-react";
+import { Search, Loader2, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -13,6 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MetadataSourceSelector } from "@/components/MetadataSourceSelector";
+import { MetadataSearchResultCard } from "@/components/MetadataSearchResultCard";
 import { metadataSearchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
@@ -218,33 +219,11 @@ export function BookSearchDialog({
             </Button>
           </form>
 
-          <div>
-            <div className="text-muted-foreground mb-1.5 text-xs font-semibold uppercase">
-              Metadata Sources
-            </div>
-            <div className="flex flex-wrap gap-1.5 sm:gap-2">
-              {services.map((service) => {
-                const isConfigured = service.enabled;
-                const isSelected = activeSources.includes(service.name);
-
-                return (
-                  <Badge
-                    key={service.name}
-                    variant={isSelected ? "default" : isConfigured ? "outline" : "secondary"}
-                    className={`cursor-pointer text-[11px] select-none ${
-                      !isConfigured ? "cursor-not-allowed opacity-50" : "hover:bg-primary/90"
-                    }`}
-                    onClick={() => {
-                      if (isConfigured) toggleSource(service.name);
-                    }}
-                  >
-                    {service.name}
-                    {!isConfigured && ` (${service.disabledReason || "Unavailable"})`}
-                  </Badge>
-                );
-              })}
-            </div>
-          </div>
+          <MetadataSourceSelector
+            services={services}
+            activeSources={activeSources}
+            onToggleSource={toggleSource}
+          />
 
           <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto">
             {error && <p className="text-destructive text-xs">{error}</p>}
@@ -272,80 +251,10 @@ export function BookSearchDialog({
               {results.map((result, idx) => {
                 const isBusy = selectingDetails === result.url;
                 return (
-                  <div
+                  <MetadataSearchResultCard
                     key={`${result.source}-${result.bookName}-${idx}`}
-                    className="border-border bg-card hover:bg-muted/50 flex flex-col justify-between gap-3 rounded-lg border p-3 transition-colors sm:flex-row sm:items-start sm:gap-4"
-                  >
-                    <div className="flex min-w-0 flex-1 gap-3">
-                      {result.imageUrl && (
-                        <img
-                          src={metadataSearchApi.getProxyImageUrl(result.imageUrl)}
-                          alt={result.bookName}
-                          className="h-16 w-16 shrink-0 rounded object-contain shadow-sm"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = "none";
-                          }}
-                        />
-                      )}
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className="text-foreground font-semibold break-words">
-                            {result.bookName}
-                          </span>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {result.source}
-                          </Badge>
-                          {result.year && (
-                            <span className="text-muted-foreground text-xs">({result.year})</span>
-                          )}
-                          {result.duration && (
-                            <span className="text-muted-foreground text-xs">
-                              · {result.duration}
-                            </span>
-                          )}
-                          {result.language && (
-                            <span className="text-muted-foreground text-xs capitalize">
-                              {result.language}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="text-muted-foreground space-y-0.5 text-xs">
-                          {result.authors && result.authors.length > 0 && (
-                            <div className="break-words">
-                              By:{" "}
-                              <span className="text-foreground font-medium">
-                                {result.authors.map((a) => a.name).join(", ")}
-                              </span>
-                            </div>
-                          )}
-                          {result.narrators && result.narrators.length > 0 && (
-                            <div className="break-words">
-                              Narrated by: {result.narrators.map((n) => n.name).join(", ")}
-                            </div>
-                          )}
-                          {result.series?.[0] && (
-                            <div className="break-words">
-                              Series: {result.series[0].seriesName}{" "}
-                              {result.series[0].seriesPart && `#${result.series[0].seriesPart}`}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border-border/50 flex items-center justify-between gap-2 border-t pt-2 sm:flex-col sm:items-end sm:justify-start sm:border-t-0 sm:pt-0">
-                      {result.url && (
-                        <a
-                          href={result.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-foreground flex items-center text-[11px]"
-                        >
-                          <ExternalLink className="mr-1 h-3 w-3" />
-                          View Source
-                        </a>
-                      )}
+                    result={result}
+                    actions={
                       <Button
                         size="sm"
                         disabled={isBusy}
@@ -357,8 +266,8 @@ export function BookSearchDialog({
                         {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                         Apply
                       </Button>
-                    </div>
-                  </div>
+                    }
+                  />
                 );
               })}
             </div>

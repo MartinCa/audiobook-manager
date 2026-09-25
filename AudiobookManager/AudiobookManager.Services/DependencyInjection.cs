@@ -42,6 +42,7 @@ public static class DependencyInjection
         .AddScoped<IAuthorReconciliationProvider, AuthorReconciliationProvider>()
         .AddScoped<ISeriesService, SeriesService>()
         .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
+        .AddScoped<IPendingOnlineMatchService, PendingOnlineMatchService>()
         .AddScoped<IBulkEditService, BulkEditService>()
         .AddScoped<IUpcomingReleaseService, UpcomingReleaseService>()
         .SetupFileManager()

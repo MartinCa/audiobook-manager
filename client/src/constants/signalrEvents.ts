@@ -50,6 +50,8 @@ export const SignalREvents = {
   BulkEditComplete: "BulkEditComplete",
   UrlCleanupProgress: "UrlCleanupProgress",
   UrlCleanupComplete: "UrlCleanupComplete",
+  PendingOnlineMatchSearchProgress: "PendingOnlineMatchSearchProgress",
+  PendingOnlineMatchSearchComplete: "PendingOnlineMatchSearchComplete",
 } as const;
 
 export const OperationKeys = {
@@ -70,4 +72,5 @@ export const OperationKeys = {
   urlCleanupApply: "url-cleanup-apply",
   upcomingReleasesRefresh: "upcoming-releases-refresh",
   authorRosterRefreshAll: "author-roster-refresh-all",
+  pendingOnlineMatchSearch: "pending-online-match-search",
 } as const;

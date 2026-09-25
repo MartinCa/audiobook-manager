@@ -19,6 +19,7 @@ import { Route as LibraryConsistencyRouteImport } from './routes/library/consist
 import { Route as LibraryDiscoveredRouteImport } from './routes/library/discovered'
 import { Route as LibraryMetadataRefreshRouteImport } from './routes/library/metadata-refresh'
 import { Route as LibraryMissingTagsRouteImport } from './routes/library/missing-tags'
+import { Route as LibraryPendingOnlineMatchRouteImport } from './routes/library/pending-online-match'
 import { Route as LibrarySearchRouteImport } from './routes/library/search'
 import { Route as LibrarySimilarValuesRouteImport } from './routes/library/similar-values'
 import { Route as LibraryUpcomingReleasesRouteImport } from './routes/library/upcoming-releases'
@@ -82,6 +83,12 @@ const LibraryMissingTagsRoute = LibraryMissingTagsRouteImport.update({
   path: '/library/missing-tags',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LibraryPendingOnlineMatchRoute =
+  LibraryPendingOnlineMatchRouteImport.update({
+    id: '/library/pending-online-match',
+    path: '/library/pending-online-match',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LibrarySearchRoute = LibrarySearchRouteImport.update({
   id: '/library/search',
   path: '/library/search',
@@ -153,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
+  '/library/pending-online-match': typeof LibraryPendingOnlineMatchRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
@@ -177,6 +185,7 @@ export interface FileRoutesByTo {
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
+  '/library/pending-online-match': typeof LibraryPendingOnlineMatchRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
@@ -202,6 +211,7 @@ export interface FileRoutesById {
   '/library/discovered': typeof LibraryDiscoveredRoute
   '/library/metadata-refresh': typeof LibraryMetadataRefreshRoute
   '/library/missing-tags': typeof LibraryMissingTagsRoute
+  '/library/pending-online-match': typeof LibraryPendingOnlineMatchRoute
   '/library/search': typeof LibrarySearchRoute
   '/library/similar-values': typeof LibrarySimilarValuesRoute
   '/library/upcoming-releases': typeof LibraryUpcomingReleasesRoute
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | '/library/discovered'
     | '/library/metadata-refresh'
     | '/library/missing-tags'
+    | '/library/pending-online-match'
     | '/library/search'
     | '/library/similar-values'
     | '/library/upcoming-releases'
@@ -252,6 +263,7 @@ export interface FileRouteTypes {
     | '/library/discovered'
     | '/library/metadata-refresh'
     | '/library/missing-tags'
+    | '/library/pending-online-match'
     | '/library/search'
     | '/library/similar-values'
     | '/library/upcoming-releases'
@@ -276,6 +288,7 @@ export interface FileRouteTypes {
     | '/library/discovered'
     | '/library/metadata-refresh'
     | '/library/missing-tags'
+    | '/library/pending-online-match'
     | '/library/search'
     | '/library/similar-values'
     | '/library/upcoming-releases'
@@ -301,6 +314,7 @@ export interface RootRouteChildren {
   LibraryDiscoveredRoute: typeof LibraryDiscoveredRoute
   LibraryMetadataRefreshRoute: typeof LibraryMetadataRefreshRoute
   LibraryMissingTagsRoute: typeof LibraryMissingTagsRoute
+  LibraryPendingOnlineMatchRoute: typeof LibraryPendingOnlineMatchRoute
   LibrarySearchRoute: typeof LibrarySearchRoute
   LibrarySimilarValuesRoute: typeof LibrarySimilarValuesRoute
   LibraryUpcomingReleasesRoute: typeof LibraryUpcomingReleasesRoute
@@ -385,6 +399,13 @@ declare module '@tanstack/react-router' {
       path: '/library/missing-tags'
       fullPath: '/library/missing-tags'
       preLoaderRoute: typeof LibraryMissingTagsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library/pending-online-match': {
+      id: '/library/pending-online-match'
+      path: '/library/pending-online-match'
+      fullPath: '/library/pending-online-match'
+      preLoaderRoute: typeof LibraryPendingOnlineMatchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library/search': {
@@ -495,6 +516,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibraryDiscoveredRoute: LibraryDiscoveredRoute,
   LibraryMetadataRefreshRoute: LibraryMetadataRefreshRoute,
   LibraryMissingTagsRoute: LibraryMissingTagsRoute,
+  LibraryPendingOnlineMatchRoute: LibraryPendingOnlineMatchRoute,
   LibrarySearchRoute: LibrarySearchRoute,
   LibrarySimilarValuesRoute: LibrarySimilarValuesRoute,
   LibraryUpcomingReleasesRoute: LibraryUpcomingReleasesRoute,

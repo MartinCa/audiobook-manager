@@ -17,6 +17,7 @@ public class MetadataRefreshServiceTests
 {
     private readonly Mock<IAudiobookRepository> _audiobookRepository = new();
     private readonly Mock<IPendingMetadataRefreshRepository> _pendingRepository = new();
+    private readonly Mock<IPendingOnlineMatchRepository> _pendingOnlineMatchRepository = new();
     private readonly Mock<IBookConsistencyIssueRepository> _issueRepository = new();
     private readonly Mock<IScrapingService> _scrapingService = new();
     private readonly Mock<ILibrarySettingsRepository> _librarySettingsRepository = new();
@@ -47,6 +48,7 @@ public class MetadataRefreshServiceTests
         new(
             _audiobookRepository.Object,
             _pendingRepository.Object,
+            _pendingOnlineMatchRepository.Object,
             _issueRepository.Object,
             _scrapingService.Object,
             scrapers ?? Array.Empty<IScraper>(),

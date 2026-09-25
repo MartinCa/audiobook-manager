@@ -35,4 +35,6 @@ public interface IOrganize
     Task BulkEditComplete(BulkEditComplete result);
     Task UrlCleanupProgress(UrlCleanupProgress progress);
     Task UrlCleanupComplete(UrlCleanupComplete result);
+    Task PendingOnlineMatchSearchProgress(PendingOnlineMatchSearchProgress progress);
+    Task PendingOnlineMatchSearchComplete(PendingOnlineMatchSearchComplete result);
 }

@@ -21,6 +21,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     private readonly IAudiobookRepository _audiobookRepository;
     private readonly IPendingMetadataRefreshRepository _pendingRepository;
+    private readonly IPendingOnlineMatchRepository _pendingOnlineMatchRepository;
     private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IScrapingService _scrapingService;
     private readonly IEnumerable<IScraper> _scrapers;
@@ -34,6 +35,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     public MetadataRefreshService(
         IAudiobookRepository audiobookRepository,
         IPendingMetadataRefreshRepository pendingRepository,
+        IPendingOnlineMatchRepository pendingOnlineMatchRepository,
         IBookConsistencyIssueRepository issueRepository,
         IScrapingService scrapingService,
         IEnumerable<IScraper> scrapers,
@@ -46,6 +48,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     {
         _audiobookRepository = audiobookRepository;
         _pendingRepository = pendingRepository;
+        _pendingOnlineMatchRepository = pendingOnlineMatchRepository;
         _issueRepository = issueRepository;
         _scrapingService = scrapingService;
         _scrapers = scrapers;
@@ -124,6 +127,37 @@ public class MetadataRefreshService : IMetadataRefreshService
                 Error = ex.Message,
             };
         }
+    }
+
+    /// <summary>
+    /// Diffs an already-fetched scraper result against the book and records it as a pending
+    /// metadata-refresh snapshot, exactly like <see cref="RefreshAudiobookAsync"/>'s own write path
+    /// - the difference being where the fetch came from: this is for a result chosen from a bulk
+    /// online-match search (an arbitrary candidate URL), not the book's own Www. Used by
+    /// <c>PendingOnlineMatchService</c> when a user selects a candidate, so the rest of the
+    /// review/apply flow (TagPreviewDialog, the pending-refresh list) never needs to know
+    /// online-match search results exist as a separate concept - a selected candidate becomes an
+    /// ordinary pending metadata-refresh row.
+    /// </summary>
+    public async Task<MetadataRefreshResult> ApplyFetchedResultAsSnapshotAsync(
+        long audiobookId, Scraping.Models.MetadataSearchResult fetched)
+    {
+        var book = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
+        if (book is null)
+        {
+            throw new KeyNotFoundException($"Audiobook {audiobookId} not found");
+        }
+
+        var (spacing, punctuation) = await GetInitialsSettingsAsync();
+        var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
+        await RecordFetchedSnapshotAsync(book, fetched, differences);
+        return new MetadataRefreshResult
+        {
+            Success = true,
+            HasDifferences = differences.Count > 0,
+            Differences = differences,
+            SourceName = fetched.Source,
+        };
     }
 
     public async Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(
@@ -533,6 +567,12 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         await _pendingRepository.DeleteByAudiobookIdAsync(dbBook.Id);
+        // A book's metadata was just refreshed from an online source through this apply, whatever
+        // got it here - the book's own Refresh Now, or a bulk online-match candidate that became
+        // this pending row (PendingOnlineMatchService.SelectResultAsync). Either way, an
+        // outstanding online-match row (pending or rejected) for it is stale: drop it rather than
+        // leaving it to show a Failed/Rejected book that was, in fact, just resolved.
+        await _pendingOnlineMatchRepository.DeleteByAudiobookIdAsync(dbBook.Id);
         return true;
     }
 
@@ -555,7 +595,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                 FetchedAt = DateTime.UtcNow,
                 SourceName = fetched.Source,
                 SourceUrl = fetched.CleanUrl,
-                PayloadJson = PendingRefreshPayload.Serialize(ToSnapshot(fetched)),
+                PayloadJson = PendingRefreshPayload.Serialize(PendingRefreshPayload.FromSearchResult(fetched)),
                 ChangedFieldsJson = JsonSerializer.Serialize(differences.Select(d => d.Field).ToList(), ChangedFieldsJsonOptions),
             });
         }
@@ -612,26 +652,6 @@ public class MetadataRefreshService : IMetadataRefreshService
                 actualValue: error));
         }
     }
-
-    private static PendingRefreshPayload.Snapshot ToSnapshot(Scraping.Models.MetadataSearchResult fetched) => new(
-        PendingRefreshPayload.CurrentVersion,
-        fetched.CleanUrl,
-        fetched.Source,
-        fetched.Authors.Select(a => a.Name).ToList(),
-        fetched.Narrators.Select(n => n.Name).ToList(),
-        fetched.BookName,
-        fetched.Subtitle,
-        fetched.Series?.FirstOrDefault()?.SeriesName,
-        fetched.Series?.FirstOrDefault()?.SeriesPart,
-        fetched.Year,
-        fetched.Genres.ToList(),
-        fetched.Description,
-        fetched.Language,
-        fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        fetched.Copyright,
-        fetched.Publisher,
-        fetched.Asin,
-        fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName);
 
     /// <summary>
     /// Re-evaluates every pending snapshot against the library and mapping rules as they stand
