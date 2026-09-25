@@ -867,4 +867,78 @@ describe("BookDetail", () => {
       );
     });
   });
+
+  // ---- Unsaved-changes indicator and navigation guard (item 3) ----
+
+  it("shows no unsaved-changes indicator on a freshly-opened edit page", async () => {
+    renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("shows an unsaved-changes indicator near Done once the edit form is dirty", async () => {
+    renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+
+    // Two indicators are expected (BookEditForm's own, and BookDetail's next to Done) - both
+    // read "Unsaved changes", so this just confirms at least one rendered.
+    expect(await screen.findAllByText("Unsaved changes")).not.toHaveLength(0);
+  });
+
+  it("blocks in-app navigation away from unsaved changes and lets the user stay", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /stay on this page/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+    });
+    // Still on the edit page - the navigation was cancelled, not just the dialog closed.
+    expect(router.state.location.pathname).toBe("/library/book/42/edit");
+    expect(screen.getByDisplayValue("The Way of Kings (revised)")).toBeInTheDocument();
+  });
+
+  it("blocks in-app navigation away from unsaved changes and lets the user leave", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /leave without saving/i }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+  });
+
+  it("does not block navigation away when the edit form has no unsaved changes", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
 });
