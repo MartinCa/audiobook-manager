@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState, useBlocker } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import { LinkButton } from "../LinkButton";
 import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import {
   browseApi,
@@ -85,6 +86,18 @@ export function BookDetail({ mode }: BookDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingApplied, setPendingApplied] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+
+  // Warn before leaving the edit form with unsaved changes - both for in-app navigation (the
+  // confirm dialog below) and for closing/refreshing the tab. enableBeforeUnload must be the same
+  // conditional function as shouldBlockFn, not `true` - the boolean form skips shouldBlockFn
+  // entirely and fires the native prompt unconditionally for every mount of this component
+  // (view mode included, and edit mode with nothing dirty).
+  const blocker = useBlocker({
+    shouldBlockFn: () => isEditMode && formDirty,
+    enableBeforeUnload: () => isEditMode && formDirty,
+    withResolver: true,
+  });
 
   const { data, isLoading: loading } = useQuery({
     queryKey: queryKeys.bookDetail(id),
@@ -241,7 +254,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       notifyBookConsistencyResolveResult(result);
       if (result.actionTaken === "audiobook_deleted") {
         invalidateConsistencyViews();
-        void navigate({ to: "/library" });
+        // Same reason as handleDeleteBook's navigate: the book (and any unsaved edits) is
+        // already gone, so the unsaved-changes blocker must not intercept this navigation.
+        void navigate({ to: "/library", ignoreBlocker: true });
         return;
       }
       invalidateConsistencyViews();
@@ -260,7 +275,11 @@ export function BookDetail({ mode }: BookDetailProps) {
       notifications.success("Audiobook deleted from library");
       void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
-      void navigate({ to: "/library" });
+      // The file (and any unsaved edits along with it) is already gone by this point, so the
+      // unsaved-changes blocker must not intercept this navigation - it would show "Discard
+      // unsaved changes?" for a book that no longer exists, and "Stay on this page" would strand
+      // the user editing it.
+      void navigate({ to: "/library", ignoreBlocker: true });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
       setDeleting(false);
@@ -390,6 +409,13 @@ export function BookDetail({ mode }: BookDetailProps) {
             </Button>
           )}
 
+          {isEditMode && formDirty && (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Unsaved changes
+            </span>
+          )}
+
           {isEditMode ? (
             <Button
               size="sm"
@@ -484,6 +510,7 @@ export function BookDetail({ mode }: BookDetailProps) {
                   pendingRefreshOpen={pendingOpen}
                   onPendingRefreshOpenChange={setPendingOpen}
                   currentBookId={id}
+                  onDirtyChange={setFormDirty}
                 />
               </CardContent>
             </Card>
@@ -693,6 +720,19 @@ export function BookDetail({ mode }: BookDetailProps) {
         onConfirmDelete={handleDeleteBook}
         title="Delete Audiobook"
         description={`Are you sure you want to permanently delete "${bookDetail.bookName}"? This removes the audiobook directory and all its files from your library storage.`}
+      />
+
+      <ConfirmDialog
+        open={blocker.status === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) blocker.reset?.();
+        }}
+        title="Discard unsaved changes?"
+        description="This book has unsaved edits. Leaving now discards them."
+        onConfirm={() => blocker.proceed?.()}
+        confirmText="Leave without saving"
+        confirmVariant="destructive"
+        cancelText="Stay on this page"
       />
     </div>
   );

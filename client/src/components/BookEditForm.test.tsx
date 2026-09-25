@@ -27,6 +27,14 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
+// The real helper asks the browser to decode the image so it can shrink it, and jsdom's <img>
+// never settles for a blob URL - see CoverEditor.test.tsx for the same reasoning.
+vi.mock("@/lib/coverImage", () => ({
+  prepareCover: vi.fn((blob: Blob) =>
+    Promise.resolve({ base64Data: "cHJlcGFyZWQ=", mimeType: blob.type || "image/jpeg" }),
+  ),
+}));
+
 function renderWithProviders(ui: React.ReactElement) {
   // A fresh client per render — several tests below vary the getLanguages mock per-call, and a
   // shared client would serve a stale cached "languages" query result across tests.
@@ -1002,5 +1010,150 @@ describe("BookEditForm", () => {
     // deterministic - not a fixed-sleep race.
     const { audiobookApi } = await import("@/services/api");
     expect(audiobookApi.getSeriesPartConflicts).not.toHaveBeenCalled();
+  });
+
+  it("shows no unsaved-changes indicator and reports clean when nothing has been edited", () => {
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} onDirtyChange={onDirtyChange} />,
+    );
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows the unsaved-changes indicator and reports dirty after editing a field", async () => {
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} onDirtyChange={onDirtyChange} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title" },
+    });
+
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+  });
+
+  it("clears the unsaved-changes indicator after Reset", async () => {
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title" },
+    });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+
+    await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
+  });
+
+  it("clears the unsaved-changes indicator once a save succeeds", async () => {
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={onSave} onDirtyChange={onDirtyChange} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title" },
+    });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // The just-saved values are the new clean baseline - editing again then saving again must
+    // still work (dirty tracking wasn't left in a broken state by the reset-after-save).
+    await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.change(screen.getByDisplayValue("Updated Title"), {
+      target: { value: "Updated Again" },
+    });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  // Regression test: bookEditFormSchema trims bookName via zod, so handleValidSubmit's `values`
+  // (the zod-resolver output) is trimmed while the displayed input keeps the user's raw
+  // whitespace. Resetting the clean baseline against the trimmed `values` while the display
+  // still showed the untrimmed text made react-hook-form recompute isDirty as true immediately
+  // after a successful save - the indicator this test guards would incorrectly reappear.
+  it("does not re-show the unsaved-changes indicator after a save when the saved field had trailing whitespace", async () => {
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={onSave} onDirtyChange={onDirtyChange} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("Original Title"), {
+      target: { value: "Updated Title  " },
+    });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  // Regression test: nothing disables the inputs while a save is in flight (onSave is awaited,
+  // not synchronous), so an edit made in that window must still be reported dirty once the save
+  // completes and the baseline resets - it was never part of what was actually saved. The fix
+  // captures form.getValues() synchronously at submit time and resets against that snapshot,
+  // rather than re-reading form.getValues() after the await (which would pick up this in-flight
+  // edit and silently mark it clean, along with everything already saved).
+  it("keeps reporting dirty for an edit made while a save is still in flight", async () => {
+    let resolveSave!: () => void;
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={onSave} onDirtyChange={onDirtyChange} />,
+    );
+
+    const titleInput = screen.getByDisplayValue("Original Title");
+    fireEvent.change(titleInput, { target: { value: "Updated Title" } });
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // Edit again while the save from the first click is still pending.
+    fireEvent.change(screen.getByDisplayValue("Updated Title"), {
+      target: { value: "Updated Title, Then Edited Again" },
+    });
+
+    resolveSave();
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+
+    // The reset must not have absorbed the in-flight edit as clean - it's still unsaved.
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+    expect(onDirtyChange).not.toHaveBeenLastCalledWith(false);
+  });
+
+  it("treats a cover change as dirty even though it is not a react-hook-form field", async () => {
+    const onDirtyChange = vi.fn();
+    renderWithProviders(
+      <BookEditForm initialBook={initialBook} onSave={vi.fn()} onDirtyChange={onDirtyChange} />,
+    );
+
+    expect(onDirtyChange).toHaveBeenCalledWith(false);
+
+    // "Click to set cover" opens a dialog; the file input lives inside it, unlabelled via
+    // htmlFor/id (a floating text label, not an associated <label>), so it's found by type.
+    fireEvent.click(screen.getByText("Click to set cover"));
+    await screen.findByText("Upload image file");
+    const fileInput = document.querySelector('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    const file = new File(["cover-bytes"], "cover.jpg", { type: "image/jpeg" });
+    fireEvent.change(fileInput!, { target: { files: [file] } });
+
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
   });
 });

@@ -867,4 +867,142 @@ describe("BookDetail", () => {
       );
     });
   });
+
+  // ---- Unsaved-changes indicator and navigation guard (item 3) ----
+
+  it("shows no unsaved-changes indicator on a freshly-opened edit page", async () => {
+    renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("shows an unsaved-changes indicator near Done once the edit form is dirty", async () => {
+    renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+
+    // Two indicators are expected (BookEditForm's own, and BookDetail's next to Done) - both
+    // read "Unsaved changes", so this just confirms at least one rendered.
+    expect(await screen.findAllByText("Unsaved changes")).not.toHaveLength(0);
+  });
+
+  it("blocks in-app navigation away from unsaved changes and lets the user stay", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /stay on this page/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+    });
+    // Still on the edit page - the navigation was cancelled, not just the dialog closed.
+    expect(router.state.location.pathname).toBe("/library/book/42/edit");
+    expect(screen.getByDisplayValue("The Way of Kings (revised)")).toBeInTheDocument();
+  });
+
+  it("blocks in-app navigation away from unsaved changes and lets the user leave", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /leave without saving/i }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+  });
+
+  it("does not block navigation away when the edit form has no unsaved changes", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    const backLink = screen.getByRole("button", { name: /back to library/i });
+    fireEvent.click(backLink);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
+
+  // Regression test: deleting a book with unsaved edits used to navigate through the same
+  // blocker as any other in-app navigation - by the time it fired, the file (and the unsaved
+  // edits with it) was already gone, so "Discard unsaved changes?" appeared for a book that no
+  // longer existed, and "Stay on this page" stranded the user editing it. The delete navigation
+  // must bypass the blocker instead.
+  it("navigates straight to the library after deleting a book with unsaved edits, without the discard-changes prompt", async () => {
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const deleteTrigger = screen.getByRole("button", { name: /delete audiobook/i });
+    fireEvent.click(deleteTrigger);
+    expect(await screen.findByText(/removes the audiobook directory/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
+
+  // Regression test, same class as the delete-button fix above: resolving a consistency issue
+  // can also delete the audiobook record (actionTaken === "audiobook_deleted"), and that resolve
+  // control is edit-mode-only - so a dirty form can be present when it navigates away. That
+  // navigation must bypass the blocker too, or it collides the same way the delete button did.
+  it("navigates straight to the library after a consistency resolve deletes the book, even with unsaved edits", async () => {
+    const { consistencyApi } = await import("@/services/api");
+    vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
+      {
+        id: 101,
+        audiobookId: 42,
+        bookName: "The Way of Kings",
+        authors: ["Brandon Sanderson"],
+        issueType: "OrphanRecord",
+        description: "No file found for this record",
+        expectedValue: null,
+        actualValue: null,
+        detectedAt: "2026-09-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(consistencyApi.resolveIssue).mockResolvedValue({
+      issueId: 101,
+      issueType: "OrphanRecord",
+      actionTaken: "audiobook_deleted",
+      message: "Orphan record removed.",
+    });
+
+    const { router } = renderWithProviders("/library/book/42/edit");
+
+    const titleInput = await screen.findByDisplayValue("The Way of Kings");
+    fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
+    await screen.findAllByText("Unsaved changes");
+
+    const resolveBtn = screen.getByRole("button", { name: /resolve/i });
+    fireEvent.click(resolveBtn);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/library");
+    });
+    expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
 });
