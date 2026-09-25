@@ -26,8 +26,9 @@ function writeStoredSources(sources: string[]): void {
 
 /**
  * Restores the user's metadata-source selection from localStorage once `services` is available
- * (filtered down to still-enabled sources), falling back to every enabled source. Every change
- * is persisted back to localStorage.
+ * (filtered down to still-enabled sources), falling back to every enabled source only when
+ * nothing was ever stored. An explicitly-cleared (empty) selection is restored as empty, not
+ * reinterpreted as "no preference" - every change is persisted back to localStorage as-is.
  */
 export function useSelectedSearchSources(
   services: MetadataSearchServiceInfo[],
@@ -41,9 +42,15 @@ export function useSelectedSearchSources(
 
     const enabledNames = services.filter((s) => s.enabled).map((s) => s.name);
     const stored = readStoredSources();
-    const restored = stored?.filter((s) => enabledNames.includes(s)) ?? [];
-
-    setSelectedSources(restored.length > 0 ? restored : enabledNames);
+    // `stored === null` means no preference was ever saved - default to every enabled source.
+    // A *stored* `[]` means the user previously cleared every source deliberately, and that has
+    // to survive remounting the same way any other non-empty selection does: filtering it against
+    // the current enabled set (in case a source was disabled since) must not fall back to
+    // "select everything" just because the filtered result happens to be empty too - that would
+    // silently discard an explicit "nothing" the moment the dialog is reopened.
+    setSelectedSources(
+      stored === null ? enabledNames : stored.filter((s) => enabledNames.includes(s)),
+    );
   }, [services]);
 
   useEffect(() => {

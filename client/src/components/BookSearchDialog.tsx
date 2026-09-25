@@ -54,10 +54,14 @@ export function BookSearchDialog({
 
   const [selectedSources, setSelectedSources] = useSelectedSearchSources(services);
 
-  const activeSources =
-    selectedSources.length > 0
-      ? selectedSources
-      : services.filter((s) => s.enabled).map((s) => s.name);
+  // Deliberately no "empty selection falls back to every enabled source" here: that fallback
+  // used to make the Search button's own `activeSources.length === 0` guard below unreachable -
+  // deselecting the last source silently re-expanded to everything instead of disabling the
+  // button. useSelectedSearchSources already supplies the "no preference yet" default (every
+  // enabled source) on first load; an empty selectedSources past that point is the user's own
+  // explicit choice and disables Search, matching BulkOnlineMatchSearchDialog's identical
+  // treatment of the same shared hook.
+  const activeSources = selectedSources;
 
   const toggleSource = (sourceName: string) => {
     const current = activeSources;

@@ -30,6 +30,19 @@ describe("useSelectedSearchSources", () => {
     await waitFor(() => expect(result.current[0]).toEqual(["Goodreads"]));
   });
 
+  // Regression test: an explicitly-cleared selection ("[]", stored by the user deselecting every
+  // source) used to be reinterpreted as "no preference" on the next mount - `stored?.filter(...)
+  // ?? []` never short-circuits for a stored `[]` (it's truthy), so filtering it still yields
+  // `[]`, and the old fallback (`restored.length > 0 ? restored : enabledNames`) then silently
+  // re-selected every enabled source instead of honoring the explicit "nothing".
+  it("restores an explicitly-cleared (empty) selection as empty, not as every enabled source", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+    const { result } = renderHook(() => useSelectedSearchSources(services));
+
+    await waitFor(() => expect(result.current[0]).toEqual([]));
+  });
+
   it("persists a changed selection to localStorage", async () => {
     const { result } = renderHook(() => useSelectedSearchSources(services));
     await waitFor(() => expect(result.current[0]).toEqual(["Goodreads", "Audible"]));
