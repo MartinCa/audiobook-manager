@@ -11,6 +11,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
 vi.mock("@/services/api", () => ({
   audiobookApi: {
     generateNewPath: vi.fn().mockResolvedValue("Author/2024 - Book/book.m4b"),
@@ -1325,5 +1329,69 @@ describe("BookEditForm", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
+  });
+
+  // Regression test found via manual end-to-end testing (not by the unit suite, which always
+  // mocked `ok: true`): fetch() does not reject on a non-OK HTTP status - it resolves normally,
+  // with an error body (RFC 9457 problem+json here) in place of image bytes. Without checking
+  // res.ok, that error body got base64-encoded as if it were a valid cover and sent to the
+  // backend, which rejected the whole save with a confusing "not a recognised image format"
+  // error - instead of the best-effort fallback (keep the old cover, warn the user) actually
+  // running.
+  it("falls back to the pre-apply cover and warns, rather than encoding an error body as image data, when the proxy responds non-OK", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const errorBlob = new Blob([JSON.stringify({ title: "Refusing to connect" })], {
+      type: "application/problem+json",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 502, blob: vi.fn().mockResolvedValue(errorBlob) }),
+    );
+
+    const { notifications } = await import("@/lib/notifications");
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          cover: { base64Data: "b2xkLWNvdmVy", mimeType: "image/png" },
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    const applyButton = await screen.findByRole("button", { name: "Apply" });
+    fireEvent.click(applyButton);
+    const applyAllButton = await screen.findByRole("button", { name: "Apply & Save All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    // The old cover, untouched - not the error body's bytes encoded as a "cover".
+    expect(saved.cover).toEqual({ base64Data: "b2xkLWNvdmVy", mimeType: "image/png" });
+    expect(notifications.warning).toHaveBeenCalled();
   });
 });

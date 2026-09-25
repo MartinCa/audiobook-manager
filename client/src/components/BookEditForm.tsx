@@ -456,6 +456,15 @@ export function BookEditForm({
           `/api/metadata-search/proxy-image?url=${encodeURIComponent(coverUrlToFetch)}`,
           { signal: AbortSignal.timeout(15_000) },
         );
+        // A non-OK response (e.g. the proxy refusing/failing to reach the source) still has a
+        // body - an RFC 9457 problem+json error, not image bytes - and fetch() does not reject
+        // for it. Without this check, that error body gets base64-encoded as if it were a valid
+        // cover and submitted as one, which the backend's ICoverImageProcessor then rejects with
+        // a confusing "not a recognised image format" error instead of the best-effort fallback
+        // below actually applying.
+        if (!res.ok) {
+          throw new Error(`Cover proxy fetch failed with status ${res.status}`);
+        }
         const blob = await res.blob();
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
