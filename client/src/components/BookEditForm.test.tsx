@@ -1339,6 +1339,66 @@ describe("BookEditForm", () => {
     expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
   });
 
+  // Same fix, other entry point: handleApplyPendingRefresh (the "Refresh Now" review-changes
+  // flow) has the identical setSaving(true)-before-fetch logic as handleApplySearchResult above,
+  // since both route through the shared handleApplyPreviewedTags. Unlike the search flow, this
+  // one has no auto-save toggle - applying always saves immediately.
+  it("disables Save for the whole cover-fetch window during a pending-refresh apply too", async () => {
+    class MockFileReader {
+      result = "data:image/png;base64,ZnJlc2gtY292ZXI=";
+      onloadend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => {
+          this.onloadend?.();
+        });
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader);
+
+    const mockBlob = new Blob(["fresh-cover-bytes"], { type: "image/jpeg" });
+    let resolveFetch!: (value: { ok: boolean; status: number; blob: () => Promise<Blob> }) => void;
+    const fetchPromise = new Promise<{ ok: boolean; status: number; blob: () => Promise<Blob> }>(
+      (resolve) => {
+        resolveFetch = resolve;
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(fetchPromise));
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={initialBook}
+        onSave={onSave}
+        pendingRefreshResult={{
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Refreshed Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+          imageUrl: "https://audible.com/covers/new-cover.jpg",
+        }}
+        pendingRefreshOpen
+      />,
+    );
+
+    const applyAllButton = await screen.findByRole("button", { name: "Apply All" });
+    fireEvent.click(applyAllButton);
+
+    await waitFor(() =>
+      expect(screen.getByText("Save Audiobook").closest("button")).toBeDisabled(),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    resolveFetch({ ok: true, status: 200, blob: vi.fn().mockResolvedValue(mockBlob) });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Save Audiobook").closest("button")).not.toBeDisabled();
+  });
+
   // Regression test found via manual end-to-end testing (not by the unit suite, which always
   // mocked `ok: true`): fetch() does not reject on a non-OK HTTP status - it resolves normally,
   // with an error body (RFC 9457 problem+json here) in place of image bytes. Without checking
