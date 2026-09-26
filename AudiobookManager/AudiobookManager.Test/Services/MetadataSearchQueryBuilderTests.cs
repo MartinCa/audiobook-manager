@@ -60,4 +60,23 @@ public class MetadataSearchQueryBuilderTests
 
         Assert.AreEqual(string.Empty, query);
     }
+
+    // Regression test: authorNames used to be passed straight into .Select() with no null guard,
+    // so a caller unable to guarantee a non-null list (unlike the current caller, whose EF
+    // Include always yields one) would throw ArgumentNullException instead of falling back.
+    [TestMethod]
+    public void Build_AuthorNamesIsNull_FallsBackToBookNameAlone()
+    {
+        var query = MetadataSearchQueryBuilder.Build(null, "The Way of Kings", "file.m4b");
+
+        Assert.AreEqual("The Way of Kings", query);
+    }
+
+    [TestMethod]
+    public void Build_AuthorNamesIsNullAndBookNameBlank_FallsBackToFileName()
+    {
+        var query = MetadataSearchQueryBuilder.Build(null, null, "some-file.m4b");
+
+        Assert.AreEqual("some-file.m4b", query);
+    }
 }

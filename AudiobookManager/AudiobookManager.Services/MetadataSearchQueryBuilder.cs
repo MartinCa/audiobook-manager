@@ -15,10 +15,10 @@ namespace AudiobookManager.Services;
 /// </summary>
 public static class MetadataSearchQueryBuilder
 {
-    public static string Build(IEnumerable<string> authorNames, string? bookName, string? fileName)
+    public static string Build(IEnumerable<string>? authorNames, string? bookName, string? fileName)
     {
         var trimmedBookName = bookName?.Trim() ?? string.Empty;
-        var trimmedAuthors = authorNames
+        var trimmedAuthors = (authorNames ?? Enumerable.Empty<string>())
             .Select(a => a.Trim())
             .Where(a => a.Length > 0)
             .ToList();
