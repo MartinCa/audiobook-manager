@@ -502,12 +502,18 @@ public class MetadataRefreshService : IMetadataRefreshService
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId });
         var dbBook = books.FirstOrDefault();
 
-        // No explicit caller selection and nothing recorded: either this row predates
-        // ChangedFieldsJson (an existing library's pending rows all do, until
-        // EnsureChangedFieldsBackfilledAsync gets to them) or it is genuinely empty. Recompute
-        // once from the stored snapshot rather than assuming "nothing to apply" - a caller can
-        // reach this row through apply-selected/apply-filtered before any list view has had a
-        // chance to backfill it.
+        // No explicit caller selection: always re-diff against the book's CURRENT state rather
+        // than trusting whatever ChangedFieldsJson happens to have stored. This covers both a row
+        // that predates ChangedFieldsJson entirely (stored as empty, before
+        // EnsureChangedFieldsBackfilledAsync gets to it) and a row whose stored list was computed
+        // under an older field vocabulary - MetadataRefreshFields has grown before (e.g. adding
+        // Www) and a row fetched/backfilled before that change carries a ChangedFieldsJson that
+        // is non-empty but permanently missing the newer field, so the old "recompute only when
+        // storedChangedFields.Count == 0" guard would apply that stale list forever and silently
+        // never write the newer field. Re-diffing here matches
+        // EnsureChangedFieldsBackfilledAsync's own stated intent: "which fields would still
+        // change it" is re-evaluated against the book as it is now, not as some earlier compute
+        // recorded it.
         //
         // This reads dbBook before the save gate below is acquired, so a concurrent save could
         // in principle mutate the book between this diff and the gated apply, leaving the
@@ -515,7 +521,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         // path (stored fields applied against this same pre-gate book read) already has the
         // identical shape, so this recompute just inherits the existing window rather than
         // opening a new one.
-        if ((fields is null || fields.Count == 0) && storedChangedFields.Count == 0 && dbBook is not null)
+        if ((fields is null || fields.Count == 0) && dbBook is not null)
         {
             var (spacing, punctuation) = await GetInitialsSettingsAsync();
             storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation).Select(d => d.Field).ToList();
