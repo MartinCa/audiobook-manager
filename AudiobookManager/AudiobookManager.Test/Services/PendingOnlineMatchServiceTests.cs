@@ -25,10 +25,15 @@ public class PendingOnlineMatchServiceTests
             _metadataRefreshService.Object,
             _logger.Object);
 
-    private static Audiobook Book(long id, string? bookName, string fileName) => new(
-        id, bookName ?? string.Empty, null, null, null, 2024,
-        null, null, null, null, null, null, null, null, null,
-        $"/library/{fileName}", fileName, 1000);
+    private static Audiobook Book(long id, string? bookName, string fileName, params string[] authorNames)
+    {
+        var book = new Audiobook(
+            id, bookName ?? string.Empty, null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            $"/library/{fileName}", fileName, 1000);
+        book.Authors = authorNames.Select(name => new Person(0, name)).ToList();
+        return book;
+    }
 
     private static readonly Func<int, int, int, int, Task> NoopProgress = (_, _, _, _) => Task.CompletedTask;
 
@@ -49,6 +54,25 @@ public class PendingOnlineMatchServiceTests
         Assert.AreEqual(1, result.Succeeded);
         _scrapingService.Verify(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), "The Real Title"), Times.Once);
         _scrapingService.Verify(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), "some-file.m4b"), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchSelectedAsync_BookHasAuthorAndTitle_SearchesWithAuthorDashTitle()
+    {
+        var book = Book(4, "The Real Title", "some-file.m4b", "Brandon Sanderson");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        _scrapingService.Setup(s => s.SearchMultiple(
+                It.IsAny<IEnumerable<string>>(), "Brandon Sanderson - The Real Title"))
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        var result = await CreateService().SearchSelectedAsync(
+            new List<long> { 4 }, new List<string> { "Audible" }, NoopProgress);
+
+        Assert.AreEqual(1, result.Succeeded);
+        _scrapingService.Verify(
+            s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), "Brandon Sanderson - The Real Title"),
+            Times.Once);
     }
 
     [TestMethod]

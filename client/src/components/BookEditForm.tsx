@@ -36,6 +36,7 @@ import {
   DEFAULT_COLLAPSED_FIELDS,
   type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
+import { buildDefaultMetadataSearchQuery } from "@/helpers/metadataSearchQuery";
 import { normalizeLanguage } from "@/helpers/languages";
 import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
@@ -967,7 +968,11 @@ export function BookEditForm({
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
         onSelectResult={handleSelectSearchResult}
-        initialQuery={watchedValues.bookName || initialBook.fileInfo?.fileName || ""}
+        initialQuery={buildDefaultMetadataSearchQuery(
+          watchedValues.authors,
+          watchedValues.bookName,
+          initialBook.fileInfo?.fileName,
+        )}
       />
 
       {pendingSearchResult && (
