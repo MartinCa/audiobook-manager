@@ -69,3 +69,6 @@ public record ApplyPendingRefreshDto(List<string>? Fields);
 
 /// <summary>The result of POST api/metadata-refresh/reevaluate.</summary>
 public record MetadataRefreshReevaluateResultDto(int Processed, int Updated, int Removed);
+
+/// <summary>The result of POST api/metadata-refresh/dismiss-selected.</summary>
+public record DismissSelectedMetadataRefreshResultDto(int Dismissed);

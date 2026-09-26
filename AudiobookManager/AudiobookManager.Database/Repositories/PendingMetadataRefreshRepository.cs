@@ -98,7 +98,7 @@ public class PendingMetadataRefreshRepository : IPendingMetadataRefreshRepositor
     public Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync() =>
         _db.PendingMetadataRefreshes
             .AsNoTracking()
-            .Select(p => new PendingRefreshFieldsRow(p.AudiobookId, p.FetchedAt, p.ChangedFieldsJson))
+            .Select(p => new PendingRefreshFieldsRow(p.AudiobookId, p.FetchedAt, p.ChangedFieldsJson, p.SourceName))
             .ToListAsync();
 
     public Task<List<PendingMetadataRefresh>> GetByAudiobookIdsAsync(IReadOnlyCollection<long> audiobookIds)

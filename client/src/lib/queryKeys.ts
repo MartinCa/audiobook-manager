@@ -24,8 +24,8 @@ export const queryKeys = {
 
   metadataRefresh: {
     all: () => ["metadataRefresh"] as const,
-    pendingPage: (page: number, fields?: readonly string[]) =>
-      ["metadataRefresh", "pending", page, fields ?? []] as const,
+    pendingPage: (page: number, fields?: readonly string[], sources?: readonly string[]) =>
+      ["metadataRefresh", "pending", page, fields ?? [], sources ?? []] as const,
     pendingForBook: (id: number) => ["metadataRefresh", "pending", id] as const,
     // No useQuery ever keys on this - getPendingSummary() is called directly - but BookDetail
     // invalidates it anyway so a future query keyed here would pick up the change for free.

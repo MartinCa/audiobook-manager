@@ -31,7 +31,7 @@ import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { SeriesConsistencyIssueList } from "./library/SeriesConsistencyIssueList";
 import { AuthorConsistencyIssueList } from "./library/AuthorConsistencyIssueList";
 import { PendingRefreshRowPanel } from "./library/PendingRefreshRowPanel";
-import { metadataRefreshApi, seriesApi } from "@/services/api";
+import { metadataRefreshApi, metadataSearchApi, seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
@@ -77,16 +77,29 @@ export function MetadataRefresh() {
   const [page, setPage] = useState(0);
   const [fieldFilter, setFieldFilter] = useState<Set<string>>(() => new Set());
   const fieldFilterList = useMemo(() => Array.from(fieldFilter), [fieldFilter]);
+  const [sourceFilter, setSourceFilter] = useState<Set<string>>(() => new Set());
+  const sourceFilterList = useMemo(() => Array.from(sourceFilter), [sourceFilter]);
+  const hasActiveFilter = fieldFilter.size > 0 || sourceFilter.size > 0;
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [applying, setApplying] = useState(false);
   const [applyProgress, setApplyProgress] = useState<ApplyProgressPayload | null>(null);
+  const [dismissing, setDismissing] = useState(false);
+
+  // No hardcoded source list on the frontend (AGENTS.md's "Adding a metadata source scraper"
+  // invariant) - the source filter dropdown's options come from the same registered-scrapers
+  // endpoint the search dialog's source picker uses.
+  const { data: services = [] } = useQuery({
+    queryKey: queryKeys.metadataServices(),
+    queryFn: () => metadataSearchApi.getServices(),
+  });
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: queryKeys.metadataRefresh.pendingPage(page, fieldFilterList),
+    queryKey: queryKeys.metadataRefresh.pendingPage(page, fieldFilterList, sourceFilterList),
     placeholderData: keepPreviousData,
-    queryFn: () => metadataRefreshApi.getPendingPage(page, PAGE_SIZE, fieldFilterList),
+    queryFn: () =>
+      metadataRefreshApi.getPendingPage(page, PAGE_SIZE, fieldFilterList, sourceFilterList),
   });
 
   const totalCount = pageData?.total ?? 0;
@@ -168,6 +181,24 @@ export function MetadataRefresh() {
     },
   });
 
+  // Synchronous (a pure DB delete, no scraper/file work), unlike apply-selected: no SignalR
+  // progress needed. Re-reads the authoritative list afterward rather than optimistically
+  // removing rows client-side, the same "don't outrun what the server reported" rule the
+  // consistency bulk-resolve follows.
+  const dismissSelectedMutation = useMutation({
+    mutationFn: () => metadataRefreshApi.dismissSelected(Array.from(selectedIds)),
+    onMutate: () => setDismissing(true),
+    onSuccess: (result) => {
+      notifications.success(`Dismissed ${result.dismissed} pending change(s)`);
+      setSelectedIds(new Set());
+      invalidateRefreshViews();
+    },
+    onError: (err: unknown) => {
+      notifications.error(handleApiError(err).message);
+    },
+    onSettled: () => setDismissing(false),
+  });
+
   // Synchronous (no scraper calls, so no SignalR progress needed): re-diffs every pending row
   // against the library, series mapping patterns, and changed-fields logic as they stand right
   // now. Reflects a mapping pattern (or any other setting) added after a snapshot was captured
@@ -190,6 +221,16 @@ export function MetadataRefresh() {
       const next = new Set(prev);
       if (next.has(field)) next.delete(field);
       else next.add(field);
+      return next;
+    });
+    setPage(0);
+  };
+
+  const toggleSourceFilter = (source: string) => {
+    setSourceFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
       return next;
     });
     setPage(0);
@@ -483,16 +524,42 @@ export function MetadataRefresh() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    <Filter className="mr-2 h-4 w-4" />
+                    Filter sources{sourceFilter.size > 0 ? ` (${sourceFilter.size})` : ""}
+                  </Button>
+                }
+              />
+              <DropdownMenuContent>
+                {services.map((service) => (
+                  <DropdownMenuCheckboxItem
+                    key={service.name}
+                    checked={sourceFilter.has(service.name)}
+                    onCheckedChange={() => toggleSourceFilter(service.name)}
+                  >
+                    {service.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
-        {fieldFilter.size > 0 && (
+        {hasActiveFilter && (
           <p className="text-muted-foreground text-xs">
-            Showing only books whose pending changes are entirely within the selected fields.
+            {fieldFilter.size > 0 &&
+              "Showing only books whose pending changes are entirely within the selected fields."}
+            {fieldFilter.size > 0 && sourceFilter.size > 0 && " "}
+            {sourceFilter.size > 0 &&
+              "Showing only books whose pending change came from the selected sources."}
           </p>
         )}
 
-        {(selectedIds.size > 0 || (fieldFilter.size > 0 && totalCount > 0)) && (
+        {(selectedIds.size > 0 || (hasActiveFilter && totalCount > 0)) && (
           <Card className="flex flex-wrap items-center justify-between gap-3 p-3">
             <span className="text-sm">
               {selectedIds.size > 0 ? `${selectedIds.size} book(s) selected` : "No books selected"}
@@ -517,6 +584,15 @@ export function MetadataRefresh() {
                   Apply All Matching Filter ({totalCount})
                 </Button>
               )}
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={selectedIds.size === 0 || dismissing}
+                onClick={() => dismissSelectedMutation.mutate()}
+              >
+                {dismissing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                Dismiss Selected ({selectedIds.size})
+              </Button>
             </div>
           </Card>
         )}
@@ -540,8 +616,8 @@ export function MetadataRefresh() {
             <CheckCircle2 className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
             <h3 className="text-foreground text-lg font-medium">No pending metadata changes</h3>
             <p className="text-muted-foreground mt-1 text-sm">
-              {fieldFilter.size > 0
-                ? "No pending books match the selected field filter."
+              {hasActiveFilter
+                ? "No pending books match the selected filters."
                 : "Refreshing a book with differing metadata stores a reviewable snapshot here. Books whose metadata already matches their source have nothing pending."}
             </p>
           </Card>

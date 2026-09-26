@@ -22,9 +22,16 @@ vi.mock("@/services/api", async (importOriginal) => {
       getPendingSummary: vi.fn().mockResolvedValue([]),
       getPendingForAudiobook: vi.fn(),
       dismissPending: vi.fn().mockResolvedValue(undefined),
+      dismissSelected: vi.fn().mockResolvedValue({ dismissed: 0 }),
       applyPending: vi.fn().mockResolvedValue(undefined),
       applySelected: vi.fn().mockResolvedValue(undefined),
       applyFiltered: vi.fn().mockResolvedValue(undefined),
+    },
+    metadataSearchApi: {
+      getServices: vi.fn().mockResolvedValue([
+        { name: "Goodreads", enabled: true },
+        { name: "Audible", enabled: true },
+      ]),
     },
     operationsApi: {
       getStatus: vi.fn().mockResolvedValue({ isRunning: false }),
@@ -191,10 +198,46 @@ describe("MetadataRefresh", () => {
     fireEvent.click(next);
 
     await waitFor(() => {
-      expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledWith(1, 50, []);
+      expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledWith(1, 50, [], []);
     });
     const prev = screen.getByRole("button", { name: /previous/i });
     expect(prev).not.toBeDisabled();
     expect(screen.getByText(/Showing 51–51 of 51/)).toBeInTheDocument();
+  });
+
+  it("filters by source and re-queries with the selected source", async () => {
+    renderWithRouter();
+
+    await screen.findByText("Books with Pending Metadata Changes (2)");
+
+    const sourceFilterButton = await screen.findByRole("button", { name: /filter sources/i });
+    fireEvent.click(sourceFilterButton);
+    const audibleOption = await screen.findByText("Audible");
+    fireEvent.click(audibleOption);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledWith(0, 50, [], ["Audible"]);
+    });
+  });
+
+  it("dismisses the selected books without applying them", async () => {
+    vi.mocked(metadataRefreshApi.dismissSelected).mockResolvedValueOnce({ dismissed: 1 });
+
+    renderWithRouter();
+
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+    const checkboxes = screen.getAllByRole("checkbox");
+    // First checkbox is "select shown"; the row checkboxes follow.
+    fireEvent.click(checkboxes[1]!);
+
+    const dismissButton = await screen.findByRole("button", { name: /dismiss selected \(1\)/i });
+    fireEvent.click(dismissButton);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.dismissSelected).toHaveBeenCalledWith([1]);
+    });
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith("Dismissed 1 pending change(s)");
+    });
   });
 });

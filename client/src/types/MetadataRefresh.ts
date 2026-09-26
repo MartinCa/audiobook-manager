@@ -51,6 +51,13 @@ export type MetadataRefreshReevaluateResult = Require<
   "processed" | "updated" | "removed"
 >;
 
+// AudiobookManager.Api/Dtos/MetadataRefreshDtos.cs: Dismissed on
+// DismissSelectedMetadataRefreshResultDto is non-nullable.
+export type DismissSelectedMetadataRefreshResult = Require<
+  components["schemas"]["DismissSelectedMetadataRefreshResultDto"],
+  "dismissed"
+>;
+
 // Every field name a pending snapshot can offer as a change (AudiobookManager.Services/
 // MetadataRefreshFields.cs) - the vocabulary the filter picker and per-book field badges use.
 export const METADATA_REFRESH_FIELDS = [

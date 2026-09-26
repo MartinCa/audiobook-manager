@@ -240,4 +240,78 @@ public class MetadataRefreshControllerTests
         Assert.AreEqual(2, dto.Updated);
         Assert.AreEqual(1, dto.Removed);
     }
+
+    [TestMethod]
+    public async Task GetPending_PassesFieldsAndSourcesThroughToTheService()
+    {
+        _metadataRefreshService
+            .Setup(s => s.GetPendingPageAsync(0, 20, It.IsAny<List<string>>(), It.IsAny<List<string>>()))
+            .ReturnsAsync((new List<PendingMetadataRefresh>(), 0));
+
+        await _controller.GetPending(0, 20, new List<string> { "Rating" }, new List<string> { "Audible" });
+
+        _metadataRefreshService.Verify(
+            s => s.GetPendingPageAsync(
+                0, 20,
+                It.Is<List<string>>(f => f.SequenceEqual(new List<string> { "Rating" })),
+                It.Is<List<string>>(src => src.SequenceEqual(new List<string> { "Audible" }))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetPendingSummary_PassesFieldsAndSourcesThroughToTheService()
+    {
+        _metadataRefreshService
+            .Setup(s => s.GetPendingAudiobookIdsAsync(It.IsAny<List<string>>(), It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<long>());
+
+        await _controller.GetPendingSummary(new List<string> { "Rating" }, new List<string> { "Audible" });
+
+        _metadataRefreshService.Verify(
+            s => s.GetPendingAudiobookIdsAsync(
+                It.Is<List<string>>(f => f.SequenceEqual(new List<string> { "Rating" })),
+                It.Is<List<string>>(src => src.SequenceEqual(new List<string> { "Audible" }))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DismissSelected_EmptyIds_IsA400_ServiceNeverCalled()
+    {
+        var result = await _controller.DismissSelected(new BulkSelectionDto { AudiobookIds = new List<long>() });
+
+        ProblemAssert.HasDetail(result.Result!, StatusCodes.Status400BadRequest, "At least one audiobook must be selected.");
+        _metadataRefreshService.Verify(
+            s => s.DismissSelectedPendingRefreshesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DismissSelected_MoreThanTheCap_IsA400NamingTheCap()
+    {
+        var ids = new List<long>();
+        for (var i = 0; i < 101; i++)
+        {
+            ids.Add(i + 1);
+        }
+
+        var result = await _controller.DismissSelected(new BulkSelectionDto { AudiobookIds = ids });
+
+        ProblemAssert.HasDetail(result.Result!, StatusCodes.Status400BadRequest, "No more than 100 audiobooks can be selected at once.");
+        _metadataRefreshService.Verify(
+            s => s.DismissSelectedPendingRefreshesAsync(It.IsAny<IReadOnlyList<long>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task DismissSelected_ValidSelection_ReturnsTheDismissedCount()
+    {
+        var ids = new List<long> { 11, 12, 13 };
+        _metadataRefreshService.Setup(s => s.DismissSelectedPendingRefreshesAsync(ids)).ReturnsAsync(2);
+
+        var result = await _controller.DismissSelected(new BulkSelectionDto { AudiobookIds = ids });
+
+        var ok = result.Result as OkObjectResult;
+        Assert.IsNotNull(ok);
+        var dto = ok.Value as DismissSelectedMetadataRefreshResultDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual(2, dto.Dismissed);
+    }
 }

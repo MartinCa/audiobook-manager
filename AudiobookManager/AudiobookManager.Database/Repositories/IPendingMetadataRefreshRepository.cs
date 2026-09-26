@@ -11,7 +11,7 @@ namespace AudiobookManager.Database.Repositories;
 public record MetadataRefreshEligibleBook(long Id, string? Www, DateTime? LastMetadataRefreshedAt);
 
 /// <summary>The lightweight projection <see cref="IPendingMetadataRefreshRepository.GetAllChangedFieldsAsync"/> reads to filter/order the pending set without loading every book graph.</summary>
-public record PendingRefreshFieldsRow(long AudiobookId, DateTime FetchedAt, string? ChangedFieldsJson);
+public record PendingRefreshFieldsRow(long AudiobookId, DateTime FetchedAt, string? ChangedFieldsJson, string SourceName);
 
 public interface IPendingMetadataRefreshRepository
 {
@@ -39,8 +39,9 @@ public interface IPendingMetadataRefreshRepository
     Task<List<long>> GetPendingAudiobookIdsAsync();
 
     /// <summary>
-    /// Every pending row's id, fetch time and stored changed-fields JSON - no book graph - for
-    /// filtering/paging the pending set by which fields changed without loading every book.
+    /// Every pending row's id, fetch time, stored changed-fields JSON and source name - no book
+    /// graph - for filtering/paging the pending set by which fields changed and/or which source it
+    /// came from without loading every book.
     /// </summary>
     Task<List<PendingRefreshFieldsRow>> GetAllChangedFieldsAsync();
 

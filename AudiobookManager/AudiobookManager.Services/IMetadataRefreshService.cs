@@ -64,18 +64,28 @@ public interface IMetadataRefreshService
     /// <paramref name="fieldsFilter"/> is non-empty, only rows whose stored changed-fields are
     /// entirely contained in it are included (a book with a Rating-only change matches a filter
     /// of {Rating, Publisher}; a book that also changed Genres does not) - null or empty means
-    /// no filter.
+    /// no filter. When <paramref name="sourceFilter"/> is non-empty, only rows whose source name
+    /// is one of it are included; the two filters combine with AND.
     /// </summary>
     Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
-        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null);
+        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null, IReadOnlyCollection<string>? sourceFilter = null);
 
     /// <summary>
-    /// The sparse id list of books holding a pending snapshot, for library-list badges when
-    /// <paramref name="fieldsFilter"/> is omitted, or every id matching the same subset filter
+    /// The sparse id list of books holding a pending snapshot, for library-list badges when both
+    /// filters are omitted, or every id matching the same field-subset/source filters
     /// <see cref="GetPendingPageAsync"/> applies - the full match set, not just one page, for
-    /// "apply every book matching this filter".
+    /// "apply/dismiss every book matching this filter".
     /// </summary>
-    Task<List<long>> GetPendingAudiobookIdsAsync(IReadOnlyCollection<string>? fieldsFilter = null);
+    Task<List<long>> GetPendingAudiobookIdsAsync(
+        IReadOnlyCollection<string>? fieldsFilter = null, IReadOnlyCollection<string>? sourceFilter = null);
+
+    /// <summary>
+    /// Deletes every explicitly selected book's pending snapshot without applying it. Returns the
+    /// number actually deleted - a requested id with no pending row (already applied/dismissed
+    /// since the client loaded it) is silently not counted, mirroring the single-book dismiss's
+    /// idempotent-success contract.
+    /// </summary>
+    Task<int> DismissSelectedPendingRefreshesAsync(IReadOnlyList<long> audiobookIds);
 
     /// <summary>
     /// Applies one book's pending snapshot immediately and dismisses it, for the metadata-refresh

@@ -866,4 +866,90 @@ public class MetadataRefreshServiceTests
     }
 
     #endregion
+
+    #region Source filtering / DismissSelectedPendingRefreshesAsync
+
+    private static Database.Models.Audiobook FilterTestBook(long id) => new(
+        id, $"Book {id}", null, null, null, 2024,
+        null, null, null, null, null, null, null, null, null,
+        $"/library/book-{id}.m4b", $"book-{id}.m4b", 1000)
+    { Authors = new List<AudiobookManager.Database.Models.Person>() };
+
+    // New capability: filtering the pending list by which source ("Audible"/"Goodreads"/
+    // "Hardcover"/...) the snapshot came from, the same subset-projection shape the existing
+    // field filter uses (GetAllChangedFieldsAsync, no book graph, then a page-scoped
+    // GetByAudiobookIdsWithAudiobookAsync).
+    [TestMethod]
+    public async Task GetPendingPageAsync_SourceFilter_OnlyReturnsRowsFromSelectedSources()
+    {
+        _pendingRepository.Setup(r => r.GetAudiobookIdsMissingChangedFieldsAsync())
+            .ReturnsAsync(new List<long>());
+        _pendingRepository.Setup(r => r.GetAllChangedFieldsAsync())
+            .ReturnsAsync(new List<PendingRefreshFieldsRow>
+            {
+                new(501, DateTime.UtcNow, "[\"Rating\"]", "Audible"),
+                new(502, DateTime.UtcNow, "[\"Rating\"]", "Goodreads"),
+            });
+        _pendingRepository
+            .Setup(r => r.GetByAudiobookIdsWithAudiobookAsync(
+                It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new List<long> { 501 }))))
+            .ReturnsAsync(new List<PendingMetadataRefresh>
+            {
+                new()
+                {
+                    AudiobookId = 501, FetchedAt = DateTime.UtcNow, SourceName = "Audible",
+                    SourceUrl = "https://example.com/501", ChangedFieldsJson = "[\"Rating\"]",
+                    Audiobook = FilterTestBook(501),
+                },
+            });
+
+        var (items, total) = await CreateService().GetPendingPageAsync(0, 10, sourceFilter: new List<string> { "Audible" });
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual(1, items.Count);
+        Assert.AreEqual(501, items[0].AudiobookId);
+    }
+
+    // The field-subset filter and the source filter combine with AND: a row must satisfy both to
+    // match, not either.
+    [TestMethod]
+    public async Task GetPendingAudiobookIdsAsync_FieldAndSourceFilterCombineWithAnd()
+    {
+        _pendingRepository.Setup(r => r.GetAudiobookIdsMissingChangedFieldsAsync())
+            .ReturnsAsync(new List<long>());
+        _pendingRepository.Setup(r => r.GetAllChangedFieldsAsync())
+            .ReturnsAsync(new List<PendingRefreshFieldsRow>
+            {
+                // Matches both filters.
+                new(601, DateTime.UtcNow, "[\"Rating\"]", "Audible"),
+                // Right source, wrong field.
+                new(602, DateTime.UtcNow, "[\"Genres\"]", "Audible"),
+                // Right field, wrong source.
+                new(603, DateTime.UtcNow, "[\"Rating\"]", "Goodreads"),
+            });
+
+        var ids = await CreateService().GetPendingAudiobookIdsAsync(
+            fieldsFilter: new List<string> { "Rating" }, sourceFilter: new List<string> { "Audible" });
+
+        Assert.AreSequenceEqual(new List<long> { 601 }, ids);
+    }
+
+    [TestMethod]
+    public async Task DismissSelectedPendingRefreshesAsync_DeletesExactlyTheGivenIdsAndReturnsTheCount()
+    {
+        var ids = new List<long> { 701, 702, 703 };
+        _pendingRepository
+            .Setup(r => r.DeleteAllByAudiobookIdsAsync(
+                It.Is<IReadOnlyCollection<long>>(given => given.SequenceEqual(ids))))
+            .ReturnsAsync(2);
+
+        var dismissed = await CreateService().DismissSelectedPendingRefreshesAsync(ids);
+
+        Assert.AreEqual(2, dismissed);
+        _pendingRepository.Verify(
+            r => r.DeleteAllByAudiobookIdsAsync(It.Is<IReadOnlyCollection<long>>(given => given.SequenceEqual(ids))),
+            Times.Once);
+    }
+
+    #endregion
 }
