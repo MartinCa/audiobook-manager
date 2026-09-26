@@ -60,6 +60,7 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Copyright, book.Copyright, fetched.Copyright);
         add(MetadataRefreshFields.Publisher, book.Publisher, fetched.Publisher);
         add(MetadataRefreshFields.Asin, book.Asin, fetched.Asin);
+        add(MetadataRefreshFields.Www, book.Www, fetched.CleanUrl);
 
         return diffs;
     }
@@ -108,6 +109,10 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Copyright, book.Copyright, snapshot.Copyright);
         add(MetadataRefreshFields.Publisher, book.Publisher, snapshot.Publisher);
         add(MetadataRefreshFields.Asin, book.Asin, snapshot.Asin);
+        // snapshot.Url is already the cleaned URL (FromSearchResult stores fetched.CleanUrl into
+        // it - see that method's own comment), matching how Diff() above compares against
+        // fetched.CleanUrl rather than the raw Url.
+        add(MetadataRefreshFields.Www, book.Www, snapshot.Url);
 
         return diffs;
     }

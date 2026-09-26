@@ -27,6 +27,7 @@ const CLIENT_KEY_TO_BACKEND_FIELDS: Record<string, string[]> = {
   language: ["Language"],
   copyright: ["Copyright"],
   asin: ["Asin"],
+  www: ["Www"],
 };
 
 interface PendingRefreshRowPanelProps {
@@ -87,9 +88,9 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     languages,
   );
 
-  // Only fields the backend can actually apply, and only the ones that changed - "www"/"cover"
-  // have no backend counterpart in the stored snapshot (see MetadataRefreshApplier), and an
-  // unchanged field has nothing to offer here regardless.
+  // Only fields the backend can actually apply, and only the ones that changed - "cover" has no
+  // backend counterpart in the stored snapshot (see MetadataRefreshApplier), and an unchanged
+  // field has nothing to offer here regardless.
   const changedFields = useMemo(
     () => allFields.filter((f) => f.changed && CLIENT_KEY_TO_BACKEND_FIELDS[f.key]),
     [allFields],

@@ -376,7 +376,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             200, "A Book", null, null, null, 2024,
-            null, null, null, null, "4.0", null, null, null, null,
+            null, null, null, null, "4.0", null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
 
@@ -481,6 +481,137 @@ public class MetadataRefreshServiceTests
         _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(300), Times.Once);
     }
 
+    // Regression test: a book newly matched via the bulk online-match flow has no Www yet, so
+    // applying its pending refresh must actually write it - MetadataRefreshApplier used to never
+    // touch Www under any field selection, so every other field applied correctly while the book
+    // stayed permanently unmatched (no Www, no MatchedSourceName) to the source it was just
+    // applied from.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_BookHasNoWww_AppliesTheSourceUrl()
+    {
+        var book = new Database.Models.Audiobook(
+            301, "A Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(301))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 301,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://www.audible.com/pd/test",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://www.audible.com/pd/test",
+                    "Audible",
+                    new List<string> { "Author A" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null, null, null, null, null)),
+                ChangedFieldsJson = null,
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(301, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(301))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(301);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("https://www.audible.com/pd/test", captured!.Www);
+    }
+
+    // Regression test: a row written before Www joined MetadataRefreshFields has a stored
+    // ChangedFieldsJson that is non-empty but permanently missing "Www" - the old "recompute only
+    // when storedChangedFields.Count == 0" guard trusted that stale list forever, so a legacy
+    // pending row (exactly what every book already matched via #1533's bulk online-match flow
+    // before this fix shipped would have) would keep silently skipping Www even after
+    // MetadataRefreshApplier learned to write it. Applying with no explicit field selection - the
+    // shape both bulk-apply-all and bulk-apply-filtered use - must re-diff against the live book
+    // rather than trust the legacy list, picking up both Www and any other field that never made
+    // it into the stored list.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_LegacyChangedFieldsJsonPredatesWwwVocabulary_StillAppliesWww()
+    {
+        var book = new Database.Models.Audiobook(
+            302, "A Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000)
+        {
+            Rating = "3.0",
+        };
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(302))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 302,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Audible",
+                SourceUrl = "https://www.audible.com/pd/test",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://www.audible.com/pd/test",
+                    "Audible",
+                    new List<string> { "Author A" },
+                    new List<string>(),
+                    "A Book",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null,
+                    "4.5",
+                    null, null, null)),
+                // Stored under the pre-Www vocabulary: a real diff was found (Rating), so the old
+                // "recompute only when storedChangedFields.Count == 0" guard would trust this list
+                // forever - but the book has no Www yet either, and the snapshot's URL was never
+                // in this list because Www didn't exist in MetadataRefreshFields when this row was
+                // written/backfilled.
+                ChangedFieldsJson = "[\"Rating\"]",
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(302, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(302))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(302);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("https://www.audible.com/pd/test", captured!.Www);
+        Assert.AreEqual("4.5", captured!.Rating);
+    }
+
     // Companion to the test above, isolating the cleanup call on its own rather than piggybacking
     // on an existing scenario's assertions - a corrupt/unreadable row (ApplyPendingRefreshAsync_
     // UnparseablePayload_ThrowsInsteadOfReturningFalse) and a book that no longer exists must NOT
@@ -542,7 +673,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             400, "Book Four", null, "Thursday Murder Club", "4", 2024,
-            null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
 
@@ -598,7 +729,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             404, "The Thursday Murder Club", null, "Thursday Murder Club", "1", 2020,
-            null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Richard Osman") };
 
@@ -648,7 +779,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             401, "Book Five", null, "Old Series Name", "5", 2024,
-            null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
 

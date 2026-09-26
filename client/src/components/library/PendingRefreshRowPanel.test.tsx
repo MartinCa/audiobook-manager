@@ -49,7 +49,10 @@ const bookDetailWithOnlyRatingDiffering: AudiobookDetail = {
   language: undefined,
   rating: "4.0",
   asin: undefined,
-  www: undefined,
+  // Matches pendingWithOnlyRatingDiffering's payload.url so this fixture keeps differing on
+  // Rating alone - adding Www to CLIENT_KEY_TO_BACKEND_FIELDS means an unset www here would now
+  // also surface as a (spurious, for this test's purpose) changed field.
+  www: "https://example.com/book",
   filePath: "/library/book.m4b",
   fileName: "book.m4b",
   sizeInBytes: 1000,
@@ -119,5 +122,32 @@ describe("PendingRefreshRowPanel", () => {
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
     expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"]);
+  });
+
+  // Regression: CLIENT_KEY_TO_BACKEND_FIELDS had no "www" entry, so a book newly matched via the
+  // bulk online-match flow (no stored Www yet) never got the URL applied through this per-row
+  // panel - MetadataRefreshApplier can write Www since the bulk-apply fix, but this panel's
+  // client-to-backend field map silently dropped the "www" diff before it ever reached the apply
+  // call, so the book stayed unmatched via this path even though the bulk "Apply All" path (which
+  // recomputes the full field set server-side) was fixed.
+  it("includes Www in the fields it selects and applies when the book has no stored URL", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...bookDetailWithOnlyRatingDiffering,
+      rating: "4.5",
+      www: undefined,
+    });
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+      pendingWithOnlyRatingDiffering,
+    );
+
+    renderPanel();
+
+    const applyButton = await screen.findByRole("button", { name: /apply selected/i });
+    expect(applyButton).toHaveTextContent("Apply Selected (1)");
+
+    fireEvent.click(applyButton);
+
+    await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"]);
   });
 });
