@@ -2221,6 +2221,7 @@ export interface paths {
                     page?: number;
                     pageSize?: number;
                     fields?: string[];
+                    sources?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -2260,6 +2261,7 @@ export interface paths {
             parameters: {
                 query?: {
                     fields?: string[];
+                    sources?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -2509,6 +2511,49 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata-refresh/dismiss-selected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BulkSelectionDto"];
+                    "text/json": components["schemas"]["BulkSelectionDto"];
+                    "application/*+json": components["schemas"]["BulkSelectionDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["DismissSelectedMetadataRefreshResultDto"];
+                        "application/json": components["schemas"]["DismissSelectedMetadataRefreshResultDto"];
+                        "text/json": components["schemas"]["DismissSelectedMetadataRefreshResultDto"];
+                    };
                 };
             };
         };
@@ -5585,6 +5630,10 @@ export interface components {
             /** Format: int64 */
             authorId?: number | null;
             title?: string | null;
+        };
+        DismissSelectedMetadataRefreshResultDto: {
+            /** Format: int32 */
+            dismissed?: number;
         };
         EntryMatchDto: {
             /** Format: int64 */

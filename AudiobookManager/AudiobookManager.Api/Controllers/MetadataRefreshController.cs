@@ -157,7 +157,8 @@ public class MetadataRefreshController : ControllerBase
     public async Task<ActionResult<PendingMetadataRefreshPageDto>> GetPending(
         [FromQuery] int page = 0,
         [FromQuery] int pageSize = PagingLimits.DefaultPageSize,
-        [FromQuery] List<string>? fields = null)
+        [FromQuery] List<string>? fields = null,
+        [FromQuery] List<string>? sources = null)
     {
         if (page < 0)
         {
@@ -175,7 +176,7 @@ public class MetadataRefreshController : ControllerBase
             return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} entries.");
         }
 
-        var (items, total) = await _metadataRefreshService.GetPendingPageAsync(page, pageSize, fields);
+        var (items, total) = await _metadataRefreshService.GetPendingPageAsync(page, pageSize, fields, sources);
 
         return Ok(new PendingMetadataRefreshPageDto(
             items
@@ -192,14 +193,16 @@ public class MetadataRefreshController : ControllerBase
 
     /// <summary>
     /// The sparse id list of books with a pending snapshot, for the library-list badges when
-    /// <paramref name="fields"/> is omitted, or every id matching that field-subset filter - the
-    /// full match set (not one page) that "apply every book matching this filter" resolves ids
-    /// through, so the client never has to walk every page to find them all.
+    /// <paramref name="fields"/> and <paramref name="sources"/> are both omitted, or every id
+    /// matching those filters - the full match set (not one page) that "apply every book matching
+    /// this filter" resolves ids through, so the client never has to walk every page to find them
+    /// all.
     /// </summary>
     [HttpGet("pending-summary")]
-    public async Task<List<long>> GetPendingSummary([FromQuery] List<string>? fields = null)
+    public async Task<List<long>> GetPendingSummary(
+        [FromQuery] List<string>? fields = null, [FromQuery] List<string>? sources = null)
     {
-        return await _metadataRefreshService.GetPendingAudiobookIdsAsync(fields);
+        return await _metadataRefreshService.GetPendingAudiobookIdsAsync(fields, sources);
     }
 
     /// <summary>
@@ -357,6 +360,25 @@ public class MetadataRefreshController : ControllerBase
     {
         await _metadataRefreshService.DismissPendingRefreshAsync(id);
         return Ok();
+    }
+
+    /// <summary>
+    /// Deletes every explicitly selected book's pending snapshot without applying it - the bulk
+    /// counterpart of <see cref="DismissPending"/>. A pure DB delete, so unlike the apply/refresh
+    /// bulk endpoints this runs synchronously and returns the count deleted, needing no
+    /// <see cref="BackgroundOperationRunner"/>/SignalR progress.
+    /// </summary>
+    [HttpPost("dismiss-selected")]
+    public async Task<ActionResult<DismissSelectedMetadataRefreshResultDto>> DismissSelected([FromBody] BulkSelectionDto? dto)
+    {
+        var error = this.ValidateBulkSelection(dto?.AudiobookIds);
+        if (error != null)
+        {
+            return error;
+        }
+
+        var dismissed = await _metadataRefreshService.DismissSelectedPendingRefreshesAsync(dto!.AudiobookIds);
+        return Ok(new DismissSelectedMetadataRefreshResultDto(dismissed));
     }
 
     private static MetadataRefreshResultDto ToDto(MetadataRefreshResult result) =>

@@ -296,7 +296,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     }
 
     public async Task<(List<PendingMetadataRefresh> Items, int Total)> GetPendingPageAsync(
-        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null)
+        int page, int pageSize, IReadOnlyCollection<string>? fieldsFilter = null, IReadOnlyCollection<string>? sourceFilter = null)
     {
         // One-time cost per legacy row (a stored-row read, a book-with-includes read, and a
         // write), run sequentially on the request thread. Bounded by how many pending rows
@@ -305,12 +305,12 @@ public class MetadataRefreshService : IMetadataRefreshService
         // noticeably slower than every one after it.
         await EnsureChangedFieldsBackfilledAsync();
 
-        if (fieldsFilter is null || fieldsFilter.Count == 0)
+        if ((fieldsFilter is null || fieldsFilter.Count == 0) && (sourceFilter is null || sourceFilter.Count == 0))
         {
             return await _pendingRepository.GetPageWithAudiobookAsync(page * pageSize, pageSize);
         }
 
-        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        var matches = await GetFilterMatchesAsync(fieldsFilter, sourceFilter);
         var total = matches.Count;
         var pageIds = matches.Skip(page * pageSize).Take(pageSize).Select(m => m.AudiobookId).ToList();
 
@@ -325,17 +325,29 @@ public class MetadataRefreshService : IMetadataRefreshService
         return (items, total);
     }
 
-    public async Task<List<long>> GetPendingAudiobookIdsAsync(IReadOnlyCollection<string>? fieldsFilter = null)
+    public async Task<List<long>> GetPendingAudiobookIdsAsync(
+        IReadOnlyCollection<string>? fieldsFilter = null, IReadOnlyCollection<string>? sourceFilter = null)
     {
         await EnsureChangedFieldsBackfilledAsync();
 
-        if (fieldsFilter is null || fieldsFilter.Count == 0)
+        if ((fieldsFilter is null || fieldsFilter.Count == 0) && (sourceFilter is null || sourceFilter.Count == 0))
         {
             return await _pendingRepository.GetPendingAudiobookIdsAsync();
         }
 
-        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        var matches = await GetFilterMatchesAsync(fieldsFilter, sourceFilter);
         return matches.Select(m => m.AudiobookId).ToList();
+    }
+
+    /// <summary>
+    /// Deletes every explicitly selected book's pending snapshot without applying it - the bulk
+    /// counterpart of <see cref="DismissPendingRefreshAsync"/>. A pure DB delete (no file I/O, no
+    /// scraper call, no per-book save gate), so unlike the apply/refresh bulk operations it runs
+    /// synchronously and needs no <see cref="BackgroundOperationRunner"/>/SignalR progress.
+    /// </summary>
+    public async Task<int> DismissSelectedPendingRefreshesAsync(IReadOnlyList<long> audiobookIds)
+    {
+        return await _pendingRepository.DeleteAllByAudiobookIdsAsync(audiobookIds);
     }
 
     /// <summary>
@@ -408,17 +420,24 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     /// <summary>
     /// Every pending row whose stored changed-fields are entirely contained in
-    /// <paramref name="fieldsFilter"/>, newest-fetched first - the same subset rule and order
+    /// <paramref name="fieldsFilter"/> and (independently) whose source name is one of
+    /// <paramref name="sourceFilter"/>, newest-fetched first - the same subset rule and order
     /// both filtered read paths above share, computed once against the lightweight projection so
-    /// filtering thousands of rows never loads a book graph.
+    /// filtering thousands of rows never loads a book graph. Either filter may be null/empty to
+    /// skip that condition; both empty is never called (the caller short-circuits to the unfiltered
+    /// page in that case).
     /// </summary>
-    private async Task<List<PendingRefreshFieldsRow>> GetFilterMatchesAsync(IReadOnlyCollection<string> fieldsFilter)
+    private async Task<List<PendingRefreshFieldsRow>> GetFilterMatchesAsync(
+        IReadOnlyCollection<string>? fieldsFilter, IReadOnlyCollection<string>? sourceFilter = null)
     {
-        var filterSet = new HashSet<string>(fieldsFilter);
+        var filterSet = fieldsFilter is { Count: > 0 } ? new HashSet<string>(fieldsFilter) : null;
+        var sourceSet = sourceFilter is { Count: > 0 } ? new HashSet<string>(sourceFilter) : null;
         var all = await _pendingRepository.GetAllChangedFieldsAsync();
 
         return all
-            .Where(row => MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson) is { Count: > 0 } changed && changed.All(filterSet.Contains))
+            .Where(row => filterSet is null ||
+                (MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson) is { Count: > 0 } changed && changed.All(filterSet.Contains)))
+            .Where(row => sourceSet is null || sourceSet.Contains(row.SourceName))
             .OrderByDescending(row => row.FetchedAt)
             .ThenBy(row => row.AudiobookId)
             .ToList();

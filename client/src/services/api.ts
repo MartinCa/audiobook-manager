@@ -22,6 +22,7 @@ import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearc
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type {
+  DismissSelectedMetadataRefreshResult,
   MetadataRefreshReevaluateResult,
   MetadataRefreshResult,
   PendingMetadataRefresh,
@@ -522,19 +523,33 @@ export const metadataRefreshApi = {
 
   // Paged server-side (bounded-list invariant). The unpaged response would return every book
   // with a pending snapshot in one payload — the same unbounded shape UrlCleanupController
-  // replaced before this list. An optional field-name filter (subset match, server-side) narrows
-  // both the page and its total.
-  getPendingPage: (page: number, pageSize: number, fields?: readonly string[]) =>
+  // replaced before this list. An optional field-name filter (subset match, server-side) and an
+  // optional source-name filter (exact match against SourceName) narrow both the page and its
+  // total; the two combine with AND.
+  getPendingPage: (
+    page: number,
+    pageSize: number,
+    fields?: readonly string[],
+    sources?: readonly string[],
+  ) =>
     api.get<PendingMetadataRefreshPage>("/metadata-refresh/pending", {
-      query: { page, pageSize, fields: fields && fields.length > 0 ? fields : undefined },
+      query: {
+        page,
+        pageSize,
+        fields: fields && fields.length > 0 ? fields : undefined,
+        sources: sources && sources.length > 0 ? sources : undefined,
+      },
     }),
 
-  // Every id with a pending snapshot when fields is omitted (library-list badges), or every id
-  // matching the same subset filter getPendingPage applies - the full match set, not one page,
-  // for "apply every book matching this filter".
-  getPendingSummary: (fields?: readonly string[]) =>
+  // Every id with a pending snapshot when both filters are omitted (library-list badges), or
+  // every id matching the same field/source filters getPendingPage applies - the full match set,
+  // not one page, for "apply/dismiss every book matching this filter".
+  getPendingSummary: (fields?: readonly string[], sources?: readonly string[]) =>
     api.get<number[]>("/metadata-refresh/pending-summary", {
-      query: { fields: fields && fields.length > 0 ? fields : undefined },
+      query: {
+        fields: fields && fields.length > 0 ? fields : undefined,
+        sources: sources && sources.length > 0 ? sources : undefined,
+      },
     }),
 
   // Single book's pending snapshot; the backend 404s when the book has none, so this resolves to
@@ -544,6 +559,13 @@ export const metadataRefreshApi = {
     getOrUndefined<PendingMetadataRefresh>(`/metadata-refresh/${id}/pending`),
 
   dismissPending: (id: number) => api.post<void>(`/metadata-refresh/${id}/dismiss`, undefined),
+
+  // Synchronous: deletes the pending snapshot for every explicitly selected book without applying
+  // it (a pure DB delete, unlike apply-selected/refresh-selected - no SignalR progress needed).
+  dismissSelected: (audiobookIds: number[]) =>
+    api.post<DismissSelectedMetadataRefreshResult>("/metadata-refresh/dismiss-selected", {
+      audiobookIds,
+    }),
 
   // Fire-and-forget refresh of only the explicitly selected books. Reuses the bulk-refresh
   // operation key, so a selected refresh and the all-books sweep stay mutually exclusive.
