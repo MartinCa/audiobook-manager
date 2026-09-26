@@ -43,11 +43,12 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
                     throw new KeyNotFoundException($"Audiobook {id} not found");
                 }
 
-                // Same precedence BookEditForm seeds BookSearchDialog's query with (bookName,
-                // falling back to the on-disk file name) - the two flows must not drift, since the
-                // whole point of the bulk search is "what the interactive dialog would have
-                // searched for, run for many books at once".
-                var query = !string.IsNullOrWhiteSpace(book.BookName) ? book.BookName : book.FileInfoFileName;
+                // Same precedence BookEditForm seeds BookSearchDialog's query with (author(s) -
+                // book name, falling back to book name, falling back to the on-disk file name) -
+                // the two flows must not drift, since the whole point of the bulk search is "what
+                // the interactive dialog would have searched for, run for many books at once".
+                var query = MetadataSearchQueryBuilder.Build(
+                    book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName);
                 if (string.IsNullOrWhiteSpace(query))
                 {
                     throw new InvalidOperationException($"Audiobook {id} has no title or file name to search with.");
