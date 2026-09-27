@@ -399,60 +399,16 @@ public class HardcoverScraperTests
 
     // ---------- GetBookDetails() ----------
 
-    private const string _bookDetailsResponseJson = """
-        {
-          "data": {
-            "books_by_pk": {
-              "id": 789,
-              "title": "The Hobbit: There and Back Again",
-              "subtitle": null,
-              "description": "Bilbo Baggins goes on <b>an adventure</b>.<br />It is great.",
-              "slug": "the-hobbit",
-              "release_date": "1937-09-21",
-              "rating": 4.5,
-              "ratings_count": 2000,
-              "cached_image": { "url": "https://covers.hardcover.app/hobbit-full.jpg" },
-              "cached_tags": {
-                "Genre": [
-                  { "tag": "Fiction" },
-                  { "tag": "Fantasy" },
-                  { "tag": "Adventure" }
-                ]
-              },
-              "contributions": [
-                { "contribution": null, "author": { "name": "J.R.R. Tolkien" } },
-                { "contribution": "Narrator", "author": { "name": "Rob Inglis" } }
-              ],
-              "book_series": [
-                { "position": 1, "series": { "name": "Middle-earth" } }
-              ],
-              "default_audio_edition": {
-                "isbn_13": "9780007487350",
-                "asin": "B002SGA6VG",
-                "audio_seconds": 39600,
-                "publisher": { "name": "HarperCollins" },
-                "language": { "language": "English" }
-              },
-              "default_physical_edition": null
-            }
-          }
-        }
-        """;
-
     [TestMethod]
     public async Task GetBookDetails_MapsGraphqlResponseToDomainModel()
     {
-        var target = CreateScraper(_bookDetailsResponseJson, out var handler);
+        var target = CreateScraper(_bookDetailsBySlugResponseJson, out var handler);
 
-        // A bare numeric identifier (not a URL) is unambiguous - it comes from internal callers
-        // that already resolved a definite Hardcover database id - so it queries books_by_pk
-        // directly and can use the single-shape books_by_pk response below. A URL whose last path
-        // segment is numeric is a different, ambiguous case covered by its own tests further down.
-        var result = await target.GetBookDetails("789");
+        var result = await target.GetBookDetails("https://hardcover.app/books/the-hobbit");
 
         Assert.AreEqual("The Hobbit", result.BookName);
         Assert.AreEqual("There and Back Again", result.Subtitle);
-        Assert.AreEqual("789", result.Url);
+        Assert.AreEqual("https://hardcover.app/books/the-hobbit", result.Url);
         Assert.AreEqual(1937, result.Year);
 
         Assert.AreEqual(1, result.Authors.Count);
@@ -486,44 +442,35 @@ public class HardcoverScraperTests
     }
 
     [TestMethod]
-    public async Task GetBookDetails_NumericIdUrl_QueriesByIdNotSlug()
-    {
-        var target = CreateScraper(_bookDetailsResponseJson, out var handler);
-
-        await target.GetBookDetails("789");
-
-        var body = handler.CapturedRequestBodies.Single();
-        Assert.IsTrue(body.Contains("books_by_pk"), "a bare numeric identifier should query books_by_pk(id: ...)");
-        Assert.IsTrue(body.Contains("\"id\":789"));
-    }
-
-    [TestMethod]
     public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
     {
         var json = """
             {
               "data": {
-                "books_by_pk": {
-                  "id": 999,
-                  "title": "Fallback Test Book",
-                  "default_audio_edition": {
-                    "audio_seconds": 3600,
-                    "language": null,
-                    "asin": null
-                  },
-                  "default_physical_edition": {
-                    "isbn_13": "9781234567890",
-                    "asin": "B0PHYSICALASIN",
-                    "publisher": { "name": "Physical Publisher" },
-                    "language": { "language": "French" }
+                "books": [
+                  {
+                    "id": 999,
+                    "title": "Fallback Test Book",
+                    "slug": "fallback-test-book",
+                    "default_audio_edition": {
+                      "audio_seconds": 3600,
+                      "language": null,
+                      "asin": null
+                    },
+                    "default_physical_edition": {
+                      "isbn_13": "9781234567890",
+                      "asin": "B0PHYSICALASIN",
+                      "publisher": { "name": "Physical Publisher" },
+                      "language": { "language": "French" }
+                    }
                   }
-                }
+                ]
               }
             }
             """;
         var target = CreateScraper(json, out _);
 
-        var result = await target.GetBookDetails("999");
+        var result = await target.GetBookDetails("https://hardcover.app/books/fallback-test-book");
 
         Assert.IsNotNull(result);
         Assert.AreEqual("French", result.Language);
@@ -533,9 +480,9 @@ public class HardcoverScraperTests
     }
 
     /// <summary>
-    /// GetBookBySlug() reads through "data.books[0]" (a books(where:...) query returns an
-    /// array), unlike the by-id path which reads "data.books_by_pk" (a single object) -
-    /// so the slug test needs its own response shape.
+    /// GetBookBySlug() reads through "data.books[0]" - a books(where:...) query returns an array,
+    /// unlike the ambiguous-numeric-segment path (GetBookByIdOrSlug) which reads aliased
+    /// "data.bySlug"/"data.byId" shapes - so this test needs its own response shape.
     /// </summary>
     private const string _bookDetailsBySlugResponseJson = """
         {
@@ -687,10 +634,10 @@ public class HardcoverScraperTests
     [TestMethod]
     public async Task GetBookDetails_BookNotFound_Throws()
     {
-        var nullResponse = """{ "data": { "books_by_pk": null } }""";
-        var target = CreateScraper(nullResponse, out _);
+        var emptyResponse = """{ "data": { "books": [] } }""";
+        var target = CreateScraper(emptyResponse, out _);
 
-        await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("999999"));
+        await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("https://hardcover.app/books/does-not-exist"));
     }
 
     [TestMethod]

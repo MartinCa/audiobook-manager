@@ -123,12 +123,9 @@ public class HardcoverScraper : IScraper
     {
         var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
 
-        var bookElement = bookIdentifier switch
-        {
-            { Id: not null, Slug: not null } => await GetBookByIdOrSlug(bookIdentifier.Id.Value, bookIdentifier.Slug),
-            { Id: not null } => await GetBookById(bookIdentifier.Id.Value),
-            _ => await GetBookBySlug(bookIdentifier.Slug!),
-        };
+        var bookElement = bookIdentifier.Id is not null
+            ? await GetBookByIdOrSlug(bookIdentifier.Id.Value, bookIdentifier.Slug)
+            : await GetBookBySlug(bookIdentifier.Slug);
 
         if (bookElement.ValueKind == JsonValueKind.Null || bookElement.ValueKind == JsonValueKind.Undefined)
         {
@@ -1299,15 +1296,6 @@ public class HardcoverScraper : IScraper
         return result;
     }
 
-    private async Task<JsonElement> GetBookById(int bookId)
-    {
-        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$id: Int!")
-                                     .Replace("BOOK_QUERY_FILTER", "books_by_pk(id: $id)");
-
-        var responseElement = await ExecuteGraphqlQuery(query, new { id = bookId });
-        return responseElement.GetNestedProperty("data", "books_by_pk");
-    }
-
     private async Task<JsonElement> GetBookBySlug(string slug)
     {
         var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$slug: String!")
@@ -2055,14 +2043,8 @@ public class HardcoverScraper : IScraper
         return null;
     }
 
-    private static (int? Id, string? Slug) ParseBookIdentifierFromUrl(string url)
+    private static (int? Id, string Slug) ParseBookIdentifierFromUrl(string url)
     {
-        // Direct numeric ID
-        if (int.TryParse(url, out var directId))
-        {
-            return (directId, null);
-        }
-
         var uri = new Uri(url);
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
