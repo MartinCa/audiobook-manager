@@ -144,7 +144,7 @@ describe("SimilarValues", () => {
 
     renderWithProviders(<SimilarValues />);
 
-    expect(await screen.findByText(/Showing 1–50 of 130 groups/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing 1–50 of 130/)).toBeInTheDocument();
     const nextButton = screen.getByRole("button", { name: "Next" });
     expect(nextButton).toBeEnabled();
     nextButton.click();
@@ -165,7 +165,7 @@ describe("SimilarValues", () => {
 
     renderWithProviders(<SimilarValues />);
 
-    expect(await screen.findByText(/Showing 1–50 of 130 groups/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing 1–50 of 130/)).toBeInTheDocument();
     screen.getByRole("button", { name: "Next" }).click();
     await waitFor(() => {
       expect(similarValuesApi.getSimilarAuthors).toHaveBeenCalledWith(1, 50);
@@ -182,7 +182,7 @@ describe("SimilarValues", () => {
     await waitFor(() => {
       expect(similarValuesApi.getSimilarAuthors).toHaveBeenCalledWith(0, 50);
     });
-    expect(await screen.findByText(/Showing 1–50 of 60 groups/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing 1–50 of 60/)).toBeInTheDocument();
   });
 
   it("marking a candidate as not similar calls the API with the rest of its group and refetches", async () => {

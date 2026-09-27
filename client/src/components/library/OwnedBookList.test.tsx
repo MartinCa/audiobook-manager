@@ -279,10 +279,12 @@ describe("OwnedBookList", () => {
     expect(screen.queryByText(/Series: The Stormlight Archive/)).not.toBeInTheDocument();
   });
 
-  it("renders no pager when there is only one page", () => {
+  it("disables the pager's Next button when there is only one page", () => {
+    // The pager itself always renders (it also carries the rows-per-page dropdown), even with a
+    // single page - only the Previous/Next buttons are clamped disabled.
     renderList({ pageCount: 1 });
 
-    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
   it("hides the search input when showSearchBox is false but keeps the filter button", () => {

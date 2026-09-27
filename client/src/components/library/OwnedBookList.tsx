@@ -10,6 +10,7 @@ import { SectionPager } from "./SectionPager";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import type { PageSizeOption } from "@/constants/paging";
 import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { languageLabel } from "@/helpers/languages";
@@ -68,6 +69,7 @@ export interface OwnedBookListProps {
   pageCount: number;
   pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (size: PageSizeOption) => void;
   pagerDisabled?: boolean;
 
   /** "#3 " prefix on the title (SeriesDetail's owned-books context). */
@@ -119,6 +121,7 @@ export function OwnedBookList({
   pageCount,
   pageSize,
   onPageChange,
+  onPageSizeChange,
   pagerDisabled = false,
   showSeriesPart = false,
   hideSeries = false,
@@ -364,16 +367,15 @@ export function OwnedBookList({
 
       <BookBulkActionBar selection={selection} />
 
-      {pageCount > 1 && (
-        <SectionPager
-          currentPage={page}
-          pageCount={pageCount}
-          totalCount={totalCount}
-          pageSize={pageSize}
-          disabled={pagerDisabled}
-          onPageChange={onPageChange}
-        />
-      )}
+      <SectionPager
+        currentPage={page}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={pageSize}
+        disabled={pagerDisabled}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+      />
     </div>
   );
 }

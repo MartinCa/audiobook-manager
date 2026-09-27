@@ -4,6 +4,7 @@ import { cn } from "cn";
 import { formatDate } from "@/helpers/formatHelpers";
 import { isBookUpcoming } from "@/helpers/expectedBooks";
 import { SectionPager } from "./SectionPager";
+import type { PageSizeOption } from "@/constants/paging";
 import type { ExpectedBookRow } from "@/helpers/expectedBooks";
 
 interface ExpectedBookListProps {
@@ -38,6 +39,8 @@ interface ExpectedBookListProps {
     currentPage: number;
     pageCount: number;
     onPageChange: (page: number) => void;
+    pageSize?: number;
+    onPageSizeChange?: (size: PageSizeOption) => void;
   };
   /** id of the row currently busy with an ignore/unignore call, or null. */
   busyBookId: number | null;
@@ -87,7 +90,7 @@ export function ExpectedBookList({
     return <p className="text-muted-foreground text-xs">{emptyMessage}</p>;
   }
 
-  const paged = showIgnored && ignoredPager && ignoredPager.pageCount > 1;
+  const paged = showIgnored && Boolean(ignoredPager);
   // The static overflow note only stands in for a pager: once the ignored section pages (a
   // pager is wired), the pager is how a user reaches the rest, so a redundant count note over
   // the same entries would just repeat what the pager's total already says.
@@ -111,12 +114,14 @@ export function ExpectedBookList({
           and {staleIgnoredCount} more ignored book{staleIgnoredCount === 1 ? "" : "s"}...
         </p>
       )}
-      {paged && (
+      {paged && ignoredPager && (
         <SectionPager
           currentPage={ignoredPager.currentPage}
           pageCount={ignoredPager.pageCount}
           totalCount={ignoredTotal}
+          pageSize={ignoredPager.pageSize}
           onPageChange={ignoredPager.onPageChange}
+          onPageSizeChange={ignoredPager.onPageSizeChange}
         />
       )}
     </div>

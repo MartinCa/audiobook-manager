@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
@@ -10,6 +10,7 @@ import { SectionPager } from "./SectionPager";
 import { operationsApi, upcomingReleasesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 
@@ -21,24 +22,30 @@ import { notifications } from "@/lib/notifications";
 export function UpcomingReleasesPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
 
   // Shares its query key with UpcomingReleasesList's own fetch below (same
-  // authorId/seriesId/page triple), so this only reads the total off the cache the list's query
-  // already populates rather than issuing a second network request.
+  // authorId/seriesId/page/pageSize quadruple), so this only reads the total off the cache the
+  // list's query already populates rather than issuing a second network request.
   const pageQuery = useQuery({
-    queryKey: queryKeys.upcomingReleases.page(undefined, undefined, page),
+    queryKey: queryKeys.upcomingReleases.page(undefined, undefined, page, pageSize),
     queryFn: () =>
-      upcomingReleasesApi.getUpcomingReleases({ limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
+      upcomingReleasesApi.getUpcomingReleases({ limit: pageSize, offset: page * pageSize }),
     placeholderData: keepPreviousData,
   });
 
   const totalCount = pageQuery.data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
   // Pulls the raw page state back into range once a response shows the total shrank under it
   // (e.g. the last release on the last page was removed), so the next fetch - not just the
   // display - lands on a valid page.
   useClampedPage(page, pageCount, setPage);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   // Fire-and-forget on the backend (the sweep can run for minutes at the Hardcover rate limit's
   // pace), so this follows it the same way MissingTags follows the language backfill: poll the
@@ -123,18 +130,19 @@ export function UpcomingReleasesPage() {
       <UpcomingReleasesList
         showSource
         page={page}
+        pageSize={pageSize}
         showOverflowHint={false}
         emptyMessage="No upcoming releases tracked yet. Follow an author or series to start tracking."
       />
 
-      {pageCount > 1 && (
-        <SectionPager
-          currentPage={currentPage}
-          pageCount={pageCount}
-          totalCount={totalCount}
-          onPageChange={setPage}
-        />
-      )}
+      <SectionPager
+        currentPage={currentPage}
+        pageCount={pageCount}
+        totalCount={totalCount}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={handlePageSizeChange}
+      />
     </div>
   );
 }

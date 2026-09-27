@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OwnedBookList } from "./OwnedBookList";
 import { SeriesListEntry } from "./SeriesListEntry";
 import { AuthorFollowSection } from "./AuthorFollowSection";
@@ -31,6 +31,7 @@ import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { AuthorExpectedBook, AuthorMissingSeries } from "@/types/AuthorDetail";
@@ -49,6 +50,7 @@ export function AuthorDetail() {
   const [seriesPage, setSeriesPage] = useState(0);
   const [standalonePage, setStandalonePage] = useState(0);
   const [missingSeriesPage, setMissingSeriesPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const selection = useBookSelection();
   const [refreshing, setRefreshing] = useState(false);
   const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
@@ -85,18 +87,19 @@ export function AuthorDetail() {
       seriesPage,
       standalonePage,
       missingSeriesPage,
+      pageSize,
       standaloneSearch,
       standaloneFilters,
     ),
     queryFn: () =>
       browseApi.getAuthorDetail(id, {
-        seriesLimit: PAGE_SIZE,
-        seriesOffset: seriesPage * PAGE_SIZE,
-        standaloneLimit: PAGE_SIZE,
-        standaloneOffset: standalonePage * PAGE_SIZE,
+        seriesLimit: pageSize,
+        seriesOffset: seriesPage * pageSize,
+        standaloneLimit: pageSize,
+        standaloneOffset: standalonePage * pageSize,
         includeMissingSeries: true,
-        missingSeriesLimit: PAGE_SIZE,
-        missingSeriesOffset: missingSeriesPage * PAGE_SIZE,
+        missingSeriesLimit: pageSize,
+        missingSeriesOffset: missingSeriesPage * pageSize,
         standaloneSearch,
         standaloneFilters,
       }),
@@ -122,9 +125,9 @@ export function AuthorDetail() {
   const ignoredBooks = detailQuery.data?.ignoredBooks ?? [];
   const missingSeriesSection = detailQuery.data?.missingSeries ?? { items: [], total: 0 };
 
-  const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / PAGE_SIZE));
-  const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / PAGE_SIZE));
-  const missingSeriesPageCount = Math.max(1, Math.ceil(missingSeriesSection.total / PAGE_SIZE));
+  const seriesPageCount = Math.max(1, Math.ceil(seriesSection.total / pageSize));
+  const standalonePageCount = Math.max(1, Math.ceil(standaloneSection.total / pageSize));
+  const missingSeriesPageCount = Math.max(1, Math.ceil(missingSeriesSection.total / pageSize));
   // Clamped so the fetched and the displayed page can never disagree.
   const currentSeriesPage = Math.min(seriesPage, seriesPageCount - 1);
   const currentStandalonePage = Math.min(standalonePage, standalonePageCount - 1);
@@ -136,6 +139,15 @@ export function AuthorDetail() {
   useClampedPage(seriesPage, seriesPageCount, setSeriesPage);
   useClampedPage(standalonePage, standalonePageCount, setStandalonePage);
   useClampedPage(missingSeriesPage, missingSeriesPageCount, setMissingSeriesPage);
+
+  // One rows-per-page value shared by all three sections, matching the combined detail query
+  // above - changing it resets every section back to its first page.
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setSeriesPage(0);
+    setStandalonePage(0);
+    setMissingSeriesPage(0);
+  };
 
   // The Hardcover match, for the management section's badge - the author's own follow/match
   // dialog lives in AuthorFollowSection; this is a read-only display of the same match.
@@ -262,15 +274,14 @@ export function AuthorDetail() {
               <SeriesListEntry key={s.name} series={s} search={{ authorId: author.id }} />
             ))}
           </div>
-          {seriesPageCount > 1 && (
-            <SectionPager
-              currentPage={currentSeriesPage}
-              pageCount={seriesPageCount}
-              totalCount={seriesSection.total}
-              pageSize={PAGE_SIZE}
-              onPageChange={setSeriesPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentSeriesPage}
+            pageCount={seriesPageCount}
+            totalCount={seriesSection.total}
+            pageSize={pageSize}
+            onPageChange={setSeriesPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
 
@@ -293,8 +304,9 @@ export function AuthorDetail() {
             onFiltersChange={handleStandaloneFiltersChange}
             page={currentStandalonePage}
             pageCount={standalonePageCount}
-            pageSize={PAGE_SIZE}
+            pageSize={pageSize}
             onPageChange={setStandalonePage}
+            onPageSizeChange={handlePageSizeChange}
             itemNoun="books"
           />
         </div>
@@ -318,14 +330,14 @@ export function AuthorDetail() {
               />
             ))}
           </div>
-          {missingSeriesPageCount > 1 && (
-            <SectionPager
-              currentPage={currentMissingSeriesPage}
-              pageCount={missingSeriesPageCount}
-              totalCount={missingSeriesSection.total}
-              onPageChange={setMissingSeriesPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentMissingSeriesPage}
+            pageCount={missingSeriesPageCount}
+            totalCount={missingSeriesSection.total}
+            pageSize={pageSize}
+            onPageChange={setMissingSeriesPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </CollapsibleCountSection>
       )}
 

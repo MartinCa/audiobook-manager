@@ -43,6 +43,7 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     metadataRefreshDelayMs: 1000,
     upcomingReleasesEnabled: true,
     upcomingReleasesCronSchedule: "0 3 * * *",
+    defaultPageSize: 20,
     ...overrides,
   };
 }
@@ -113,6 +114,7 @@ describe("LibrarySettingsPage", () => {
         initialsPunctuation: "Dotted",
         upcomingReleasesEnabled: true,
         upcomingReleasesCronSchedule: "0 3 * * *",
+        defaultPageSize: 20,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -143,6 +145,7 @@ describe("LibrarySettingsPage", () => {
         initialsPunctuation: "Undotted",
         upcomingReleasesEnabled: true,
         upcomingReleasesCronSchedule: "0 3 * * *",
+        defaultPageSize: 20,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -168,6 +171,7 @@ describe("LibrarySettingsPage", () => {
         initialsPunctuation: "Dotted",
         upcomingReleasesEnabled: false,
         upcomingReleasesCronSchedule: "0 5 * * *",
+        defaultPageSize: 20,
       });
     });
   });

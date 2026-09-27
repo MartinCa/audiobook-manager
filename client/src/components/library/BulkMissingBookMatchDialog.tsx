@@ -12,13 +12,14 @@ import {
 } from "@/components/ui/select";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SectionPager } from "./SectionPager";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type {
@@ -102,6 +103,7 @@ export function BulkMissingBookMatchDialog({
 }: BulkMissingBookMatchDialogProps) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [selections, setSelections] = useState<Record<string, RowSelection>>({});
   const [applying, setApplying] = useState(false);
   const [applyProgress, setApplyProgress] = useState<ApplyProgressPayload | null>(null);
@@ -147,8 +149,8 @@ export function BulkMissingBookMatchDialog({
     isError,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.seriesBulkMissingCandidates(seriesName, page),
-    queryFn: () => seriesApi.getBulkMissingBookCandidates(seriesName, page, PAGE_SIZE),
+    queryKey: queryKeys.seriesBulkMissingCandidates(seriesName, page, pageSize),
+    queryFn: () => seriesApi.getBulkMissingBookCandidates(seriesName, page, pageSize),
     enabled: open,
     // Keep the previous page rendered while the next one loads; the query key holds the page.
     placeholderData: keepPreviousData,
@@ -156,8 +158,13 @@ export function BulkMissingBookMatchDialog({
 
   const items = pageData?.items ?? [];
   const totalCount = pageData?.totalCount ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   // The page cursor is clamped here and by useClampedPage (SeriesOverview's shape): the total that
   // sizes the pager comes from this very response, so an out-of-range fetch is unavoidable for the
@@ -418,15 +425,15 @@ export function BulkMissingBookMatchDialog({
                 );
               })}
 
-              {pageCount > 1 && (
-                <SectionPager
-                  currentPage={currentPage}
-                  pageCount={pageCount}
-                  totalCount={totalCount}
-                  onPageChange={setPage}
-                  disabled={applying}
-                />
-              )}
+              <SectionPager
+                currentPage={currentPage}
+                pageCount={pageCount}
+                totalCount={totalCount}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={handlePageSizeChange}
+                disabled={applying}
+              />
             </div>
           )}
         </div>

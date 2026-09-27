@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { PAGE_SIZE } from "@/constants/paging";
+import { PAGE_SIZE, type PageSizeOption } from "@/constants/paging";
+import { PageSizeSelect } from "./PageSizeSelect";
 
 interface SectionPagerProps {
   currentPage: number;
@@ -13,6 +14,13 @@ interface SectionPagerProps {
    * own value so the displayed range stays accurate.
    */
   pageSize?: number;
+  /**
+   * Renders the rows-per-page dropdown next to the range text and reports the newly selected
+   * size. Omitted entirely for a handful of pagers whose page size is fixed rather than backed by
+   * the shared `usePageSize` hook (dialog pagers over a small bounded candidate list). The caller
+   * owns resetting the current page to 0 - this component only reports the new size.
+   */
+  onPageSizeChange?: (size: PageSizeOption) => void;
   /**
    * Disables both buttons regardless of which page they'd move to - for a surface mid-fetch (a
    * loading page) or mid-mutation (BulkMissingBookMatchDialog's apply-in-progress), on top of the
@@ -35,14 +43,20 @@ export function SectionPager({
   totalCount,
   onPageChange,
   pageSize = PAGE_SIZE,
+  onPageSizeChange,
   disabled = false,
 }: SectionPagerProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-      <span className="text-muted-foreground text-xs">
-        Showing {currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, totalCount)} of{" "}
-        {totalCount}
-      </span>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-muted-foreground text-xs">
+          Showing {currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, totalCount)}{" "}
+          of {totalCount}
+        </span>
+        {onPageSizeChange && (
+          <PageSizeSelect value={pageSize} onChange={onPageSizeChange} disabled={disabled} />
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <Button
           size="sm"

@@ -12,6 +12,7 @@ public static class LibrarySettingsMapping
             MetadataRefreshDelayMs = dbModel.MetadataRefreshDelayMs,
             UpcomingReleasesEnabled = dbModel.UpcomingReleasesEnabled,
             UpcomingReleasesCronSchedule = dbModel.UpcomingReleasesCronSchedule,
+            DefaultPageSize = dbModel.DefaultPageSize,
         };
 
     public static Database.Models.InitialsSpacing ToDb(this Domain.InitialsSpacing domain) => domain switch

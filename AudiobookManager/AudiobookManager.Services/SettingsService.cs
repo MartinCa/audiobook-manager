@@ -25,7 +25,8 @@ public class SettingsService : ISettingsService
             settings.InitialsPunctuation.ToDb(),
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
-            settings.UpcomingReleasesCronSchedule);
+            settings.UpcomingReleasesCronSchedule,
+            settings.DefaultPageSize);
         return dbSettings.ToDomain();
     }
 }

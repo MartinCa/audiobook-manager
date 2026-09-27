@@ -47,6 +47,10 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    // The search tabs default to a 20-row page (BROWSE_PAGE_SIZE), which is also this library's
+    // configured default-page-size setting - mocked here so usePageSize resolves to it rather
+    // than falling back to the shared 50-row PAGE_SIZE while this query goes unmocked/errors.
+    getLibrarySettings: vi.fn().mockResolvedValue({ defaultPageSize: 20 }),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),

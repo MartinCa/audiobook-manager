@@ -23,7 +23,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
@@ -31,10 +31,12 @@ import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { SeriesConsistencyIssueList } from "./library/SeriesConsistencyIssueList";
 import { AuthorConsistencyIssueList } from "./library/AuthorConsistencyIssueList";
 import { PendingRefreshRowPanel } from "./library/PendingRefreshRowPanel";
+import { SectionPager } from "./library/SectionPager";
 import { metadataRefreshApi, metadataSearchApi, seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { usePageSize } from "@/hooks/usePageSize";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
@@ -75,6 +77,7 @@ export function MetadataRefresh() {
   const [seriesProgress, setSeriesProgress] = useState<RefreshProgressPayload | null>(null);
 
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [fieldFilter, setFieldFilter] = useState<Set<string>>(() => new Set());
   const fieldFilterList = useMemo(() => Array.from(fieldFilter), [fieldFilter]);
   const [sourceFilter, setSourceFilter] = useState<Set<string>>(() => new Set());
@@ -96,20 +99,30 @@ export function MetadataRefresh() {
   });
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: queryKeys.metadataRefresh.pendingPage(page, fieldFilterList, sourceFilterList),
+    queryKey: queryKeys.metadataRefresh.pendingPage(
+      page,
+      pageSize,
+      fieldFilterList,
+      sourceFilterList,
+    ),
     placeholderData: keepPreviousData,
     queryFn: () =>
-      metadataRefreshApi.getPendingPage(page, PAGE_SIZE, fieldFilterList, sourceFilterList),
+      metadataRefreshApi.getPendingPage(page, pageSize, fieldFilterList, sourceFilterList),
   });
 
   const totalCount = pageData?.total ?? 0;
   const pendingItems = (pageData?.items ?? []) as PendingMetadataRefreshListItem[];
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as CleanBookUrls' pager).
   const currentPage = Math.min(page, pageCount - 1);
 
   const goToPage = (next: number) => setPage(next);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   const startBulkMutation = useMutation({
     mutationFn: () => metadataRefreshApi.startBulkRefresh(cutoffDateToUtcIso(cutoffDate)),
@@ -697,32 +710,14 @@ export function MetadataRefresh() {
 
             {/* Stays rendered even if this page comes back empty while the count is non-zero, so
                 the user can page back instead of staring at a dead-end heading. */}
-            {pageCount > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-muted-foreground text-xs">
-                  Showing {currentPage * PAGE_SIZE + 1}–
-                  {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage === 0}
-                    onClick={() => goToPage(currentPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage >= pageCount - 1}
-                    onClick={() => goToPage(currentPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+            <SectionPager
+              currentPage={currentPage}
+              pageCount={pageCount}
+              totalCount={totalCount}
+              pageSize={pageSize}
+              onPageChange={goToPage}
+              onPageSizeChange={handlePageSizeChange}
+            />
           </div>
         )}
       </div>

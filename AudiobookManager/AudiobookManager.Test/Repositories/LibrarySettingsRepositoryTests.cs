@@ -63,7 +63,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task GetOrCreateAsync_RowExists_ReturnsItWithoutInserting()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20);
 
         var settings = await _repository.GetOrCreateAsync();
 
@@ -74,7 +74,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_NoRowYet_CreatesRowWithTheRequestedValue()
     {
-        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
+        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20);
 
         Assert.AreEqual(DbInitialsSpacing.Spaced, settings.InitialsSpacing);
         using var freshContext = OpenNewContext();
@@ -84,8 +84,8 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_RowExists_UpdatesItInPlace()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
-        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20);
+        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20);
 
         Assert.AreEqual(1, await _db.LibrarySettings.CountAsync());
         Assert.AreEqual(DbInitialsSpacing.Unspaced, (await _repository.GetOrCreateAsync()).InitialsSpacing);
@@ -129,7 +129,7 @@ public class LibrarySettingsRepositoryTests
             var repository = new LibrarySettingsRepository(context);
             return await repository.UpdateAsync(
                 i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced,
-                DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *");
+                DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20);
         }));
 
         await Task.WhenAll(tasks);

@@ -17,6 +17,7 @@ import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import { PAGE_SIZE_OPTIONS, type PageSizeOption } from "@/constants/paging";
 import type { InitialsPunctuation, InitialsSpacing } from "@/types/LibrarySettings";
 
 const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
@@ -28,6 +29,10 @@ const INITIALS_PUNCTUATION_OPTIONS: { value: InitialsPunctuation; label: string 
   { value: "Dotted", label: "Dotted (J. R. R. Tolkien)" },
   { value: "Undotted", label: "Undotted (J R R Tolkien)" },
 ];
+
+const PAGE_SIZE_SELECT_OPTIONS: { value: PageSizeOption; label: string }[] = PAGE_SIZE_OPTIONS.map(
+  (size) => ({ value: size, label: `${size} rows per page` }),
+);
 
 /**
  * Library-wide settings. The saved value is used by the backend (and, for initials spacing,
@@ -41,6 +46,7 @@ export function LibrarySettingsPage() {
   const [upcomingReleasesCronSchedule, setUpcomingReleasesCronSchedule] = useState<string | null>(
     null,
   );
+  const [defaultPageSize, setDefaultPageSize] = useState<PageSizeOption | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.librarySettings(),
@@ -53,6 +59,7 @@ export function LibrarySettingsPage() {
       initialsPunctuation: InitialsPunctuation;
       upcomingReleasesEnabled: boolean;
       upcomingReleasesCronSchedule: string;
+      defaultPageSize: number;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -73,9 +80,10 @@ export function LibrarySettingsPage() {
     upcomingReleasesEnabled ?? data?.upcomingReleasesEnabled ?? true;
   const currentCronSchedule =
     upcomingReleasesCronSchedule ?? data?.upcomingReleasesCronSchedule ?? "";
+  const currentDefaultPageSize = defaultPageSize ?? data?.defaultPageSize ?? null;
 
   const handleSave = () => {
-    if (!current || !currentPunctuation) {
+    if (!current || !currentPunctuation || !currentDefaultPageSize) {
       return;
     }
     mutation.mutate({
@@ -83,6 +91,7 @@ export function LibrarySettingsPage() {
       initialsPunctuation: currentPunctuation,
       upcomingReleasesEnabled: currentUpcomingReleasesEnabled,
       upcomingReleasesCronSchedule: currentCronSchedule,
+      defaultPageSize: currentDefaultPageSize,
     });
   };
 
@@ -170,6 +179,33 @@ export function LibrarySettingsPage() {
                   (J R R Tolkien).
                 </p>
               </div>
+
+              <div className="space-y-1.5">
+                <label className="mb-1 block text-xs font-medium">Default page size</label>
+                <Select
+                  value={currentDefaultPageSize ?? undefined}
+                  onValueChange={(v) => {
+                    if (v != null) setDefaultPageSize(v as PageSizeOption);
+                  }}
+                  items={PAGE_SIZE_SELECT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  disabled={mutation.isPending}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder="Select default page size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_SELECT_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">
+                  How many rows a paged list shows before you change it with that list's own rows-
+                  per-page dropdown.
+                </p>
+              </div>
             </div>
           )}
         </CardContent>
@@ -229,7 +265,13 @@ export function LibrarySettingsPage() {
       <div className="flex justify-end">
         <Button
           onClick={handleSave}
-          disabled={mutation.isPending || !current || !currentPunctuation || isLoading}
+          disabled={
+            mutation.isPending ||
+            !current ||
+            !currentPunctuation ||
+            !currentDefaultPageSize ||
+            isLoading
+          }
         >
           {mutation.isPending ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />

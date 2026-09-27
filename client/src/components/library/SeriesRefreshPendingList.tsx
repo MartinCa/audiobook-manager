@@ -4,12 +4,13 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { SeriesRefreshPendingDialog } from "@/components/library/SeriesRefreshPendingDialog";
 import { SectionPager } from "./SectionPager";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { usePageSize } from "@/hooks/usePageSize";
 import type { SeriesRefreshPendingListItem } from "@/types/SeriesRefresh";
 
 /**
@@ -21,12 +22,13 @@ import type { SeriesRefreshPendingListItem } from "@/types/SeriesRefresh";
 export function SeriesRefreshPendingList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [reviewing, setReviewing] = useState<SeriesRefreshPendingListItem | null>(null);
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: queryKeys.seriesPending.page(page),
+    queryKey: queryKeys.seriesPending.page(page, pageSize),
     placeholderData: keepPreviousData,
-    queryFn: () => seriesApi.getSeriesPendingPage(page, PAGE_SIZE),
+    queryFn: () => seriesApi.getSeriesPendingPage(page, pageSize),
   });
 
   const { data: totalCount } = useQuery({
@@ -44,8 +46,13 @@ export function SeriesRefreshPendingList() {
   // page that is *displayed* can never disagree (same fix as CleanBookUrls/MetadataRefresh).
   const count = totalCount ?? pageData?.total ?? 0;
   const items = (pageData?.items ?? []) as SeriesRefreshPendingListItem[];
-  const pageCount = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(count / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   return (
     <div className="space-y-3">
@@ -102,14 +109,14 @@ export function SeriesRefreshPendingList() {
 
           {/* Stays rendered even if this page comes back empty while the count is non-zero, so
               the user can page back instead of staring at a dead-end heading. */}
-          {pageCount > 1 && (
-            <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={count}
-              onPageChange={setPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentPage}
+            pageCount={pageCount}
+            totalCount={count}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
 

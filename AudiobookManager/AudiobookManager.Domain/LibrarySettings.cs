@@ -28,4 +28,10 @@ public class LibrarySettings
     /// metadata refresh, search).
     /// </summary>
     public string UpcomingReleasesCronSchedule { get; set; } = "0 3 * * *";
+
+    /// <summary>
+    /// Default rows-per-page for the app's paged lists. One of the fixed options the client's page
+    /// size dropdown offers: 20, 50, or 100 (see <c>SettingsController.AllowedPageSizes</c>).
+    /// </summary>
+    public int DefaultPageSize { get; set; } = 20;
 }

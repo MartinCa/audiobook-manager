@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent } from "@/hooks/useSignalR";
@@ -42,6 +42,7 @@ import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
@@ -183,6 +184,7 @@ export function SeriesDetail() {
   const [ignoredUpcomingPage, setIgnoredUpcomingPage] = useState(0);
   const [partMismatchPage, setPartMismatchPage] = useState(0);
   const [upcomingPage, setUpcomingPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [fixingMismatchId, setFixingMismatchId] = useState<number | null>(null);
 
   // One combined detail query instead of three: the endpoint already computes every section on
@@ -199,23 +201,24 @@ export function SeriesDetail() {
       partMismatchPage,
       upcomingPage,
       ignoredUpcomingPage,
+      pageSize,
       ownedSearch,
       ownedFilters,
     ),
     queryFn: () =>
       seriesApi.getSeriesDetail(seriesName, {
         ownedPage,
-        ownedPageSize: PAGE_SIZE,
+        ownedPageSize: pageSize,
         missingPage,
-        missingPageSize: PAGE_SIZE,
+        missingPageSize: pageSize,
         ignoredMissingPage,
-        ignoredMissingPageSize: PAGE_SIZE,
+        ignoredMissingPageSize: pageSize,
         ignoredUpcomingPage,
-        ignoredUpcomingPageSize: PAGE_SIZE,
+        ignoredUpcomingPageSize: pageSize,
         partMismatchPage,
-        partMismatchPageSize: PAGE_SIZE,
+        partMismatchPageSize: pageSize,
         upcomingPage,
-        upcomingPageSize: PAGE_SIZE,
+        upcomingPageSize: pageSize,
         ownedSearch,
         ownedFilters,
       }),
@@ -304,18 +307,18 @@ export function SeriesDetail() {
     items: [] as SeriesExpectedBook[],
     totalCount: 0,
   };
-  const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / PAGE_SIZE));
-  const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / PAGE_SIZE));
+  const ownedPageCount = Math.max(1, Math.ceil(ownedSection.totalCount / pageSize));
+  const missingPageCount = Math.max(1, Math.ceil(missingSection.totalCount / pageSize));
   const ignoredMissingPageCount = Math.max(
     1,
-    Math.ceil(ignoredMissingSection.totalCount / PAGE_SIZE),
+    Math.ceil(ignoredMissingSection.totalCount / pageSize),
   );
   const ignoredUpcomingPageCount = Math.max(
     1,
-    Math.ceil(ignoredUpcomingSection.totalCount / PAGE_SIZE),
+    Math.ceil(ignoredUpcomingSection.totalCount / pageSize),
   );
-  const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / PAGE_SIZE));
-  const upcomingPageCount = Math.max(1, Math.ceil(upcomingSection.totalCount / PAGE_SIZE));
+  const partMismatchPageCount = Math.max(1, Math.ceil(partMismatchSection.totalCount / pageSize));
+  const upcomingPageCount = Math.max(1, Math.ceil(upcomingSection.totalCount / pageSize));
 
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
@@ -335,6 +338,18 @@ export function SeriesDetail() {
   useClampedPage(ignoredUpcomingPage, ignoredUpcomingPageCount, setIgnoredUpcomingPage);
   useClampedPage(partMismatchPage, partMismatchPageCount, setPartMismatchPage);
   useClampedPage(upcomingPage, upcomingPageCount, setUpcomingPage);
+
+  // One rows-per-page value shared by every section, matching the combined detail query above -
+  // changing it resets every section (including both ignored sub-lists) back to its first page.
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setOwnedPage(0);
+    setMissingPage(0);
+    setIgnoredMissingPage(0);
+    setIgnoredUpcomingPage(0);
+    setPartMismatchPage(0);
+    setUpcomingPage(0);
+  };
 
   // The review banner shares the dialog's query key, so the banner and the open dialog never
   // disagree about whether a snapshot exists. 404 (no snapshot) is the normal absent case and
@@ -777,8 +792,9 @@ export function SeriesDetail() {
           onFiltersChange={handleOwnedFiltersChange}
           page={currentOwnedPage}
           pageCount={ownedPageCount}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           onPageChange={setOwnedPage}
+          onPageSizeChange={handlePageSizeChange}
           showSeriesPart
           hideSeries
           itemNoun="books"
@@ -831,6 +847,8 @@ export function SeriesDetail() {
               currentPage: currentIgnoredMissingPage,
               pageCount: ignoredMissingPageCount,
               onPageChange: setIgnoredMissingPage,
+              pageSize,
+              onPageSizeChange: handlePageSizeChange,
             }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}
@@ -841,14 +859,14 @@ export function SeriesDetail() {
               setMissingCandidatesOpen({ id: book.id, position: book.position, title: book.title })
             }
           />
-          {missingPageCount > 1 && (
-            <SectionPager
-              currentPage={currentMissingPage}
-              pageCount={missingPageCount}
-              totalCount={missingSection.totalCount}
-              onPageChange={setMissingPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentMissingPage}
+            pageCount={missingPageCount}
+            totalCount={missingSection.totalCount}
+            pageSize={pageSize}
+            onPageChange={setMissingPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </CollapsibleCountSection>
       )}
 
@@ -868,6 +886,8 @@ export function SeriesDetail() {
               currentPage: currentIgnoredUpcomingPage,
               pageCount: ignoredUpcomingPageCount,
               onPageChange: setIgnoredUpcomingPage,
+              pageSize,
+              onPageSizeChange: handlePageSizeChange,
             }}
             showIgnored={showIgnored}
             busyBookId={ignoringBookId}
@@ -875,14 +895,14 @@ export function SeriesDetail() {
             onIgnore={(book) => void handleSetIgnored(book, true)}
             onUnignore={(book) => void handleSetIgnored(book, false)}
           />
-          {upcomingPageCount > 1 && (
-            <SectionPager
-              currentPage={currentUpcomingPage}
-              pageCount={upcomingPageCount}
-              totalCount={upcomingSection.totalCount}
-              onPageChange={setUpcomingPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentUpcomingPage}
+            pageCount={upcomingPageCount}
+            totalCount={upcomingSection.totalCount}
+            pageSize={pageSize}
+            onPageChange={setUpcomingPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </CollapsibleCountSection>
       )}
 
@@ -928,14 +948,14 @@ export function SeriesDetail() {
               </div>
             ))}
           </div>
-          {partMismatchPageCount > 1 && (
-            <SectionPager
-              currentPage={currentPartMismatchPage}
-              pageCount={partMismatchPageCount}
-              totalCount={partMismatchSection.totalCount}
-              onPageChange={setPartMismatchPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentPartMismatchPage}
+            pageCount={partMismatchPageCount}
+            totalCount={partMismatchSection.totalCount}
+            pageSize={pageSize}
+            onPageChange={setPartMismatchPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
 

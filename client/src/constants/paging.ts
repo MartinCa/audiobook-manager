@@ -8,11 +8,25 @@
  * for that many rows.
  */
 
-/** Default page size for the main library lists (audiobooks, authors, series, missing tags). */
+/**
+ * Fallback page size used before the library's default-page-size setting has loaded (or for a
+ * caller that doesn't wire up the setting at all). Kept distinct from `PAGE_SIZE_OPTIONS[0]` only
+ * in spirit - they happen to be the same value - so a change to the option list doesn't silently
+ * change this fallback.
+ */
 export const PAGE_SIZE = 50;
 
 /** Rows per page on the browse/search result tabs ("books", "authors", "series"). */
 export const BROWSE_PAGE_SIZE = 20;
+
+/**
+ * The only rows-per-page values the page size dropdown offers, and the only values the backend's
+ * `PUT api/settings/library` accepts for `defaultPageSize` (see `SettingsController.
+ * AllowedPageSizes`) - the two lists must stay in sync.
+ */
+export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
+export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
 
 /** Preview rows each section shows in the combined "all" search tab. */
 export const SEARCH_PREVIEW_LIMIT = 5;
