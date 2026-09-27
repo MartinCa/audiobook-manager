@@ -9,14 +9,21 @@ namespace AudiobookManager.Services;
 /// and the single-book quick-apply endpoint can write a snapshot without a mounted edit form. Only
 /// the fields named in <paramref name="fields"/> are touched; anything else on <paramref
 /// name="book"/> is left exactly as loaded, matching the "no implicit clearing"
-/// invariant <see cref="AudiobookBulkChanges"/> uses.
+/// invariant <see cref="AudiobookBulkChanges"/> uses - with one deliberate exception: selecting
+/// BookName while <paramref name="splitTitleOnColon"/> is on can also write Subtitle, when the
+/// split recovers one out of an otherwise-blank snapshot (see the field-writing code below for
+/// why - the split itself has nowhere else to put the recovered text). <paramref
+/// name="splitTitleOnColon"/> gates <see cref="TitleSplitter"/> - off by default, since a
+/// snapshot's BookName is the source's raw, unsplit title (see that class's remarks for why the
+/// split is never assumed).
 /// </summary>
 public static class MetadataRefreshApplier
 {
     public static void ApplyFields(
         Audiobook book,
         PendingRefreshPayload.Snapshot snapshot,
-        IReadOnlySet<string> fields)
+        IReadOnlySet<string> fields,
+        bool splitTitleOnColon = false)
     {
         if (fields.Contains(MetadataRefreshFields.Authors))
         {
@@ -28,17 +35,45 @@ public static class MetadataRefreshApplier
             book.Narrators = snapshot.Narrators.Select(name => new Person(name)).ToList();
         }
 
+        var (splitBookName, splitSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, splitTitleOnColon);
+
+        // The split recovers a subtitle only out of an otherwise-blank snapshot.Subtitle (see
+        // TitleSplitter.Apply), so a non-null splitSubtitle here can only be text the split itself
+        // just carved out of BookName - there was nothing pre-existing on Subtitle for the caller
+        // to have deliberately left unselected. Applying BookName without also writing that
+        // recovered half would silently discard the very text the split moved there, which is
+        // worse than not splitting at all - so this counts as implicitly covered by selecting
+        // BookName. A genuinely pre-existing snapshot.Subtitle is untouched by the split
+        // (TitleSplitter leaves it alone when non-blank) and still requires its own explicit
+        // selection - the "no smuggling a field change past the caller's selection" rule still
+        // holds for that case.
+        var subtitleRecoveredBySplit = splitTitleOnColon
+            && string.IsNullOrWhiteSpace(snapshot.Subtitle)
+            && !string.IsNullOrWhiteSpace(splitSubtitle);
+
+        // The recovered subtitle only has somewhere to "come from" when BookName is also being
+        // applied - otherwise the book's title keeps the full raw string (BookName unselected =
+        // untouched) while Subtitle would still get the tail, duplicating the same text across
+        // both fields instead of moving it. When BookName isn't selected, treat the split as if
+        // it never happened for Subtitle's purposes: falls back to the pre-split, blank
+        // snapshot.Subtitle - the clear/no-op the caller actually selected by picking Subtitle
+        // alone.
+        var subtitleToWrite = subtitleRecoveredBySplit && !fields.Contains(MetadataRefreshFields.BookName)
+            ? snapshot.Subtitle
+            : splitSubtitle;
+
         // BookName is non-nullable on the domain model; a snapshot always carries one (the
         // scraper result it was built from requires it), but a blank guard still keeps this
         // applier from ever handing the save pipeline a titleless book.
-        if (fields.Contains(MetadataRefreshFields.BookName) && !string.IsNullOrWhiteSpace(snapshot.BookName))
+        if (fields.Contains(MetadataRefreshFields.BookName) && !string.IsNullOrWhiteSpace(splitBookName))
         {
-            book.BookName = snapshot.BookName;
+            book.BookName = splitBookName;
         }
 
-        if (fields.Contains(MetadataRefreshFields.Subtitle))
+        if (fields.Contains(MetadataRefreshFields.Subtitle)
+            || (subtitleRecoveredBySplit && fields.Contains(MetadataRefreshFields.BookName)))
         {
-            book.Subtitle = snapshot.Subtitle;
+            book.Subtitle = subtitleToWrite;
         }
 
         if (fields.Contains(MetadataRefreshFields.Series))

@@ -121,7 +121,7 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"]);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"], false);
   });
 
   // Regression: CLIENT_KEY_TO_BACKEND_FIELDS had no "www" entry, so a book newly matched via the
@@ -148,6 +148,33 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"]);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"], false);
+  });
+
+  // Regression: with the toggle left at its default (unchecked), a "Title: Subtitle"-shaped
+  // pending title must be applied unsplit, and the toggle must be passed through to the apply
+  // call once checked.
+  it("defaults the split-on-colon toggle to off, and passes it through when checked", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+      pendingWithOnlyRatingDiffering,
+    );
+
+    renderPanel();
+
+    const applyButton = await screen.findByRole("button", { name: /apply selected/i });
+    fireEvent.click(applyButton);
+
+    await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
+    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(42, ["Rating"], false);
+
+    const toggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /apply selected/i }));
+    await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(2));
+    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(42, ["Rating"], true);
   });
 });

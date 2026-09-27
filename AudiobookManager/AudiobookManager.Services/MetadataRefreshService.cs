@@ -443,7 +443,8 @@ public class MetadataRefreshService : IMetadataRefreshService
             .ToList();
     }
 
-    public async Task<bool> ApplyPendingRefreshAsync(long audiobookId, IReadOnlyCollection<string>? fields = null)
+    public async Task<bool> ApplyPendingRefreshAsync(
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false)
     {
         var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -451,18 +452,18 @@ public class MetadataRefreshService : IMetadataRefreshService
             return false;
         }
 
-        return await ApplyOneAsync(row, fields);
+        return await ApplyOneAsync(row, fields, splitTitleOnColon);
     }
 
     public Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
-        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction) =>
-        ApplyManyAsync(audiobookIds, progressAction);
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false) =>
+        ApplyManyAsync(audiobookIds, progressAction, splitTitleOnColon);
 
     public async Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
-        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction)
+        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false)
     {
         var matches = await GetFilterMatchesAsync(fieldsFilter);
-        return await ApplyManyAsync(matches.Select(m => m.AudiobookId).ToList(), progressAction);
+        return await ApplyManyAsync(matches.Select(m => m.AudiobookId).ToList(), progressAction, splitTitleOnColon);
     }
 
     /// <summary>
@@ -473,7 +474,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// RefreshSelectedAudiobooksAsync's "every requested id counts" contract.
     /// </summary>
     private async Task<(int Processed, int Succeeded, int Failed)> ApplyManyAsync(
-        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction)
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false)
     {
         var rows = await _pendingRepository.GetByAudiobookIdsAsync(audiobookIds);
         var rowsById = rows.ToDictionary(r => r.AudiobookId);
@@ -487,7 +488,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                     throw new KeyNotFoundException($"Audiobook {id} has no pending metadata refresh.");
                 }
 
-                var applied = await ApplyOneAsync(row, fields: null);
+                var applied = await ApplyOneAsync(row, fields: null, splitTitleOnColon);
                 if (!applied)
                 {
                     throw new KeyNotFoundException($"Audiobook {id} no longer exists.");
@@ -507,7 +508,8 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// caller cannot confuse "nothing to apply" with "the stored snapshot is unreadable" - the
     /// single-book endpoint maps the throw to a 400 rather than silently reporting success.
     /// </summary>
-    private async Task<bool> ApplyOneAsync(PendingMetadataRefresh row, IReadOnlyCollection<string>? fields)
+    private async Task<bool> ApplyOneAsync(
+        PendingMetadataRefresh row, IReadOnlyCollection<string>? fields, bool splitTitleOnColon = false)
     {
         var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
         if (payload is null)
@@ -565,7 +567,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var domain = AudiobookService.FromDb(dbBook);
         domain.Id = dbBook.Id;
-        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply);
+        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon);
 
         if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
         {

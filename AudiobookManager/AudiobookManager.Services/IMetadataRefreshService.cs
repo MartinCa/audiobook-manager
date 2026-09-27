@@ -95,9 +95,12 @@ public interface IMetadataRefreshService
     /// stored payload cannot be parsed throws <see cref="InvalidOperationException"/> instead, so
     /// a caller can never mistake "the stored data is corrupt" for the ordinary "nothing to
     /// apply" case. A save failure (including <see cref="AudiobookBusyException"/> from the
-    /// shared per-book save gate) also throws.
+    /// shared per-book save gate) also throws. <paramref name="splitTitleOnColon"/> gates
+    /// <see cref="TitleSplitter"/> on the snapshot's BookName/Subtitle - off by default (see that
+    /// class's remarks for why the split is never assumed).
     /// </summary>
-    Task<bool> ApplyPendingRefreshAsync(long audiobookId, IReadOnlyCollection<string>? fields = null);
+    Task<bool> ApplyPendingRefreshAsync(
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false);
 
     /// <summary>
     /// Applies every explicitly selected book's full pending snapshot and dismisses it, tolerating
@@ -106,7 +109,7 @@ public interface IMetadataRefreshService
     /// <see cref="RefreshSelectedAudiobooksAsync"/>.
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
-        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction);
+        IReadOnlyList<long> audiobookIds, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false);
 
     /// <summary>
     /// Resolves every pending book whose stored changed-fields are entirely contained in
@@ -115,7 +118,7 @@ public interface IMetadataRefreshService
     /// filter", unbounded by page or selection size.
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
-        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction);
+        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false);
 
     /// <summary>
     /// Re-evaluates every pending snapshot against the library, series mapping patterns and

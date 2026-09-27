@@ -288,15 +288,14 @@ public partial class GoodreadsScraper : IScraper
         string? subtitle = null;
         try
         {
+            // Goodreads exposes no dedicated subtitle field here, and a title's own colon is not
+            // reliably a "Title: Subtitle" separator (e.g. "4:50 from Paddington") - so the raw
+            // title is kept whole. Recovering a subtitle from it is an explicit, opt-in choice at
+            // apply time (TitleSplitter), not a guess baked in at scrape time.
             var bookTitle = bookElement.GetPropertyValueOrNull("title");
             if (bookTitle is not null)
             {
-                var splitTitle = bookTitle.Split(":");
-                bookName = splitTitle[0].Trim();
-                if (splitTitle.Length > 1)
-                {
-                    subtitle = splitTitle[1].Trim();
-                }
+                bookName = bookTitle.Trim();
             }
         }
         catch (Exception ex)
@@ -537,14 +536,11 @@ public partial class GoodreadsScraper : IScraper
 
         string? bookName = null;
         string? subtitle = null;
+        // See the identical comment in ParseNewBookJson: no dedicated subtitle field on this page
+        // either, and splitting on a bare colon mis-splits titles like "4:50 from Paddington".
         if (mainElem.TryGetTextFromQuerySelector("h1#bookTitle", out var rawTitleText))
         {
-            var splitTitle = rawTitleText.Split(":");
-            bookName = splitTitle[0];
-            if (splitTitle.Length > 1)
-            {
-                subtitle = splitTitle[1].Trim();
-            }
+            bookName = rawTitleText.Trim();
         }
 
         string? imgUrl = null;

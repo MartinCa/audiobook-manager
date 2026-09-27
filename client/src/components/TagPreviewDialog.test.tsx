@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TagPreviewDialog } from "./TagPreviewDialog";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
@@ -232,5 +232,135 @@ describe("TagPreviewDialog", () => {
     expect(onApply).toHaveBeenCalledTimes(1);
     const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
     expect(appliedKeys.has("year")).toBe(true);
+  });
+
+  // Regression for the title-splitting bug: with the split toggle left at its default (off), a
+  // scraped title is never mangled - including a bare colon that isn't a "Title: Subtitle" pair
+  // (e.g. "4:50 from Paddington", where the colon is a train time).
+  it("does not split the scraped title by default, even when it contains a colon", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "4:50 from Paddington" }}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByText("4:50 from Paddington")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Apply All"));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>, boolean];
+    expect(appliedResult.bookName).toBe("4:50 from Paddington");
+    expect(appliedResult.subtitle).toBeUndefined();
+  });
+
+  // Checking the toggle splits a genuine "Title: Subtitle" title, and the split values are what
+  // get passed to onApply (BookEditForm's consumer reads bookName/subtitle straight off the
+  // result it is handed).
+  it("splits the scraped title into book name and subtitle when the toggle is checked", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    const toggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByText("Apply All"));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>, boolean];
+    expect(appliedResult.bookName).toBe("The Hobbit");
+    expect(appliedResult.subtitle).toBe("There and Back Again");
+  });
+
+  // Regression test: checking the toggle AFTER the dialog has already opened makes "subtitle"
+  // newly changed in the diff table, but `selected` was computed before the flip and would keep
+  // "bookName" only unless it's re-synced. Apply Selected must pick up the newly-split subtitle,
+  // not just Apply All (which always sends every currently-changed key regardless of `selected`).
+  it("re-syncs selected fields when the split toggle is flipped mid-session, so Apply Selected keeps the recovered subtitle", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    // Toggle off initially: "subtitle" is unchanged, so it starts out of `selected`.
+    const toggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /selected/i }));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult, appliedKeys] = onApply.mock.calls[0] as [
+      MetadataSearchResult,
+      Set<string>,
+      boolean,
+    ];
+    expect(appliedKeys.has("subtitle")).toBe(true);
+    expect(appliedResult.bookName).toBe("The Hobbit");
+    expect(appliedResult.subtitle).toBe("There and Back Again");
+  });
+
+  // Regression test: with the toggle on but "Book Name" manually deselected, the recovered tail
+  // must not be duplicated into subtitle while the untouched book name still carries the full raw
+  // title (BookEditForm leaves bookName alone when it's not in the selected keys). Only the
+  // pre-split, blank subtitle should reach onApply - the split has nowhere to have "moved" the
+  // text from when book name itself is not being applied.
+  it("does not duplicate the recovered subtitle into the result when book name is deselected", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    const splitToggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(splitToggle);
+
+    const bookNameRow = screen.getByText("Book Name").closest("tr");
+    expect(bookNameRow).not.toBeNull();
+    fireEvent.click(within(bookNameRow!).getByRole("checkbox"));
+
+    fireEvent.click(screen.getByRole("button", { name: /selected/i }));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult, appliedKeys] = onApply.mock.calls[0] as [
+      MetadataSearchResult,
+      Set<string>,
+      boolean,
+    ];
+    expect(appliedKeys.has("bookName")).toBe(false);
+    expect(appliedResult.subtitle).toBeUndefined();
   });
 });

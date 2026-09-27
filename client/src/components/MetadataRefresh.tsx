@@ -89,6 +89,9 @@ export function MetadataRefresh() {
   const [applying, setApplying] = useState(false);
   const [applyProgress, setApplyProgress] = useState<ApplyProgressPayload | null>(null);
   const [dismissing, setDismissing] = useState(false);
+  // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space when
+  // applying. Defaults off (see helpers/titleSplitter.ts).
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
 
   // No hardcoded source list on the frontend (AGENTS.md's "Adding a metadata source scraper"
   // invariant) - the source filter dropdown's options come from the same registered-scrapers
@@ -175,7 +178,8 @@ export function MetadataRefresh() {
   });
 
   const applySelectedMutation = useMutation({
-    mutationFn: () => metadataRefreshApi.applySelected(Array.from(selectedIds)),
+    mutationFn: () =>
+      metadataRefreshApi.applySelected(Array.from(selectedIds), splitTitleOnColonEnabled),
     onSuccess: () => {
       notifications.success("Applying selected books' metadata changes in background");
     },
@@ -185,7 +189,7 @@ export function MetadataRefresh() {
   });
 
   const applyFilteredMutation = useMutation({
-    mutationFn: () => metadataRefreshApi.applyFiltered(fieldFilterList),
+    mutationFn: () => metadataRefreshApi.applyFiltered(fieldFilterList, splitTitleOnColonEnabled),
     onSuccess: () => {
       notifications.success("Applying every book matching the filter in background");
     },
@@ -577,6 +581,35 @@ export function MetadataRefresh() {
             <span className="text-sm">
               {selectedIds.size > 0 ? `${selectedIds.size} book(s) selected` : "No books selected"}
             </span>
+            <div className="flex w-full flex-wrap items-center gap-3">
+              {
+                // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate
+                // onto the aria-label instead of the aria-label standing alone (see the same
+                // pattern in TagPreviewDialog/PendingRefreshRowPanel).
+              }
+              <div className="flex flex-col gap-0.5">
+                <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={splitTitleOnColonEnabled}
+                    onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
+                    aria-label="Split titles into book name and subtitle at first colon when applying"
+                  />
+                  <button
+                    type="button"
+                    className="text-left hover:underline"
+                    onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
+                  >
+                    Split titles into book name + subtitle at first colon when applying
+                  </button>
+                </div>
+                {/* No per-book diff preview here, unlike TagPreviewDialog/PendingRefreshRowPanel
+                    (a bulk apply has no single book to preview) - this line is the only warning
+                    a user gets about what the toggle will do before it runs. */}
+                <p className="text-muted-foreground pl-6 text-[11px]">
+                  Applies to the books being applied now — review individual titles first if unsure.
+                </p>
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"

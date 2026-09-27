@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
 import { splitList } from "@/helpers/organizeAudiobookInput";
+import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -100,10 +101,16 @@ export function useMetadataFieldDiffs(
   currentInput: OrganizeAudiobookInput,
   searchResult: MetadataSearchResult,
   languages: LanguageOption[],
+  splitTitleOnColonEnabled: boolean = false,
 ): FieldDiff[] {
   return useMemo((): FieldDiff[] => {
     const cur = currentInput;
     const res = searchResult;
+    const { bookName: newBookName, subtitle: newSubtitle } = splitTitleOnColon(
+      res.bookName ?? "",
+      res.subtitle,
+      splitTitleOnColonEnabled,
+    );
 
     const newAuthors = joinPersons(res.authors) ?? "";
     const newNarrators = joinPersons(res.narrators) ?? "";
@@ -134,15 +141,15 @@ export function useMetadataFieldDiffs(
         key: "bookName",
         label: "Book Name",
         currentValue: cur.bookName ?? "",
-        newValue: res.bookName ?? "",
-        changed: (cur.bookName ?? "") !== (res.bookName ?? ""),
+        newValue: newBookName,
+        changed: (cur.bookName ?? "") !== newBookName,
       },
       {
         key: "subtitle",
         label: "Subtitle",
         currentValue: cur.subtitle ?? "",
-        newValue: res.subtitle ?? "",
-        changed: (cur.subtitle ?? "") !== (res.subtitle ?? ""),
+        newValue: newSubtitle ?? "",
+        changed: (cur.subtitle ?? "") !== (newSubtitle ?? ""),
       },
       {
         key: "series",
@@ -225,5 +232,5 @@ export function useMetadataFieldDiffs(
         changed: Boolean(res.imageUrl),
       },
     ];
-  }, [currentInput, searchResult, languages]);
+  }, [currentInput, searchResult, languages, splitTitleOnColonEnabled]);
 }
