@@ -121,11 +121,8 @@ public class HardcoverScraper : IScraper
 
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
-        var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
-
-        var bookElement = bookIdentifier.Id is not null
-            ? await GetBookByIdOrSlug(bookIdentifier.Id.Value, bookIdentifier.Slug)
-            : await GetBookBySlug(bookIdentifier.Slug);
+        var slug = ParseBookSlugFromUrl(bookUrl);
+        var bookElement = await GetBookBySlug(slug);
 
         if (bookElement.ValueKind == JsonValueKind.Null || bookElement.ValueKind == JsonValueKind.Undefined)
         {
@@ -1298,10 +1295,7 @@ public class HardcoverScraper : IScraper
 
     private async Task<JsonElement> GetBookBySlug(string slug)
     {
-        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$slug: String!")
-                                     .Replace("BOOK_QUERY_FILTER", "books(where: {slug: {_eq: $slug}}, limit: 1)");
-
-        var responseElement = await ExecuteGraphqlQuery(query, new { slug });
+        var responseElement = await ExecuteGraphqlQuery(_bookDetailsQuery, new { slug });
         var booksArray = responseElement.GetNestedProperty("data", "books");
 
         if (booksArray.ValueKind == JsonValueKind.Array && booksArray.GetArrayLength() > 0)
@@ -1312,30 +1306,9 @@ public class HardcoverScraper : IScraper
         return default;
     }
 
-    // Resolves the ambiguous case where a URL's last path segment is all-digits (see
-    // ParseBookIdentifierFromUrl): queries both interpretations in a single request and prefers
-    // the slug match, since that's what a real Hardcover book page URL means whenever a book
-    // actually owns that slug. Falls back to the id match only when no book has that slug at
-    // all - which is exactly the case for a .../books/{id} URL this scraper built itself for a
-    // book with no slug.
-    private async Task<JsonElement> GetBookByIdOrSlug(int id, string slug)
-    {
-        var responseElement = await ExecuteGraphqlQuery(_bookDetailsByIdOrSlugQuery, new { id, slug });
-
-        var bySlugArray = responseElement.GetNestedProperty("data", "bySlug");
-        if (bySlugArray.ValueKind == JsonValueKind.Array && bySlugArray.GetArrayLength() > 0)
-        {
-            return bySlugArray[0];
-        }
-
-        return responseElement.GetNestedProperty("data", "byId");
-    }
-
-    // The field selection every book-details query needs, shared by all three query shapes below
-    // (single filter, and both branches of the id-or-slug query) so a field added to one can never
-    // silently go missing from another - ParseBookDetails must see the same shape regardless of
-    // which lookup path produced the JsonElement it's handed.
-    private const string _bookFieldsSelection = """
+    private const string _bookDetailsQuery = """
+        query GetBook($slug: String!) {
+          books(where: {slug: {_eq: $slug}}, limit: 1) {
             id
             title
             subtitle
@@ -1379,23 +1352,6 @@ public class HardcoverScraper : IScraper
                 language
               }
             }
-        """;
-
-    private const string _bookDetailsQuery = """
-        query GetBook(BOOK_QUERY_PARAM) {
-          BOOK_QUERY_FILTER {
-        """ + _bookFieldsSelection + """
-          }
-        }
-        """;
-
-    private const string _bookDetailsByIdOrSlugQuery = """
-        query GetBookByIdOrSlug($id: Int!, $slug: String!) {
-          bySlug: books(where: {slug: {_eq: $slug}}, limit: 1) {
-        """ + _bookFieldsSelection + """
-          }
-          byId: books_by_pk(id: $id) {
-        """ + _bookFieldsSelection + """
           }
         }
         """;
@@ -1967,7 +1923,15 @@ public class HardcoverScraper : IScraper
         return null;
     }
 
-    private static (int? Id, string Slug) ParseBookIdentifierFromUrl(string url)
+    // Hardcover books are addressed only by slug in a URL - there is no numeric-id URL form at
+    // all. Confirmed empirically: even the real "1984"'s own database id (379760) 404s at
+    // https://hardcover.app/books/379760, and a live query for books with a null slug returns
+    // zero rows, so a book with no slug does not exist in practice either. A previous version of
+    // this method treated an all-digit last path segment as a database id instead of a slug,
+    // which resolved https://hardcover.app/books/1984 (Orwell's book, whose slug is itself the
+    // digits "1984") to whatever unrelated book happens to have database id 1984 - the last
+    // segment is always a slug, numeric-looking or not.
+    private static string ParseBookSlugFromUrl(string url)
     {
         var uri = new Uri(url);
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -1977,23 +1941,7 @@ public class HardcoverScraper : IScraper
             throw new Exception($"Could not extract book identifier from Hardcover URL: {url}");
         }
 
-        var lastSegment = segments.Last();
-
-        // An all-digit last path segment is genuinely ambiguous on Hardcover: a book's slug can
-        // itself be purely numeric (e.g. the book "1984" has slug "1984"), while this scraper also
-        // builds .../books/{id} URLs itself for books that have no slug at all (see the SourceUrl
-        // assignments elsewhere in this file, using `slug ?? bookId`). Treating a numeric segment
-        // as only an id - the previous behavior - resolved https://hardcover.app/books/1984 to
-        // whatever unrelated book happens to have database id 1984 instead of the book that
-        // actually owns the "1984" slug. Returning both candidates lets GetBookDetails query both
-        // interpretations and prefer whichever one actually matches a real book.
-        if (int.TryParse(lastSegment, out var pathId))
-        {
-            return (pathId, lastSegment);
-        }
-
-        // Otherwise treat the last segment as a slug
-        return (null, lastSegment);
+        return segments.Last();
     }
 
     private async Task<JsonElement> ExecuteGraphqlQuery(string query, object variables)
