@@ -59,13 +59,19 @@ public record BulkMetadataRefreshDto(DateTime? OlderThanUtc);
 /// every book whose stored changed-fields are entirely contained in <see cref="Fields"/> - the
 /// same subset rule the pending list's filter uses to decide which rows match.
 /// </summary>
-public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields);
+public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields, bool SplitTitleOnColon = false);
 
 /// <summary>
 /// The body of POST api/metadata-refresh/{id}/apply. Null or empty <see cref="Fields"/> applies
 /// every field the stored snapshot recorded as changed; an explicit list applies only those.
+/// <see cref="SplitTitleOnColon"/> defaults to false - a stored snapshot's BookName is the
+/// source's raw, unsplit title (AudiobookManager.Services.TitleSplitter), so this opts in to
+/// recovering "Title: Subtitle" from it rather than assuming every colon is a separator.
 /// </summary>
-public record ApplyPendingRefreshDto(List<string>? Fields);
+public record ApplyPendingRefreshDto(List<string>? Fields, bool SplitTitleOnColon = false);
+
+/// <summary>The body of POST api/metadata-refresh/apply-selected.</summary>
+public record ApplySelectedMetadataRefreshDto(List<long> AudiobookIds, bool SplitTitleOnColon = false);
 
 /// <summary>The result of POST api/metadata-refresh/reevaluate.</summary>
 public record MetadataRefreshReevaluateResultDto(int Processed, int Updated, int Removed);

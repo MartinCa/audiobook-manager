@@ -612,6 +612,122 @@ public class MetadataRefreshServiceTests
         Assert.AreEqual("4.5", captured!.Rating);
     }
 
+    // Regression test: splitTitleOnColon defaults to false, so a snapshot's raw title (never
+    // split by the scraper - see TitleSplitter's remarks) is applied whole. Without this default,
+    // "4:50 from Paddington" would be split into BookName "4" / Subtitle "50 from Paddington"
+    // exactly the bug this toggle exists to make opt-in rather than automatic.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_SplitTitleOnColonDefaultsFalse_AppliesRawTitleUnsplit()
+    {
+        var book = new Database.Models.Audiobook(
+            303, "Old Title", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Agatha Christie") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(303))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 303,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Hardcover",
+                SourceUrl = "https://hardcover.app/books/4-50-from-paddington",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://hardcover.app/books/4-50-from-paddington",
+                    "Hardcover",
+                    new List<string> { "Agatha Christie" },
+                    new List<string>(),
+                    "4:50 from Paddington",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null, null, null, null, null)),
+                ChangedFieldsJson = "[\"BookName\",\"Subtitle\"]",
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(303, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(303))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(
+            303, fields: new List<string> { "BookName", "Subtitle" });
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("4:50 from Paddington", captured!.BookName);
+        Assert.IsNull(captured!.Subtitle);
+    }
+
+    // Companion: with the toggle explicitly on, a genuine "Title: Subtitle" snapshot is split -
+    // proving the toggle actually does something, not just that it's off by default.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_SplitTitleOnColonTrue_RecoversSubtitleFromRawTitle()
+    {
+        var book = new Database.Models.Audiobook(
+            304, "Old Title", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "J.R.R. Tolkien") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(304))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 304,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Goodreads",
+                SourceUrl = "https://www.goodreads.com/book/show/the-hobbit",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://www.goodreads.com/book/show/the-hobbit",
+                    "Goodreads",
+                    new List<string> { "J.R.R. Tolkien" },
+                    new List<string>(),
+                    "The Hobbit: There and Back Again",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null, null, null, null, null)),
+                ChangedFieldsJson = "[\"BookName\",\"Subtitle\"]",
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(304, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(304))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(
+            304, fields: new List<string> { "BookName", "Subtitle" }, splitTitleOnColon: true);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("The Hobbit", captured!.BookName);
+        Assert.AreEqual("There and Back Again", captured!.Subtitle);
+    }
+
     // Companion to the test above, isolating the cleanup call on its own rather than piggybacking
     // on an existing scenario's assertions - a corrupt/unreadable row (ApplyPendingRefreshAsync_
     // UnparseablePayload_ThrowsInsteadOfReturningFalse) and a book that no longer exists must NOT

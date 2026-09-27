@@ -214,7 +214,7 @@ public class MetadataRefreshController : ControllerBase
     {
         try
         {
-            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields);
+            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields, dto?.SplitTitleOnColon ?? false);
             return applied ? Ok() : NoContent();
         }
         catch (AudiobookBusyException ex)
@@ -237,7 +237,7 @@ public class MetadataRefreshController : ControllerBase
     /// like every other explicit-selection endpoint.
     /// </summary>
     [HttpPost("apply-selected")]
-    public IActionResult StartApplySelected([FromBody] BulkSelectionDto? dto)
+    public IActionResult StartApplySelected([FromBody] ApplySelectedMetadataRefreshDto? dto)
     {
         var error = this.ValidateBulkSelection(dto?.AudiobookIds);
         if (error != null)
@@ -246,6 +246,7 @@ public class MetadataRefreshController : ControllerBase
         }
 
         var audiobookIds = dto!.AudiobookIds;
+        var splitTitleOnColon = dto.SplitTitleOnColon;
 
         return BackgroundOperationRunner.Start(
             _applyLock,
@@ -265,7 +266,7 @@ public class MetadataRefreshController : ControllerBase
                 }
 
                 var (processed, succeeded, failed) =
-                    await refreshService.ApplySelectedPendingRefreshesAsync(audiobookIds, ProgressAction);
+                    await refreshService.ApplySelectedPendingRefreshesAsync(audiobookIds, ProgressAction, splitTitleOnColon);
 
                 await _organizeHub.Clients.All.MetadataApplyComplete(
                     new MetadataApplyComplete(processed, audiobookIds.Count, succeeded, failed));
@@ -290,6 +291,7 @@ public class MetadataRefreshController : ControllerBase
         }
 
         var fields = dto.Fields;
+        var splitTitleOnColon = dto.SplitTitleOnColon;
 
         return BackgroundOperationRunner.Start(
             _applyLock,
@@ -309,7 +311,7 @@ public class MetadataRefreshController : ControllerBase
                 }
 
                 var (processed, succeeded, failed) =
-                    await refreshService.ApplyFilteredPendingRefreshesAsync(fields, ProgressAction);
+                    await refreshService.ApplyFilteredPendingRefreshesAsync(fields, ProgressAction, splitTitleOnColon);
 
                 await _organizeHub.Clients.All.MetadataApplyComplete(
                     new MetadataApplyComplete(processed, processed, succeeded, failed));

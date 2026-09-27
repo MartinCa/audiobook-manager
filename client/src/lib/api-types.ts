@@ -2349,9 +2349,9 @@ export interface paths {
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["BulkSelectionDto"];
-                    "text/json": components["schemas"]["BulkSelectionDto"];
-                    "application/*+json": components["schemas"]["BulkSelectionDto"];
+                    "application/json": components["schemas"]["ApplySelectedMetadataRefreshDto"];
+                    "text/json": components["schemas"]["ApplySelectedMetadataRefreshDto"];
+                    "application/*+json": components["schemas"]["ApplySelectedMetadataRefreshDto"];
                 };
             };
             responses: {
@@ -5209,6 +5209,11 @@ export interface components {
         };
         ApplyPendingRefreshDto: {
             fields?: string[] | null;
+            splitTitleOnColon?: boolean;
+        };
+        ApplySelectedMetadataRefreshDto: {
+            audiobookIds?: number[] | null;
+            splitTitleOnColon?: boolean;
         };
         ApplySeriesRefreshChangeDto: {
             changeType?: string | null;
@@ -5511,6 +5516,7 @@ export interface components {
         };
         BulkApplyFilteredMetadataRefreshDto: {
             fields?: string[] | null;
+            splitTitleOnColon?: boolean;
         };
         BulkEditAudiobooksRequestDto: {
             audiobookIds: number[];

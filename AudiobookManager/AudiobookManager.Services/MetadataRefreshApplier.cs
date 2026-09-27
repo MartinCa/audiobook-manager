@@ -9,14 +9,17 @@ namespace AudiobookManager.Services;
 /// and the single-book quick-apply endpoint can write a snapshot without a mounted edit form. Only
 /// the fields named in <paramref name="fields"/> are touched; anything else on <paramref
 /// name="book"/> is left exactly as loaded, matching the "no implicit clearing"
-/// invariant <see cref="AudiobookBulkChanges"/> uses.
+/// invariant <see cref="AudiobookBulkChanges"/> uses. <paramref name="splitTitleOnColon"/> gates
+/// <see cref="TitleSplitter"/> - off by default, since a snapshot's BookName is the source's raw,
+/// unsplit title (see that class's remarks for why the split is never assumed).
 /// </summary>
 public static class MetadataRefreshApplier
 {
     public static void ApplyFields(
         Audiobook book,
         PendingRefreshPayload.Snapshot snapshot,
-        IReadOnlySet<string> fields)
+        IReadOnlySet<string> fields,
+        bool splitTitleOnColon = false)
     {
         if (fields.Contains(MetadataRefreshFields.Authors))
         {
@@ -28,17 +31,22 @@ public static class MetadataRefreshApplier
             book.Narrators = snapshot.Narrators.Select(name => new Person(name)).ToList();
         }
 
+        // TitleSplitter runs once regardless of which of BookName/Subtitle the caller selected,
+        // so a subtitle it recovers is only ever written when Subtitle is itself selected - the
+        // split must not smuggle a field change past the caller's own selection.
+        var (splitBookName, splitSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, splitTitleOnColon);
+
         // BookName is non-nullable on the domain model; a snapshot always carries one (the
         // scraper result it was built from requires it), but a blank guard still keeps this
         // applier from ever handing the save pipeline a titleless book.
-        if (fields.Contains(MetadataRefreshFields.BookName) && !string.IsNullOrWhiteSpace(snapshot.BookName))
+        if (fields.Contains(MetadataRefreshFields.BookName) && !string.IsNullOrWhiteSpace(splitBookName))
         {
-            book.BookName = snapshot.BookName;
+            book.BookName = splitBookName;
         }
 
         if (fields.Contains(MetadataRefreshFields.Subtitle))
         {
-            book.Subtitle = snapshot.Subtitle;
+            book.Subtitle = splitSubtitle;
         }
 
         if (fields.Contains(MetadataRefreshFields.Series))

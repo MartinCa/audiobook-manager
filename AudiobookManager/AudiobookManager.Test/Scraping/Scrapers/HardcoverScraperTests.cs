@@ -556,8 +556,8 @@ public class HardcoverScraperTests
             "books": [
               {
                 "id": 789,
-                "title": "The Hobbit: There and Back Again",
-                "subtitle": null,
+                "title": "The Hobbit",
+                "subtitle": "There and Back Again",
                 "description": "Bilbo Baggins goes on <b>an adventure</b>.<br />It is great.",
                 "slug": "the-hobbit",
                 "release_date": "1937-09-21",

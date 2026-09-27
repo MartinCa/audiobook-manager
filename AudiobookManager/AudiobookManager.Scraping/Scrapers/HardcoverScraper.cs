@@ -1581,25 +1581,18 @@ public class HardcoverScraper : IScraper
         string? subtitle = null;
         try
         {
+            // The title is kept whole rather than guessed apart on a colon - nothing in
+            // Hardcover's docs or schema documents "title embeds subtitle" as a convention, and a
+            // title's own colon is not reliably a separator (e.g. the time in
+            // "4:50 from Paddington"). Recovering a subtitle from the title is an explicit,
+            // opt-in choice at apply time (see TitleSplitter), not a guess baked in here.
             var fullTitle = bookElement.GetPropertyValueOrNull("title");
             if (fullTitle is not null)
             {
-                // Only treat a colon as a title/subtitle separator when it's followed by a
-                // space ("Title: Subtitle") - a bare colon inside the title itself (e.g. the
-                // time "4:50" in "4:50 from Paddington") must not be split apart.
-                var separatorIndex = fullTitle.IndexOf(": ", StringComparison.Ordinal);
-                if (separatorIndex >= 0)
-                {
-                    bookName = fullTitle[..separatorIndex].Trim();
-                    subtitle = fullTitle[(separatorIndex + 1)..].Trim();
-                }
-                else
-                {
-                    bookName = fullTitle.Trim();
-                }
+                bookName = fullTitle.Trim();
             }
 
-            subtitle ??= bookElement.GetPropertyValueOrNull("subtitle");
+            subtitle = bookElement.GetPropertyValueOrNull("subtitle");
         }
         catch (Exception ex)
         {
