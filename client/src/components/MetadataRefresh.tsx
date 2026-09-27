@@ -587,19 +587,27 @@ export function MetadataRefresh() {
                 // onto the aria-label instead of the aria-label standing alone (see the same
                 // pattern in TagPreviewDialog/PendingRefreshRowPanel).
               }
-              <div className="text-muted-foreground flex items-center gap-2 text-xs">
-                <Checkbox
-                  checked={splitTitleOnColonEnabled}
-                  onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
-                  aria-label="Split titles into book name and subtitle at first colon when applying"
-                />
-                <button
-                  type="button"
-                  className="text-left hover:underline"
-                  onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
-                >
-                  Split titles into book name + subtitle at first colon when applying
-                </button>
+              <div className="flex flex-col gap-0.5">
+                <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={splitTitleOnColonEnabled}
+                    onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
+                    aria-label="Split titles into book name and subtitle at first colon when applying"
+                  />
+                  <button
+                    type="button"
+                    className="text-left hover:underline"
+                    onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
+                  >
+                    Split titles into book name + subtitle at first colon when applying
+                  </button>
+                </div>
+                {/* No per-book diff preview here, unlike TagPreviewDialog/PendingRefreshRowPanel
+                    (a bulk apply has no single book to preview) - this line is the only warning
+                    a user gets about what the toggle will do before it runs. */}
+                <p className="text-muted-foreground pl-6 text-[11px]">
+                  Applies to the books being applied now — review individual titles first if unsure.
+                </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

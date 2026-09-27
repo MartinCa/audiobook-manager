@@ -31,10 +31,21 @@ public static class MetadataRefreshApplier
             book.Narrators = snapshot.Narrators.Select(name => new Person(name)).ToList();
         }
 
-        // TitleSplitter runs once regardless of which of BookName/Subtitle the caller selected,
-        // so a subtitle it recovers is only ever written when Subtitle is itself selected - the
-        // split must not smuggle a field change past the caller's own selection.
         var (splitBookName, splitSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, splitTitleOnColon);
+
+        // The split recovers a subtitle only out of an otherwise-blank snapshot.Subtitle (see
+        // TitleSplitter.Apply), so a non-null splitSubtitle here can only be text the split itself
+        // just carved out of BookName - there was nothing pre-existing on Subtitle for the caller
+        // to have deliberately left unselected. Applying BookName without also writing that
+        // recovered half would silently discard the very text the split moved there, which is
+        // worse than not splitting at all - so this counts as implicitly covered by selecting
+        // BookName. A genuinely pre-existing snapshot.Subtitle is untouched by the split
+        // (TitleSplitter leaves it alone when non-blank) and still requires its own explicit
+        // selection - the "no smuggling a field change past the caller's selection" rule still
+        // holds for that case.
+        var subtitleRecoveredBySplit = splitTitleOnColon
+            && string.IsNullOrWhiteSpace(snapshot.Subtitle)
+            && !string.IsNullOrWhiteSpace(splitSubtitle);
 
         // BookName is non-nullable on the domain model; a snapshot always carries one (the
         // scraper result it was built from requires it), but a blank guard still keeps this
@@ -44,7 +55,8 @@ public static class MetadataRefreshApplier
             book.BookName = splitBookName;
         }
 
-        if (fields.Contains(MetadataRefreshFields.Subtitle))
+        if (fields.Contains(MetadataRefreshFields.Subtitle)
+            || (subtitleRecoveredBySplit && fields.Contains(MetadataRefreshFields.BookName)))
         {
             book.Subtitle = splitSubtitle;
         }
