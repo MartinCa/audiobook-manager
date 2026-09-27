@@ -61,7 +61,9 @@ describe("SectionPager", () => {
     const combo = screen.getByRole("combobox", { name: "Rows per page" });
     expect(combo).toHaveTextContent("50 / page");
     await user.click(combo);
-    await user.click(screen.getByRole("option", { name: "100 / page" }));
+    // The option list renders into a portal after the popup opens, so it isn't there
+    // synchronously on click - wait for it instead of a bare getByRole.
+    await user.click(await screen.findByRole("option", { name: "100 / page" }));
 
     expect(onPageSizeChange).toHaveBeenCalledWith(100);
   });
