@@ -176,6 +176,144 @@ describe("BookSearchDialog", () => {
     expect(screen.getByRole("button", { name: /^search$/i })).toBeDisabled();
   });
 
+  // Regression: clicking Apply on result A (whose getBookDetails fetch is slow) and then, before
+  // it resolves, clicking Apply on result B (whose fetch is fast) used to let A's stale response
+  // win the race whenever it resolved after B's - overwriting B's already-applied selection with
+  // A's url-plus-details. onSelectResult must end up called with B's data only, never A's, no
+  // matter which fetch settles last.
+  it("ignores a stale getBookDetails response from a result clicked before the current one", async () => {
+    // Isolate from the previous test's persisted "every source deselected" localStorage state,
+    // which would otherwise leave activeSources empty and the Search button disabled here too.
+    localStorage.clear();
+
+    const resultA: MetadataSearchResult = {
+      ...baseResult,
+      url: "https://www.audible.com/listen/a",
+      cleanUrl: "https://www.audible.com/listen/a",
+      bookName: "Book A",
+    };
+    const resultB: MetadataSearchResult = {
+      ...baseResult,
+      url: "https://www.audible.com/listen/b",
+      cleanUrl: "https://www.audible.com/listen/b",
+      bookName: "Book B",
+    };
+
+    let resolveA!: (value: MetadataSearchResult) => void;
+    const detailsA = new Promise<MetadataSearchResult>((resolve) => {
+      resolveA = resolve;
+    });
+    const detailsB: MetadataSearchResult = { ...resultB, description: "Full details for B" };
+
+    vi.mocked(metadataSearchApi.getBookDetails).mockImplementation((url: string) =>
+      url === resultA.url ? detailsA : Promise.resolve(detailsB),
+    );
+
+    const onSelectResult = vi.fn();
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [resultA, resultB],
+      sourceStatuses: [],
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BookSearchDialog open onOpenChange={vi.fn()} onSelectResult={onSelectResult} />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    await screen.findByText("Audible");
+    await user.type(screen.getByPlaceholderText("Search title, author, or paste URL..."), "book");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await waitFor(() => expect(metadataSearchApi.searchMultiple).toHaveBeenCalled());
+
+    const applyButtons = await screen.findAllByRole("button", { name: /apply/i });
+    fireEvent.click(applyButtons[0]!); // Book A - fetch stays pending
+    await waitFor(() => expect(metadataSearchApi.getBookDetails).toHaveBeenCalledWith(resultA.url));
+
+    fireEvent.click(applyButtons[1]!); // Book B - fetch resolves immediately
+    await waitFor(() => expect(onSelectResult).toHaveBeenCalledWith(detailsB));
+
+    // Book A's fetch settles last; its response must be dropped, not overwrite B's selection.
+    resolveA({ ...resultA, description: "Full details for A" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onSelectResult).toHaveBeenCalledTimes(1);
+    expect(onSelectResult).toHaveBeenCalledWith(detailsB);
+  });
+
+  // Regression: the ref guard above only stopped a stale result-list Apply from beating a newer
+  // one. It did not stop a stale Apply from beating a *different kind* of selection started
+  // afterwards - pasting a URL and hitting Search skips handleChoose entirely and calls
+  // finishChoosing directly, so a same-url late response from an earlier Apply click still passed
+  // the ref check and overwrote the pasted book once it resolved. Starting a new search/URL-fetch
+  // must invalidate any getBookDetails fetch still in flight from a previous Apply click.
+  it("ignores a stale getBookDetails response from Apply once a URL is pasted and searched", async () => {
+    localStorage.clear();
+
+    const resultA: MetadataSearchResult = {
+      ...baseResult,
+      url: "https://www.audible.com/listen/a",
+      cleanUrl: "https://www.audible.com/listen/a",
+      bookName: "Book A",
+    };
+
+    let resolveA!: (value: MetadataSearchResult) => void;
+    const detailsA = new Promise<MetadataSearchResult>((resolve) => {
+      resolveA = resolve;
+    });
+    const pastedBookUrl = "https://hardcover.app/books/1984";
+    const pastedDetails: MetadataSearchResult = {
+      ...baseResult,
+      url: pastedBookUrl,
+      cleanUrl: pastedBookUrl,
+      bookName: "Pasted Book",
+    };
+
+    vi.mocked(metadataSearchApi.getBookDetails).mockImplementation((url: string) =>
+      url === resultA.url ? detailsA : Promise.resolve(pastedDetails),
+    );
+
+    const onSelectResult = vi.fn();
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [resultA],
+      sourceStatuses: [],
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BookSearchDialog open onOpenChange={vi.fn()} onSelectResult={onSelectResult} />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    await screen.findByText("Audible");
+    await user.type(searchInput, "book");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await waitFor(() => expect(metadataSearchApi.searchMultiple).toHaveBeenCalled());
+
+    const applyButton = await screen.findByRole("button", { name: /apply/i });
+    fireEvent.click(applyButton); // Book A - fetch stays pending
+    await waitFor(() => expect(metadataSearchApi.getBookDetails).toHaveBeenCalledWith(resultA.url));
+
+    // Move on to a different selection intent entirely before A's fetch resolves.
+    await user.clear(searchInput);
+    await user.type(searchInput, pastedBookUrl);
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await waitFor(() => expect(onSelectResult).toHaveBeenCalledWith(pastedDetails));
+
+    // Book A's Apply fetch settles last; it must not overwrite the pasted-URL selection.
+    resolveA({ ...resultA, description: "Full details for A" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onSelectResult).toHaveBeenCalledTimes(1);
+    expect(onSelectResult).toHaveBeenCalledWith(pastedDetails);
+  });
+
   // Regression: BookSearchDialog's placeholder ("...or paste URL...") and AGENTS.md both
   // document pasting a book URL (e.g. https://hardcover.app/books/1984) as going straight to
   // metadataSearchApi.getBookDetails() - skipping source selection and the multi-source text

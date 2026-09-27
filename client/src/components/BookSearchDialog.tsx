@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Loader2, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -47,6 +47,12 @@ export function BookSearchDialog({
   const [error, setError] = useState<string | null>(null);
   const [pendingSeriesChoice, setPendingSeriesChoice] = useState<MetadataSearchResult | null>(null);
 
+  // Guards against a stale getBookDetails response winning a race: if the user clicks another
+  // result before this one's fetch resolves, only the most recently clicked url's response is
+  // applied. Ref rather than state since it must be read synchronously inside the async
+  // continuation, not through a re-render.
+  const selectedUrlRef = useRef<string | null>(null);
+
   const { data: services = [] } = useQuery({
     queryKey: queryKeys.metadataServices(),
     queryFn: () => metadataSearchApi.getServices(),
@@ -77,6 +83,12 @@ export function BookSearchDialog({
     if (e) e.preventDefault();
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
+
+    // Starting a new search/URL-fetch is a new selection intent: any getBookDetails fetch a
+    // prior handleChoose click still has in flight must not be allowed to apply once it resolves,
+    // even though its own url still matches the ref - there is no "current selection" left for it
+    // to be stale against once the user has moved on to a different search.
+    selectedUrlRef.current = null;
 
     // A pasted book URL (e.g. https://hardcover.app/books/1984) is handled entirely differently
     // from a text query: it skips source selection and the multi-source search, and instead asks
@@ -127,16 +139,20 @@ export function BookSearchDialog({
 
   const handleChoose = async (item: MetadataSearchResult) => {
     if (item.url && (!item.authors?.length || !item.description)) {
+      selectedUrlRef.current = item.url;
       setSelectingDetails(item.url);
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(item.url);
+        if (selectedUrlRef.current !== item.url) return;
         finishChoosing(fullDetails);
       } catch {
+        if (selectedUrlRef.current !== item.url) return;
         finishChoosing(item);
       } finally {
-        setSelectingDetails(null);
+        if (selectedUrlRef.current === item.url) setSelectingDetails(null);
       }
     } else {
+      selectedUrlRef.current = item.url ?? null;
       finishChoosing(item);
     }
   };
