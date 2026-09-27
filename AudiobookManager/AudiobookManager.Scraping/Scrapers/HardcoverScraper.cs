@@ -397,11 +397,15 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // A series with no slug has no working Hardcover URL - same disproven "id works as a URL
+        // segment" premise the book path relied on (confirmed live: even a real book's own
+        // numeric id 404s as a path segment). Leave SourceUrl null rather than emit a link that
+        // can never resolve.
         var slug = document.GetPropertyValueOrNull("slug");
 
         var result = new SeriesSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/series/{slug}",
         };
 
         if (document.TryGetProperty("books_count", out var booksCountElement) &&
@@ -438,7 +442,7 @@ public class HardcoverScraper : IScraper
 
         var result = new SeriesSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/series/{slug}",
         };
 
         if (seriesElement.TryGetProperty("books_count", out var booksCountElement) &&
@@ -846,11 +850,15 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // An author with no slug has no working Hardcover URL - same disproven "id works as a URL
+        // segment" premise the book path relied on (confirmed live: even a real book's own
+        // numeric id 404s as a path segment). Leave SourceUrl null rather than emit a link that
+        // can never resolve.
         var slug = document.GetPropertyValueOrNull("slug");
 
         var result = new AuthorSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/authors/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/authors/{slug}",
         };
 
         if (document.TryGetProperty("books_count", out var booksCountElement) &&
@@ -1380,6 +1388,10 @@ public class HardcoverScraper : IScraper
         var slug = document.GetPropertyValueOrNull("slug");
         if (slug is null)
         {
+            // Live verification found zero Hardcover books without a slug, so this should never
+            // fire - but if that premise is ever wrong, the drop should be visible rather than
+            // silently shrinking the result set.
+            _logger.LogDebug("Dropping Hardcover search hit {BookId} ({Title}) with no slug - no working URL to give it", idStr, title);
             return null;
         }
 

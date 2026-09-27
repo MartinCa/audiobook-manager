@@ -825,8 +825,10 @@ public class HardcoverScraperTests
         Assert.AreEqual(40, sanderson.BookCount);
 
         var noSlug = results.Single(r => r.Name == "No Slug Author");
-        // Falls back to the numeric id in the URL when no slug is present.
-        Assert.AreEqual("https://hardcover.app/authors/456", noSlug.SourceUrl);
+        // No working Hardcover URL exists for an author with no slug (confirmed live for
+        // books: even a real book's own numeric id 404s as a path segment) - left null rather
+        // than a link that can never resolve. The author itself is still a usable result.
+        Assert.IsNull(noSlug.SourceUrl);
         Assert.IsNull(noSlug.BookCount);
     }
 
