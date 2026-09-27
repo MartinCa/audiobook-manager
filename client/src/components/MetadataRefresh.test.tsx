@@ -240,4 +240,43 @@ describe("MetadataRefresh", () => {
       expect(notifications.success).toHaveBeenCalledWith("Dismissed 1 pending change(s)");
     });
   });
+
+  // Regression: the split-on-colon toggle defaults off and must be threaded through to
+  // applySelected as an explicit false, not omitted.
+  it("applies selected books with splitTitleOnColon=false by default", async () => {
+    renderWithRouter();
+
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+    const checkboxes = screen.getAllByRole("checkbox");
+    // First checkbox is "select shown"; the row checkboxes follow.
+    fireEvent.click(checkboxes[1]!);
+
+    const applyButton = await screen.findByRole("button", { name: /apply selected \(1\)/i });
+    fireEvent.click(applyButton);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.applySelected).toHaveBeenCalledWith([1], false);
+    });
+  });
+
+  // Checking the page-level toggle passes splitTitleOnColon=true through to applySelected.
+  it("applies selected books with splitTitleOnColon=true once the toggle is checked", async () => {
+    renderWithRouter();
+
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+    const checkboxes = screen.getAllByRole("checkbox");
+    fireEvent.click(checkboxes[1]!);
+
+    const splitToggle = await screen.findByRole("checkbox", {
+      name: "Split titles into book name and subtitle at first colon when applying",
+    });
+    fireEvent.click(splitToggle);
+
+    const applyButton = await screen.findByRole("button", { name: /apply selected \(1\)/i });
+    fireEvent.click(applyButton);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.applySelected).toHaveBeenCalledWith([1], true);
+    });
+  });
 });

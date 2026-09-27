@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { browseApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -46,6 +47,10 @@ interface PendingRefreshRowPanelProps {
 export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefreshRowPanelProps) {
   const queryClient = useQueryClient();
   const [applying, setApplying] = useState(false);
+  // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
+  // off (see helpers/titleSplitter.ts); no need to persist across anything since this component
+  // remounts per row.
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
 
   const { data: bookDetail, isLoading: loadingBook } = useQuery({
     queryKey: queryKeys.bookDetail(audiobookId),
@@ -86,6 +91,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
       series: [],
     },
     languages,
+    splitTitleOnColonEnabled,
   );
 
   // Only fields the backend can actually apply, and only the ones that changed - "cover" has no
@@ -136,7 +142,11 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   const apply = async (keys: Iterable<string>) => {
     setApplying(true);
     try {
-      await metadataRefreshApi.applyPending(audiobookId, backendFieldsFor(keys));
+      await metadataRefreshApi.applyPending(
+        audiobookId,
+        backendFieldsFor(keys),
+        splitTitleOnColonEnabled,
+      );
       notifications.success("Metadata changes applied");
       void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(audiobookId) });
@@ -176,6 +186,26 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
         onToggleAll={toggleAll}
         changedFieldKeys={changedFieldKeys}
       />
+      {
+        // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate onto
+        // the aria-label instead of the aria-label standing alone (see the same pattern in
+        // TagPreviewDialog).
+      }
+      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+        <Checkbox
+          checked={splitTitleOnColonEnabled}
+          onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
+          aria-label="Split title into book name and subtitle at first colon"
+        />
+        <button
+          type="button"
+          className="text-left hover:underline"
+          onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
+        >
+          Split title into book name + subtitle at first colon (e.g. &quot;Title: Subtitle&quot;)
+        </button>
+      </div>
+
       <div className="flex flex-col-reverse items-stretch justify-end gap-2 sm:flex-row sm:items-center">
         <Button
           variant="outline"

@@ -573,21 +573,26 @@ export const metadataRefreshApi = {
     api.post<void>("/metadata-refresh/bulk-selected", { audiobookIds }),
 
   // Synchronous single-book apply, for the pending list's per-row quick apply. Omitted/empty
-  // fields applies every field the snapshot recorded as changed.
-  applyPending: (id: number, fields?: readonly string[]) =>
+  // fields applies every field the snapshot recorded as changed. `splitTitleOnColon` (default
+  // off) opts into recovering a "Title: Subtitle" pair from a raw scraped title at its first
+  // colon-space - see helpers/titleSplitter.ts.
+  applyPending: (id: number, fields?: readonly string[], splitTitleOnColon: boolean = false) =>
     api.post<void>(`/metadata-refresh/${id}/apply`, {
       fields: fields && fields.length > 0 ? fields : undefined,
+      splitTitleOnColon,
     }),
 
   // Fire-and-forget: applies the full pending snapshot to every explicitly selected book.
-  // Progress/completion arrive over SignalR (MetadataApplyProgress/Complete).
-  applySelected: (audiobookIds: number[]) =>
-    api.post<void>("/metadata-refresh/apply-selected", { audiobookIds }),
+  // Progress/completion arrive over SignalR (MetadataApplyProgress/Complete). `splitTitleOnColon`
+  // (default off) - see applyPending above.
+  applySelected: (audiobookIds: number[], splitTitleOnColon: boolean = false) =>
+    api.post<void>("/metadata-refresh/apply-selected", { audiobookIds, splitTitleOnColon }),
 
   // Fire-and-forget: applies the full pending snapshot to every book whose stored changed-fields
-  // are entirely contained in `fields` - unbounded by page or selection size.
-  applyFiltered: (fields: readonly string[]) =>
-    api.post<void>("/metadata-refresh/apply-filtered", { fields }),
+  // are entirely contained in `fields` - unbounded by page or selection size. `splitTitleOnColon`
+  // (default off) - see applyPending above.
+  applyFiltered: (fields: readonly string[], splitTitleOnColon: boolean = false) =>
+    api.post<void>("/metadata-refresh/apply-filtered", { fields, splitTitleOnColon }),
 
   // Synchronous: re-diffs every pending snapshot against the library, series mapping patterns,
   // and changed-fields logic as they stand right now, without re-fetching anything from a

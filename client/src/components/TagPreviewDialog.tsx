@@ -7,6 +7,7 @@ import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
@@ -44,7 +45,17 @@ export function TagPreviewDialog({
 
   const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
 
-  const fields = useMetadataFieldDiffs(currentInput, searchResult, languages);
+  // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
+  // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
+  // helpers/titleSplitter.ts).
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
+
+  const fields = useMetadataFieldDiffs(
+    currentInput,
+    searchResult,
+    languages,
+    splitTitleOnColonEnabled,
+  );
 
   const changedFieldKeys = useMemo(
     () => fields.filter((f) => f.changed).map((f) => f.key),
@@ -64,6 +75,7 @@ export function TagPreviewDialog({
     setLastSearchResult(searchResult);
     setSelected(new Set(changedFieldKeys));
     setDontSaveAutomatically(false);
+    setSplitTitleOnColonEnabled(false);
   }
 
   // Belt-and-suspenders reset alongside the identity check above: that check assumes every new
@@ -74,7 +86,10 @@ export function TagPreviewDialog({
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setDontSaveAutomatically(false);
+    if (open) {
+      setDontSaveAutomatically(false);
+      setSplitTitleOnColonEnabled(false);
+    }
   }
 
   const toggleField = (key: string) => {
@@ -99,14 +114,27 @@ export function TagPreviewDialog({
 
   const saveImmediately = !dontSaveAutomatically;
 
+  // The consumer (BookEditForm's handleApplyPreviewedTags) reads bookName/subtitle straight off
+  // whatever result onApply is called with, so the split-adjusted values have to be baked into a
+  // shallow copy here rather than passed alongside as extra state - onApply's signature carries
+  // no room for that, and this way the consumer needs no changes at all.
+  const applyAdjustedResult = (): MetadataSearchResult => {
+    const { bookName, subtitle } = splitTitleOnColon(
+      searchResult.bookName ?? "",
+      searchResult.subtitle,
+      splitTitleOnColonEnabled,
+    );
+    return { ...searchResult, bookName, subtitle: subtitle ?? undefined };
+  };
+
   const handleApplySelected = () => {
-    onApply(searchResult, selected, saveImmediately);
+    onApply(applyAdjustedResult(), selected, saveImmediately);
     onOpenChange(false);
   };
 
   const handleApplyAll = () => {
     const allKeys = new Set(fields.map((f) => f.key));
-    onApply(searchResult, allKeys, saveImmediately);
+    onApply(applyAdjustedResult(), allKeys, saveImmediately);
     onOpenChange(false);
   };
 
@@ -131,6 +159,28 @@ export function TagPreviewDialog({
             onToggleAll={toggleAll}
             changedFieldKeys={changedFieldKeys}
           />
+        </div>
+
+        {
+          // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate onto
+          // the aria-label instead of the aria-label standing alone (see the identical comment on
+          // the auto-save toggle below). Always visible, unlike that toggle: this dialog is
+          // shared by the search flow and possibly others, and the default (off) is safe
+          // everywhere.
+        }
+        <div className="text-muted-foreground flex items-center gap-2 pt-2 text-xs">
+          <Checkbox
+            checked={splitTitleOnColonEnabled}
+            onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
+            aria-label="Split title into book name and subtitle at first colon"
+          />
+          <button
+            type="button"
+            className="text-left hover:underline"
+            onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
+          >
+            Split title into book name + subtitle at first colon (e.g. &quot;Title: Subtitle&quot;)
+          </button>
         </div>
 
         {showAutoSaveToggle && (

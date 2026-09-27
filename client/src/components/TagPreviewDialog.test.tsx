@@ -233,4 +233,59 @@ describe("TagPreviewDialog", () => {
     const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
     expect(appliedKeys.has("year")).toBe(true);
   });
+
+  // Regression for the title-splitting bug: with the split toggle left at its default (off), a
+  // scraped title is never mangled - including a bare colon that isn't a "Title: Subtitle" pair
+  // (e.g. "4:50 from Paddington", where the colon is a train time).
+  it("does not split the scraped title by default, even when it contains a colon", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "4:50 from Paddington" }}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByText("4:50 from Paddington")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Apply All"));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>, boolean];
+    expect(appliedResult.bookName).toBe("4:50 from Paddington");
+    expect(appliedResult.subtitle).toBeUndefined();
+  });
+
+  // Checking the toggle splits a genuine "Title: Subtitle" title, and the split values are what
+  // get passed to onApply (BookEditForm's consumer reads bookName/subtitle straight off the
+  // result it is handed).
+  it("splits the scraped title into book name and subtitle when the toggle is checked", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    const toggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByText("Apply All"));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>, boolean];
+    expect(appliedResult.bookName).toBe("The Hobbit");
+    expect(appliedResult.subtitle).toBe("There and Back Again");
+  });
 });
