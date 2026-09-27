@@ -121,11 +121,8 @@ public class HardcoverScraper : IScraper
 
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
-        var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
-
-        var bookElement = bookIdentifier.Id is not null
-            ? await GetBookById(bookIdentifier.Id.Value)
-            : await GetBookBySlug(bookIdentifier.Slug!);
+        var slug = ParseBookSlugFromUrl(bookUrl);
+        var bookElement = await GetBookBySlug(slug);
 
         if (bookElement.ValueKind == JsonValueKind.Null || bookElement.ValueKind == JsonValueKind.Undefined)
         {
@@ -400,11 +397,15 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // A series with no slug has no working Hardcover URL - same disproven "id works as a URL
+        // segment" premise the book path relied on (confirmed live: even a real book's own
+        // numeric id 404s as a path segment). Leave SourceUrl null rather than emit a link that
+        // can never resolve.
         var slug = document.GetPropertyValueOrNull("slug");
 
         var result = new SeriesSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/series/{slug}",
         };
 
         if (document.TryGetProperty("books_count", out var booksCountElement) &&
@@ -441,7 +442,7 @@ public class HardcoverScraper : IScraper
 
         var result = new SeriesSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/series/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/series/{slug}",
         };
 
         if (seriesElement.TryGetProperty("books_count", out var booksCountElement) &&
@@ -653,8 +654,6 @@ public class HardcoverScraper : IScraper
             }
         }
 
-        var identifier = slug ?? bookId;
-
         // Contributors sometimes only tag one of the two records, so either flag being set is
         // enough to treat the entry as a compilation.
         var linkIsCompilation = entry.TryGetProperty("compilation", out var linkCompilationElement) &&
@@ -668,7 +667,7 @@ public class HardcoverScraper : IScraper
             Position = position,
             Year = year,
             ReleaseDate = parsedReleaseDate,
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
             IsCompilation = linkIsCompilation || bookIsCompilation,
             Authors = authors,
@@ -851,11 +850,15 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // An author with no slug has no working Hardcover URL - same disproven "id works as a URL
+        // segment" premise the book path relied on (confirmed live: even a real book's own
+        // numeric id 404s as a path segment). Leave SourceUrl null rather than emit a link that
+        // can never resolve.
         var slug = document.GetPropertyValueOrNull("slug");
 
         var result = new AuthorSearchResult(id, name)
         {
-            SourceUrl = $"{_hardcoverBaseUrl}/authors/{slug ?? id}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/authors/{slug}",
         };
 
         if (document.TryGetProperty("books_count", out var booksCountElement) &&
@@ -1107,7 +1110,6 @@ public class HardcoverScraper : IScraper
         }
 
         var slug = bookElement.GetPropertyValueOrNull("slug");
-        var identifier = slug ?? bookId;
 
         string? seriesSourceId = null;
         string? seriesName = null;
@@ -1137,7 +1139,7 @@ public class HardcoverScraper : IScraper
         {
             Year = year,
             ReleaseDate = releaseDate,
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
             SeriesSourceId = seriesSourceId,
             SeriesName = seriesName,
@@ -1263,7 +1265,6 @@ public class HardcoverScraper : IScraper
 
         var bookId = GetScalarOrNull(bookElement, "id");
         var slug = bookElement.GetPropertyValueOrNull("slug");
-        var identifier = slug ?? bookId;
 
         if (bookId is null)
         {
@@ -1272,7 +1273,7 @@ public class HardcoverScraper : IScraper
 
         var result = new UpcomingReleaseResult(bookId, title, releaseDate)
         {
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
         };
 
@@ -1296,21 +1297,9 @@ public class HardcoverScraper : IScraper
         return result;
     }
 
-    private async Task<JsonElement> GetBookById(int bookId)
-    {
-        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$id: Int!")
-                                     .Replace("BOOK_QUERY_FILTER", "books_by_pk(id: $id)");
-
-        var responseElement = await ExecuteGraphqlQuery(query, new { id = bookId });
-        return responseElement.GetNestedProperty("data", "books_by_pk");
-    }
-
     private async Task<JsonElement> GetBookBySlug(string slug)
     {
-        var query = _bookDetailsQuery.Replace("BOOK_QUERY_PARAM", "$slug: String!")
-                                     .Replace("BOOK_QUERY_FILTER", "books(where: {slug: {_eq: $slug}}, limit: 1)");
-
-        var responseElement = await ExecuteGraphqlQuery(query, new { slug });
+        var responseElement = await ExecuteGraphqlQuery(_bookDetailsQuery, new { slug });
         var booksArray = responseElement.GetNestedProperty("data", "books");
 
         if (booksArray.ValueKind == JsonValueKind.Array && booksArray.GetArrayLength() > 0)
@@ -1322,8 +1311,8 @@ public class HardcoverScraper : IScraper
     }
 
     private const string _bookDetailsQuery = """
-        query GetBook(BOOK_QUERY_PARAM) {
-          BOOK_QUERY_FILTER {
+        query GetBook($slug: String!) {
+          books(where: {slug: {_eq: $slug}}, limit: 1) {
             id
             title
             subtitle
@@ -1392,8 +1381,21 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // A book with no slug has no working Hardcover URL at all - confirmed live: even a real
+        // book's own numeric database id 404s when used as the path segment, since Hardcover
+        // books are addressed only by slug. Skip the hit entirely rather than emit a link that
+        // can never resolve, matching the id/title null checks above.
         var slug = document.GetPropertyValueOrNull("slug");
-        var url = $"{_hardcoverBaseUrl}/books/{slug ?? idStr}";
+        if (slug is null)
+        {
+            // Live verification found zero Hardcover books without a slug, so this should never
+            // fire - but if that premise is ever wrong, the drop should be visible rather than
+            // silently shrinking the result set.
+            _logger.LogDebug("Dropping Hardcover search hit {BookId} ({Title}) with no slug - no working URL to give it", idStr, title);
+            return null;
+        }
+
+        var url = $"{_hardcoverBaseUrl}/books/{slug}";
 
         var subtitle = document.GetPropertyValueOrNull("subtitle");
 
@@ -1938,14 +1940,16 @@ public class HardcoverScraper : IScraper
         return null;
     }
 
-    private static (int? Id, string? Slug) ParseBookIdentifierFromUrl(string url)
+    // Hardcover books are addressed only by slug in a URL - there is no numeric-id URL form at
+    // all. Confirmed empirically: even the real "1984"'s own database id (379760) 404s at
+    // https://hardcover.app/books/379760, and a live query for books with a null slug returns
+    // zero rows, so a book with no slug does not exist in practice either. A previous version of
+    // this method treated an all-digit last path segment as a database id instead of a slug,
+    // which resolved https://hardcover.app/books/1984 (Orwell's book, whose slug is itself the
+    // digits "1984") to whatever unrelated book happens to have database id 1984 - the last
+    // segment is always a slug, numeric-looking or not.
+    private static string ParseBookSlugFromUrl(string url)
     {
-        // Direct numeric ID
-        if (int.TryParse(url, out var directId))
-        {
-            return (directId, null);
-        }
-
         var uri = new Uri(url);
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
@@ -1954,16 +1958,7 @@ public class HardcoverScraper : IScraper
             throw new Exception($"Could not extract book identifier from Hardcover URL: {url}");
         }
 
-        var lastSegment = segments.Last();
-
-        // Check if the last segment is a numeric ID
-        if (int.TryParse(lastSegment, out var pathId))
-        {
-            return (pathId, null);
-        }
-
-        // Otherwise treat the last segment as a slug
-        return (null, lastSegment);
+        return segments.Last();
     }
 
     private async Task<JsonElement> ExecuteGraphqlQuery(string query, object variables)

@@ -86,7 +86,8 @@ public class HardcoverScraperTests
                   {
                     "document": {
                       "id": "456",
-                      "title": "No Slug Book",
+                      "slug": "release-year-fallback-book",
+                      "title": "Release Year Fallback Book",
                       "author_names": ["Some Author"],
                       "release_year": "2001"
                     }
@@ -117,13 +118,45 @@ public class HardcoverScraperTests
         Assert.IsTrue(Math.Abs(4.5 - hobbit.Rating!.Value) < 0.001);
         Assert.AreEqual(1000, hobbit.NumberOfRatings);
 
-        var noSlug = results.Single(r => r.BookName == "No Slug Book");
-        // Falls back to the numeric id in the URL when no slug is present.
-        Assert.AreEqual("https://hardcover.app/books/456", noSlug.Url);
+        var fallbackYearBook = results.Single(r => r.BookName == "Release Year Fallback Book");
+        Assert.AreEqual("https://hardcover.app/books/release-year-fallback-book", fallbackYearBook.Url);
         // release_year fallback used when release_date is absent.
-        Assert.AreEqual(2001, noSlug.Year);
+        Assert.AreEqual(2001, fallbackYearBook.Year);
 
         Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
+    }
+
+    // Regression: a search hit with no slug used to fall back to a URL built from its bare
+    // numeric id (.../books/{id}). Confirmed live that Hardcover has no numeric-id URL form for a
+    // book at all - even a real book's own id 404s - and that no real book actually lacks a slug,
+    // so such a hit has no working URL to give it. Excluded from results entirely, the same as a
+    // hit missing an id or a title.
+    [TestMethod]
+    public async Task Search_HitWithNoSlug_IsExcludedFromResults()
+    {
+        var noSlugResponse = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "456",
+                          "title": "No Slug Book"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(noSlugResponse, out _);
+
+        var results = await target.Search("no slug");
+
+        Assert.AreEqual(0, results.Count);
     }
 
     [TestMethod]
@@ -174,6 +207,7 @@ public class HardcoverScraperTests
                   {
                     "document": {
                       "id": "456",
+                      "slug": "sun-eater-series-5-books-set",
                       "title": "Sun Eater Series 5 Books Set",
                       "author_names": ["Christopher Ruocchio"],
                       "series_names": [],
@@ -226,6 +260,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "multi-series-book",
                           "title": "Multi Series Book",
                           "series_names": ["The Sun Eater", "Empire of Silence"]
                         }
@@ -260,6 +295,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "dedup-book",
                           "title": "Dedup Book",
                           "series_names": ["the sun eater", "Other Series"],
                           "featured_series": {
@@ -298,6 +334,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "encoded-series-book",
                           "title": "Encoded Series Book",
                           "featured_series": "{\"position\":5.0,\"series\":{\"id\":6522,\"name\":\"The Sun Eater\"}}"
                         }
@@ -330,6 +367,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "novella-book",
                           "title": "Novella Book",
                           "featured_series": {
                             "position": 5.5,
@@ -399,56 +437,16 @@ public class HardcoverScraperTests
 
     // ---------- GetBookDetails() ----------
 
-    private const string _bookDetailsResponseJson = """
-        {
-          "data": {
-            "books_by_pk": {
-              "id": 789,
-              "title": "The Hobbit: There and Back Again",
-              "subtitle": null,
-              "description": "Bilbo Baggins goes on <b>an adventure</b>.<br />It is great.",
-              "slug": "the-hobbit",
-              "release_date": "1937-09-21",
-              "rating": 4.5,
-              "ratings_count": 2000,
-              "cached_image": { "url": "https://covers.hardcover.app/hobbit-full.jpg" },
-              "cached_tags": {
-                "Genre": [
-                  { "tag": "Fiction" },
-                  { "tag": "Fantasy" },
-                  { "tag": "Adventure" }
-                ]
-              },
-              "contributions": [
-                { "contribution": null, "author": { "name": "J.R.R. Tolkien" } },
-                { "contribution": "Narrator", "author": { "name": "Rob Inglis" } }
-              ],
-              "book_series": [
-                { "position": 1, "series": { "name": "Middle-earth" } }
-              ],
-              "default_audio_edition": {
-                "isbn_13": "9780007487350",
-                "asin": "B002SGA6VG",
-                "audio_seconds": 39600,
-                "publisher": { "name": "HarperCollins" },
-                "language": { "language": "English" }
-              },
-              "default_physical_edition": null
-            }
-          }
-        }
-        """;
-
     [TestMethod]
     public async Task GetBookDetails_MapsGraphqlResponseToDomainModel()
     {
-        var target = CreateScraper(_bookDetailsResponseJson, out var handler);
+        var target = CreateScraper(_bookDetailsBySlugResponseJson, out var handler);
 
-        var result = await target.GetBookDetails("https://hardcover.app/books/789");
+        var result = await target.GetBookDetails("https://hardcover.app/books/the-hobbit");
 
         Assert.AreEqual("The Hobbit", result.BookName);
         Assert.AreEqual("There and Back Again", result.Subtitle);
-        Assert.AreEqual("https://hardcover.app/books/789", result.Url);
+        Assert.AreEqual("https://hardcover.app/books/the-hobbit", result.Url);
         Assert.AreEqual(1937, result.Year);
 
         Assert.AreEqual(1, result.Authors.Count);
@@ -482,44 +480,35 @@ public class HardcoverScraperTests
     }
 
     [TestMethod]
-    public async Task GetBookDetails_NumericIdUrl_QueriesByIdNotSlug()
-    {
-        var target = CreateScraper(_bookDetailsResponseJson, out var handler);
-
-        await target.GetBookDetails("789");
-
-        var body = handler.CapturedRequestBodies.Single();
-        Assert.IsTrue(body.Contains("books_by_pk"), "a bare numeric identifier should query books_by_pk(id: ...)");
-        Assert.IsTrue(body.Contains("\"id\":789"));
-    }
-
-    [TestMethod]
     public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
     {
         var json = """
             {
               "data": {
-                "books_by_pk": {
-                  "id": 999,
-                  "title": "Fallback Test Book",
-                  "default_audio_edition": {
-                    "audio_seconds": 3600,
-                    "language": null,
-                    "asin": null
-                  },
-                  "default_physical_edition": {
-                    "isbn_13": "9781234567890",
-                    "asin": "B0PHYSICALASIN",
-                    "publisher": { "name": "Physical Publisher" },
-                    "language": { "language": "French" }
+                "books": [
+                  {
+                    "id": 999,
+                    "title": "Fallback Test Book",
+                    "slug": "fallback-test-book",
+                    "default_audio_edition": {
+                      "audio_seconds": 3600,
+                      "language": null,
+                      "asin": null
+                    },
+                    "default_physical_edition": {
+                      "isbn_13": "9781234567890",
+                      "asin": "B0PHYSICALASIN",
+                      "publisher": { "name": "Physical Publisher" },
+                      "language": { "language": "French" }
+                    }
                   }
-                }
+                ]
               }
             }
             """;
         var target = CreateScraper(json, out _);
 
-        var result = await target.GetBookDetails("999");
+        var result = await target.GetBookDetails("https://hardcover.app/books/fallback-test-book");
 
         Assert.IsNotNull(result);
         Assert.AreEqual("French", result.Language);
@@ -529,9 +518,9 @@ public class HardcoverScraperTests
     }
 
     /// <summary>
-    /// GetBookBySlug() reads through "data.books[0]" (a books(where:...) query returns an
-    /// array), unlike the by-id path which reads "data.books_by_pk" (a single object) -
-    /// so the slug test needs its own response shape.
+    /// GetBookBySlug() reads through "data.books[0]" - a books(where:...) query returns an array,
+    /// unlike the ambiguous-numeric-segment path (GetBookByIdOrSlug) which reads aliased
+    /// "data.bySlug"/"data.byId" shapes - so this test needs its own response shape.
     /// </summary>
     private const string _bookDetailsBySlugResponseJson = """
         {
@@ -587,13 +576,57 @@ public class HardcoverScraperTests
         Assert.IsTrue(body.Contains("the-hobbit"));
     }
 
+    // Regression: https://hardcover.app/books/1984 (a real URL for Orwell's "1984", whose
+    // Hardcover slug is itself the digits "1984") used to have its last path segment parsed as a
+    // numeric database id rather than a slug, so GetBookDetails queried books_by_pk(id: 1984) -
+    // whatever unrelated book happens to hold that database row id - instead of the book that
+    // actually owns the "1984" slug. Confirmed live against Hardcover's API: slug "1984" resolves
+    // to id 379760 ("1984"), while id 1984 is an unrelated book ("A Matter of Conscience"). A
+    // numeric-looking URL segment is always a slug - Hardcover has no numeric-id URL form at all
+    // (confirmed live: even the real "1984"'s own id, 379760, 404s at
+    // https://hardcover.app/books/379760, and a live query for books with a null slug returns
+    // zero rows) - so it must be looked up the same way as any other slug, never treated as a
+    // database id.
+    [TestMethod]
+    public async Task GetBookDetails_NumericSlugUrl_QueriesBySlugEquality()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 379760,
+                    "title": "1984",
+                    "slug": "1984",
+                    "contributions": [
+                      { "contribution": null, "author": { "name": "George Orwell" } }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out var handler);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/1984");
+
+        Assert.AreEqual("1984", result.BookName);
+        Assert.AreEqual("George Orwell", result.Authors.Single().Name);
+        Assert.AreEqual("https://hardcover.app/books/1984", result.Url);
+
+        var body = handler.CapturedRequestBodies.Single();
+        Assert.IsTrue(body.Contains("books(where:"), "a numeric-looking URL segment should query books(where: {slug: {_eq: ...}}) just like any other slug");
+        Assert.IsTrue(body.Contains("\"slug\":\"1984\""));
+        Assert.IsFalse(body.Contains("books_by_pk"), "a book must never be looked up by numeric id - Hardcover has no id-based URL form");
+    }
+
     [TestMethod]
     public async Task GetBookDetails_BookNotFound_Throws()
     {
-        var nullResponse = """{ "data": { "books_by_pk": null } }""";
-        var target = CreateScraper(nullResponse, out _);
+        var emptyResponse = """{ "data": { "books": [] } }""";
+        var target = CreateScraper(emptyResponse, out _);
 
-        await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("999999"));
+        await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("https://hardcover.app/books/does-not-exist"));
     }
 
     [TestMethod]
@@ -792,8 +825,10 @@ public class HardcoverScraperTests
         Assert.AreEqual(40, sanderson.BookCount);
 
         var noSlug = results.Single(r => r.Name == "No Slug Author");
-        // Falls back to the numeric id in the URL when no slug is present.
-        Assert.AreEqual("https://hardcover.app/authors/456", noSlug.SourceUrl);
+        // No working Hardcover URL exists for an author with no slug (confirmed live for
+        // books: even a real book's own numeric id 404s as a path segment) - left null rather
+        // than a link that can never resolve. The author itself is still a usable result.
+        Assert.IsNull(noSlug.SourceUrl);
         Assert.IsNull(noSlug.BookCount);
     }
 
