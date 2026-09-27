@@ -123,9 +123,12 @@ public class HardcoverScraper : IScraper
     {
         var bookIdentifier = ParseBookIdentifierFromUrl(bookUrl);
 
-        var bookElement = bookIdentifier.Id is not null
-            ? await GetBookById(bookIdentifier.Id.Value)
-            : await GetBookBySlug(bookIdentifier.Slug!);
+        var bookElement = bookIdentifier switch
+        {
+            { Id: not null, Slug: not null } => await GetBookByIdOrSlug(bookIdentifier.Id.Value, bookIdentifier.Slug),
+            { Id: not null } => await GetBookById(bookIdentifier.Id.Value),
+            _ => await GetBookBySlug(bookIdentifier.Slug!),
+        };
 
         if (bookElement.ValueKind == JsonValueKind.Null || bookElement.ValueKind == JsonValueKind.Undefined)
         {
@@ -1321,9 +1324,123 @@ public class HardcoverScraper : IScraper
         return default;
     }
 
+    // Resolves the ambiguous case where a URL's last path segment is all-digits (see
+    // ParseBookIdentifierFromUrl): queries both interpretations in a single request and prefers
+    // the slug match, since that's what a real Hardcover book page URL means whenever a book
+    // actually owns that slug. Falls back to the id match only when no book has that slug at
+    // all - which is exactly the case for a .../books/{id} URL this scraper built itself for a
+    // book with no slug.
+    private async Task<JsonElement> GetBookByIdOrSlug(int id, string slug)
+    {
+        var responseElement = await ExecuteGraphqlQuery(_bookDetailsByIdOrSlugQuery, new { id, slug });
+
+        var bySlugArray = responseElement.GetNestedProperty("data", "bySlug");
+        if (bySlugArray.ValueKind == JsonValueKind.Array && bySlugArray.GetArrayLength() > 0)
+        {
+            return bySlugArray[0];
+        }
+
+        return responseElement.GetNestedProperty("data", "byId");
+    }
+
     private const string _bookDetailsQuery = """
         query GetBook(BOOK_QUERY_PARAM) {
           BOOK_QUERY_FILTER {
+            id
+            title
+            subtitle
+            description
+            slug
+            release_date
+            rating
+            ratings_count
+            cached_image
+            cached_tags
+            contributions {
+              contribution
+              author {
+                name
+              }
+            }
+            book_series {
+              position
+              series {
+                name
+              }
+            }
+            default_audio_edition {
+              isbn_13
+              asin
+              audio_seconds
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+            default_physical_edition {
+              isbn_13
+              asin
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+          }
+        }
+        """;
+
+    private const string _bookDetailsByIdOrSlugQuery = """
+        query GetBookByIdOrSlug($id: Int!, $slug: String!) {
+          bySlug: books(where: {slug: {_eq: $slug}}, limit: 1) {
+            id
+            title
+            subtitle
+            description
+            slug
+            release_date
+            rating
+            ratings_count
+            cached_image
+            cached_tags
+            contributions {
+              contribution
+              author {
+                name
+              }
+            }
+            book_series {
+              position
+              series {
+                name
+              }
+            }
+            default_audio_edition {
+              isbn_13
+              asin
+              audio_seconds
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+            default_physical_edition {
+              isbn_13
+              asin
+              publisher {
+                name
+              }
+              language {
+                language
+              }
+            }
+          }
+          byId: books_by_pk(id: $id) {
             id
             title
             subtitle
@@ -1956,10 +2073,17 @@ public class HardcoverScraper : IScraper
 
         var lastSegment = segments.Last();
 
-        // Check if the last segment is a numeric ID
+        // An all-digit last path segment is genuinely ambiguous on Hardcover: a book's slug can
+        // itself be purely numeric (e.g. the book "1984" has slug "1984"), while this scraper also
+        // builds .../books/{id} URLs itself for books that have no slug at all (see the SourceUrl
+        // assignments elsewhere in this file, using `slug ?? bookId`). Treating a numeric segment
+        // as only an id - the previous behavior - resolved https://hardcover.app/books/1984 to
+        // whatever unrelated book happens to have database id 1984 instead of the book that
+        // actually owns the "1984" slug. Returning both candidates lets GetBookDetails query both
+        // interpretations and prefer whichever one actually matches a real book.
         if (int.TryParse(lastSegment, out var pathId))
         {
-            return (pathId, null);
+            return (pathId, lastSegment);
         }
 
         // Otherwise treat the last segment as a slug

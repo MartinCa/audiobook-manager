@@ -444,11 +444,15 @@ public class HardcoverScraperTests
     {
         var target = CreateScraper(_bookDetailsResponseJson, out var handler);
 
-        var result = await target.GetBookDetails("https://hardcover.app/books/789");
+        // A bare numeric identifier (not a URL) is unambiguous - it comes from internal callers
+        // that already resolved a definite Hardcover database id - so it queries books_by_pk
+        // directly and can use the single-shape books_by_pk response below. A URL whose last path
+        // segment is numeric is a different, ambiguous case covered by its own tests further down.
+        var result = await target.GetBookDetails("789");
 
         Assert.AreEqual("The Hobbit", result.BookName);
         Assert.AreEqual("There and Back Again", result.Subtitle);
-        Assert.AreEqual("https://hardcover.app/books/789", result.Url);
+        Assert.AreEqual("789", result.Url);
         Assert.AreEqual(1937, result.Year);
 
         Assert.AreEqual(1, result.Authors.Count);
@@ -585,6 +589,99 @@ public class HardcoverScraperTests
         var body = handler.CapturedRequestBodies.Single();
         Assert.IsTrue(body.Contains("books(where:"), "a slug URL should query books(where: {slug: {_eq: ...}})");
         Assert.IsTrue(body.Contains("the-hobbit"));
+    }
+
+    // Regression: https://hardcover.app/books/1984 (a real URL for Orwell's "1984", whose
+    // Hardcover slug is itself the digits "1984") used to have its last path segment parsed as a
+    // numeric database id rather than a slug, so GetBookDetails queried books_by_pk(id: 1984) -
+    // whatever unrelated book happens to hold that database row id - instead of the book that
+    // actually owns the "1984" slug. The URL came back correct (it's just echoed from the input)
+    // while every other field belonged to a completely different book. Confirmed live against
+    // Hardcover's API: slug "1984" resolves to id 379760 ("1984"), while id 1984 is an unrelated
+    // book ("A Matter of Conscience"). A numeric URL segment must now query both interpretations
+    // and prefer whichever one is an actual slug match.
+    private const string _bookDetailsAmbiguousNumericResponseJson = """
+        {
+          "data": {
+            "bySlug": [
+              {
+                "id": 379760,
+                "title": "1984",
+                "subtitle": null,
+                "description": "A dystopian classic.",
+                "slug": "1984",
+                "release_date": "1949-06-08",
+                "rating": 4.2,
+                "ratings_count": 50000,
+                "cached_image": null,
+                "cached_tags": null,
+                "contributions": [
+                  { "contribution": null, "author": { "name": "George Orwell" } }
+                ],
+                "book_series": [],
+                "default_audio_edition": null,
+                "default_physical_edition": null
+              }
+            ],
+            "byId": {
+              "id": 1984,
+              "title": "A Matter of Conscience",
+              "subtitle": null,
+              "description": "An unrelated book that merely happens to have database id 1984.",
+              "slug": "a-matter-of-conscience",
+              "release_date": "2021-01-01",
+              "rating": null,
+              "ratings_count": null,
+              "cached_image": null,
+              "cached_tags": null,
+              "contributions": [],
+              "book_series": [],
+              "default_audio_edition": null,
+              "default_physical_edition": null
+            }
+          }
+        }
+        """;
+
+    [TestMethod]
+    public async Task GetBookDetails_NumericSlugUrl_PrefersRealSlugMatchOverDatabaseId()
+    {
+        var target = CreateScraper(_bookDetailsAmbiguousNumericResponseJson, out var handler);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/1984");
+
+        Assert.AreEqual("1984", result.BookName);
+        Assert.AreEqual("George Orwell", result.Authors.Single().Name);
+        Assert.AreEqual("https://hardcover.app/books/1984", result.Url);
+
+        // A single request handles both interpretations - no doubling of API calls for the
+        // ambiguous case.
+        var body = handler.CapturedRequestBodies.Single();
+        Assert.IsTrue(body.Contains("bySlug"));
+        Assert.IsTrue(body.Contains("byId"));
+        Assert.IsTrue(body.Contains("\"id\":1984"));
+        Assert.IsTrue(body.Contains("\"slug\":\"1984\""));
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_NumericUrlWithNoMatchingSlug_FallsBackToDatabaseId()
+    {
+        // Mirrors a URL this scraper builds itself (SourceUrl = .../books/{slug ?? bookId}) for a
+        // book that has no slug at all - here no book owns "1984" as a slug, so the id match must
+        // still be used.
+        var noSlugMatchResponse = """
+            {
+              "data": {
+                "bySlug": [],
+                "byId": { "id": 1984, "title": "No Slug Book", "slug": null }
+              }
+            }
+            """;
+        var target = CreateScraper(noSlugMatchResponse, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/1984");
+
+        Assert.AreEqual("No Slug Book", result.BookName);
     }
 
     [TestMethod]
