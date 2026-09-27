@@ -650,8 +650,6 @@ public class HardcoverScraper : IScraper
             }
         }
 
-        var identifier = slug ?? bookId;
-
         // Contributors sometimes only tag one of the two records, so either flag being set is
         // enough to treat the entry as a compilation.
         var linkIsCompilation = entry.TryGetProperty("compilation", out var linkCompilationElement) &&
@@ -665,7 +663,7 @@ public class HardcoverScraper : IScraper
             Position = position,
             Year = year,
             ReleaseDate = parsedReleaseDate,
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
             IsCompilation = linkIsCompilation || bookIsCompilation,
             Authors = authors,
@@ -1104,7 +1102,6 @@ public class HardcoverScraper : IScraper
         }
 
         var slug = bookElement.GetPropertyValueOrNull("slug");
-        var identifier = slug ?? bookId;
 
         string? seriesSourceId = null;
         string? seriesName = null;
@@ -1134,7 +1131,7 @@ public class HardcoverScraper : IScraper
         {
             Year = year,
             ReleaseDate = releaseDate,
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
             SeriesSourceId = seriesSourceId,
             SeriesName = seriesName,
@@ -1260,7 +1257,6 @@ public class HardcoverScraper : IScraper
 
         var bookId = GetScalarOrNull(bookElement, "id");
         var slug = bookElement.GetPropertyValueOrNull("slug");
-        var identifier = slug ?? bookId;
 
         if (bookId is null)
         {
@@ -1269,7 +1265,7 @@ public class HardcoverScraper : IScraper
 
         var result = new UpcomingReleaseResult(bookId, title, releaseDate)
         {
-            SourceUrl = identifier is null ? null : $"{_hardcoverBaseUrl}/books/{identifier}",
+            SourceUrl = slug is null ? null : $"{_hardcoverBaseUrl}/books/{slug}",
             ImageUrl = ParseCachedImage(bookElement),
         };
 
@@ -1377,8 +1373,17 @@ public class HardcoverScraper : IScraper
             return null;
         }
 
+        // A book with no slug has no working Hardcover URL at all - confirmed live: even a real
+        // book's own numeric database id 404s when used as the path segment, since Hardcover
+        // books are addressed only by slug. Skip the hit entirely rather than emit a link that
+        // can never resolve, matching the id/title null checks above.
         var slug = document.GetPropertyValueOrNull("slug");
-        var url = $"{_hardcoverBaseUrl}/books/{slug ?? idStr}";
+        if (slug is null)
+        {
+            return null;
+        }
+
+        var url = $"{_hardcoverBaseUrl}/books/{slug}";
 
         var subtitle = document.GetPropertyValueOrNull("subtitle");
 

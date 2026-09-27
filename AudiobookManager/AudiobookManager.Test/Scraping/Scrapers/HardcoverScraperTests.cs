@@ -86,7 +86,8 @@ public class HardcoverScraperTests
                   {
                     "document": {
                       "id": "456",
-                      "title": "No Slug Book",
+                      "slug": "release-year-fallback-book",
+                      "title": "Release Year Fallback Book",
                       "author_names": ["Some Author"],
                       "release_year": "2001"
                     }
@@ -117,13 +118,45 @@ public class HardcoverScraperTests
         Assert.IsTrue(Math.Abs(4.5 - hobbit.Rating!.Value) < 0.001);
         Assert.AreEqual(1000, hobbit.NumberOfRatings);
 
-        var noSlug = results.Single(r => r.BookName == "No Slug Book");
-        // Falls back to the numeric id in the URL when no slug is present.
-        Assert.AreEqual("https://hardcover.app/books/456", noSlug.Url);
+        var fallbackYearBook = results.Single(r => r.BookName == "Release Year Fallback Book");
+        Assert.AreEqual("https://hardcover.app/books/release-year-fallback-book", fallbackYearBook.Url);
         // release_year fallback used when release_date is absent.
-        Assert.AreEqual(2001, noSlug.Year);
+        Assert.AreEqual(2001, fallbackYearBook.Year);
 
         Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
+    }
+
+    // Regression: a search hit with no slug used to fall back to a URL built from its bare
+    // numeric id (.../books/{id}). Confirmed live that Hardcover has no numeric-id URL form for a
+    // book at all - even a real book's own id 404s - and that no real book actually lacks a slug,
+    // so such a hit has no working URL to give it. Excluded from results entirely, the same as a
+    // hit missing an id or a title.
+    [TestMethod]
+    public async Task Search_HitWithNoSlug_IsExcludedFromResults()
+    {
+        var noSlugResponse = """
+            {
+              "data": {
+                "search": {
+                  "results": {
+                    "hits": [
+                      {
+                        "document": {
+                          "id": "456",
+                          "title": "No Slug Book"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+        var target = CreateScraper(noSlugResponse, out _);
+
+        var results = await target.Search("no slug");
+
+        Assert.AreEqual(0, results.Count);
     }
 
     [TestMethod]
@@ -174,6 +207,7 @@ public class HardcoverScraperTests
                   {
                     "document": {
                       "id": "456",
+                      "slug": "sun-eater-series-5-books-set",
                       "title": "Sun Eater Series 5 Books Set",
                       "author_names": ["Christopher Ruocchio"],
                       "series_names": [],
@@ -226,6 +260,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "multi-series-book",
                           "title": "Multi Series Book",
                           "series_names": ["The Sun Eater", "Empire of Silence"]
                         }
@@ -260,6 +295,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "dedup-book",
                           "title": "Dedup Book",
                           "series_names": ["the sun eater", "Other Series"],
                           "featured_series": {
@@ -298,6 +334,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "encoded-series-book",
                           "title": "Encoded Series Book",
                           "featured_series": "{\"position\":5.0,\"series\":{\"id\":6522,\"name\":\"The Sun Eater\"}}"
                         }
@@ -330,6 +367,7 @@ public class HardcoverScraperTests
                       {
                         "document": {
                           "id": "789",
+                          "slug": "novella-book",
                           "title": "Novella Book",
                           "featured_series": {
                             "position": 5.5,
