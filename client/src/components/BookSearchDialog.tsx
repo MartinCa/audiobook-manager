@@ -269,7 +269,9 @@ export function BookSearchDialog({
             {loading && (
               <div className="text-muted-foreground flex items-center justify-center py-8 text-sm">
                 <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
-                Searching sources...
+                {isAbsoluteHttpUrl(query.trim())
+                  ? "Fetching book details..."
+                  : "Searching sources..."}
               </div>
             )}
 

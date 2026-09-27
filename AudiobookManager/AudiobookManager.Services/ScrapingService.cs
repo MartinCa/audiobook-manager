@@ -88,6 +88,14 @@ public class ScrapingService : IScrapingService
             throw new ArgumentException($"No configured metadata source supports the URL '{bookUrl}'.");
         }
 
+        if (scraper.RequiresApiKey && !scraper.IsApiKeyConfigured)
+        {
+            // The URL matches this source, but GetSearchServiceInfo() already reports it as
+            // disabled (the source picker shows the same "API key not configured" reason) - tell
+            // the caller that instead of letting the scraper itself fail with something opaque.
+            throw new ArgumentException($"{scraper.SourceName} supports this URL, but its API key is not configured.");
+        }
+
         return GetBookDetailsFromScraper(scraper, bookUrl);
     }
 

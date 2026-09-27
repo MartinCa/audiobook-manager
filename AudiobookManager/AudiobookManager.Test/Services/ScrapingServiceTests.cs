@@ -91,6 +91,35 @@ public class ScrapingServiceTests
         _audibleScraper.Verify(s => s.GetBookDetails(It.IsAny<string>()), Times.Never);
     }
 
+    // Regression test: the URL-entry path reaches every registered scraper's SupportsUrl(),
+    // bypassing the "enabled" check GetSearchServiceInfo() applies for the source picker (a
+    // scraper whose RequiresApiKey is true and whose key is not configured shows as disabled
+    // there). Pasting a URL for a matching-but-disabled source used to fall through to the
+    // scraper's own GetBookDetails() call, which fails in whatever unhelpful way that scraper
+    // fails without a key, instead of the same clear "not configured" reason the source picker
+    // already shows.
+    [TestMethod]
+    public async Task GetBookDetails_UrlMatchesScraperWithUnconfiguredApiKey_ThrowsArgumentExceptionNamingTheSource()
+    {
+        const string url = "https://hardcover.app/books/1984";
+        _audibleScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+        _goodreadsScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+
+        var hardcoverScraper = CreateScraperMock("Hardcover");
+        hardcoverScraper.Setup(s => s.SupportsUrl(url)).Returns(true);
+        hardcoverScraper.Setup(s => s.RequiresApiKey).Returns(true);
+        hardcoverScraper.Setup(s => s.IsApiKeyConfigured).Returns(false);
+
+        var service = new ScrapingService(
+            new[] { _audibleScraper.Object, _goodreadsScraper.Object, hardcoverScraper.Object },
+            _logger.Object);
+
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.GetBookDetails(url));
+
+        StringAssert.Contains(ex.Message, "Hardcover");
+        hardcoverScraper.Verify(s => s.GetBookDetails(It.IsAny<string>()), Times.Never);
+    }
+
     // Regression test: BookSearchDialog's "paste a book URL" entry point (see AGENTS.md's
     // "Adding a metadata source scraper" section) used to send the raw URL string into the
     // multi-source *text* search instead of calling GetBookDetails, so a URL from an unconfigured
