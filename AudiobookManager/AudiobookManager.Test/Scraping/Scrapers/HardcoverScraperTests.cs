@@ -632,6 +632,18 @@ public class HardcoverScraperTests
     }
 
     [TestMethod]
+    public async Task GetBookDetails_NumericUrlWithNoSlugOrIdMatch_Throws()
+    {
+        // The ambiguous-numeric-segment path (GetBookByIdOrSlug) has its own miss shape
+        // (bySlug: [], byId: null) distinct from the plain-slug path's ([]) covered by
+        // GetBookDetails_BookNotFound_Throws below - pin it separately.
+        var noMatchResponse = """{ "data": { "bySlug": [], "byId": null } }""";
+        var target = CreateScraper(noMatchResponse, out _);
+
+        await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("https://hardcover.app/books/404404"));
+    }
+
+    [TestMethod]
     public async Task GetBookDetails_BookNotFound_Throws()
     {
         var emptyResponse = """{ "data": { "books": [] } }""";

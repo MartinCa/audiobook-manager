@@ -1331,9 +1331,11 @@ public class HardcoverScraper : IScraper
         return responseElement.GetNestedProperty("data", "byId");
     }
 
-    private const string _bookDetailsQuery = """
-        query GetBook(BOOK_QUERY_PARAM) {
-          BOOK_QUERY_FILTER {
+    // The field selection every book-details query needs, shared by all three query shapes below
+    // (single filter, and both branches of the id-or-slug query) so a field added to one can never
+    // silently go missing from another - ParseBookDetails must see the same shape regardless of
+    // which lookup path produced the JsonElement it's handed.
+    private const string _bookFieldsSelection = """
             id
             title
             subtitle
@@ -1377,6 +1379,12 @@ public class HardcoverScraper : IScraper
                 language
               }
             }
+        """;
+
+    private const string _bookDetailsQuery = """
+        query GetBook(BOOK_QUERY_PARAM) {
+          BOOK_QUERY_FILTER {
+        """ + _bookFieldsSelection + """
           }
         }
         """;
@@ -1384,94 +1392,10 @@ public class HardcoverScraper : IScraper
     private const string _bookDetailsByIdOrSlugQuery = """
         query GetBookByIdOrSlug($id: Int!, $slug: String!) {
           bySlug: books(where: {slug: {_eq: $slug}}, limit: 1) {
-            id
-            title
-            subtitle
-            description
-            slug
-            release_date
-            rating
-            ratings_count
-            cached_image
-            cached_tags
-            contributions {
-              contribution
-              author {
-                name
-              }
-            }
-            book_series {
-              position
-              series {
-                name
-              }
-            }
-            default_audio_edition {
-              isbn_13
-              asin
-              audio_seconds
-              publisher {
-                name
-              }
-              language {
-                language
-              }
-            }
-            default_physical_edition {
-              isbn_13
-              asin
-              publisher {
-                name
-              }
-              language {
-                language
-              }
-            }
+        """ + _bookFieldsSelection + """
           }
           byId: books_by_pk(id: $id) {
-            id
-            title
-            subtitle
-            description
-            slug
-            release_date
-            rating
-            ratings_count
-            cached_image
-            cached_tags
-            contributions {
-              contribution
-              author {
-                name
-              }
-            }
-            book_series {
-              position
-              series {
-                name
-              }
-            }
-            default_audio_edition {
-              isbn_13
-              asin
-              audio_seconds
-              publisher {
-                name
-              }
-              language {
-                language
-              }
-            }
-            default_physical_edition {
-              isbn_13
-              asin
-              publisher {
-                name
-              }
-              language {
-                language
-              }
-            }
+        """ + _bookFieldsSelection + """
           }
         }
         """;
