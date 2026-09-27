@@ -1584,11 +1584,18 @@ public class HardcoverScraper : IScraper
             var fullTitle = bookElement.GetPropertyValueOrNull("title");
             if (fullTitle is not null)
             {
-                var splitTitle = fullTitle.Split(":");
-                bookName = splitTitle[0].Trim();
-                if (splitTitle.Length > 1)
+                // Only treat a colon as a title/subtitle separator when it's followed by a
+                // space ("Title: Subtitle") - a bare colon inside the title itself (e.g. the
+                // time "4:50" in "4:50 from Paddington") must not be split apart.
+                var separatorIndex = fullTitle.IndexOf(": ", StringComparison.Ordinal);
+                if (separatorIndex >= 0)
                 {
-                    subtitle = string.Join(":", splitTitle.Skip(1)).Trim();
+                    bookName = fullTitle[..separatorIndex].Trim();
+                    subtitle = fullTitle[(separatorIndex + 1)..].Trim();
+                }
+                else
+                {
+                    bookName = fullTitle.Trim();
                 }
             }
 

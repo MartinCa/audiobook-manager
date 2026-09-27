@@ -479,6 +479,34 @@ public class HardcoverScraperTests
         Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
     }
 
+    // Regression test: "4:50 from Paddington" was split into BookName "4" / Subtitle
+    // "50 from Paddington" because the title/subtitle fallback split on any colon, not just a
+    // "Title: Subtitle" separator. The colon in "4:50" (a train time) must be left alone.
+    [TestMethod]
+    public async Task GetBookDetails_TitleWithBareColon_DoesNotSplitIntoBookNameAndSubtitle()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 111,
+                    "title": "4:50 from Paddington",
+                    "subtitle": null,
+                    "slug": "4-50-from-paddington"
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/4-50-from-paddington");
+
+        Assert.AreEqual("4:50 from Paddington", result.BookName);
+        Assert.IsNull(result.Subtitle);
+    }
+
     [TestMethod]
     public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
     {
