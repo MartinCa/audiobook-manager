@@ -75,4 +75,38 @@ public class ScrapingServiceTests
         Assert.AreEqual(0, result.Results.Count);
         Assert.IsTrue(result.SourceStatuses.All(s => s.Success && s.ResultCount == 0));
     }
+
+    [TestMethod]
+    public async Task GetBookDetails_UrlMatchesExactlyOneScraper_ReturnsThatScrapersDetailsTaggedWithItsSource()
+    {
+        const string url = "https://goodreads.com/book/1";
+        _audibleScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+        _goodreadsScraper.Setup(s => s.SupportsUrl(url)).Returns(true);
+        _goodreadsScraper.Setup(s => s.GetBookDetails(url))
+            .ReturnsAsync(new MetadataSearchResult(url, "Some Book"));
+
+        var result = await _service.GetBookDetails(url);
+
+        Assert.AreEqual("Goodreads", result.Source);
+        _audibleScraper.Verify(s => s.GetBookDetails(It.IsAny<string>()), Times.Never);
+    }
+
+    // Regression test: BookSearchDialog's "paste a book URL" entry point (see AGENTS.md's
+    // "Adding a metadata source scraper" section) used to send the raw URL string into the
+    // multi-source *text* search instead of calling GetBookDetails, so a URL from an unconfigured
+    // or unsupported source silently produced zero results with no explanation. GetBookDetails is
+    // the single place that decides "which source supports this URL", and it must fail with a
+    // message a caller can act on - not a raw exception that becomes an opaque 500 - when nothing
+    // does.
+    [TestMethod]
+    public async Task GetBookDetails_NoScraperSupportsUrl_ThrowsArgumentExceptionNamingTheUrl()
+    {
+        const string url = "https://unsupported-source.example/books/1";
+        _audibleScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+        _goodreadsScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.GetBookDetails(url));
+
+        StringAssert.Contains(ex.Message, url);
+    }
 }

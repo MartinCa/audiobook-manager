@@ -82,7 +82,10 @@ public class ScrapingService : IScrapingService
 
         if (scraper == default)
         {
-            throw new Exception($"No scraper supports url {bookUrl}");
+            // Caller-supplied input (a pasted URL none of the registered scrapers recognize), not
+            // a server failure - an ArgumentException so the controller can relay this message as
+            // a 400 rather than an opaque 500 (see ProblemResults.cs).
+            throw new ArgumentException($"No configured metadata source supports the URL '{bookUrl}'.");
         }
 
         return GetBookDetailsFromScraper(scraper, bookUrl);

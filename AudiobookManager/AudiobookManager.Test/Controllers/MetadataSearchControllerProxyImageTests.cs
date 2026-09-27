@@ -4,6 +4,7 @@ using AudiobookManager.Scraping;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace AudiobookManager.Test.Controllers;
@@ -46,7 +47,10 @@ public class MetadataSearchControllerProxyImageTests
         var factory = new Mock<IHttpClientFactory>();
         factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(new StubHandler(status, contentType)));
 
-        return new MetadataSearchController(new Mock<IScrapingService>().Object, factory.Object)
+        return new MetadataSearchController(
+            new Mock<IScrapingService>().Object,
+            factory.Object,
+            new Mock<ILogger<MetadataSearchController>>().Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -130,7 +134,10 @@ public class MetadataSearchControllerProxyImageTests
         factory.Setup(f => f.CreateClient("proxy-image"))
             .Returns(new HttpClient(new SocketsHttpHandler { ConnectCallback = guard.ConnectAsync }));
 
-        var controller = new MetadataSearchController(new Mock<IScrapingService>().Object, factory.Object)
+        var controller = new MetadataSearchController(
+            new Mock<IScrapingService>().Object,
+            factory.Object,
+            new Mock<ILogger<MetadataSearchController>>().Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
