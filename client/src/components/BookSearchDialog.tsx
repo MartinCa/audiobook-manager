@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Loader2, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,6 +45,12 @@ export function BookSearchDialog({
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingSeriesChoice, setPendingSeriesChoice] = useState<MetadataSearchResult | null>(null);
+
+  // Guards against a stale getBookDetails response winning a race: if the user clicks another
+  // result before this one's fetch resolves, only the most recently clicked url's response is
+  // applied. Ref rather than state since it must be read synchronously inside the async
+  // continuation, not through a re-render.
+  const selectedUrlRef = useRef<string | null>(null);
 
   const { data: services = [] } = useQuery({
     queryKey: queryKeys.metadataServices(),
@@ -103,16 +109,20 @@ export function BookSearchDialog({
 
   const handleChoose = async (item: MetadataSearchResult) => {
     if (item.url && (!item.authors?.length || !item.description)) {
+      selectedUrlRef.current = item.url;
       setSelectingDetails(item.url);
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(item.url);
+        if (selectedUrlRef.current !== item.url) return;
         finishChoosing(fullDetails);
       } catch {
+        if (selectedUrlRef.current !== item.url) return;
         finishChoosing(item);
       } finally {
-        setSelectingDetails(null);
+        if (selectedUrlRef.current === item.url) setSelectingDetails(null);
       }
     } else {
+      selectedUrlRef.current = item.url ?? null;
       finishChoosing(item);
     }
   };

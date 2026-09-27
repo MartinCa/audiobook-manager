@@ -175,4 +175,72 @@ describe("BookSearchDialog", () => {
 
     expect(screen.getByRole("button", { name: /^search$/i })).toBeDisabled();
   });
+
+  // Regression: clicking Apply on result A (whose getBookDetails fetch is slow) and then, before
+  // it resolves, clicking Apply on result B (whose fetch is fast) used to let A's stale response
+  // win the race whenever it resolved after B's - overwriting B's already-applied selection with
+  // A's url-plus-details. onSelectResult must end up called with B's data only, never A's, no
+  // matter which fetch settles last.
+  it("ignores a stale getBookDetails response from a result clicked before the current one", async () => {
+    // Isolate from the previous test's persisted "every source deselected" localStorage state,
+    // which would otherwise leave activeSources empty and the Search button disabled here too.
+    localStorage.clear();
+
+    const resultA: MetadataSearchResult = {
+      ...baseResult,
+      url: "https://www.audible.com/listen/a",
+      cleanUrl: "https://www.audible.com/listen/a",
+      bookName: "Book A",
+    };
+    const resultB: MetadataSearchResult = {
+      ...baseResult,
+      url: "https://www.audible.com/listen/b",
+      cleanUrl: "https://www.audible.com/listen/b",
+      bookName: "Book B",
+    };
+
+    let resolveA!: (value: MetadataSearchResult) => void;
+    const detailsA = new Promise<MetadataSearchResult>((resolve) => {
+      resolveA = resolve;
+    });
+    const detailsB: MetadataSearchResult = { ...resultB, description: "Full details for B" };
+
+    vi.mocked(metadataSearchApi.getBookDetails).mockImplementation((url: string) =>
+      url === resultA.url ? detailsA : Promise.resolve(detailsB),
+    );
+
+    const onSelectResult = vi.fn();
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [resultA, resultB],
+      sourceStatuses: [],
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BookSearchDialog open onOpenChange={vi.fn()} onSelectResult={onSelectResult} />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    await screen.findByText("Audible");
+    await user.type(screen.getByPlaceholderText("Search title, author, or paste URL..."), "book");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await waitFor(() => expect(metadataSearchApi.searchMultiple).toHaveBeenCalled());
+
+    const applyButtons = await screen.findAllByRole("button", { name: /apply/i });
+    fireEvent.click(applyButtons[0]!); // Book A - fetch stays pending
+    await waitFor(() => expect(metadataSearchApi.getBookDetails).toHaveBeenCalledWith(resultA.url));
+
+    fireEvent.click(applyButtons[1]!); // Book B - fetch resolves immediately
+    await waitFor(() => expect(onSelectResult).toHaveBeenCalledWith(detailsB));
+
+    // Book A's fetch settles last; its response must be dropped, not overwrite B's selection.
+    resolveA({ ...resultA, description: "Full details for A" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onSelectResult).toHaveBeenCalledTimes(1);
+    expect(onSelectResult).toHaveBeenCalledWith(detailsB);
+  });
 });
