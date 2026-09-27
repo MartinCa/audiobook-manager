@@ -84,6 +84,12 @@ export function BookSearchDialog({
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
 
+    // Starting a new search/URL-fetch is a new selection intent: any getBookDetails fetch a
+    // prior handleChoose click still has in flight must not be allowed to apply once it resolves,
+    // even though its own url still matches the ref - there is no "current selection" left for it
+    // to be stale against once the user has moved on to a different search.
+    selectedUrlRef.current = null;
+
     // A pasted book URL (e.g. https://hardcover.app/books/1984) is handled entirely differently
     // from a text query: it skips source selection and the multi-source search, and instead asks
     // the backend to find whichever registered scraper's SupportsUrl() matches it and fetch that
