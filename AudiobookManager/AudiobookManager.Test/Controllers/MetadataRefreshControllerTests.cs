@@ -73,6 +73,16 @@ public class MetadataRefreshControllerTests
         await OperationGate.WaitUntilReleasedAsync(typeof(MetadataRefreshController));
     }
 
+    // Same pattern as RegisterFinishedWaiter, but keyed to ApplyOperationKey - apply-selected/
+    // apply-filtered run under the separate _applyLock/ApplyOperationKey, not the refresh
+    // bulk-operation's BulkOperationKey.
+    private Task RegisterApplyFinishedWaiter()
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _statusRegistry.Setup(r => r.SetFinished(MetadataRefreshController.ApplyOperationKey)).Callback(() => tcs.TrySetResult());
+        return tcs.Task;
+    }
+
     [TestMethod]
     public void StartSelectedRefresh_EmptyIds_IsA400_NothingStarts()
     {
@@ -208,6 +218,66 @@ public class MetadataRefreshControllerTests
 
         ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest,
             "The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid.");
+    }
+
+    // Regression for a review finding on the splitTitleOnColon toggle: the three apply endpoints
+    // are thin pass-throughs from their DTOs to the service, and nothing asserted the flag
+    // actually reaches the service call rather than being silently dropped along the way. The
+    // service and frontend threading already had their own coverage; this was the one untested hop.
+    [TestMethod]
+    public async Task ApplyPending_SplitTitleOnColonInDto_PassesThroughToTheService()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(88, null, true))
+            .ReturnsAsync(true);
+
+        var result = await _controller.ApplyPending(88, new ApplyPendingRefreshDto(null, SplitTitleOnColon: true));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(88, null, true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartApplySelected_SplitTitleOnColonInDto_PassesThroughToTheService()
+    {
+        _metadataRefreshService.Setup(s => s.ApplySelectedPendingRefreshesAsync(
+                It.IsAny<IReadOnlyList<long>>(), It.IsAny<Func<int, int, int, int, Task>>(), true))
+            .ReturnsAsync((2, 2, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = _controller.StartApplySelected(
+            new ApplySelectedMetadataRefreshDto(new List<long> { 1, 2 }, SplitTitleOnColon: true));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await AwaitOperationFinished(finished);
+
+        _metadataRefreshService.Verify(s => s.ApplySelectedPendingRefreshesAsync(
+            It.Is<IReadOnlyList<long>>(ids => ids.SequenceEqual(new List<long> { 1, 2 })),
+            It.IsAny<Func<int, int, int, int, Task>>(),
+            true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartApplyFiltered_SplitTitleOnColonInDto_PassesThroughToTheService()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyFilteredPendingRefreshesAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<Func<int, int, int, int, Task>>(), true))
+            .ReturnsAsync((3, 3, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = _controller.StartApplyFiltered(
+            new BulkApplyFilteredMetadataRefreshDto(new List<string> { "BookName" }, SplitTitleOnColon: true));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await AwaitOperationFinished(finished);
+
+        _metadataRefreshService.Verify(s => s.ApplyFilteredPendingRefreshesAsync(
+            It.Is<IReadOnlyCollection<string>>(f => f.SequenceEqual(new List<string> { "BookName" })),
+            It.IsAny<Func<int, int, int, int, Task>>(),
+            true), Times.Once);
     }
 
     [TestMethod]

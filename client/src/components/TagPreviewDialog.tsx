@@ -134,23 +134,34 @@ export function TagPreviewDialog({
   // whatever result onApply is called with, so the split-adjusted values have to be baked into a
   // shallow copy here rather than passed alongside as extra state - onApply's signature carries
   // no room for that, and this way the consumer needs no changes at all.
-  const applyAdjustedResult = (): MetadataSearchResult => {
+  //
+  // The recovered subtitle only has somewhere to "come from" when "bookName" is also in `keys` -
+  // otherwise handleApplyPreviewedTags leaves the form's book name untouched (still the full raw
+  // title) while still writing the recovered tail into subtitle, duplicating the same text across
+  // both fields instead of moving it. Mirrors the same guard in the backend's
+  // MetadataRefreshApplier. handleApplyAll's `keys` always includes "bookName" (it's every field
+  // key, changed or not), so this only bites Apply Selected after a manual bookName deselection.
+  const applyAdjustedResult = (keys: Set<string>): MetadataSearchResult => {
+    const originalSubtitleBlank = !searchResult.subtitle?.trim();
     const { bookName, subtitle } = splitTitleOnColon(
       searchResult.bookName ?? "",
       searchResult.subtitle,
       splitTitleOnColonEnabled,
     );
-    return { ...searchResult, bookName, subtitle: subtitle ?? undefined };
+    const subtitleRecoveredBySplit = originalSubtitleBlank && Boolean(subtitle);
+    const effectiveSubtitle =
+      subtitleRecoveredBySplit && !keys.has("bookName") ? searchResult.subtitle : subtitle;
+    return { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined };
   };
 
   const handleApplySelected = () => {
-    onApply(applyAdjustedResult(), selected, saveImmediately);
+    onApply(applyAdjustedResult(selected), selected, saveImmediately);
     onOpenChange(false);
   };
 
   const handleApplyAll = () => {
     const allKeys = new Set(fields.map((f) => f.key));
-    onApply(applyAdjustedResult(), allKeys, saveImmediately);
+    onApply(applyAdjustedResult(allKeys), allKeys, saveImmediately);
     onOpenChange(false);
   };
 

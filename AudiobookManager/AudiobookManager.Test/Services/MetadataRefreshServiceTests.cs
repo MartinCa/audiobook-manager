@@ -853,6 +853,68 @@ public class MetadataRefreshServiceTests
         Assert.IsNull(captured!.Subtitle);
     }
 
+    // Regression test: selecting "Subtitle" ALONE (BookName not selected - reachable from
+    // PendingRefreshRowPanel, which lets a user pick the subtitle row by itself) with the toggle
+    // on must not duplicate the recovered tail into Subtitle while the full raw title (including
+    // that same tail) stays untouched in BookName. With BookName unselected there is nowhere for
+    // the split to have "moved" the text from, so the honest write is the pre-split, blank
+    // snapshot.Subtitle - i.e. no-op, exactly what selecting Subtitle alone against an
+    // unsplit/never-differing snapshot would have done anyway.
+    [TestMethod]
+    public async Task ApplyPendingRefreshAsync_SplitTitleOnColonTrue_SubtitleOnlySelected_DoesNotDuplicateRecoveredTextIntoSubtitle()
+    {
+        var book = new Database.Models.Audiobook(
+            307, "Old Title", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "J.R.R. Tolkien") };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(307))
+            .ReturnsAsync(new PendingMetadataRefresh
+            {
+                AudiobookId = 307,
+                FetchedAt = DateTime.UtcNow,
+                SourceName = "Goodreads",
+                SourceUrl = "https://www.goodreads.com/book/show/the-hobbit",
+                PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                    PendingRefreshPayload.CurrentVersion,
+                    "https://www.goodreads.com/book/show/the-hobbit",
+                    "Goodreads",
+                    new List<string> { "J.R.R. Tolkien" },
+                    new List<string>(),
+                    "The Hobbit: There and Back Again",
+                    null, null, null, null,
+                    new List<string>(),
+                    null, null, null, null, null, null)),
+                ChangedFieldsJson = "[\"Subtitle\"]",
+            });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(307, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(307))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(
+            307, fields: new List<string> { "Subtitle" }, splitTitleOnColon: true);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual("Old Title", captured!.BookName);
+        Assert.IsNull(captured!.Subtitle);
+    }
+
     // Companion to the test above, isolating the cleanup call on its own rather than piggybacking
     // on an existing scenario's assertions - a corrupt/unreadable row (ApplyPendingRefreshAsync_
     // UnparseablePayload_ThrowsInsteadOfReturningFalse) and a book that no longer exists must NOT

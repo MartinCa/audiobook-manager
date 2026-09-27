@@ -51,6 +51,17 @@ public static class MetadataRefreshApplier
             && string.IsNullOrWhiteSpace(snapshot.Subtitle)
             && !string.IsNullOrWhiteSpace(splitSubtitle);
 
+        // The recovered subtitle only has somewhere to "come from" when BookName is also being
+        // applied - otherwise the book's title keeps the full raw string (BookName unselected =
+        // untouched) while Subtitle would still get the tail, duplicating the same text across
+        // both fields instead of moving it. When BookName isn't selected, treat the split as if
+        // it never happened for Subtitle's purposes: falls back to the pre-split, blank
+        // snapshot.Subtitle - the clear/no-op the caller actually selected by picking Subtitle
+        // alone.
+        var subtitleToWrite = subtitleRecoveredBySplit && !fields.Contains(MetadataRefreshFields.BookName)
+            ? snapshot.Subtitle
+            : splitSubtitle;
+
         // BookName is non-nullable on the domain model; a snapshot always carries one (the
         // scraper result it was built from requires it), but a blank guard still keeps this
         // applier from ever handing the save pipeline a titleless book.
@@ -62,7 +73,7 @@ public static class MetadataRefreshApplier
         if (fields.Contains(MetadataRefreshFields.Subtitle)
             || (subtitleRecoveredBySplit && fields.Contains(MetadataRefreshFields.BookName)))
         {
-            book.Subtitle = splitSubtitle;
+            book.Subtitle = subtitleToWrite;
         }
 
         if (fields.Contains(MetadataRefreshFields.Series))
