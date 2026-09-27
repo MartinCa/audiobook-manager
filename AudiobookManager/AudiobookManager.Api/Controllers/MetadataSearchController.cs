@@ -11,11 +11,16 @@ public class MetadataSearchController : ControllerBase
 {
     private readonly IScrapingService _scrapingService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<MetadataSearchController> _logger;
 
-    public MetadataSearchController(IScrapingService scrapingService, IHttpClientFactory httpClientFactory)
+    public MetadataSearchController(
+        IScrapingService scrapingService,
+        IHttpClientFactory httpClientFactory,
+        ILogger<MetadataSearchController> logger)
     {
         _scrapingService = scrapingService;
         _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     [HttpGet("{sourceName}")]
@@ -31,9 +36,21 @@ public class MetadataSearchController : ControllerBase
     }
 
     [HttpPost("details")]
-    public async Task<MetadataSearchResult> GetBookDetails([FromBody] PathDto dto)
+    public async Task<ActionResult<MetadataSearchResult>> GetBookDetails([FromBody] PathDto dto)
     {
-        return await _scrapingService.GetBookDetails(dto.Path);
+        try
+        {
+            return await _scrapingService.GetBookDetails(dto.Path);
+        }
+        catch (ArgumentException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching book details for {Path}", dto.Path);
+            return this.UnexpectedError();
+        }
     }
 
     [HttpGet("services")]

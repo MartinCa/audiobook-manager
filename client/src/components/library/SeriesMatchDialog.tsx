@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SectionPager } from "./SectionPager";
@@ -13,6 +13,7 @@ import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { SeriesMatchCandidate, SeriesOverview } from "@/types/Series";
@@ -53,6 +54,7 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
   // goToPage), so the implicit selection of earlier pages is not silently dropped.
   const [customSelection, setCustomSelection] = useState<Set<string> | null>(null);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [suggestions, setSuggestions] = useState<Record<string, SeriesMatchCandidate | null>>({});
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
@@ -60,15 +62,15 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
   const [matchProgress, setMatchProgress] = useState<SeriesMatchProgressPayload | null>(null);
 
   const { data: pageData, isLoading: loadingPage } = useQuery({
-    queryKey: queryKeys.series.unmatched(page),
-    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, undefined, { matched: false }),
+    queryKey: queryKeys.series.unmatched(page, pageSize),
+    queryFn: () => seriesApi.getSeriesPage(page, pageSize, undefined, { matched: false }),
     enabled: open,
     placeholderData: keepPreviousData,
   });
 
   const series = (pageData?.items ?? []) as SeriesOverview[];
   const totalCount = pageData?.totalCount ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
 
   const [prevOpen, setPrevOpen] = useState(open);
@@ -164,6 +166,14 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
       prev === null && series.length > 0 ? new Set(series.map((s) => s.name)) : prev,
     );
     setPage(next);
+  };
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setCustomSelection((prev) =>
+      prev === null && series.length > 0 ? new Set(series.map((s) => s.name)) : prev,
+    );
+    setPageSize(size);
+    setPage(0);
   };
 
   // "Preview Suggestions" used to loop over every unmatched series - one sequential request per
@@ -342,14 +352,14 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
                 );
               })}
 
-              {pageCount > 1 && (
-                <SectionPager
-                  currentPage={currentPage}
-                  pageCount={pageCount}
-                  totalCount={totalCount}
-                  onPageChange={goToPage}
-                />
-              )}
+              <SectionPager
+                currentPage={currentPage}
+                pageCount={pageCount}
+                totalCount={totalCount}
+                pageSize={pageSize}
+                onPageChange={goToPage}
+                onPageSizeChange={handlePageSizeChange}
+              />
 
               {series.length > PREVIEW_SUGGESTION_CAP && (
                 <p className="text-muted-foreground px-2.5 py-2 italic">

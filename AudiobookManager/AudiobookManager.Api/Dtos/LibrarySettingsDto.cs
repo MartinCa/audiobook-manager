@@ -11,17 +11,19 @@ public record LibrarySettingsDto(
     string InitialsPunctuation,
     int MetadataRefreshDelayMs,
     bool UpcomingReleasesEnabled,
-    string UpcomingReleasesCronSchedule);
+    string UpcomingReleasesCronSchedule,
+    int DefaultPageSize);
 
 /// <summary>
 /// The body of PUT api/settings/library. <see cref="InitialsPunctuation"/>,
-/// <see cref="UpcomingReleasesEnabled"/> and <see cref="UpcomingReleasesCronSchedule"/> are
-/// optional like <see cref="MetadataRefreshDelayMs"/>: an omitted field keeps the stored value
-/// rather than resetting it.
+/// <see cref="UpcomingReleasesEnabled"/>, <see cref="UpcomingReleasesCronSchedule"/> and
+/// <see cref="DefaultPageSize"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
+/// omitted field keeps the stored value rather than resetting it.
 /// </summary>
 public record UpdateLibrarySettingsDto(
     string InitialsSpacing,
     string? InitialsPunctuation,
     int? MetadataRefreshDelayMs,
     bool? UpcomingReleasesEnabled,
-    string? UpcomingReleasesCronSchedule);
+    string? UpcomingReleasesCronSchedule,
+    int? DefaultPageSize);

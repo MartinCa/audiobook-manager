@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { LinkButton } from "../LinkButton";
 import { PendingOnlineMatchRowPanel } from "./PendingOnlineMatchRowPanel";
+import { SectionPager } from "./SectionPager";
 import { pendingOnlineMatchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
+import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -24,6 +26,7 @@ export function PendingOnlineMatches() {
   const queryClient = useQueryClient();
   const [pendingPage, setPendingPage] = useState(0);
   const [failedPage, setFailedPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [dismissingId, setDismissingId] = useState<number | null>(null);
@@ -43,33 +46,39 @@ export function PendingOnlineMatches() {
   // When currentPendingPage is itself 0 this count query and the items query below share one
   // queryKey, so TanStack Query dedups them into a single request rather than fetching twice.
   const { data: pendingCountData } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.pendingPage(0),
-    queryFn: () => pendingOnlineMatchApi.getPendingPage(0, PAGE_SIZE),
+    queryKey: queryKeys.pendingOnlineMatch.pendingPage(0, pageSize),
+    queryFn: () => pendingOnlineMatchApi.getPendingPage(0, pageSize),
   });
   const { data: failedCountData } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.failedPage(0),
-    queryFn: () => pendingOnlineMatchApi.getFailedPage(0, PAGE_SIZE),
+    queryKey: queryKeys.pendingOnlineMatch.failedPage(0, pageSize),
+    queryFn: () => pendingOnlineMatchApi.getFailedPage(0, pageSize),
   });
 
   const pendingTotal = pendingCountData?.total ?? 0;
-  const pendingPageCount = Math.max(1, Math.ceil(pendingTotal / PAGE_SIZE));
+  const pendingPageCount = Math.max(1, Math.ceil(pendingTotal / pageSize));
   const currentPendingPage = Math.min(pendingPage, pendingPageCount - 1);
 
   const failedTotal = failedCountData?.total ?? 0;
-  const failedPageCount = Math.max(1, Math.ceil(failedTotal / PAGE_SIZE));
+  const failedPageCount = Math.max(1, Math.ceil(failedTotal / pageSize));
   const currentFailedPage = Math.min(failedPage, failedPageCount - 1);
 
   const { data: pendingData, isLoading: pendingLoading } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.pendingPage(currentPendingPage),
+    queryKey: queryKeys.pendingOnlineMatch.pendingPage(currentPendingPage, pageSize),
     placeholderData: keepPreviousData,
-    queryFn: () => pendingOnlineMatchApi.getPendingPage(currentPendingPage, PAGE_SIZE),
+    queryFn: () => pendingOnlineMatchApi.getPendingPage(currentPendingPage, pageSize),
   });
 
   const { data: failedData, isLoading: failedLoading } = useQuery({
-    queryKey: queryKeys.pendingOnlineMatch.failedPage(currentFailedPage),
+    queryKey: queryKeys.pendingOnlineMatch.failedPage(currentFailedPage, pageSize),
     placeholderData: keepPreviousData,
-    queryFn: () => pendingOnlineMatchApi.getFailedPage(currentFailedPage, PAGE_SIZE),
+    queryFn: () => pendingOnlineMatchApi.getFailedPage(currentFailedPage, pageSize),
   });
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPendingPage(0);
+    setFailedPage(0);
+  };
 
   const pendingItems = (pendingData?.items ?? []) as PendingOnlineMatchListItem[];
   const failedItems = (failedData?.items ?? []) as PendingOnlineMatchListItem[];
@@ -217,32 +226,14 @@ export function PendingOnlineMatches() {
               );
             })}
 
-            {pendingPageCount > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-muted-foreground text-xs">
-                  Showing {currentPendingPage * PAGE_SIZE + 1}–
-                  {Math.min((currentPendingPage + 1) * PAGE_SIZE, pendingTotal)} of {pendingTotal}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPendingPage === 0}
-                    onClick={() => setPendingPage(currentPendingPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPendingPage >= pendingPageCount - 1}
-                    onClick={() => setPendingPage(currentPendingPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+            <SectionPager
+              currentPage={currentPendingPage}
+              pageCount={pendingPageCount}
+              totalCount={pendingTotal}
+              pageSize={pageSize}
+              onPageChange={setPendingPage}
+              onPageSizeChange={handlePageSizeChange}
+            />
           </div>
         )}
       </div>
@@ -302,32 +293,14 @@ export function PendingOnlineMatches() {
               </div>
             ))}
 
-            {failedPageCount > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-muted-foreground text-xs">
-                  Showing {currentFailedPage * PAGE_SIZE + 1}–
-                  {Math.min((currentFailedPage + 1) * PAGE_SIZE, failedTotal)} of {failedTotal}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentFailedPage === 0}
-                    onClick={() => setFailedPage(currentFailedPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentFailedPage >= failedPageCount - 1}
-                    onClick={() => setFailedPage(currentFailedPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+            <SectionPager
+              currentPage={currentFailedPage}
+              pageCount={failedPageCount}
+              totalCount={failedTotal}
+              pageSize={pageSize}
+              onPageChange={setFailedPage}
+              onPageSizeChange={handlePageSizeChange}
+            />
           </div>
         )}
       </div>

@@ -20,6 +20,9 @@ interface UpcomingReleasesListProps {
   /** Zero-based page, for the consolidated view's pager. Author/series-scoped uses fit on one
    * page in practice, so they default to the first. */
   page?: number;
+  /** Rows per page, for the consolidated view's page-size dropdown. Author/series-scoped uses
+   * default to the shared library `PAGE_SIZE` (50). */
+  pageSize?: number;
   /**
    * Shows a "Showing X of Y" hint when more releases exist than this one page holds. The
    * consolidated view already renders its own pager below this component with the same total,
@@ -45,19 +48,20 @@ export function UpcomingReleasesList({
   showSource = false,
   emptyMessage = "No upcoming releases tracked yet.",
   page = 0,
+  pageSize = PAGE_SIZE,
   showOverflowHint = true,
   sectionTitle,
 }: UpcomingReleasesListProps) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: queryKeys.upcomingReleases.page(authorId, seriesId, page),
+    queryKey: queryKeys.upcomingReleases.page(authorId, seriesId, page, pageSize),
     queryFn: () =>
       upcomingReleasesApi.getUpcomingReleases({
         authorId,
         seriesId,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        limit: pageSize,
+        offset: page * pageSize,
       }),
     placeholderData: keepPreviousData,
   });

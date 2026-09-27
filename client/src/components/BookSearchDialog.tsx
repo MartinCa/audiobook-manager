@@ -18,6 +18,7 @@ import { metadataSearchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { useSelectedSearchSources } from "@/hooks/useSelectedSearchSources";
+import { isAbsoluteHttpUrl } from "@/helpers/urlHelpers";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
 interface BookSearchDialogProps {
@@ -80,14 +81,37 @@ export function BookSearchDialog({
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!query.trim() || activeSources.length === 0) return;
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+
+    // A pasted book URL (e.g. https://hardcover.app/books/1984) is handled entirely differently
+    // from a text query: it skips source selection and the multi-source search, and instead asks
+    // the backend to find whichever registered scraper's SupportsUrl() matches it and fetch that
+    // book directly. See AGENTS.md's "Adding a metadata source scraper" section.
+    if (isAbsoluteHttpUrl(trimmedQuery)) {
+      setLoading(true);
+      setError(null);
+      setResults([]);
+
+      try {
+        const fullDetails = await metadataSearchApi.getBookDetails(trimmedQuery);
+        finishChoosing(fullDetails);
+      } catch (err: unknown) {
+        setError(handleApiError(err).message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (activeSources.length === 0) return;
 
     setLoading(true);
     setError(null);
     setResults([]);
 
     try {
-      const res = await metadataSearchApi.searchMultiple(activeSources, query.trim());
+      const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
     } catch (err: unknown) {
       setError(handleApiError(err).message);
@@ -221,7 +245,11 @@ export function BookSearchDialog({
             />
             <Button
               type="submit"
-              disabled={loading || !query.trim() || activeSources.length === 0}
+              disabled={
+                loading ||
+                !query.trim() ||
+                (!isAbsoluteHttpUrl(query.trim()) && activeSources.length === 0)
+              }
               className="shrink-0"
             >
               {loading ? (
@@ -251,11 +279,13 @@ export function BookSearchDialog({
             {loading && (
               <div className="text-muted-foreground flex items-center justify-center py-8 text-sm">
                 <Loader2 className="text-primary mr-2 h-5 w-5 animate-spin" />
-                Searching sources...
+                {isAbsoluteHttpUrl(query.trim())
+                  ? "Fetching book details..."
+                  : "Searching sources..."}
               </div>
             )}
 
-            {!loading && results.length === 0 && query && (
+            {!loading && !error && results.length === 0 && query && (
               <div className="text-muted-foreground py-8 text-center text-sm">
                 No results found. Try changing your search query or sources.
               </div>

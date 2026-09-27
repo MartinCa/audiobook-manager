@@ -5,7 +5,7 @@ import { ArrowLeft, Tag, BookOpen, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
@@ -15,6 +15,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useMissingTagSelection } from "@/hooks/useMissingTagSelection";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import type { AudiobookMissingTags } from "@/types/MissingTag";
 import type { BookListFilters } from "@/types/EntityFilters";
@@ -53,6 +54,7 @@ export function MissingTags() {
   // requested page of matching books crosses the wire - a book missing even one selected critical
   // tag used to make the whole result set load and render at once.
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<BookListFilters>({});
 
@@ -62,11 +64,11 @@ export function MissingTags() {
   };
 
   const { data: pageData, isLoading: loadingBooks } = useQuery({
-    queryKey: queryKeys.missingTagsAudiobooks.page(selectedFields, page, search, filters),
+    queryKey: queryKeys.missingTagsAudiobooks.page(selectedFields, page, pageSize, search, filters),
     queryFn: () =>
       missingTagsApi.getAudiobooksMissingTags(selectedFields, {
         page,
-        pageSize: PAGE_SIZE,
+        pageSize,
         search,
         filters,
       }),
@@ -78,8 +80,13 @@ export function MissingTags() {
   const books = audiobooks.map(toManagedAudiobook);
   const missingFieldsByBookId = new Map(audiobooks.map((b) => [b.audiobookId, b.missingFields]));
   const totalCount = pageData?.totalCount ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   // A backfill completion or an external change can shrink the result set while the user sits
   // on a later page; pull the raw page back into range so the next fetch lands on a valid page.
@@ -263,9 +270,10 @@ export function MissingTags() {
           onFiltersChange={handleFiltersChange}
           page={currentPage}
           pageCount={pageCount}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
           pagerDisabled={loadingBooks}
           onPageChange={setPage}
+          onPageSizeChange={handlePageSizeChange}
           itemNoun="audiobooks"
           renderExtraBadges={(book) =>
             (missingFieldsByBookId.get(book.id) ?? []).map((f) => (

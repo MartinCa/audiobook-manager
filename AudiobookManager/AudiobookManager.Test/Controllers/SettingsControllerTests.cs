@@ -123,7 +123,7 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", null, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", null, 1000, null, null, null));
 
         Assert.IsNotNull(result);
         service.Verify(s => s.UpdateLibrarySettings(
@@ -143,7 +143,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("spaced", "undotted", 1000, null, null));
+            new UpdateLibrarySettingsDto("spaced", "undotted", 1000, null, null, null));
 
         Assert.IsNotNull(result);
         service.Verify(s => s.UpdateLibrarySettings(
@@ -163,7 +163,7 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null));
+        await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
 
         service.Verify(s => s.UpdateLibrarySettings(
             It.Is<Domain.LibrarySettings>(v => v.InitialsPunctuation == DomainInitialsPunctuation.Undotted)),
@@ -178,7 +178,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("Spaced", "Periodic", 1000, null, null));
+            new UpdateLibrarySettingsDto("Spaced", "Periodic", 1000, null, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -193,7 +193,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", null, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", null, 1000, null, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -212,7 +212,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("7", null, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("7", null, 1000, null, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -228,7 +228,7 @@ public class SettingsControllerTests
         service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", "7", 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", "7", 1000, null, null, null));
 
         ProblemAssert.HasDetail(
             result.Result,
@@ -243,7 +243,7 @@ public class SettingsControllerTests
         var service = new Mock<ISettingsService>();
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, null, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, null, 1000, null, null, null));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
@@ -257,7 +257,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("Spaced", null, 1000, true, "not a cron expression"));
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, true, "not a cron expression", null));
 
         ProblemAssert.HasStatus(result.Result, 400);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
@@ -274,7 +274,7 @@ public class SettingsControllerTests
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
         var result = await controller.UpdateLibrarySettings(
-            new UpdateLibrarySettingsDto("Spaced", null, 1000, false, "0 4 * * *"));
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, false, "0 4 * * *", null));
 
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
         var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
@@ -302,12 +302,69 @@ public class SettingsControllerTests
             .ReturnsAsync((Domain.LibrarySettings s) => s);
         var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
 
-        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null));
+        var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
 
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
         var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
         Assert.IsFalse(dto.UpcomingReleasesEnabled);
         Assert.AreEqual("0 5 * * *", dto.UpcomingReleasesCronSchedule);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_UnsupportedPageSize_ReturnsProblemDetailsWithoutCallingService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, 25));
+
+        ProblemAssert.HasDetail(
+            result.Result,
+            400,
+            "'25' is not a supported default page size. Use one of: 20, 50, 100.");
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_ValidPageSize_RoundTripsIt()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, 100));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
+        Assert.AreEqual(100, dto.DefaultPageSize);
+        service.Verify(s => s.UpdateLibrarySettings(
+            It.Is<Domain.LibrarySettings>(v => v.DefaultPageSize == 100)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OmittedPageSize_KeepsTheStoredValue()
+    {
+        var service = new Mock<ISettingsService>();
+        service
+            .Setup(s => s.GetLibrarySettings())
+            .ReturnsAsync(new Domain.LibrarySettings { DefaultPageSize = 50 });
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+
+        var result = await controller.UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        var dto = Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value);
+        Assert.AreEqual(50, dto.DefaultPageSize);
     }
 
     [TestMethod]

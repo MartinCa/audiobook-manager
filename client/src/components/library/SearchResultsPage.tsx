@@ -11,10 +11,11 @@ import { BookListRow } from "./BookListRow";
 import { BookBulkActionBar } from "./BookBulkActionBar";
 import { OwnedBookList } from "./OwnedBookList";
 import { SectionPager } from "./SectionPager";
-import { BROWSE_PAGE_SIZE, SEARCH_PREVIEW_LIMIT } from "@/constants/paging";
+import { SEARCH_PREVIEW_LIMIT, type PageSizeOption } from "@/constants/paging";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useBookSelection } from "@/hooks/useBookSelection";
+import { usePageSize } from "@/hooks/usePageSize";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { BookListFilters } from "@/types/EntityFilters";
@@ -77,6 +78,9 @@ export function SearchResultsPage() {
   // Books-tab option filters (Bug 8 unification): local component state rather than a route
   // search param, since only the books tab uses them and the page's `q` already drives every tab.
   const [booksFilters, setBooksFilters] = useState<BookListFilters>({});
+  // One rows-per-page value shared across all three tabs (books/authors/series), like the tabs
+  // sharing one `page` search param.
+  const [pageSize, setPageSize] = usePageSize();
 
   const handleBooksFiltersChange = (next: BookListFilters) => {
     setBooksFilters(next);
@@ -153,12 +157,21 @@ export function SearchResultsPage() {
     });
   };
 
-  const booksLimit = tab === "books" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
-  const booksOffset = tab === "books" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
-  const authorsLimit = tab === "authors" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
-  const authorsOffset = tab === "authors" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
-  const seriesLimit = tab === "series" ? BROWSE_PAGE_SIZE : SEARCH_PREVIEW_LIMIT;
-  const seriesOffset = tab === "series" ? (page - 1) * BROWSE_PAGE_SIZE : 0;
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    void navigate({
+      to: "/library/search",
+      search: (prev) => ({ ...prev, page: undefined }),
+      replace: true,
+    });
+  };
+
+  const booksLimit = tab === "books" ? pageSize : SEARCH_PREVIEW_LIMIT;
+  const booksOffset = tab === "books" ? (page - 1) * pageSize : 0;
+  const authorsLimit = tab === "authors" ? pageSize : SEARCH_PREVIEW_LIMIT;
+  const authorsOffset = tab === "authors" ? (page - 1) * pageSize : 0;
+  const seriesLimit = tab === "series" ? pageSize : SEARCH_PREVIEW_LIMIT;
+  const seriesOffset = tab === "series" ? (page - 1) * pageSize : 0;
 
   // Books-tab option filters must not leak into the "All" tab's books preview, which has no
   // filter UI to explain or clear them.
@@ -210,9 +223,9 @@ export function SearchResultsPage() {
 
   const isLoading = booksQuery.isLoading || authorsQuery.isLoading || seriesQuery.isLoading;
 
-  const booksTotalPages = Math.ceil(booksTotal / BROWSE_PAGE_SIZE) || 1;
-  const authorsTotalPages = Math.ceil(authorsTotal / BROWSE_PAGE_SIZE) || 1;
-  const seriesTotalPages = Math.ceil(seriesTotal / BROWSE_PAGE_SIZE) || 1;
+  const booksTotalPages = Math.ceil(booksTotal / pageSize) || 1;
+  const authorsTotalPages = Math.ceil(authorsTotal / pageSize) || 1;
+  const seriesTotalPages = Math.ceil(seriesTotal / pageSize) || 1;
 
   return (
     <div className="space-y-6">
@@ -424,9 +437,10 @@ export function SearchResultsPage() {
               onFiltersChange={handleBooksFiltersChange}
               page={page - 1}
               pageCount={booksTotalPages}
-              pageSize={BROWSE_PAGE_SIZE}
+              pageSize={pageSize}
               pagerDisabled={booksQuery.isFetching}
               onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+              onPageSizeChange={handlePageSizeChange}
             />
           )}
 
@@ -442,16 +456,15 @@ export function SearchResultsPage() {
                 {authors.map((author) => (
                   <AuthorRow key={author.id} author={author} />
                 ))}
-                {authorsTotalPages > 1 && (
-                  <SectionPager
-                    currentPage={page - 1}
-                    pageCount={authorsTotalPages}
-                    totalCount={authorsTotal}
-                    pageSize={BROWSE_PAGE_SIZE}
-                    disabled={authorsQuery.isFetching}
-                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
-                  />
-                )}
+                <SectionPager
+                  currentPage={page - 1}
+                  pageCount={authorsTotalPages}
+                  totalCount={authorsTotal}
+                  pageSize={pageSize}
+                  disabled={authorsQuery.isFetching}
+                  onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  onPageSizeChange={handlePageSizeChange}
+                />
               </div>
             ))}
 
@@ -467,16 +480,15 @@ export function SearchResultsPage() {
                 {series.map((s) => (
                   <SeriesRow key={s.name} series={s} />
                 ))}
-                {seriesTotalPages > 1 && (
-                  <SectionPager
-                    currentPage={page - 1}
-                    pageCount={seriesTotalPages}
-                    totalCount={seriesTotal}
-                    pageSize={BROWSE_PAGE_SIZE}
-                    disabled={seriesQuery.isFetching}
-                    onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
-                  />
-                )}
+                <SectionPager
+                  currentPage={page - 1}
+                  pageCount={seriesTotalPages}
+                  totalCount={seriesTotal}
+                  pageSize={pageSize}
+                  disabled={seriesQuery.isFetching}
+                  onPageChange={(next0Indexed) => handlePageChange(next0Indexed + 1)}
+                  onPageSizeChange={handlePageSizeChange}
+                />
               </div>
             ))}
           {/* The books tab's OwnedBookList already renders its own bulk-action bar; a second one

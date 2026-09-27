@@ -243,4 +243,65 @@ describe("BookSearchDialog", () => {
     expect(onSelectResult).toHaveBeenCalledTimes(1);
     expect(onSelectResult).toHaveBeenCalledWith(detailsB);
   });
+
+  // Regression: BookSearchDialog's placeholder ("...or paste URL...") and AGENTS.md both
+  // document pasting a book URL (e.g. https://hardcover.app/books/1984) as going straight to
+  // metadataSearchApi.getBookDetails() - skipping source selection and the multi-source text
+  // search entirely, so the backend can check which registered scraper's SupportsUrl() matches
+  // it. That branch was missing: submitting a URL used to fall through to searchMultiple like any
+  // other text query, which cannot resolve a URL to a book at all.
+  describe("pasting a book URL", () => {
+    const bookUrl = "https://hardcover.app/books/1984";
+
+    it("calls getBookDetails directly instead of the multi-source search, even with no source selected", async () => {
+      vi.mocked(metadataSearchApi.getBookDetails).mockResolvedValue(baseResult);
+      const onSelectResult = vi.fn();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <BookSearchDialog open onOpenChange={vi.fn()} onSelectResult={onSelectResult} />
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText("Audible");
+      // Deselecting every source would disable Search for a plain text query (see the test
+      // above) - a URL must not need any source selected at all.
+      fireEvent.click(screen.getByText("Audible"));
+      fireEvent.click(screen.getByText("Goodreads"));
+
+      await user.type(
+        screen.getByPlaceholderText("Search title, author, or paste URL..."),
+        bookUrl,
+      );
+      expect(screen.getByRole("button", { name: /^search$/i })).not.toBeDisabled();
+      await user.click(screen.getByRole("button", { name: /^search$/i }));
+
+      await waitFor(() => expect(metadataSearchApi.getBookDetails).toHaveBeenCalledWith(bookUrl));
+      expect(metadataSearchApi.searchMultiple).not.toHaveBeenCalled();
+      await waitFor(() => expect(onSelectResult).toHaveBeenCalledWith(baseResult));
+    });
+
+    it("shows the backend's error when no configured source supports the URL", async () => {
+      vi.mocked(metadataSearchApi.getBookDetails).mockRejectedValue(
+        new Error(
+          "No configured metadata source supports the URL 'https://hardcover.app/books/1984'.",
+        ),
+      );
+      const user = userEvent.setup();
+      renderDialog();
+
+      await screen.findByText("Audible");
+      await user.type(
+        screen.getByPlaceholderText("Search title, author, or paste URL..."),
+        bookUrl,
+      );
+      await user.click(screen.getByRole("button", { name: /^search$/i }));
+
+      expect(
+        await screen.findByText(/no configured metadata source supports the url/i),
+      ).toBeInTheDocument();
+      expect(metadataSearchApi.searchMultiple).not.toHaveBeenCalled();
+    });
+  });
 });

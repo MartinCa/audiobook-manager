@@ -4,7 +4,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Users, Search, X, ChevronRight, Loader2, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { PAGE_SIZE } from "@/constants/paging";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
@@ -14,9 +13,11 @@ import { SectionPager } from "./SectionPager";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { usePageSize } from "@/hooks/usePageSize";
 import { Route } from "@/routes/library/authors/index";
 import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { AuthorListFilters } from "@/types/EntityFilters";
+import type { PageSizeOption } from "@/constants/paging";
 
 // The redundant "Matched" boolean filter (equivalent to selecting/excluding the sources filter's
 // "Unsupported/None" option - see AuthorSummaryFilter.Matched's application in
@@ -64,6 +65,7 @@ export function AuthorsList() {
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
 
   // The source options come from whichever scrapers are actually registered (see
   // BrowseController.GetFilterOptions), not a hardcoded list - a source-capable author-matching
@@ -147,15 +149,20 @@ export function AuthorsList() {
   // The list is paged server-side: the filter also runs in SQL (accent-insensitive), so only the
   // requested page crosses the wire - the old version sent every author in the library.
   const { data: pageData, isLoading: loading } = useQuery({
-    queryKey: queryKeys.authors.page(q, page, filters),
+    queryKey: queryKeys.authors.page(q, page, pageSize, filters),
     placeholderData: keepPreviousData,
-    queryFn: () => browseApi.getAuthorPage(PAGE_SIZE, page * PAGE_SIZE, q, filters),
+    queryFn: () => browseApi.getAuthorPage(pageSize, page * pageSize, q, filters),
   });
 
   const authors = pageData?.items ?? [];
   const totalCount = pageData?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   // A filter change or an external shrink can leave the raw page out of range; pull it back so
   // the next fetch lands on a valid page rather than coming back empty (see useClampedPage).
@@ -270,14 +277,14 @@ export function AuthorsList() {
             </Link>
           ))}
 
-          {pageCount > 1 && (
-            <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={totalCount}
-              onPageChange={setPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentPage}
+            pageCount={pageCount}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
     </div>

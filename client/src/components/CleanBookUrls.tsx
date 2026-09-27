@@ -7,13 +7,15 @@ import { LinkButton } from "./LinkButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
+import { SectionPager } from "./library/SectionPager";
 import { urlCleanupApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { usePageSize } from "@/hooks/usePageSize";
 import type { AudiobookUrlCleanup } from "@/types/UrlCleanup";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -40,23 +42,24 @@ export function CleanBookUrls() {
   // The dirty list is paged server-side: with a few thousand dirty URLs the old unpaged
   // response rendered every book as a card into the DOM and the page became unusably slow.
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
 
   const {
     data: pageData,
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: queryKeys.urlCleanup.page(page),
+    queryKey: queryKeys.urlCleanup.page(page, pageSize),
     // keepPreviousData: while the next page loads the previous one stays rendered (with the
     // checkboxes dimmed via isFetching), so the pager doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
-    queryFn: () => urlCleanupApi.getDirtyUrlPage(page, PAGE_SIZE),
+    queryFn: () => urlCleanupApi.getDirtyUrlPage(page, pageSize),
   });
 
   const totalCount = pageData?.totalCount ?? 0;
   const dirtyUrls = (pageData?.items ?? []) as AudiobookUrlCleanup[];
 
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentPage = Math.min(page, pageCount - 1);
@@ -73,6 +76,11 @@ export function CleanBookUrls() {
   const goToPage = (next: number) => {
     setPage(next);
     setCustomSelection(null);
+  };
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    goToPage(0);
   };
 
   const applyMutation = useMutation({
@@ -299,32 +307,14 @@ export function CleanBookUrls() {
             {/* Stays rendered even if this page comes back empty while the count is non-zero
                 (someone cleaned rows from another tab, or the clamp lagged a shrinking total),
                 so the user can page back instead of staring at a dead-end heading. */}
-            {pageCount > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-muted-foreground text-xs">
-                  Showing {currentPage * PAGE_SIZE + 1}–
-                  {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage === 0}
-                    onClick={() => goToPage(currentPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={currentPage >= pageCount - 1}
-                    onClick={() => goToPage(currentPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+            <SectionPager
+              currentPage={currentPage}
+              pageCount={pageCount}
+              totalCount={totalCount}
+              pageSize={pageSize}
+              onPageChange={goToPage}
+              onPageSizeChange={handlePageSizeChange}
+            />
           </div>
         )}
       </div>

@@ -13,5 +13,6 @@ public interface ILibrarySettingsRepository
         InitialsPunctuation initialsPunctuation,
         int metadataRefreshDelayMs,
         bool upcomingReleasesEnabled,
-        string upcomingReleasesCronSchedule);
+        string upcomingReleasesCronSchedule,
+        int defaultPageSize);
 }
