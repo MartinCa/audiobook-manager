@@ -92,6 +92,22 @@ export function TagPreviewDialog({
     }
   }
 
+  // Re-sync `selected` whenever the split toggle itself flips (not just on a new searchResult) -
+  // flipping it can change which fields the diff table reports as changed (e.g. "subtitle"
+  // becomes changed once a title gets split), and without this `selected` silently keeps
+  // whatever it was computed from before the flip. Left unsynced, "Apply Selected" would then
+  // drop the newly-split subtitle even though the table shows it as changed and selectable - the
+  // client-side analog of the bug MetadataRefreshApplier had server-side. Resets to exactly the
+  // new changed-field set rather than trying to preserve manual deselections across the flip;
+  // toggling this option is itself a big enough change to the preview that resetting selection
+  // is the simpler, safer behavior.
+  const [lastSplitTitleOnColonEnabled, setLastSplitTitleOnColonEnabled] =
+    useState(splitTitleOnColonEnabled);
+  if (splitTitleOnColonEnabled !== lastSplitTitleOnColonEnabled) {
+    setLastSplitTitleOnColonEnabled(splitTitleOnColonEnabled);
+    setSelected(new Set(changedFieldKeys));
+  }
+
   const toggleField = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);

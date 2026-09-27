@@ -288,4 +288,40 @@ describe("TagPreviewDialog", () => {
     expect(appliedResult.bookName).toBe("The Hobbit");
     expect(appliedResult.subtitle).toBe("There and Back Again");
   });
+
+  // Regression test: checking the toggle AFTER the dialog has already opened makes "subtitle"
+  // newly changed in the diff table, but `selected` was computed before the flip and would keep
+  // "bookName" only unless it's re-synced. Apply Selected must pick up the newly-split subtitle,
+  // not just Apply All (which always sends every currently-changed key regardless of `selected`).
+  it("re-syncs selected fields when the split toggle is flipped mid-session, so Apply Selected keeps the recovered subtitle", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    // Toggle off initially: "subtitle" is unchanged, so it starts out of `selected`.
+    const toggle = screen.getByRole("checkbox", {
+      name: "Split title into book name and subtitle at first colon",
+    });
+    fireEvent.click(toggle);
+
+    fireEvent.click(screen.getByRole("button", { name: /selected/i }));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const [appliedResult, appliedKeys] = onApply.mock.calls[0] as [
+      MetadataSearchResult,
+      Set<string>,
+      boolean,
+    ];
+    expect(appliedKeys.has("subtitle")).toBe(true);
+    expect(appliedResult.bookName).toBe("The Hobbit");
+    expect(appliedResult.subtitle).toBe("There and Back Again");
+  });
 });

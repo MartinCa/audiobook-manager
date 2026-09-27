@@ -9,9 +9,13 @@ namespace AudiobookManager.Services;
 /// and the single-book quick-apply endpoint can write a snapshot without a mounted edit form. Only
 /// the fields named in <paramref name="fields"/> are touched; anything else on <paramref
 /// name="book"/> is left exactly as loaded, matching the "no implicit clearing"
-/// invariant <see cref="AudiobookBulkChanges"/> uses. <paramref name="splitTitleOnColon"/> gates
-/// <see cref="TitleSplitter"/> - off by default, since a snapshot's BookName is the source's raw,
-/// unsplit title (see that class's remarks for why the split is never assumed).
+/// invariant <see cref="AudiobookBulkChanges"/> uses - with one deliberate exception: selecting
+/// BookName while <paramref name="splitTitleOnColon"/> is on can also write Subtitle, when the
+/// split recovers one out of an otherwise-blank snapshot (see the field-writing code below for
+/// why - the split itself has nowhere else to put the recovered text). <paramref
+/// name="splitTitleOnColon"/> gates <see cref="TitleSplitter"/> - off by default, since a
+/// snapshot's BookName is the source's raw, unsplit title (see that class's remarks for why the
+/// split is never assumed).
 /// </summary>
 public static class MetadataRefreshApplier
 {
