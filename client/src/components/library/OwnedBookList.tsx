@@ -10,6 +10,7 @@ import { SectionPager } from "./SectionPager";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import type { PageSizeOption } from "@/constants/paging";
 import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { languageLabel } from "@/helpers/languages";
@@ -68,6 +69,7 @@ export interface OwnedBookListProps {
   pageCount: number;
   pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (size: PageSizeOption) => void;
   pagerDisabled?: boolean;
 
   /** "#3 " prefix on the title (SeriesDetail's owned-books context). */
@@ -119,6 +121,7 @@ export function OwnedBookList({
   pageCount,
   pageSize,
   onPageChange,
+  onPageSizeChange,
   pagerDisabled = false,
   showSeriesPart = false,
   hideSeries = false,
@@ -364,7 +367,11 @@ export function OwnedBookList({
 
       <BookBulkActionBar selection={selection} />
 
-      {pageCount > 1 && (
+      {/* totalCount (not books.length) gates this: a page that comes back empty while the scope
+          still holds rows elsewhere (a shrink mid-view) must keep the pager so the user can page
+          back, but a genuinely empty scope must not show a degenerate "Showing 1-0 of 0" pager
+          next to the emptyState above. */}
+      {totalCount > 0 && (
         <SectionPager
           currentPage={page}
           pageCount={pageCount}
@@ -372,6 +379,7 @@ export function OwnedBookList({
           pageSize={pageSize}
           disabled={pagerDisabled}
           onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
         />
       )}
     </div>

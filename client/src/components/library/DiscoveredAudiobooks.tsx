@@ -36,6 +36,7 @@ import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
 import { LinkButton } from "../LinkButton";
 import { SectionPager } from "./SectionPager";
+import type { PageSizeOption } from "@/constants/paging";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
@@ -43,6 +44,7 @@ import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useStartLibraryScan } from "@/hooks/useStartLibraryScan";
 import { useTargetCollision } from "@/hooks/useTargetCollision";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { formatDateTime, formatDuration, formatFileSize } from "@/helpers/formatHelpers";
 import { toAudiobook } from "@/helpers/audiobookMapping";
@@ -92,7 +94,7 @@ export function DiscoveredAudiobooks() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(25);
+  const [pageSize, setPageSize] = usePageSize();
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [allImportDialogOpen, setAllImportDialogOpen] = useState(false);
 
@@ -433,6 +435,11 @@ export function DiscoveredAudiobooks() {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -866,16 +873,15 @@ export function DiscoveredAudiobooks() {
         </DialogContent>
       </Dialog>
 
-      {totalPages > 1 && (
-        <SectionPager
-          currentPage={page - 1}
-          pageCount={totalPages}
-          totalCount={totalCount}
-          pageSize={pageSize}
-          disabled={loading}
-          onPageChange={(next) => setPage(next + 1)}
-        />
-      )}
+      <SectionPager
+        currentPage={page - 1}
+        pageCount={totalPages}
+        totalCount={totalCount}
+        pageSize={pageSize}
+        disabled={loading}
+        onPageChange={(next) => setPage(next + 1)}
+        onPageSizeChange={handlePageSizeChange}
+      />
     </div>
   );
 }

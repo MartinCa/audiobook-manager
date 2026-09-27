@@ -5735,6 +5735,8 @@ export interface components {
             metadataRefreshDelayMs?: number;
             upcomingReleasesEnabled?: boolean;
             upcomingReleasesCronSchedule?: string | null;
+            /** Format: int32 */
+            defaultPageSize?: number;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -6247,6 +6249,8 @@ export interface components {
             metadataRefreshDelayMs?: number | null;
             upcomingReleasesEnabled?: boolean | null;
             upcomingReleasesCronSchedule?: string | null;
+            /** Format: int32 */
+            defaultPageSize?: number | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

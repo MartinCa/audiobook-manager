@@ -8,11 +8,30 @@
  * for that many rows.
  */
 
-/** Default page size for the main library lists (audiobooks, authors, series, missing tags). */
+/**
+ * Fallback page size used before the library's default-page-size setting has loaded (or for a
+ * caller that doesn't wire up the setting at all). This is a plain 50, not a read of
+ * `PAGE_SIZE_OPTIONS[0]` (20, the migration's own default) - the two can legitimately diverge
+ * (a reordering of `PAGE_SIZE_OPTIONS` must not silently change this fallback), and today they
+ * do: a fresh install's `defaultPageSize` is 20, so a cold page load briefly fetches a 50-row
+ * page under this fallback before re-keying to a 20-row page once the setting resolves. That is
+ * a one-time wasted request and a brief row-count change, not a correctness issue - clamping and
+ * `staleTime` bound it - and is judged not worth changing this shared fallback for, given how
+ * many call sites (and their tests) read "50" as this constant's steady-state value.
+ */
 export const PAGE_SIZE = 50;
 
 /** Rows per page on the browse/search result tabs ("books", "authors", "series"). */
 export const BROWSE_PAGE_SIZE = 20;
+
+/**
+ * The only rows-per-page values the page size dropdown offers, and the only values the backend's
+ * `PUT api/settings/library` accepts for `defaultPageSize` (see `SettingsController.
+ * AllowedPageSizes`) - the two lists must stay in sync.
+ */
+export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
+export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
 
 /** Preview rows each section shows in the combined "all" search tab. */
 export const SEARCH_PREVIEW_LIMIT = 5;

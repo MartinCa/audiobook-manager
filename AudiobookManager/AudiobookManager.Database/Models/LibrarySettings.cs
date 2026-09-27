@@ -49,6 +49,13 @@ public class LibrarySettings
     [Column("upcoming_releases_cron_schedule")]
     public string UpcomingReleasesCronSchedule { get; set; } = "0 3 * * *";
 
+    /// <summary>
+    /// Default rows-per-page for the app's paged lists. One of 20/50/100 - validated by
+    /// <c>SettingsController</c>, not by a database constraint.
+    /// </summary>
+    [Column("default_page_size")]
+    public int DefaultPageSize { get; set; } = 20;
+
     public LibrarySettings() { }
 
     public LibrarySettings(
@@ -57,7 +64,8 @@ public class LibrarySettings
         InitialsPunctuation initialsPunctuation = InitialsPunctuation.Dotted,
         int metadataRefreshDelayMs = 1000,
         bool upcomingReleasesEnabled = true,
-        string upcomingReleasesCronSchedule = "0 3 * * *")
+        string upcomingReleasesCronSchedule = "0 3 * * *",
+        int defaultPageSize = 20)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -65,5 +73,6 @@ public class LibrarySettings
         MetadataRefreshDelayMs = metadataRefreshDelayMs;
         UpcomingReleasesEnabled = upcomingReleasesEnabled;
         UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
+        DefaultPageSize = defaultPageSize;
     }
 }

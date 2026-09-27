@@ -11,6 +11,14 @@ namespace AudiobookManager.Api.Controllers;
 [ApiController]
 public class SettingsController : ControllerBase
 {
+    /// <summary>
+    /// The only rows-per-page values the client's page size dropdown offers. Kept here (rather
+    /// than a shared constant with the frontend) because the frontend has no equivalent
+    /// hardcoded-list ban for this value - unlike languages/scrapers, page size is a fixed,
+    /// small, UI-only choice, not a growing catalog.
+    /// </summary>
+    private static readonly int[] AllowedPageSizes = [20, 50, 100];
+
     private readonly ISettingsService _settingsService;
     private readonly IScheduledTaskService _scheduledTaskService;
 
@@ -120,6 +128,14 @@ public class SettingsController : ControllerBase
                 "(minute hour day month weekday).");
         }
 
+        var defaultPageSize = dto.DefaultPageSize ?? current.DefaultPageSize;
+        if (!AllowedPageSizes.Contains(defaultPageSize))
+        {
+            return this.InvalidRequest(
+                $"'{defaultPageSize}' is not a supported default page size. Use one of: " +
+                $"{string.Join(", ", AllowedPageSizes)}.");
+        }
+
         var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
         {
             InitialsSpacing = parsed,
@@ -127,6 +143,7 @@ public class SettingsController : ControllerBase
             MetadataRefreshDelayMs = delayMs,
             UpcomingReleasesEnabled = upcomingReleasesEnabled,
             UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
+            DefaultPageSize = defaultPageSize,
         });
         return Ok(ToDto(updated));
     }
@@ -146,5 +163,6 @@ public class SettingsController : ControllerBase
             settings.InitialsPunctuation.ToString(),
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
-            settings.UpcomingReleasesCronSchedule);
+            settings.UpcomingReleasesCronSchedule,
+            settings.DefaultPageSize);
 }

@@ -45,6 +45,10 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    // The library list's own historical page size (20) - mocked so usePageSize resolves to it
+    // rather than falling back to the shared 50-row PAGE_SIZE while this query goes unmocked/
+    // errors.
+    getLibrarySettings: vi.fn().mockResolvedValue({ defaultPageSize: 20 }),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),

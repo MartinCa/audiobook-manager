@@ -5,7 +5,7 @@ import { BookMarked, Search, X, RefreshCw, Loader2, Layers, Sparkles } from "luc
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
@@ -20,6 +20,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { Route } from "@/routes/library/series/index";
@@ -119,6 +120,7 @@ export function SeriesOverviewPage() {
   // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
   // page at a time and the pager clamps it; a filter change drops back to page 0.
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
 
   if (prevQ !== q) {
     setPrevQ(q);
@@ -212,17 +214,17 @@ export function SeriesOverviewPage() {
     // that shrank. The pager stays rendered even when such a page comes back empty (its items
     // count on totalCount, not on the items), so the user can page back instead of staring at a
     // dead-end heading - the CleanBookUrls shape.
-    queryKey: queryKeys.series.page(q, page, filters),
+    queryKey: queryKeys.series.page(q, page, pageSize, filters),
     // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
     // doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
-    queryFn: () => seriesApi.getSeriesPage(page, PAGE_SIZE, q, filters),
+    queryFn: () => seriesApi.getSeriesPage(page, pageSize, q, filters),
   });
 
   const seriesList = (pageData?.items ?? []) as SeriesOverview[];
   const totalCount = pageData?.totalCount ?? 0;
 
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree (same fix as LibraryConsistency's pager).
   const currentPage = Math.min(page, pageCount - 1);
@@ -231,6 +233,11 @@ export function SeriesOverviewPage() {
   // the raw page back into range so the next fetch lands on a valid page rather than coming back
   // empty (the pager here stays rendered even for an empty page, and the clamp finishes the job).
   useClampedPage(page, pageCount, setPage);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   useSignalREvent<SeriesRefreshProgressPayload>(SignalREvents.SeriesRefreshProgress, (data) => {
     invalidateSeriesRefresh();
@@ -404,14 +411,14 @@ export function SeriesOverviewPage() {
 
           {/* Stays rendered even if this page comes back empty while the count is non-zero, so the
               user can page back instead of staring at a dead-end heading. Same shape as CleanBookUrls. */}
-          {pageCount > 1 && (
-            <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={totalCount}
-              onPageChange={setPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentPage}
+            pageCount={pageCount}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
 

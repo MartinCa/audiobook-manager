@@ -20,11 +20,12 @@ export type LibrarySettings = Require<
   | "metadataRefreshDelayMs"
   | "upcomingReleasesEnabled"
   | "upcomingReleasesCronSchedule"
+  | "defaultPageSize"
 > & { initialsSpacing: InitialsSpacing; initialsPunctuation: InitialsPunctuation };
 
 // Body of PUT api/settings/library. initialsPunctuation/metadataRefreshDelayMs/
-// upcomingReleasesEnabled/upcomingReleasesCronSchedule are optional on the wire too - an omitted
-// field keeps the stored value rather than resetting it (see
+// upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize are optional on the wire
+// too - an omitted field keeps the stored value rather than resetting it (see
 // SettingsController.UpdateLibrarySettings).
 export type UpdateLibrarySettings = {
   initialsSpacing: InitialsSpacing;
@@ -32,4 +33,5 @@ export type UpdateLibrarySettings = {
   metadataRefreshDelayMs?: number;
   upcomingReleasesEnabled?: boolean;
   upcomingReleasesCronSchedule?: string;
+  defaultPageSize?: number;
 };

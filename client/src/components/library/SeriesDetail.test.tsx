@@ -425,10 +425,15 @@ describe("SeriesDetail", () => {
     await screen.findByText(/Missing Books \(51\)/);
     fireEvent.click(screen.getByRole("button", { name: /Missing Books \(51\)/ }));
 
-    // Page to the last page of the missing section; the owned section has a single row so the
-    // only "Next" button is the missing section's.
+    // Page to the last page of the missing section. The pager now always renders (it also
+    // carries the rows-per-page dropdown), so the owned section's single-row pager is in the DOM
+    // too with its Next button disabled - the missing section's is the only enabled one.
     await screen.findByText(/Book 01/);
-    screen.getByRole("button", { name: "Next" }).click();
+    const enabledNextButtons = screen
+      .getAllByRole("button", { name: "Next" })
+      .filter((b) => !b.hasAttribute("disabled"));
+    expect(enabledNextButtons).toHaveLength(1);
+    enabledNextButtons[0]!.click();
 
     await waitFor(() => {
       const last = getSeriesDetail.mock.calls.at(-1)!;
@@ -910,8 +915,12 @@ describe("SeriesDetail", () => {
     expect(screen.queryByText(/Showing 1–120/)).not.toBeInTheDocument();
 
     // Paging the MISSING section's ignored pager advances only its cursor: the refetch carries
-    // ignoredMissingPage=1 while ignoredUpcomingPage stays 0.
-    const nextButtons = screen.getAllByRole("button", { name: "Next" });
+    // ignoredMissingPage=1 while ignoredUpcomingPage stays 0. The pager now always renders (it
+    // also carries the rows-per-page dropdown), so every other section's single-page pager is in
+    // the DOM too with its Next button disabled - only the two ignored pagers' are enabled.
+    const nextButtons = screen
+      .getAllByRole("button", { name: "Next" })
+      .filter((b) => !b.hasAttribute("disabled"));
     expect(nextButtons).toHaveLength(2);
     nextButtons[0]!.click();
 
@@ -928,8 +937,13 @@ describe("SeriesDetail", () => {
     expect(screen.getAllByText("Showing 51–60 of 60")).toHaveLength(1);
     expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
 
-    // Now the UPCOMING section's pager (still on page 0, the second "Next" in DOM order).
-    screen.getAllByRole("button", { name: "Next" })[1]!.click();
+    // Now the UPCOMING section's pager (still on page 0). The missing-ignored pager's Next is
+    // disabled now (it's on its last page), so the only enabled "Next" left is this one.
+    const remainingNextButtons = screen
+      .getAllByRole("button", { name: "Next" })
+      .filter((b) => !b.hasAttribute("disabled"));
+    expect(remainingNextButtons).toHaveLength(1);
+    remainingNextButtons[0]!.click();
 
     await waitFor(() => {
       const last = getSeriesDetail.mock.calls.at(-1)!;

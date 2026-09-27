@@ -129,11 +129,16 @@ describe("UpcomingReleasesPage", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("button", { name: /next/i })).toBeInTheDocument();
-    expect(screen.getByText(/showing 1–50 of 120/i)).toBeInTheDocument();
+    // The pager itself always renders (disabled until data loads), so wait on the range text -
+    // the thing that only appears once the mocked fetch has actually resolved - rather than on
+    // the Next button, which would resolve immediately and race ahead of the data.
+    expect(await screen.findByText(/showing 1–50 of 120/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /next/i })).toBeInTheDocument();
   });
 
-  it("does not show a pager when everything fits on one page", async () => {
+  it("disables the pager's Next button when everything fits on one page", async () => {
+    // The pager itself always renders (it also carries the rows-per-page dropdown), even with a
+    // single page - only the Previous/Next buttons are clamped disabled.
     vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
       count: 1,
       total: 1,
@@ -143,7 +148,7 @@ describe("UpcomingReleasesPage", () => {
     renderPage();
 
     expect(await screen.findByText("The Stormlight Archive 6")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
   });
 
   // Regression guard: the completion effect fires on the running -> not-running transition of

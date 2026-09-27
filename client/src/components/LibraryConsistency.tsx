@@ -22,10 +22,11 @@ import {
 } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { LinkButton } from "./LinkButton";
+import { SectionPager } from "./library/SectionPager";
 import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
@@ -35,6 +36,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useStartLibraryScan } from "@/hooks/useStartLibraryScan";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import {
   getIssueTypeLabel,
@@ -122,6 +124,7 @@ export function LibraryConsistency() {
   // interaction (opening the resolve dialog, toggling a checkbox) re-render all of them.
   // We render a page at a time and let the user page through.
   const [pageByType, setPageByType] = useState<Record<string, number>>({});
+  const [pageSize, setPageSize] = usePageSize();
 
   // Two levels, because the issues themselves are no longer downloaded whole. The overview is
   // how many issues of each type exist - enough to render the group headers and size each
@@ -143,7 +146,7 @@ export function LibraryConsistency() {
   const totalIssueCount = Object.values(countsByType).reduce((sum, count) => sum + count, 0);
 
   const pageCountFor = (type: string) =>
-    Math.max(1, Math.ceil((countsByType[type] ?? 0) / PAGE_SIZE));
+    Math.max(1, Math.ceil((countsByType[type] ?? 0) / pageSize));
 
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
   // page that is *displayed* can never disagree. They used to: a check that shrank a group while
@@ -154,15 +157,22 @@ export function LibraryConsistency() {
 
   const pageQueries = useQueries({
     queries: issueTypes.map((type) => ({
-      queryKey: queryKeys.consistency.page(type, pageFor(type)),
+      queryKey: queryKeys.consistency.page(type, pageFor(type), pageSize),
       queryFn: () =>
         consistencyApi.getIssues({
           issueType: type,
           page: pageFor(type),
-          pageSize: PAGE_SIZE,
+          pageSize,
         }),
     })),
   });
+
+  // One rows-per-page value shared by every issue-type group - changing it resets every group's
+  // own page cursor back to its first page.
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPageByType({});
+  };
 
   const issuesForType = (type: string): BookConsistencyIssue[] =>
     (pageQueries[issueTypes.indexOf(type)]?.data?.items ?? []) as BookConsistencyIssue[];
@@ -695,32 +705,14 @@ export function LibraryConsistency() {
                           })}
                         </div>
 
-                        {pageCount > 1 && (
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                            <span className="text-muted-foreground text-xs">
-                              Showing {currentPage * PAGE_SIZE + 1}–
-                              {Math.min((currentPage + 1) * PAGE_SIZE, typeCount)} of {typeCount}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={currentPage === 0}
-                                onClick={() => setPage(currentPage - 1)}
-                              >
-                                Previous
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={currentPage >= pageCount - 1}
-                                onClick={() => setPage(currentPage + 1)}
-                              >
-                                Next
-                              </Button>
-                            </div>
-                          </div>
-                        )}
+                        <SectionPager
+                          currentPage={currentPage}
+                          pageCount={pageCount}
+                          totalCount={typeCount}
+                          pageSize={pageSize}
+                          onPageChange={setPage}
+                          onPageSizeChange={handlePageSizeChange}
+                        />
                       </div>
                     </AccordionContent>
                   </AccordionItem>

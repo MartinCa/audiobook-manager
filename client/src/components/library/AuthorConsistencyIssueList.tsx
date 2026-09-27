@@ -3,12 +3,13 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { SectionPager } from "./SectionPager";
 import { browseApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import type { AuthorConsistencyIssue } from "@/types/AuthorConsistencyIssue";
 
@@ -23,12 +24,13 @@ import type { AuthorConsistencyIssue } from "@/types/AuthorConsistencyIssue";
 export function AuthorConsistencyIssueList() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
   const [retryingAuthorId, setRetryingAuthorId] = useState<number | null>(null);
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: queryKeys.authorConsistencyIssues.page(page),
+    queryKey: queryKeys.authorConsistencyIssues.page(page, pageSize),
     placeholderData: keepPreviousData,
-    queryFn: () => browseApi.getAuthorConsistencyIssuesPage(page, PAGE_SIZE),
+    queryFn: () => browseApi.getAuthorConsistencyIssuesPage(page, pageSize),
   });
 
   const retryMutation = useMutation({
@@ -50,8 +52,13 @@ export function AuthorConsistencyIssueList() {
 
   const totalCount = pageData?.totalCount ?? 0;
   const items = (pageData?.items ?? []) as AuthorConsistencyIssue[];
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   if (!isLoading && totalCount === 0) {
     // No dedicated empty-state card, matching SeriesConsistencyIssueList: an empty list here is
@@ -99,14 +106,14 @@ export function AuthorConsistencyIssueList() {
             </Card>
           ))}
 
-          {pageCount > 1 && (
-            <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={totalCount}
-              onPageChange={setPage}
-            />
-          )}
+          <SectionPager
+            currentPage={currentPage}
+            pageCount={pageCount}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
     </div>

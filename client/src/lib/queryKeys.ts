@@ -24,8 +24,12 @@ export const queryKeys = {
 
   metadataRefresh: {
     all: () => ["metadataRefresh"] as const,
-    pendingPage: (page: number, fields?: readonly string[], sources?: readonly string[]) =>
-      ["metadataRefresh", "pending", page, fields ?? [], sources ?? []] as const,
+    pendingPage: (
+      page: number,
+      pageSize: number,
+      fields?: readonly string[],
+      sources?: readonly string[],
+    ) => ["metadataRefresh", "pending", page, pageSize, fields ?? [], sources ?? []] as const,
     pendingForBook: (id: number) => ["metadataRefresh", "pending", id] as const,
     // No useQuery ever keys on this - getPendingSummary() is called directly - but BookDetail
     // invalidates it anyway so a future query keyed here would pick up the change for free.
@@ -34,8 +38,10 @@ export const queryKeys = {
 
   pendingOnlineMatch: {
     all: () => ["pendingOnlineMatch"] as const,
-    pendingPage: (page: number) => ["pendingOnlineMatch", "pending", page] as const,
-    failedPage: (page: number) => ["pendingOnlineMatch", "failed", page] as const,
+    pendingPage: (page: number, pageSize: number) =>
+      ["pendingOnlineMatch", "pending", page, pageSize] as const,
+    failedPage: (page: number, pageSize: number) =>
+      ["pendingOnlineMatch", "failed", page, pageSize] as const,
   },
 
   librarySettings: () => ["librarySettings"] as const,
@@ -49,7 +55,8 @@ export const queryKeys = {
   consistency: {
     all: () => ["consistency"] as const,
     overview: () => ["consistency", "overview"] as const,
-    page: (issueType: string, page: number) => ["consistency", "page", issueType, page] as const,
+    page: (issueType: string, page: number, pageSize: number) =>
+      ["consistency", "page", issueType, page, pageSize] as const,
     // Issue count per audiobook id, for OwnedBookList's badges - shared across every owned-book
     // list (Bug 8 unification) rather than folded into each surface's own page query.
     issueSummary: () => ["consistency", "issueSummary"] as const,
@@ -65,7 +72,8 @@ export const queryKeys = {
 
   similarValues: {
     all: () => ["similarValues"] as const,
-    page: (tab: string, page: number) => ["similarValues", tab, page] as const,
+    page: (tab: string, page: number, pageSize: number) =>
+      ["similarValues", tab, page, pageSize] as const,
     ignoredPairs: (tab: string) => ["similarValues", "ignoredPairs", tab] as const,
   },
 
@@ -78,6 +86,7 @@ export const queryKeys = {
       seriesPage: number,
       standalonePage: number,
       missingSeriesPage: number,
+      pageSize: number,
       standaloneSearch: string = "",
       standaloneFilters: BookListFilters = {},
     ) =>
@@ -87,6 +96,7 @@ export const queryKeys = {
         seriesPage,
         standalonePage,
         missingSeriesPage,
+        pageSize,
         standaloneSearch,
         standaloneFilters,
       ] as const,
@@ -98,8 +108,8 @@ export const queryKeys = {
     all: () => ["authors"] as const,
     // filters is included as a plain object - TanStack Query hashes query keys deeply, so two
     // different filter combinations (or none) never share a cache entry.
-    page: (q: string, page: number, filters: AuthorListFilters) =>
-      ["authors", q, page, filters] as const,
+    page: (q: string, page: number, pageSize: number, filters: AuthorListFilters) =>
+      ["authors", q, page, pageSize, filters] as const,
   },
 
   missingBookCandidates: (
@@ -126,6 +136,7 @@ export const queryKeys = {
       partMismatchPage: number,
       upcomingPage: number,
       ignoredUpcomingPage: number,
+      pageSize: number,
       ownedSearch: string = "",
       ownedFilters: BookListFilters = {},
     ) =>
@@ -139,6 +150,7 @@ export const queryKeys = {
         partMismatchPage,
         upcomingPage,
         ignoredUpcomingPage,
+        pageSize,
         ownedSearch,
         ownedFilters,
       ] as const,
@@ -148,9 +160,9 @@ export const queryKeys = {
 
   series: {
     all: () => ["series"] as const,
-    page: (q: string, page: number, filters: SeriesListFilters) =>
-      ["series", q, page, filters] as const,
-    unmatched: (page: number) => ["series", "unmatched", page] as const,
+    page: (q: string, page: number, pageSize: number, filters: SeriesListFilters) =>
+      ["series", q, page, pageSize, filters] as const,
+    unmatched: (page: number, pageSize: number) => ["series", "unmatched", page, pageSize] as const,
   },
 
   discoveredAudiobooks: {
@@ -164,18 +176,20 @@ export const queryKeys = {
   seriesPending: {
     all: () => ["seriesPending"] as const,
     bySeries: (seriesName: string) => ["seriesPending", seriesName] as const,
-    page: (page: number) => ["seriesPending", "page", page] as const,
+    page: (page: number, pageSize: number) => ["seriesPending", "page", page, pageSize] as const,
     count: () => ["seriesPending", "count"] as const,
   },
 
   seriesConsistencyIssues: {
     all: () => ["seriesConsistencyIssues"] as const,
-    page: (page: number) => ["seriesConsistencyIssues", "page", page] as const,
+    page: (page: number, pageSize: number) =>
+      ["seriesConsistencyIssues", "page", page, pageSize] as const,
   },
 
   authorConsistencyIssues: {
     all: () => ["authorConsistencyIssues"] as const,
-    page: (page: number) => ["authorConsistencyIssues", "page", page] as const,
+    page: (page: number, pageSize: number) =>
+      ["authorConsistencyIssues", "page", page, pageSize] as const,
   },
 
   bookDetail: (id: number) => ["bookDetail", id] as const,
@@ -184,14 +198,19 @@ export const queryKeys = {
 
   missingTagsAudiobooks: {
     all: () => ["missingTagsAudiobooks"] as const,
-    page: (selectedFields: string[], page: number, search: string, filters: BookListFilters) =>
-      ["missingTagsAudiobooks", selectedFields, page, search, filters] as const,
+    page: (
+      selectedFields: string[],
+      page: number,
+      pageSize: number,
+      search: string,
+      filters: BookListFilters,
+    ) => ["missingTagsAudiobooks", selectedFields, page, pageSize, search, filters] as const,
   },
 
   languageBackfillStatus: () => ["languageBackfillStatus"] as const,
 
-  seriesBulkMissingCandidates: (seriesName: string, page: number) =>
-    ["seriesBulkMissingCandidates", seriesName, page] as const,
+  seriesBulkMissingCandidates: (seriesName: string, page: number, pageSize: number) =>
+    ["seriesBulkMissingCandidates", seriesName, page, pageSize] as const,
 
   untaggedBooks: {
     all: () => ["untaggedBooks"] as const,
@@ -223,7 +242,7 @@ export const queryKeys = {
 
   urlCleanup: {
     all: () => ["urlCleanup"] as const,
-    page: (page: number) => ["urlCleanup", "page", page] as const,
+    page: (page: number, pageSize: number) => ["urlCleanup", "page", page, pageSize] as const,
   },
 
   // The filesystem-path parse behind the organize flow - not the audiobook-id detail page above.
@@ -242,8 +261,12 @@ export const queryKeys = {
 
   upcomingReleases: {
     all: () => ["upcomingReleases"] as const,
-    page: (authorId: number | undefined, seriesId: number | undefined, page: number) =>
-      ["upcomingReleases", authorId, seriesId, page] as const,
+    page: (
+      authorId: number | undefined,
+      seriesId: number | undefined,
+      page: number,
+      pageSize: number,
+    ) => ["upcomingReleases", authorId, seriesId, page, pageSize] as const,
   },
 
   upcomingReleasesRefreshStatus: () => ["upcomingReleasesRefreshStatus"] as const,

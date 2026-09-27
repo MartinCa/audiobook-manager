@@ -16,17 +16,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { PAGE_SIZE } from "@/constants/paging";
+import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { IgnoredSimilarValuesDialog } from "./IgnoredSimilarValuesDialog";
 import { OperationProgressBar } from "./OperationProgressBar";
+import { SectionPager } from "./library/SectionPager";
 import { similarValuesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { SimilarValueGroup } from "@/types/SimilarValue";
@@ -56,6 +58,7 @@ export function SimilarValues() {
   // distinct-value set per request (detection is stateless by design), but only the requested
   // page - with per-candidate book counts, not book lists - crosses the wire.
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = usePageSize();
 
   // Operation progress
   const [aligning, setAligning] = useState(false);
@@ -66,22 +69,27 @@ export function SimilarValues() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.similarValues.page(activeTab, page),
+    queryKey: queryKeys.similarValues.page(activeTab, page, pageSize),
     placeholderData: keepPreviousData,
     queryFn: () =>
       activeTab === "author"
-        ? similarValuesApi.getSimilarAuthors(page, PAGE_SIZE)
-        : similarValuesApi.getSimilarSeries(page, PAGE_SIZE),
+        ? similarValuesApi.getSimilarAuthors(page, pageSize)
+        : similarValuesApi.getSimilarSeries(page, pageSize),
   });
 
   const groups = (pageData?.items ?? []) as SimilarValueGroup[];
   const totalCount = pageData?.totalCount ?? 0;
-  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
 
   // An alignment folds groups together, shrinking the total while the user may sit on a later
   // page; pull the raw page back into range so the next fetch lands on a valid page.
   useClampedPage(page, pageCount, setPage);
+
+  const handlePageSizeChange = (size: PageSizeOption) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   // Recover from a missed alignment (started elsewhere, or events missed while disconnected)
   // on mount and after a SignalR reconnect, rather than looking idle while one is still running.
@@ -241,14 +249,14 @@ export function SimilarValues() {
           {/* The index bases on the whole detection result, but only the current page renders. */}
           {groups.map((group, index) => (
             <Card
-              key={`${currentPage * PAGE_SIZE + index + 1}-${group.candidates[0]?.value ?? ""}`}
+              key={`${currentPage * pageSize + index + 1}-${group.candidates[0]?.value ?? ""}`}
               className="p-4"
             >
               <CardContent className="p-0">
                 <div className="border-border flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-foreground text-sm font-semibold">
-                      Group #{currentPage * PAGE_SIZE + index + 1}
+                      Group #{currentPage * pageSize + index + 1}
                     </span>
                     <Badge variant="outline">{group.candidates.length} variants</Badge>
                   </div>
@@ -316,32 +324,14 @@ export function SimilarValues() {
             </Card>
           ))}
 
-          {pageCount > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <span className="text-muted-foreground text-xs">
-                Showing {currentPage * PAGE_SIZE + 1}–
-                {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of {totalCount} groups
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage === 0}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage >= pageCount - 1}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
+          <SectionPager
+            currentPage={currentPage}
+            pageCount={pageCount}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       )}
 

@@ -6,7 +6,7 @@ describe("queryKeys", () => {
     it("keeps every narrower variant a literal prefix of the detail key, in order", () => {
       const seriesName = "Some Series";
       const authorId = 7;
-      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4, 5);
+      const detail = queryKeys.seriesDetail.detail(seriesName, authorId, 0, 1, 2, 3, 4, 5, 50);
 
       expect(queryKeys.seriesDetail.bySeries(seriesName)).toEqual(detail.slice(0, 2));
       expect(queryKeys.seriesDetail.byAuthor(seriesName, authorId)).toEqual(detail.slice(0, 3));
@@ -36,6 +36,7 @@ describe("queryKeys", () => {
         partMismatchPage,
         upcomingPage,
         ignoredUpcomingPage,
+        50,
       );
       const invalidationKey = queryKeys.seriesDetail.byAuthor(seriesName, authorId);
 
@@ -53,14 +54,14 @@ describe("queryKeys", () => {
 
   describe("series/seriesCounts/seriesPending family shapes", () => {
     it("keeps series.page and series.unmatched both prefixed by series.all", () => {
-      expect(queryKeys.series.page("query", 1, {}).slice(0, 1)).toEqual(queryKeys.series.all());
-      expect(queryKeys.series.unmatched(1).slice(0, 1)).toEqual(queryKeys.series.all());
+      expect(queryKeys.series.page("query", 1, 50, {}).slice(0, 1)).toEqual(queryKeys.series.all());
+      expect(queryKeys.series.unmatched(1, 50).slice(0, 1)).toEqual(queryKeys.series.all());
     });
 
     it("keeps every seriesPending variant prefixed by seriesPending.all", () => {
       const all = queryKeys.seriesPending.all();
       expect(queryKeys.seriesPending.bySeries("A Series").slice(0, all.length)).toEqual(all);
-      expect(queryKeys.seriesPending.page(1).slice(0, all.length)).toEqual(all);
+      expect(queryKeys.seriesPending.page(1, 50).slice(0, all.length)).toEqual(all);
       expect(queryKeys.seriesPending.count().slice(0, all.length)).toEqual(all);
     });
   });
@@ -75,7 +76,7 @@ describe("queryKeys", () => {
       expect(queryKeys.author.all()).not.toEqual(queryKeys.authors.all());
       // authors.all() must not be a prefix of an author.detail() key, or invalidating the
       // authors list would also invalidate every open author-detail page.
-      const detail = queryKeys.author.detail(1, 0, 0, 0);
+      const detail = queryKeys.author.detail(1, 0, 0, 0, 50);
       expect(detail.slice(0, 1)).not.toEqual(queryKeys.authors.all());
     });
   });
@@ -93,7 +94,7 @@ describe("queryKeys", () => {
   describe("metadataRefresh", () => {
     it("keeps pendingPage and pendingForBook both prefixed by all(), for the same page/id space", () => {
       const all = queryKeys.metadataRefresh.all();
-      expect(queryKeys.metadataRefresh.pendingPage(1).slice(0, all.length)).toEqual(all);
+      expect(queryKeys.metadataRefresh.pendingPage(1, 50).slice(0, all.length)).toEqual(all);
       expect(queryKeys.metadataRefresh.pendingForBook(42).slice(0, all.length)).toEqual(all);
     });
   });
