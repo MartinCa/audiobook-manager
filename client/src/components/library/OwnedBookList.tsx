@@ -367,15 +367,21 @@ export function OwnedBookList({
 
       <BookBulkActionBar selection={selection} />
 
-      <SectionPager
-        currentPage={page}
-        pageCount={pageCount}
-        totalCount={totalCount}
-        pageSize={pageSize}
-        disabled={pagerDisabled}
-        onPageChange={onPageChange}
-        onPageSizeChange={onPageSizeChange}
-      />
+      {/* totalCount (not books.length) gates this: a page that comes back empty while the scope
+          still holds rows elsewhere (a shrink mid-view) must keep the pager so the user can page
+          back, but a genuinely empty scope must not show a degenerate "Showing 1-0 of 0" pager
+          next to the emptyState above. */}
+      {totalCount > 0 && (
+        <SectionPager
+          currentPage={page}
+          pageCount={pageCount}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          disabled={pagerDisabled}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
+      )}
     </div>
   );
 }

@@ -8,10 +8,10 @@ interface SectionPagerProps {
   totalCount: number;
   onPageChange: (page: number) => void;
   /**
-   * Rows per page, for the "Showing X–Y of Z" range. Defaults to the shared library `PAGE_SIZE`
-   * (50), which is what every series/author detail section and the series/authors overview lists
-   * page at. A surface paging at a different size (e.g. the 20-row browse/search tabs) passes its
-   * own value so the displayed range stays accurate.
+   * Rows per page, for the "Showing X–Y of Z" range. Every real caller passes this explicitly
+   * (from the shared `usePageSize` hook, or a fixed value for the few dialog pagers that don't use
+   * it) - the `PAGE_SIZE` default below only covers a caller that forgets to, so the range at
+   * least stays internally consistent rather than silently reading 0.
    */
   pageSize?: number;
   /**

@@ -10,9 +10,14 @@
 
 /**
  * Fallback page size used before the library's default-page-size setting has loaded (or for a
- * caller that doesn't wire up the setting at all). Kept distinct from `PAGE_SIZE_OPTIONS[0]` only
- * in spirit - they happen to be the same value - so a change to the option list doesn't silently
- * change this fallback.
+ * caller that doesn't wire up the setting at all). This is a plain 50, not a read of
+ * `PAGE_SIZE_OPTIONS[0]` (20, the migration's own default) - the two can legitimately diverge
+ * (a reordering of `PAGE_SIZE_OPTIONS` must not silently change this fallback), and today they
+ * do: a fresh install's `defaultPageSize` is 20, so a cold page load briefly fetches a 50-row
+ * page under this fallback before re-keying to a 20-row page once the setting resolves. That is
+ * a one-time wasted request and a brief row-count change, not a correctness issue - clamping and
+ * `staleTime` bound it - and is judged not worth changing this shared fallback for, given how
+ * many call sites (and their tests) read "50" as this constant's steady-state value.
  */
 export const PAGE_SIZE = 50;
 

@@ -189,6 +189,18 @@ describe("OwnedBookList", () => {
     expect(screen.getByText("No books.")).toBeInTheDocument();
   });
 
+  // Regression: the pager renders unconditionally now (so its rows-per-page dropdown stays
+  // reachable on a single-page list), but a genuinely empty scope (totalCount 0) must not show a
+  // degenerate "Showing 1-0 of 0" pager next to the empty-state card.
+  it("does not render the pager when the scope is genuinely empty", () => {
+    renderList({ books: [], totalCount: 0 });
+
+    // The header's own "Showing N of M {itemNoun}" line still renders - only the pager (with its
+    // "Showing X-Y of Z" range and Previous/Next) must be absent.
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+  });
+
   it("shows a loading skeleton instead of the empty state while loading with no rows yet", () => {
     renderList({ books: [], totalCount: 0, loading: true });
 
