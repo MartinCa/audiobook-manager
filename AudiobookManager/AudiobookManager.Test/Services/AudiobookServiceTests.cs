@@ -1055,7 +1055,7 @@ public class AudiobookServiceTests
                 l => l.Log(
                     LogLevel.Information,
                     It.IsAny<EventId>(),
-                    It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Deleting audiobook 10")),
+                    It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Deleting audiobook 10")),
                     It.IsAny<Exception?>(),
                     It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.Once);
@@ -1094,7 +1094,7 @@ public class AudiobookServiceTests
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Added audiobook 77")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Added audiobook 77")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
