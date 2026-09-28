@@ -140,7 +140,7 @@ public class FilesControllerTests
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Delete directory requested for path '/path'")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Delete directory requested for path '/path'")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);

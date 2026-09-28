@@ -581,7 +581,7 @@ public class AudiobookControllerTests
 
             await WaitUntilAsync(
                 () => _audiobookService.Invocations.Any(i =>
-                    i.Method.Name == nameof(IAudiobookService.UpdateAudiobook) && (long)i.Arguments[0] == 103L),
+                    i.Method.Name == nameof(IAudiobookService.UpdateAudiobook) && (long)i.Arguments[0]! == 103L),
                 TimeSpan.FromSeconds(5));
         }
         finally
@@ -715,7 +715,7 @@ public class AudiobookControllerTests
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Delete audiobook requested for id 1")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Delete audiobook requested for id 1")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
