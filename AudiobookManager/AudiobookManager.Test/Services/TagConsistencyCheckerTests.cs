@@ -116,4 +116,28 @@ public class TagConsistencyCheckerTests
         Assert.AreEqual("English", mismatches[0].Expected);
         Assert.AreEqual("German", mismatches[0].Actual);
     }
+
+    [TestMethod]
+    public void FindMismatches_DifferentQualifiers_AreReportedAsAQualifiersDifference()
+    {
+        var requested = MakeBook();
+        requested.Qualifiers = new List<string> { "dramatized" };
+        var readBack = MakeBook();
+
+        var mismatches = TagConsistencyChecker.FindMismatches(requested, readBack);
+
+        Assert.AreEqual(1, mismatches.Count);
+        Assert.AreEqual(("Qualifiers", "Dramatized", ""), mismatches[0]);
+    }
+
+    [TestMethod]
+    public void FindMismatches_SameQualifiersInADifferentOrder_AreNotAMismatch()
+    {
+        var requested = MakeBook();
+        requested.Qualifiers = new List<string> { "dramatized", "abridged" };
+        var readBack = MakeBook();
+        readBack.Qualifiers = new List<string> { "abridged", "dramatized" };
+
+        Assert.AreEqual(0, TagConsistencyChecker.FindMismatches(requested, readBack).Count);
+    }
 }

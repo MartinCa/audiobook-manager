@@ -21,6 +21,12 @@ export interface Audiobook {
   subtitle?: string;
   series?: string;
   seriesPart?: string;
+  /**
+   * Keys of the book's qualifiers (abridged, dramatized, ...). `bookName` and `series` above are
+   * always the clean values - the suffixes are added when the book is written to disk. Missing
+   * means none.
+   */
+  qualifiers?: string[];
   year?: number;
   genres: string[];
   description?: string;

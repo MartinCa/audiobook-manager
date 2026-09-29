@@ -148,7 +148,7 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         var metadata = new XElement(_opfNamespace + "metadata",
             new XAttribute(XNamespace.Xmlns + "dc", _dcNamespace),
             new XAttribute(XNamespace.Xmlns + "opf", _opfNamespace),
-            new XElement(_dcNamespace + "title", XmlSafe(audiobook.BookName ?? "")));
+            new XElement(_dcNamespace + "title", XmlSafe(audiobook.EffectiveBookName ?? "")));
 
         foreach (var author in audiobook.Authors)
         {
@@ -200,7 +200,7 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         {
             metadata.Add(new XElement(_opfNamespace + "meta",
                 new XAttribute("name", "calibre:series"),
-                new XAttribute("content", XmlSafe(audiobook.Series!))));
+                new XAttribute("content", XmlSafe(audiobook.EffectiveSeries!))));
 
             if (!string.IsNullOrEmpty(audiobook.SeriesPart))
             {
@@ -355,22 +355,26 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             throw new ArgumentNullException(nameof(audiobook), "FileInfo is null");
         }
 
-        var fileName = $"{audiobook.Year} - {audiobook.BookName}";
+        // The path carries the qualifier suffixes, like every other thing written to disk.
+        var bookName = audiobook.EffectiveBookName;
+        var series = audiobook.EffectiveSeries;
+
+        var fileName = $"{audiobook.Year} - {bookName}";
 
         var pathParts = new List<string>();
         pathParts.Add(AudiobookTagHandler.GetStringFromListOfPersons(audiobook.Authors));
-        if (!string.IsNullOrEmpty(audiobook.Series))
+        if (!string.IsNullOrEmpty(series))
         {
-            pathParts.Add(audiobook.Series);
+            pathParts.Add(series);
             var seriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $" {AudiobookTagHandler.PadSeriesPart(audiobook.SeriesPart)}" : "";
             var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book{seriesPart} - " : "";
-            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {audiobook.BookName}");
+            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {bookName}");
 
-            fileName = $"{audiobook.Series}{seriesPart} - {fileName}";
+            fileName = $"{series}{seriesPart} - {fileName}";
         }
         else
         {
-            pathParts.Add($"{audiobook.Year} - {audiobook.BookName}");
+            pathParts.Add($"{audiobook.Year} - {bookName}");
         }
 
         return CombinePathAndFilename(pathParts, fileName, Path.GetExtension(audiobook.FileInfo.FullPath));

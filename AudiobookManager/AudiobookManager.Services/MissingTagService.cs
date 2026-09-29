@@ -123,7 +123,8 @@ public class MissingTagService : IMissingTagService
                 r.Row.DurationInSeconds,
                 r.Row.IsMatched,
                 r.Row.MatchedSourceName,
-                r.Missing))
+                r.Missing,
+                AudiobookManager.Database.Models.QualifierColumn.Parse(r.Row.Qualifiers)))
             .ToList();
 
         return (results, total);

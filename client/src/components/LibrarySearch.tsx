@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X, BookOpen, Users, BookMarked, Loader2 } from "lucide-react";
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { Input } from "@/components/ui/input";
 import { TYPEAHEAD_LIMIT } from "@/constants/paging";
 import { browseApi } from "@/services/api";
@@ -109,6 +110,7 @@ export function LibrarySearch() {
                   <BookOpen className="text-primary h-3.5 w-3.5 shrink-0" />
                   <div className="truncate">
                     <span className="text-foreground font-medium">{b.bookName}</span>
+                    <BookQualifierBadges qualifiers={b.qualifiers} className="ml-1" />
                     {b.authors.length > 0 && (
                       <span className="text-muted-foreground">
                         {" "}

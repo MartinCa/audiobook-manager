@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -661,6 +662,10 @@ export function LibraryConsistency() {
                                     >
                                       {issue.authors.join(", ")} &mdash; {issue.bookName}
                                     </Link>
+                                    <BookQualifierBadges
+                                      qualifiers={issue.qualifiers}
+                                      className="ml-2"
+                                    />
                                     <p className="text-muted-foreground text-xs break-words">
                                       {issue.description}
                                     </p>

@@ -17,4 +17,6 @@ public record SeriesOwnedBookRow(
     int? DurationInSeconds,
     string? CoverFilePath,
     bool IsMatched = false,
-    string? MatchedSourceName = null);
+    string? MatchedSourceName = null,
+    // The raw qualifiers column (see QualifierColumn) - parsed by the mapping layer.
+    string Qualifiers = "");

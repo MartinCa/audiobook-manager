@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useState, useMemo } from "react";
 import type { TagMismatchField } from "@/types/TagMismatchField";
 import { STRUCTURAL_FIELDS } from "@/types/TagMismatchField";
@@ -107,6 +108,7 @@ export function TagMismatchResolveDialog({
           <p className="text-muted-foreground">
             Choose which value to keep for each differing field. Each row offers the value in the
             library ({issue?.bookName ?? ""}
+            <BookQualifierBadges qualifiers={issue?.qualifiers} className="mx-1" />
             &rsquo;s metadata) and the value embedded in the file&rsquo;s tags.
           </p>
 

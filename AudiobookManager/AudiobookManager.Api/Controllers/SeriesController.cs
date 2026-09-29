@@ -238,7 +238,7 @@ public class SeriesController : ControllerBase
             SeriesOverviewMapper.ToDto(detail.Overview),
             new SeriesOwnedBookPageDto(detail.OwnedBooks.Select(b => new SeriesOwnedBookDto(
                 b.Id, b.BookName, b.SeriesPart, b.Year, b.Authors, b.Narrators, b.DurationInSeconds, b.CoverFilePath,
-                b.IsMatched, b.MatchedSourceName)).ToList(), detail.OwnedBookTotal),
+                b.IsMatched, b.MatchedSourceName, b.Qualifiers)).ToList(), detail.OwnedBookTotal),
             new SeriesExpectedBookPageDto(detail.MissingBooks.Select(ToDto).ToList(), detail.MissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredMissingBooks.Select(ToDto).ToList(), detail.IgnoredMissingBookTotal),
             new SeriesExpectedBookPageDto(detail.IgnoredUpcomingBooks.Select(ToDto).ToList(), detail.IgnoredUpcomingBookTotal),

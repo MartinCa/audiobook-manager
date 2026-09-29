@@ -16,6 +16,9 @@ export const queryKeys = {
 
   languages: () => ["languages"] as const,
 
+  // The supported book qualifiers (abridged, dramatized, ...) - see BookQualifiers on the backend.
+  bookQualifiers: () => ["bookQualifiers"] as const,
+
   // The book/author/series source filter dropdown options (registered scrapers) plus the book
   // list's genre/language filter options - see BrowseController.GetFilterOptions.
   browseFilterOptions: () => ["browseFilterOptions"] as const,
@@ -222,8 +225,12 @@ export const queryKeys = {
     page: (page: number, pageSize: number) => ["untaggedBooks", page, pageSize] as const,
   },
 
-  seriesPartConflicts: (bookId: number | undefined, series: string, part: string) =>
-    ["seriesPartConflicts", bookId, series, part] as const,
+  seriesPartConflicts: (
+    bookId: number | undefined,
+    series: string,
+    part: string,
+    qualifiers = "",
+  ) => ["seriesPartConflicts", bookId, series, part, qualifiers] as const,
 
   searchResults: {
     // filters (Bug 8 unification) defaults to {} so existing call sites that page/limit/offset

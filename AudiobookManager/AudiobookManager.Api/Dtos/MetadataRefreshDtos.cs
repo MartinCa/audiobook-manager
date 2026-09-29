@@ -46,7 +46,8 @@ public record PendingMetadataRefreshListItemDto(
     IReadOnlyList<string> Authors,
     DateTime FetchedAt,
     string SourceName,
-    IReadOnlyList<string> ChangedFields);
+    IReadOnlyList<string> ChangedFields,
+    List<string>? Qualifiers = null);
 
 /// <summary>A page of the pending-refresh list (bounded; server-side paged).</summary>
 public record PendingMetadataRefreshPageDto(IReadOnlyList<PendingMetadataRefreshListItemDto> Items, int Total);

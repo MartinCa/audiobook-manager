@@ -11,6 +11,7 @@ import {
   Pencil,
   Search,
 } from "lucide-react";
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
@@ -394,6 +395,7 @@ export function BookDetail({ mode }: BookDetailProps) {
         <div className="min-w-0 flex-1">
           <h1 className="text-foreground text-2xl font-bold break-words">
             {bookDetail.authors.join(", ")} &mdash; {bookDetail.bookName}
+            <BookQualifierBadges qualifiers={bookDetail.qualifiers} className="ml-2" />
           </h1>
           <p className="text-muted-foreground text-sm">
             {isEditMode ? "Edit metadata and examine audio file properties." : "Audiobook details."}
@@ -591,6 +593,14 @@ export function BookDetail({ mode }: BookDetailProps) {
                   </DetailRow>
 
                   <DetailRow label="Book name">{bookDetail.bookName}</DetailRow>
+
+                  <DetailRow label="Qualifiers">
+                    {(bookDetail.qualifiers ?? []).length > 0 ? (
+                      <BookQualifierBadges qualifiers={bookDetail.qualifiers} />
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
+                    )}
+                  </DetailRow>
 
                   <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
 

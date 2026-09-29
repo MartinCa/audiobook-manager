@@ -54,6 +54,18 @@ describe("api service mappings and contracts", () => {
       expect(replaceDto.replaceExisting).toBe(true);
     });
 
+    it("sends the qualifiers on save and on the path preview, and an empty list when there are none", () => {
+      // The suffixes are added server-side; the client sends the clean name plus the keys.
+      const withQualifiers = { ...sampleAudiobook, qualifiers: ["abridged", "dramatized"] };
+      expect(toAudiobookDto(withQualifiers).qualifiers).toEqual(["abridged", "dramatized"]);
+      expect(toAudiobookDto(withQualifiers).bookName).toBe("The Way of Kings");
+      // The preview endpoints read them too - the generated path carries the suffixes.
+      expect(toPathPreviewDto(withQualifiers).qualifiers).toEqual(["abridged", "dramatized"]);
+
+      expect(toAudiobookDto(sampleAudiobook).qualifiers).toEqual([]);
+      expect(toPathPreviewDto(sampleAudiobook).qualifiers).toEqual([]);
+    });
+
     it("forwards the one-shot metadataAppliedFromSearch signal only when set", () => {
       // Default (a save that carried no applied search result) must send false explicitly - the
       // backend's DTO default is false anyway, but sending the field keeps the contract visible.

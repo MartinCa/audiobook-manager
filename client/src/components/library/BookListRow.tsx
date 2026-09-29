@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight, Clock, Library, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { MatchSourceBadge } from "./MatchSourceBadge";
 import { browseApi } from "@/services/api";
 import { formatDuration } from "@/helpers/formatHelpers";
@@ -80,6 +81,7 @@ export function BookListRow({
               {book.year ? (
                 <span className="text-muted-foreground text-xs">({book.year})</span>
               ) : null}
+              <BookQualifierBadges qualifiers={book.qualifiers} />
               <MatchSourceBadge
                 isMatched={book.isMatched}
                 matchedSourceName={book.matchedSourceName}

@@ -97,6 +97,7 @@ public class SeriesOwnedBook
     public string? CoverFilePath { get; set; }
     public bool IsMatched { get; set; }
     public string? MatchedSourceName { get; set; }
+    public List<string> Qualifiers { get; set; } = new();
 }
 
 public class SeriesExpectedBookInfo

@@ -89,7 +89,8 @@ public class MissingTagsController : ControllerBase
                     r.DurationInSeconds,
                     r.IsMatched,
                     r.MatchedSourceName,
-                    r.MissingFields))
+                    r.MissingFields,
+                    r.Qualifiers))
                 .ToList(),
             totalCount));
     }

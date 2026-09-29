@@ -46,7 +46,7 @@ public class AudiobookRepositoryOrderingTests
 
     private async Task SeedAsync(
         string bookName, string? series, Person? author = null, string? seriesPart = null,
-        int? durationInSeconds = null, string? www = null)
+        int? durationInSeconds = null, string? www = null, string qualifiers = "")
     {
         _defaultAuthor ??= new Person(default, "An Author");
 
@@ -55,7 +55,8 @@ public class AudiobookRepositoryOrderingTests
             null, null, null, null, null, null, www, null, durationInSeconds,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000)
         {
-            Authors = new List<Person> { author ?? _defaultAuthor }
+            Authors = new List<Person> { author ?? _defaultAuthor },
+            Qualifiers = qualifiers
         };
 
         await _repository.InsertAudiobook(audiobook);
@@ -283,7 +284,7 @@ public class AudiobookRepositoryOrderingTests
         await SeedAsync("Book C", "Wheel of Time", seriesPart: "Book 2");
 
         var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
-            "Wheel of Time", excludeAudiobookId: 999_999, "BOOK 1", limit: 10);
+            "Wheel of Time", excludeAudiobookId: 999_999, "BOOK 1", qualifiers: "", limit: 10);
 
         Assert.IsFalse(truncated);
         CollectionAssert.AreEqual(
@@ -315,7 +316,7 @@ public async Task GetSeriesPartConflictCandidatesAsync_EquivalenceAppliedInSql_E
         await SeedAsync("Different Series", "Other Series", seriesPart: "1");
 
         var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
-            "Mistborn", current.Id, "1", limit: 10);
+            "Mistborn", current.Id, "1", qualifiers: "", limit: 10);
 
         Assert.IsFalse(truncated);
         CollectionAssert.AreEqual(
@@ -334,9 +335,27 @@ public async Task GetSeriesPartConflictCandidatesAsync_MoreConflictsThanTheCap_R
         await SeedAsync("Delta", "Mistborn", seriesPart: "1");
 
         var (rows, truncated) = await _repository.GetSeriesPartConflictCandidatesAsync(
-            "Mistborn", excludeAudiobookId: 999_999, "1", limit: 2);
+            "Mistborn", excludeAudiobookId: 999_999, "1", qualifiers: "", limit: 2);
 
         Assert.AreEqual(2, rows.Count, "the result is bounded");
         Assert.IsTrue(truncated, "the caller must be told more conflicts exist than the cap carries");
+    }
+
+    // A dramatized Book 1 and a regular Book 1 are different editions that legitimately share a
+    // series part, so the advisory conflict check only compares books with the same qualifier set.
+    [TestMethod]
+    public async Task GetSeriesPartConflictCandidatesAsync_OnlyBooksWithTheSameQualifiersConflict()
+    {
+        await SeedAsync("Plain", "Jack Reacher", seriesPart: "1");
+        await SeedAsync("Dramatized", "Jack Reacher", seriesPart: "1", qualifiers: ",dramatized,");
+        await SeedAsync("Both", "Jack Reacher", seriesPart: "1", qualifiers: ",abridged,dramatized,");
+
+        var (plainRows, _) = await _repository.GetSeriesPartConflictCandidatesAsync(
+            "Jack Reacher", excludeAudiobookId: 999_999, "1", qualifiers: "", limit: 10);
+        var (dramatizedRows, _) = await _repository.GetSeriesPartConflictCandidatesAsync(
+            "Jack Reacher", excludeAudiobookId: 999_999, "1", qualifiers: ",dramatized,", limit: 10);
+
+        CollectionAssert.AreEqual(new List<string> { "Plain" }, plainRows.Select(r => r.BookName).ToList());
+        CollectionAssert.AreEqual(new List<string> { "Dramatized" }, dramatizedRows.Select(r => r.BookName).ToList());
     }
 }

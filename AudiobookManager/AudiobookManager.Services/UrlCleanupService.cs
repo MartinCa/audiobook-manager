@@ -40,7 +40,8 @@ public class UrlCleanupService : IUrlCleanupService
                 row.BookName,
                 row.Authors,
                 row.Www,
-                BookUrlCleaner.Clean(row.Www)))
+                BookUrlCleaner.Clean(row.Www),
+                AudiobookManager.Database.Models.QualifierColumn.Parse(row.Qualifiers)))
             .ToList();
 
         return (items, total);

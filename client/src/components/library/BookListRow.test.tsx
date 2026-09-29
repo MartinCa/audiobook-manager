@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { BookListRow } from "./BookListRow";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
@@ -31,6 +32,14 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/services/api", () => ({
   browseApi: {
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+  },
+  settingsApi: {
+    getBookQualifiers: vi.fn().mockResolvedValue({
+      qualifiers: [
+        { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+        { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+      ],
+    }),
   },
 }));
 
@@ -184,5 +193,24 @@ describe("BookListRow", () => {
     fireEvent.click(screen.getByText("The Way of Kings"));
 
     expect(mockNavigatedTo).toEqual(["/library/book/$bookId"]);
+  });
+
+  it("shows one badge per qualifier, alphabetical, next to the clean title", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BookListRow book={book({ qualifiers: ["dramatized", "abridged"] })} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("The Way of Kings")).toBeInTheDocument();
+    const badges = await screen.findAllByText(/^(Abridged|Dramatized)$/);
+    expect(badges.map((b) => b.textContent)).toEqual(["Abridged", "Dramatized"]);
+  });
+
+  it("shows no qualifier badges for a book without qualifiers", () => {
+    render(<BookListRow book={book({ qualifiers: [] })} />);
+
+    expect(screen.queryByTestId("book-qualifier-badges")).not.toBeInTheDocument();
   });
 });

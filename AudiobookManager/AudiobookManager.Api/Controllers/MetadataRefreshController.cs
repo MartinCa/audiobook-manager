@@ -186,7 +186,8 @@ public class MetadataRefreshController : ControllerBase
                     p.Audiobook.Authors.Select(a => a.Name).ToList(),
                     p.FetchedAt,
                     p.SourceName,
-                    MetadataRefreshFields.ParseChangedFieldsJson(p.ChangedFieldsJson)))
+                    MetadataRefreshFields.ParseChangedFieldsJson(p.ChangedFieldsJson),
+                    AudiobookManager.Database.Models.QualifierColumn.Parse(p.Audiobook.Qualifiers)))
                 .ToList(),
             total));
     }

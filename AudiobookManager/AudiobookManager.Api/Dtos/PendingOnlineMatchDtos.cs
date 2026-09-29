@@ -25,7 +25,8 @@ public record PendingOnlineMatchListItemDto(
     IReadOnlyList<string> Authors,
     DateTime SearchedAt,
     IReadOnlyList<string> SourceNames,
-    IReadOnlyList<PendingRefreshSnapshotDto> Results);
+    IReadOnlyList<PendingRefreshSnapshotDto> Results,
+    List<string>? Qualifiers = null);
 
 /// <summary>A page of the Pending or Failed/Rejected list (bounded; server-side paged).</summary>
 public record PendingOnlineMatchPageDto(IReadOnlyList<PendingOnlineMatchListItemDto> Items, int Total);

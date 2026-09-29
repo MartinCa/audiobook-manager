@@ -28,6 +28,17 @@ public class Audiobook
     [Column("series_part")]
     public string? SeriesPart { get; set; }
 
+    /// <summary>
+    /// The book's qualifiers (abridged, dramatized, ...) as a delimited list of their keys, in
+    /// canonical order, wrapped in delimiters (<c>",abridged,dramatized,"</c>, empty for none) so
+    /// an exact-key filter is a plain <c>LIKE '%,key,%'</c>. Read and written through
+    /// <see cref="QualifierColumn"/>. <see cref="BookName"/> and <see cref="Series"/> stay clean -
+    /// the suffix only exists on disk (see <c>AudiobookManager.Domain.BookQualifiers</c>).
+    /// </summary>
+    [Required]
+    [Column("qualifiers")]
+    public string Qualifiers { get; set; } = string.Empty;
+
     [Required]
     [Column("year")]
     public int Year { get; set; }

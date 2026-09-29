@@ -196,5 +196,6 @@ public class PendingOnlineMatchController : ControllerBase
                 s.Copyright,
                 s.Publisher,
                 s.Asin))
-            .ToList());
+            .ToList(),
+        AudiobookManager.Database.Models.QualifierColumn.Parse(row.Audiobook.Qualifiers));
 }

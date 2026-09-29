@@ -3068,7 +3068,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
     {
         _audiobookRepository
             .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
-                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+                "Mistborn", 1, "2", "", SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync((
                 new List<SeriesPartConflictRow>
                 {
@@ -3077,7 +3077,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
                 },
                 Truncated: false));
 
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2", null);
 
         CollectionAssert.AreEqual(
             new List<long> { 2, 3 },
@@ -3089,22 +3089,22 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
     [TestMethod]
     public async Task GetSeriesPartConflictsAsync_BlankPart_NeverConflicts()
     {
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "  ");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "  ", null);
 
         CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
         _audiobookRepository.Verify(
-            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>()),
+            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()),
             Times.Never);
     }
 
     [TestMethod]
     public async Task GetSeriesPartConflictsAsync_BlankSeries_NeverConflicts()
     {
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, null, "2");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, null, "2", null);
 
         CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
         _audiobookRepository.Verify(
-            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>()),
+            r => r.GetSeriesPartConflictCandidatesAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()),
             Times.Never);
     }
 
@@ -3113,12 +3113,12 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
     {
         _audiobookRepository
             .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
-                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+                "Mistborn", 1, "2", "", SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync((
                 new List<SeriesPartConflictRow>(),
                 Truncated: false));
 
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2", null);
 
         CollectionAssert.AreEqual(new List<SeriesPartConflict>(), result.Conflicts);
     }
@@ -3128,7 +3128,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
     {
         _audiobookRepository
             .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
-                "Wheel of Time", 1, "Book 1", SeriesService.MaxSeriesPartConflictRows))
+                "Wheel of Time", 1, "Book 1", "", SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync((
                 new List<SeriesPartConflictRow>
                 {
@@ -3137,7 +3137,7 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
                 },
                 Truncated: false));
 
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Wheel of Time", "Book 1");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Wheel of Time", "Book 1", null);
 
         CollectionAssert.AreEqual(
             new List<long> { 2, 3 },
@@ -3149,14 +3149,14 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
     {
         _audiobookRepository
             .Setup(r => r.GetSeriesPartConflictCandidatesAsync(
-                "Mistborn", 1, "2", SeriesService.MaxSeriesPartConflictRows))
+                "Mistborn", 1, "2", "", SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync((
                 Enumerable.Range(2, 3)
                     .Select(i => new SeriesPartConflictRow(i, $"Book {i}", "2"))
                     .ToList(),
                 Truncated: true));
 
-        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2");
+        var result = await MakeService().GetSeriesPartConflictsAsync(1, "Mistborn", "2", null);
 
         Assert.AreEqual(3, result.Conflicts.Count);
         Assert.IsTrue(result.Truncated, "the caller must be told the list is partial, not complete");

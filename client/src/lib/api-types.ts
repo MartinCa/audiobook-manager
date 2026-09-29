@@ -366,6 +366,7 @@ export interface paths {
                 query?: {
                     series?: string;
                     seriesPart?: string;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path: {
@@ -4485,6 +4486,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/book-qualifiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BookQualifierOptionsDto"];
+                        "application/json": components["schemas"]["BookQualifierOptionsDto"];
+                        "text/json": components["schemas"]["BookQualifierOptionsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/library": {
         parameters: {
             query?: never;
@@ -5242,6 +5280,7 @@ export interface components {
             subtitle?: string | null;
             series?: string | null;
             seriesPart?: string | null;
+            qualifiers?: string[] | null;
             /** Format: int32 */
             year?: number | null;
             genres?: string[] | null;
@@ -5295,6 +5334,7 @@ export interface components {
             /** Format: date-time */
             lastMetadataRefreshedAt?: string | null;
             authorRefs?: components["schemas"]["AudiobookAuthorDto"][] | null;
+            qualifiers?: string[] | null;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -5329,6 +5369,7 @@ export interface components {
             isMatched?: boolean;
             matchedSourceName?: string | null;
             missingFields?: string[] | null;
+            qualifiers?: string[] | null;
         };
         AudiobookMissingTagsPageDto: {
             items?: components["schemas"]["AudiobookMissingTagsDto"][] | null;
@@ -5357,6 +5398,7 @@ export interface components {
             durationInSeconds?: number | null;
             isMatched?: boolean;
             matchedSourceName?: string | null;
+            qualifiers?: string[] | null;
         };
         AudiobookSummaryDtoPaginatedResult: {
             /** Format: int32 */
@@ -5372,6 +5414,7 @@ export interface components {
             authors?: string[] | null;
             currentUrl?: string | null;
             cleanedUrl?: string | null;
+            qualifiers?: string[] | null;
         };
         AuthorConsistencyIssueDto: {
             /** Format: int64 */
@@ -5496,6 +5539,7 @@ export interface components {
             actualValue?: string | null;
             /** Format: date-time */
             detectedAt?: string;
+            qualifiers?: string[] | null;
         };
         BookConsistencyIssuePageDto: {
             items?: components["schemas"]["BookConsistencyIssueDto"][] | null;
@@ -5508,6 +5552,14 @@ export interface components {
             issueType?: string | null;
             actionTaken?: string | null;
             message?: string | null;
+        };
+        BookQualifierDto: {
+            key?: string | null;
+            label?: string | null;
+            suffix?: string | null;
+        };
+        BookQualifierOptionsDto: {
+            qualifiers?: components["schemas"]["BookQualifierDto"][] | null;
         };
         BrowseFilterOptionsDto: {
             sources?: string[] | null;
@@ -5716,6 +5768,7 @@ export interface components {
             /** Format: int32 */
             year?: number | null;
             coverFilePath?: string | null;
+            qualifiers?: string[] | null;
         };
         LibrarySearchResultDto: {
             books?: components["schemas"]["LibraryBookHitDto"][] | null;
@@ -5848,6 +5901,7 @@ export interface components {
             subtitle?: string | null;
             series?: string | null;
             seriesPart?: string | null;
+            qualifiers?: string[] | null;
             /** Format: int32 */
             year: number;
             authors: string[];
@@ -5903,6 +5957,7 @@ export interface components {
             fetchedAt?: string;
             sourceName?: string | null;
             changedFields?: string[] | null;
+            qualifiers?: string[] | null;
         };
         PendingMetadataRefreshPageDto: {
             items?: components["schemas"]["PendingMetadataRefreshListItemDto"][] | null;
@@ -5918,6 +5973,7 @@ export interface components {
             searchedAt?: string;
             sourceNames?: string[] | null;
             results?: components["schemas"]["PendingRefreshSnapshotDto"][] | null;
+            qualifiers?: string[] | null;
         };
         PendingOnlineMatchPageDto: {
             items?: components["schemas"]["PendingOnlineMatchListItemDto"][] | null;
@@ -6116,6 +6172,7 @@ export interface components {
             coverFilePath?: string | null;
             isMatched?: boolean;
             matchedSourceName?: string | null;
+            qualifiers?: string[] | null;
         };
         SeriesOwnedBookPageDto: {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;

@@ -171,7 +171,8 @@ public class ConsistencyController : ControllerBase
         issue.Description,
         issue.ExpectedValue,
         issue.ActualValue,
-        issue.DetectedAt
+        issue.DetectedAt,
+        AudiobookManager.Database.Models.QualifierColumn.Parse(issue.Audiobook.Qualifiers)
     );
 
     [HttpGet("issues/summary")]
@@ -208,7 +209,8 @@ public class ConsistencyController : ControllerBase
                 i.Description,
                 i.ExpectedValue,
                 i.ActualValue,
-                i.DetectedAt
+                i.DetectedAt,
+                AudiobookManager.Database.Models.QualifierColumn.Parse(i.Audiobook.Qualifiers)
             )).ToList());
         }
         catch (KeyNotFoundException)

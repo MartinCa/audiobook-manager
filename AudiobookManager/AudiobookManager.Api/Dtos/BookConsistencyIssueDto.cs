@@ -9,5 +9,7 @@ public record BookConsistencyIssueDto(
     string Description,
     string? ExpectedValue,
     string? ActualValue,
-    DateTime DetectedAt
+    DateTime DetectedAt,
+    /// <summary>Keys of the book's qualifiers, so the issue list shows the same badges as every other book list.</summary>
+    List<string>? Qualifiers = null
 );

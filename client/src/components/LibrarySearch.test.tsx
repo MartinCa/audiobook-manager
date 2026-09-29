@@ -46,6 +46,12 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getBookQualifiers: vi.fn().mockResolvedValue({
+      qualifiers: [
+        { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+        { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+      ],
+    }),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),
@@ -160,5 +166,31 @@ describe("LibrarySearch", () => {
       expect(router.state.location.pathname).toBe("/library/search");
     });
     expect(router.state.location.search).toEqual({ q: "mistborn" });
+  });
+
+  it("shows a qualifier badge on a book hit in the dropdown, next to the clean title", async () => {
+    vi.mocked(browseApi.searchLibrary).mockResolvedValue({
+      ...sampleResults,
+      books: [{ ...sampleResults.books[0]!, qualifiers: ["dramatized"] }],
+    });
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    const input = await screen.findByPlaceholderText(/Quick search books, authors, series/i);
+    await user.type(input, "mistborn");
+
+    expect(await screen.findByText("Mistborn: The Final Empire")).toBeInTheDocument();
+    expect(await screen.findByText("Dramatized")).toBeInTheDocument();
+  });
+
+  it("shows no qualifier badge on a book hit that has none", async () => {
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    const input = await screen.findByPlaceholderText(/Quick search books, authors, series/i);
+    await user.type(input, "mistborn");
+
+    expect(await screen.findByText("Mistborn: The Final Empire")).toBeInTheDocument();
+    expect(screen.queryByTestId("book-qualifier-badges")).not.toBeInTheDocument();
   });
 });

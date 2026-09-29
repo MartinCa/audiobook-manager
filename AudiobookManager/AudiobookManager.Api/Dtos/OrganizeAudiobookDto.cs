@@ -8,6 +8,12 @@ public class OrganizeAudiobookDto
     public string? Subtitle { get; set; }
     public string? Series { get; set; }
     public string? SeriesPart { get; set; }
+
+    /// <summary>
+    /// Keys of the book's qualifiers (see <c>BookQualifiers</c>). <c>BookName</c> and <c>Series</c>
+    /// are the clean values - the suffixes are added when the book is written to disk.
+    /// </summary>
+    public List<string> Qualifiers { get; set; } = new();
     [Required] public int? Year { get; set; }
     [Required] public List<string> Authors { get; set; } = null!;
     public List<string> Narrators { get; set; } = new();

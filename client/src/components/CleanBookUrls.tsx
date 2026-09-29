@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -292,6 +293,7 @@ export function CleanBookUrls() {
                   >
                     {b.authors.join(", ")} &mdash; {b.bookName}
                   </Link>
+                  <BookQualifierBadges qualifiers={b.qualifiers} className="ml-2" />
                   <div className="mt-1 space-y-0.5 text-xs">
                     <div className="text-muted-foreground break-all">
                       <span className="line-through decoration-red-500/60">{b.currentUrl}</span>

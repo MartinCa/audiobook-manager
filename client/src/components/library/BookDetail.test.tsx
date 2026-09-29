@@ -36,6 +36,7 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getBookQualifiers: vi.fn().mockResolvedValue({ qualifiers: [] }),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),
@@ -239,10 +240,11 @@ describe("BookDetail", () => {
       .map((el) => el.textContent.trim())
       .filter((t) => t.length > 0);
     const start = labels.indexOf("Authors");
-    expect(labels.slice(start, start + 14)).toEqual([
+    expect(labels.slice(start, start + 15)).toEqual([
       "Authors",
       "Narrators",
       "Book name",
+      "Qualifiers",
       "Subtitle",
       "Series",
       "Year",
@@ -255,6 +257,38 @@ describe("BookDetail", () => {
       "Copyright",
       "ASIN",
     ]);
+  });
+
+  it("shows a book's qualifiers as badges in the header and in the details", async () => {
+    vi.mocked(settingsApi.getBookQualifiers).mockResolvedValue({
+      qualifiers: [
+        { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+        { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+      ],
+    });
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      qualifiers: ["dramatized", "abridged"],
+    });
+
+    renderWithProviders();
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+
+    // One set in the page header, one in the "Qualifiers" detail row; the header title itself
+    // keeps the clean name - the suffix is only ever on disk.
+    await waitFor(() => expect(screen.getAllByText("Abridged")).toHaveLength(2));
+    expect(screen.getAllByText("Dramatized")).toHaveLength(2);
+    expect(screen.queryByText(/The Way of Kings \(Dramatized\)/)).not.toBeInTheDocument();
+  });
+
+  it("shows None in the Qualifiers row for a book without any", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({ ...sampleBookDetail });
+
+    renderWithProviders();
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+
+    const row = screen.getByText("Qualifiers").parentElement;
+    expect(row).toHaveTextContent("None");
   });
 
   it("Edit button navigates to the edit route", async () => {
@@ -839,6 +873,7 @@ describe("BookDetail", () => {
         42,
         "The Stormlight Archive",
         "1",
+        [],
       );
     });
 

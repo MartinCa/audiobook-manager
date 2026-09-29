@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -73,6 +74,7 @@ function toManagedBook(b: SeriesOwnedBook): ManagedAudiobook {
     coverFilePath: b.coverFilePath ?? undefined,
     isMatched: b.isMatched,
     matchedSourceName: b.matchedSourceName ?? undefined,
+    qualifiers: b.qualifiers ?? [],
   };
 }
 
@@ -1460,6 +1462,7 @@ export function SeriesDetail() {
                     <li key={b.id} className="truncate">
                       {b.seriesPart ? `Part ${b.seriesPart} — ` : ""}
                       {b.bookName}
+                      <BookQualifierBadges qualifiers={b.qualifiers} className="ml-1.5" />
                     </li>
                   ))}
                 </ul>

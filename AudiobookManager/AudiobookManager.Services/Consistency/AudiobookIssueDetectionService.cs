@@ -145,6 +145,10 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // Only asks whether a cover exists (parsed.Cover is not null), never for its bytes -
             // encoding them for every book in the library is wasted work.
             var parsed = _tagHandler.ParseAudiobook(fileInfo, includeCoverData: false);
+            // The file carries the qualifier suffixes and the database the clean values, so
+            // reshape the parse into the database's form - but only for the qualifiers this book
+            // is stored with: a title that merely looks qualified is never split.
+            AudiobookManager.Domain.BookQualifiers.ApplyExpected(parsed, AudiobookManager.Database.Models.QualifierColumn.Parse(audiobook.Qualifiers));
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
             var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath);
 

@@ -17,6 +17,7 @@ import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/ty
 import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
 import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
+import type { BookQualifierOptions } from "@/types/BookQualifier";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
@@ -79,6 +80,7 @@ export function toAudiobookDto(data: Audiobook) {
     subtitle: data.subtitle,
     series: data.series,
     seriesPart: data.seriesPart,
+    qualifiers: data.qualifiers ?? [],
     year: data.year,
     genres: data.genres,
     description: data.description,
@@ -103,6 +105,7 @@ export function toPathPreviewDto(data: Audiobook) {
     bookName: data.bookName,
     series: data.series,
     seriesPart: data.seriesPart,
+    qualifiers: data.qualifiers ?? [],
     year: data.year,
     filePath: data.fileInfo?.fullPath,
     fileName: data.fileInfo?.fileName,
@@ -156,10 +159,17 @@ export const audiobookApi = {
    * the other books (current excluded) already carrying the (series, series part) combination,
    * compared with the same part-equivalence the series reconciliation uses, plus a truncation
    * flag when the bounded response does not carry all genuine conflicts. Never blocks a save.
+   * Only books with the same qualifier set conflict (a dramatized Book 2 and a regular Book 2 are
+   * different editions), so the qualifiers being saved travel with the query.
    */
-  getSeriesPartConflicts: (id: number, series: string, seriesPart: string) =>
+  getSeriesPartConflicts: (
+    id: number,
+    series: string,
+    seriesPart: string,
+    qualifiers: readonly string[] = [],
+  ) =>
     api.get<SeriesPartConflictCheck>(`/audiobook/${id}/series-part-conflicts`, {
-      query: { series, seriesPart },
+      query: { series, seriesPart, qualifiers },
     }),
 };
 
@@ -940,6 +950,8 @@ export const settingsApi = {
   getSystemInfo: () => api.get<SystemInfo>("/settings/system_info"),
 
   getLanguages: () => api.get<LanguageOptions>("/settings/languages"),
+
+  getBookQualifiers: () => api.get<BookQualifierOptions>("/settings/book-qualifiers"),
 
   getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
 

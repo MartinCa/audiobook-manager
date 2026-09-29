@@ -46,6 +46,12 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
         builder
             .HasIndex(a => a.MatchedSourceName, "ix_audiobooks_matched_source_name");
 
+        // Every row has a qualifier set (empty for none); the database default is what lets a row
+        // inserted without the column - an older code path, a raw SQL fixture - still be valid.
+        builder
+            .Property(a => a.Qualifiers)
+            .HasDefaultValue(string.Empty);
+
         // BookNameFolded/SubtitleFolded/SeriesFolded/DescriptionFolded map by convention from
         // their [Column] attributes - see the comment on BookNameFolded (Audiobook model) for why
         // they exist and are deliberately not indexed.

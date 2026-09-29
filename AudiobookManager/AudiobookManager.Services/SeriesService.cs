@@ -235,6 +235,7 @@ public class SeriesService : ISeriesService
                     CoverFilePath = b.CoverFilePath,
                     IsMatched = b.IsMatched,
                     MatchedSourceName = b.MatchedSourceName,
+                    Qualifiers = AudiobookManager.Database.Models.QualifierColumn.Parse(b.Qualifiers),
                 })
                 .ToList(),
             OwnedBookTotal = ownedPage.Total,
@@ -813,7 +814,7 @@ public class SeriesService : ISeriesService
     /// truncation flag are carried back for the UI to surface.
     /// </summary>
     public async Task<SeriesPartConflictCheck> GetSeriesPartConflictsAsync(
-        long currentAudiobookId, string? series, string? seriesPart, int limit = MaxSeriesPartConflictRows)
+        long currentAudiobookId, string? series, string? seriesPart, IReadOnlyCollection<string>? qualifiers, int limit = MaxSeriesPartConflictRows)
     {
         var trimmedSeries = series?.Trim();
         var trimmedPart = seriesPart?.Trim();
@@ -823,7 +824,9 @@ public class SeriesService : ISeriesService
         }
 
         var (rows, truncated) = await _audiobookRepository.GetSeriesPartConflictCandidatesAsync(
-            trimmedSeries, currentAudiobookId, trimmedPart, limit);
+            trimmedSeries, currentAudiobookId, trimmedPart,
+            AudiobookManager.Database.Models.QualifierColumn.Serialize(AudiobookManager.Domain.BookQualifiers.Normalize(qualifiers)),
+            limit);
 
         return new SeriesPartConflictCheck(
             rows.Select(c => new SeriesPartConflict(c.AudiobookId, c.BookName, c.SeriesPart)).ToList(),

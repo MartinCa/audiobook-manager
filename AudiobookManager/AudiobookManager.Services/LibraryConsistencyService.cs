@@ -201,6 +201,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // thread, mirroring DetectIssuesForAudiobookAsync.
         var parsed = await Task.Run(() =>
             _tagHandler.ParseAudiobook(new FileInfo(dbAudiobook.FileInfoFullPath), includeCoverData: false));
+        AudiobookManager.Domain.BookQualifiers.ApplyExpected(parsed, domain.Qualifiers);
 
         return TagConsistencyChecker.FindMismatches(domain, parsed)
             .Select(m => new TagMismatchField(m.Field, m.Expected, m.Actual))

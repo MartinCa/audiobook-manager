@@ -141,4 +141,26 @@ public class TagMismatchFieldsTests
         Assert.AreEqual(2030, book.Year);
         Assert.AreEqual("New Author", book.Authors.Single().Name);
     }
+
+    [TestMethod]
+    public void ApplyValue_Qualifiers_ParsesTheSerializedFormTheCheckerReports()
+    {
+        var book = MakeBook();
+
+        TagMismatchFields.ApplyValue(book, "Qualifiers", BookQualifiers.Format(new[] { "dramatized", "abridged" }));
+
+        CollectionAssert.AreEqual(new List<string> { "abridged", "dramatized" }, book.Qualifiers);
+    }
+
+    [TestMethod]
+    public void ApplyValue_Qualifiers_EmptyClearsThem()
+    {
+        var book = MakeBook();
+        book.Qualifiers = new List<string> { "dramatized" };
+
+        // Qualifiers are optional, so clearing them is allowed (unlike the structural fields).
+        TagMismatchFields.ApplyValue(book, "Qualifiers", "");
+
+        Assert.AreEqual(0, book.Qualifiers.Count);
+    }
 }

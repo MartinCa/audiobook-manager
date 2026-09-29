@@ -1066,4 +1066,27 @@ public class SimilarValueServiceTests
         _audiobookRepository.Verify(r => r.FindSeriesValueByFoldedNameAsync(It.IsAny<string>()), Times.Never);
         _audiobookRepository.Verify(r => r.SearchSeriesValuesAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
     }
+
+    // Alignment rebuilds each book from its database row and rewrites it. Losing the qualifiers on
+    // that round trip would silently strip the suffixes off every aligned book's file and path.
+    [TestMethod]
+    public async Task AlignSeriesAsync_KeepsEachBooksQualifiersOnTheRewrite()
+    {
+        var book = MakeDbAudiobook(4021, "Killing Floor", "Old Series");
+        book.Qualifiers = ",dramatized,";
+
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book });
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+
+        await _service.AlignSeriesAsync(
+            new List<string> { "Old Series", "New Series" },
+            "New Series",
+            (_, _, _, _) => Task.CompletedTask);
+
+        _audiobookService.Verify(
+            s => s.UpdateAudiobook(4021, It.Is<Audiobook>(a => a.Series == "New Series" && a.Qualifiers.SequenceEqual(new[] { "dramatized" }))),
+            Times.Once);
+    }
 }
