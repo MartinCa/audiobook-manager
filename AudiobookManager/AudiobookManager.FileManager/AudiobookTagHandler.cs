@@ -76,6 +76,25 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         };
     }
 
+    /// <summary>
+    /// ATL's <c>Track.Year</c> setter silently ignores any value below 1000 - nothing is written
+    /// and the tag reads back as 0 - which made every book from antiquity (Tacitus, AD 98)
+    /// permanently un-saveable via the round-trip check. Assigning <c>Track.Date</c> instead
+    /// writes an ISO date (<c>0098-01-01</c>) that ATL reads back as year 98. Years of 1000 and
+    /// above keep the plain <c>Year</c> path so their on-disk form (<c>2010</c>) is unchanged.
+    /// Year 1 stays unwritable: <c>DateTime.MinValue</c> is what ATL treats as "no date".
+    /// </summary>
+    private static void WriteYear(Track track, int? year)
+    {
+        if (year is >= 2 and < 1000)
+        {
+            track.Date = new DateTime(year.Value, 1, 1);
+            return;
+        }
+
+        track.Year = year;
+    }
+
     public void SaveAudiobookTagsToFile(Audiobook audiobook, Action<float>? progressAction = null)
     {
         if (audiobook.FileInfo is null)
@@ -112,7 +131,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.Composer = GetStringFromListOfPersons(audiobook.Narrators);
         track.Album = audiobook.BookName;
         track.WriteSpecialTag(SpecialTagField.Subtitle, audiobook.Subtitle);
-        track.Year = audiobook.Year;
+        WriteYear(track, audiobook.Year);
         track.Artist = GetStringFromListOfPersons(audiobook.Authors.Concat(audiobook.Narrators));
         // ATL only clears a raw Track string property (as opposed to an AdditionalFields entry -
         // see WriteSpecialTag, which explicitly removes the key) when it's assigned an empty

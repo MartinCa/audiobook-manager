@@ -74,6 +74,36 @@ public class AudiobookTagHandlerTests
         }
     }
 
+    [TestMethod]
+    [DataRow(2)]
+    [DataRow(98)]
+    [DataRow(999)]
+    [DataRow(1000)]
+    public void SaveAudiobookTagsToFile_YearBelow1000_RoundTripsInsteadOfReadingBackAsZero(int year)
+    {
+        // Regression: ATL's Track.Year setter ignores values < 1000, so a book from AD 98 saved
+        // "successfully" but read back as 0 and failed the round-trip check on every save.
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Tacitus") },
+                "Agricola and Germania",
+                year,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length));
+
+            _handler.SaveAudiobookTagsToFile(audiobook);
+
+            Assert.AreEqual(year, _handler.ParseAudiobook(new FileInfo(tempFile)).Year);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     /// <summary>
     /// The library stores ISO 639-1 codes, and <c>TagConsistencyChecker</c> compares Language on
     /// every save - so a code that ATL does not hand back verbatim would make every book
