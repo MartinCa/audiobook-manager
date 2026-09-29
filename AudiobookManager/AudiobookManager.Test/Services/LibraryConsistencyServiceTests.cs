@@ -2133,6 +2133,50 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // The walk snapshot can disagree with the library's own records (a book arriving or being
+    // relocated while the check runs, an m4b the walk did not see). A folder above a tracked
+    // book must never be reported as an orphan, whatever the snapshot says.
+    [TestMethod]
+    public async Task RunConsistencyCheck_DirectoriesAboveTrackedBook_AreNotReportedEvenWhenSnapshotSawNoAudio()
+    {
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var authorDir = Path.Combine(libraryPath, "Paul Fischer");
+        var bookDir = Path.Combine(authorDir, "2015 - A Kim Jong-Il Production");
+        var bookFile = Path.Combine(bookDir, "2015 - A Kim Jong-Il Production.m4b");
+        Directory.CreateDirectory(bookDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(bookFile, "fake audio");
+
+            var settings = Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = libraryPath });
+            var service = CreateService(settings);
+
+            List<OrphanDirectory> insertedDirectories = new();
+            _orphanDirectoryRepository.Setup(r => r.InsertRangeAsync(It.IsAny<IEnumerable<OrphanDirectory>>()))
+                .Callback<IEnumerable<OrphanDirectory>>(d => insertedDirectories = d.ToList())
+                .Returns(Task.CompletedTask);
+
+            // A snapshot that reports no audio anywhere, as a stale or incomplete walk would.
+            var staleSnapshot = new List<LibraryDirectory>
+            {
+                new(authorDir, new[] { bookDir }, HasSupportedAudioFile: false, HasLinkSubdirectory: false),
+                new(bookDir, Array.Empty<string>(), HasSupportedAudioFile: false, HasLinkSubdirectory: false),
+            };
+
+            await service.RunConsistencyCheck(
+                (_, _, _, _) => Task.CompletedTask,
+                new ConsistencyCheckInput(new List<DbAudiobook> { MakeMissingFileBook(1, bookFile) }, staleSnapshot));
+
+            Assert.AreEqual(0, insertedDirectories.Count,
+                $"Reported: {string.Join(", ", insertedDirectories.Select(d => d.DirectoryPath))}");
+        }
+        finally
+        {
+            Directory.Delete(libraryPath, true);
+        }
+    }
+
     [TestMethod]
     public async Task RunConsistencyCheck_DirectoryWithNoAudioFile_ReportsOrphanDirectory()
     {

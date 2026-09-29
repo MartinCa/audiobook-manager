@@ -163,7 +163,8 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         issuesFound += partMismatchIssues.Count;
 
         issuesFound = await _orphanDirectoryConsistencyService.ScanAsync(
-            progressAction, totalBooks, issuesFound, input.Directories);
+            progressAction, totalBooks, issuesFound, input.Directories,
+            audiobooks.Select(a => a.FileInfoFullPath));
 
         _logger.LogInformation("Consistency check complete. Books: {Total}, Issues: {Issues}", totalBooks, issuesFound);
 
