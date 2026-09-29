@@ -53,7 +53,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
 
   const { data: bookDetail, isLoading: loadingBook } = useQuery({
-    queryKey: queryKeys.bookDetail(audiobookId),
+    queryKey: queryKeys.bookDetailRecord(audiobookId),
     queryFn: () => browseApi.getAudiobookDetail(audiobookId),
   });
 

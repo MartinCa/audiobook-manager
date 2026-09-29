@@ -52,6 +52,17 @@ describe("queryKeys", () => {
     });
   });
 
+  describe("bookDetailRecord", () => {
+    it("never equals bookDetail, so the bare record and the page's wrapper cannot share a cache entry", () => {
+      expect(queryKeys.bookDetailRecord(42)).not.toEqual(queryKeys.bookDetail(42));
+    });
+
+    it("extends bookDetail so invalidating bookDetail(id) also refreshes the record", () => {
+      const prefix = queryKeys.bookDetail(42);
+      expect(queryKeys.bookDetailRecord(42).slice(0, prefix.length)).toEqual(prefix);
+    });
+  });
+
   describe("series/seriesCounts/seriesPending family shapes", () => {
     it("keeps series.page and series.unmatched both prefixed by series.all", () => {
       expect(queryKeys.series.page("query", 1, 50, {}).slice(0, 1)).toEqual(queryKeys.series.all());
