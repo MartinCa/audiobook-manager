@@ -645,7 +645,9 @@ export function SeriesDetail() {
     invalidateSeriesDelete();
     setDeleting(false);
     setDeleteProgress(null);
-    void queryClient.invalidateQueries({ queryKey: ["seriesDetail", seriesName, authorId] });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.seriesDetail.byAuthor(seriesName, authorId),
+    });
 
     // errored means the delete threw out of the background operation (e.g. the catalog row
     // delete itself failed) - every count here is zero, indistinguishable from "a series with no
@@ -664,8 +666,8 @@ export function SeriesDetail() {
     } else {
       notifications.success("Series deleted");
     }
-    void queryClient.invalidateQueries({ queryKey: ["series"] });
-    void queryClient.invalidateQueries({ queryKey: ["seriesCounts"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.series.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesCounts() });
     navigateBack();
   });
 
