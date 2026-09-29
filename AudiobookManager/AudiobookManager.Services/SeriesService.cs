@@ -9,6 +9,8 @@ using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services.MappingExtensions;
 using Microsoft.Extensions.Logging;
 using PendingSeriesRefresh = AudiobookManager.Domain.PendingSeriesRefresh;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
+using BookQualifiers = AudiobookManager.Domain.BookQualifiers;
 
 namespace AudiobookManager.Services;
 
@@ -235,7 +237,7 @@ public class SeriesService : ISeriesService
                     CoverFilePath = b.CoverFilePath,
                     IsMatched = b.IsMatched,
                     MatchedSourceName = b.MatchedSourceName,
-                    Qualifiers = AudiobookManager.Database.Models.QualifierColumn.Parse(b.Qualifiers),
+                    Qualifiers = QualifierColumn.Parse(b.Qualifiers),
                 })
                 .ToList(),
             OwnedBookTotal = ownedPage.Total,
@@ -825,7 +827,7 @@ public class SeriesService : ISeriesService
 
         var (rows, truncated) = await _audiobookRepository.GetSeriesPartConflictCandidatesAsync(
             trimmedSeries, currentAudiobookId, trimmedPart,
-            AudiobookManager.Database.Models.QualifierColumn.Serialize(AudiobookManager.Domain.BookQualifiers.Normalize(qualifiers)),
+            QualifierColumn.Serialize(BookQualifiers.Normalize(qualifiers)),
             limit);
 
         return new SeriesPartConflictCheck(

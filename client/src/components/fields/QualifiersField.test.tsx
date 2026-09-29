@@ -52,7 +52,7 @@ describe("QualifiersField", () => {
     expect(onChange).toHaveBeenCalledWith(["dramatized"]);
   });
 
-  it("keeps a key the list no longer has visible and removable instead of losing it silently", async () => {
+  it("keeps a key the list no longer has visible and removable, so the user sees it before the server drops it on save", async () => {
     const onChange = renderField(["zzz-retired"]);
 
     const retired = await screen.findByRole("button", { name: "zzz-retired" });

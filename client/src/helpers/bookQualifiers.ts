@@ -155,8 +155,15 @@ export function cleanSearchResult(
     return { result, qualifiers: [] };
   }
 
-  const series = result.series?.map((s, index) =>
-    index === 0 && split.series !== undefined ? { ...s, seriesName: split.series } : s,
-  );
+  // Every series entry that carries exactly the title's suffixes is cleaned, not just the first:
+  // whichever one the user applies must not leave a suffix behind that would be doubled on disk.
+  // An entry with a different (or no) suffix set is left as it is.
+  const series = result.series?.map((s) => {
+    const stripped = stripKnownSuffixes(s.seriesName, options);
+    const sameSet =
+      stripped.keys.length > 0 &&
+      normalizeQualifiers(stripped.keys, options).join(",") === split.qualifiers.join(",");
+    return sameSet ? { ...s, seriesName: stripped.value } : s;
+  });
   return { result: { ...result, bookName: split.bookName, series }, qualifiers: split.qualifiers };
 }

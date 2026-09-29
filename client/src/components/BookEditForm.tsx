@@ -460,18 +460,23 @@ export function BookEditForm({
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
-      // The scraped title carried qualifier suffixes that were cleaned off it; keep what they
-      // said by adding them to the book's qualifiers (never removing one already set).
-      if (detectedQualifiers.length > 0) {
-        form.setValue(
-          "qualifiers",
-          normalizeQualifiers(
-            [...(form.getValues("qualifiers") ?? []), ...detectedQualifiers],
-            qualifierOptions,
-          ),
-          { shouldDirty: true },
-        );
-      }
+    }
+    // The scraped title/series carried qualifier suffixes that were cleaned off them; keep what
+    // they said by adding them to the book's qualifiers (never removing one already set). Applies
+    // when either cleaned field is taken - applying only the series must not drop the qualifier
+    // its suffix stood for.
+    if (
+      detectedQualifiers.length > 0 &&
+      (selectedFields.has("bookName") || selectedFields.has("series"))
+    ) {
+      form.setValue(
+        "qualifiers",
+        normalizeQualifiers(
+          [...(form.getValues("qualifiers") ?? []), ...detectedQualifiers],
+          qualifierOptions,
+        ),
+        { shouldDirty: true },
+      );
     }
     if (selectedFields.has("subtitle")) {
       form.setValue("subtitle", result.subtitle ?? "", { shouldDirty: true });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookEditForm } from "./BookEditForm";
 import type { Audiobook } from "@/types/Audiobook";
@@ -1789,6 +1789,46 @@ describe("BookEditForm", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const saved = onSave.mock.calls[0]?.[0] as Audiobook;
     expect(saved.bookName).toBe("Killing Floor");
+    expect(saved.series).toBe("Jack Reacher");
+    expect(saved.qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("keeps the qualifier a scraped series suffix stood for when only the series is applied", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Killing Floor (Dramatized)",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [{ seriesName: "Jack Reacher (Dramatized)", seriesPart: "1" }],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+    await screen.findByRole("button", { name: "Dramatized" });
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Killing" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+    // Deselect the Book Name row so only the (cleaned) series is applied.
+    const bookNameRow = (await screen.findByText("Book Name")).closest("tr")!;
+    fireEvent.click(within(bookNameRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByRole("button", { name: /Apply & Save Selected/ }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.bookName).toBe("Original Title");
     expect(saved.series).toBe("Jack Reacher");
     expect(saved.qualifiers).toEqual(["dramatized"]);
   });

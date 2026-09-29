@@ -156,9 +156,27 @@ describe("cleanSearchResult", () => {
 
     expect(cleaned.qualifiers).toEqual(["dramatized"]);
     expect(cleaned.result.bookName).toBe("Killing Floor");
+    // Every series entry carrying the title's suffixes is cleaned, not just the first.
+    expect(cleaned.result.series.map((s) => s.seriesName)).toEqual(["Jack Reacher", "Other"]);
+  });
+
+  it("leaves a series entry whose suffix set differs from the title's as it was", () => {
+    const cleaned = cleanSearchResult(
+      {
+        ...result,
+        series: [
+          { seriesName: "Jack Reacher (Dramatized)", seriesPart: "1" },
+          { seriesName: "Other (Abridged)", seriesPart: "2" },
+          { seriesName: "Plain", seriesPart: "3" },
+        ],
+      },
+      options,
+    );
+
     expect(cleaned.result.series.map((s) => s.seriesName)).toEqual([
       "Jack Reacher",
-      "Other (Dramatized)",
+      "Other (Abridged)",
+      "Plain",
     ]);
   });
 

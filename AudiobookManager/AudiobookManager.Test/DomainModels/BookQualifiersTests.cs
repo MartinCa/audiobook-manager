@@ -21,12 +21,35 @@ public class BookQualifiersTests
         CollectionAssert.AreEqual(new List<string> { "abridged", "dramatized" }, result);
     }
 
+    // A key without a label can never be written into a name and read back, so keeping one would
+    // leave the book permanently mismatched (and un-saveable) once a qualifier is retired.
     [TestMethod]
-    public void Normalize_KeepsAnUnknownKeyAfterTheKnownOnes()
+    public void Normalize_DropsAKeyTheRegistryDoesNotKnow()
     {
         var result = BookQualifiers.Normalize(new[] { "zzz-retired", "dramatized" });
 
-        CollectionAssert.AreEqual(new List<string> { "dramatized", "zzz-retired" }, result);
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, result);
+    }
+
+    [TestMethod]
+    public void Format_AndParse_NeverCarryAnUnknownKey()
+    {
+        Assert.AreEqual("Dramatized", BookQualifiers.Format(new[] { "zzz-retired", "dramatized" }));
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, BookQualifiers.Parse("Dramatized, Retired Label"));
+    }
+
+    [TestMethod]
+    public void ApplyExpected_ABookStoringARetiredKeyStillRoundTripsWithoutAMismatch()
+    {
+        // Stored set has a retired key; the file was written from the normalized set (no suffix
+        // for it). Comparing the stored set to the reshaped parse must agree.
+        var stored = new[] { "zzz-retired", "dramatized" };
+        var parsed = Parsed(BookQualifiers.Apply("Killing Floor", stored)!);
+
+        BookQualifiers.ApplyExpected(parsed, stored);
+
+        Assert.AreEqual("Killing Floor", parsed.BookName);
+        Assert.AreEqual(BookQualifiers.Format(stored), BookQualifiers.Format(parsed.Qualifiers));
     }
 
     [TestMethod]

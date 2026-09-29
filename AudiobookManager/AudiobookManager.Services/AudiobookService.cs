@@ -6,6 +6,7 @@ using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AudiobookDb = AudiobookManager.Database.Models.Audiobook;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Services;
 public class AudiobookService : IAudiobookService
@@ -429,7 +430,7 @@ public class AudiobookService : IAudiobookService
             Authors = authors,
             Narrators = narrators,
             Genres = genres,
-            Qualifiers = AudiobookManager.Database.Models.QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers))
+            Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers))
         };
 
         var result = await _audiobookRepository.InsertAudiobook(dbAudiobook);
@@ -476,7 +477,7 @@ public class AudiobookService : IAudiobookService
         existing.Subtitle = audiobook.Subtitle;
         existing.Series = audiobook.Series;
         existing.SeriesPart = audiobook.SeriesPart;
-        existing.Qualifiers = AudiobookManager.Database.Models.QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers));
+        existing.Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers));
         existing.Year = audiobook.Year ?? existing.Year;
         existing.Description = audiobook.Description;
         existing.Copyright = audiobook.Copyright;
@@ -591,7 +592,7 @@ public class AudiobookService : IAudiobookService
             SeriesPart = audiobookDb.SeriesPart,
             // Carried through every FromDb -> UpdateAudiobook round trip (consistency resolves,
             // alignment, bulk edit): dropping it there would silently strip the suffix off disk.
-            Qualifiers = AudiobookManager.Database.Models.QualifierColumn.Parse(audiobookDb.Qualifiers),
+            Qualifiers = QualifierColumn.Parse(audiobookDb.Qualifiers),
             Genres = audiobookDb.Genres.Select(x => x.Name).ToList(),
             Description = audiobookDb.Description,
             Copyright = audiobookDb.Copyright,

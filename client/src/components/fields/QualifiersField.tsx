@@ -12,8 +12,8 @@ export interface QualifiersFieldProps {
 /**
  * Toggle buttons for a book's qualifiers (abridged, dramatized, ...). None are required, any
  * combination is allowed. The options come from the backend's list, so a new qualifier appears
- * here without a frontend change; a key the list no longer has stays visible (and removable)
- * instead of silently disappearing on the next save.
+ * here without a frontend change. A key the list no longer has stays visible so the user can see
+ * it; the server drops it on the next save (it has no label to write into a name).
  */
 export function QualifiersField({ value, onChange, disabled = false }: QualifiersFieldProps) {
   const options = useBookQualifiers();

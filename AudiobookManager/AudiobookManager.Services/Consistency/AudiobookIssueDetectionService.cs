@@ -3,6 +3,8 @@ using AudiobookManager.FileManager;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
+using BookQualifiers = AudiobookManager.Domain.BookQualifiers;
 
 namespace AudiobookManager.Services;
 
@@ -148,7 +150,7 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // The file carries the qualifier suffixes and the database the clean values, so
             // reshape the parse into the database's form - but only for the qualifiers this book
             // is stored with: a title that merely looks qualified is never split.
-            AudiobookManager.Domain.BookQualifiers.ApplyExpected(parsed, AudiobookManager.Database.Models.QualifierColumn.Parse(audiobook.Qualifiers));
+            BookQualifiers.ApplyExpected(parsed, QualifierColumn.Parse(audiobook.Qualifiers));
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
             var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath);
 

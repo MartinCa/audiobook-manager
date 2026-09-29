@@ -1,6 +1,7 @@
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Utils;
 using Microsoft.Extensions.Logging;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Services;
 
@@ -41,7 +42,7 @@ public class UrlCleanupService : IUrlCleanupService
                 row.Authors,
                 row.Www,
                 BookUrlCleaner.Clean(row.Www),
-                AudiobookManager.Database.Models.QualifierColumn.Parse(row.Qualifiers)))
+                QualifierColumn.Parse(row.Qualifiers)))
             .ToList();
 
         return (items, total);

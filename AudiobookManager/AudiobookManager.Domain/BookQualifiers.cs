@@ -68,54 +68,34 @@ public static class BookQualifiers
     }
 
     /// <summary>
-    /// The canonical form of a set of qualifier keys: trimmed, lowercased, de-duplicated and in
-    /// alphabetical label order (which is the order the suffixes are written in). A key the
-    /// registry does not know is kept - a book must not lose a value because the registry changed
-    /// - and sorts after the known ones.
+    /// The canonical form of a set of qualifier keys: trimmed, lowercased, de-duplicated, in
+    /// alphabetical label order (which is the order the suffixes are written in), and limited to
+    /// keys the registry knows. A key the registry does not know has no label, so it can never be
+    /// written into a name and read back - keeping it would make the book permanently mismatched
+    /// and un-saveable the moment a qualifier is retired. Dropping it here means the next save of
+    /// such a book simply removes it.
     /// </summary>
     public static List<string> Normalize(IEnumerable<string?>? keys)
     {
         var known = new List<BookQualifier>();
-        var unknown = new List<string>();
 
         foreach (var raw in keys ?? Enumerable.Empty<string?>())
         {
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                continue;
-            }
-
             var qualifier = Find(raw);
-            if (qualifier is not null)
+            if (qualifier is not null && !known.Contains(qualifier))
             {
-                if (!known.Contains(qualifier))
-                {
-                    known.Add(qualifier);
-                }
-            }
-            else
-            {
-                var key = raw.Trim().ToLowerInvariant();
-                if (!unknown.Contains(key))
-                {
-                    unknown.Add(key);
-                }
+                known.Add(qualifier);
             }
         }
 
         return known
             .OrderBy(q => q.Label, StringComparer.OrdinalIgnoreCase)
             .Select(q => q.Key)
-            .Concat(unknown.OrderBy(k => k, StringComparer.Ordinal))
             .ToList();
     }
 
-    /// <summary>
-    /// The known qualifiers among <paramref name="keys"/>, in canonical (suffix) order. Unknown
-    /// keys have no label to render, so they contribute nothing to a written name.
-    /// </summary>
     private static List<BookQualifier> KnownInOrder(IEnumerable<string?>? keys) =>
-        Normalize(keys).Select(Find).Where(q => q is not null).Select(q => q!).ToList();
+        Normalize(keys).Select(k => Find(k)!).ToList();
 
     /// <summary>
     /// The name as it is written to disk: the clean <paramref name="name"/> followed by one
@@ -213,11 +193,11 @@ public static class BookQualifiers
     /// the user and the value parsed back cannot drift.
     /// </summary>
     public static string Format(IEnumerable<string?>? keys) =>
-        string.Join(ListSeparator, Normalize(keys).Select(k => Find(k)?.Label ?? k));
+        string.Join(ListSeparator, KnownInOrder(keys).Select(q => q.Label));
 
     /// <summary>The inverse of <see cref="Format"/>.</summary>
     public static List<string> Parse(string? serialized) =>
         Normalize((serialized ?? string.Empty)
             .Split(ListSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(label => FindByLabel(label)?.Key ?? label));
+            .Select(label => FindByLabel(label)?.Key));
 }
