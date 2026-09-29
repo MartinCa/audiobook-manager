@@ -69,6 +69,15 @@ describe("PendingOnlineMatchRowPanel", () => {
     expect(screen.getAllByRole("button", { name: /select this match/i })).toHaveLength(2);
   });
 
+  it("shows each candidate's rating and review count from the stored snapshot", () => {
+    renderPanel({
+      ...baseItem,
+      results: [{ ...baseItem.results[0]!, rating: "4.5", numberOfRatings: 2500 }],
+    });
+
+    expect(screen.getByTestId("result-rating")).toHaveTextContent("4.5 · 2,500 ratings");
+  });
+
   it("shows a no-results message when the book has no candidates", () => {
     renderPanel({ ...baseItem, results: [] });
 

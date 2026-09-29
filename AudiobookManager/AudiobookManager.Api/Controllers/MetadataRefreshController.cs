@@ -419,5 +419,6 @@ public class MetadataRefreshController : ControllerBase
                 payload.Rating,
                 payload.Copyright,
                 payload.Publisher,
-                payload.Asin));
+                payload.Asin,
+                payload.NumberOfRatings));
 }

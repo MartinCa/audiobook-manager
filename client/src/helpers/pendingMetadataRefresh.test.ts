@@ -21,6 +21,16 @@ const snapshot = {
 };
 
 describe("pendingSnapshotToSearchResult", () => {
+  it("carries the review count so the online-match candidate list can show it", () => {
+    expect(
+      pendingSnapshotToSearchResult({ ...snapshot, numberOfRatings: 4321 }).numberOfRatings,
+    ).toBe(4321);
+  });
+
+  it("leaves the review count undefined for a snapshot stored before it was persisted", () => {
+    expect(pendingSnapshotToSearchResult(snapshot).numberOfRatings).toBeUndefined();
+  });
+
   it("maps the snapshot onto the MetadataSearchResult shape the preview UI renders", () => {
     const result = pendingSnapshotToSearchResult(snapshot);
     expect(result).toEqual({
