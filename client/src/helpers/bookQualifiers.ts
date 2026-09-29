@@ -23,8 +23,13 @@ export function qualifierLabel(key: string, options: BookQualifierOption[]): str
 }
 
 /**
- * Canonical form of a set of keys, matching the server: trimmed, lowercased, de-duplicated and in
- * alphabetical label order. Unknown keys are kept and sort after the known ones.
+ * Canonical form of a set of keys: trimmed, lowercased, de-duplicated and in alphabetical label
+ * order, matching the server's `BookQualifiers.Normalize` for every key the list knows.
+ *
+ * Deliberate divergence: the server drops a key the registry does not know (it has no label, so it
+ * can never be written into a name and read back), while this twin keeps it, after the known ones,
+ * so a retired key on a stored book stays visible - `QualifiersField` shows it and the user can
+ * remove it - until the server drops it on the next save. Do not "fix" one side to match the other.
  */
 export function normalizeQualifiers(
   keys: readonly string[] | null | undefined,
@@ -75,6 +80,11 @@ export function applyQualifiers(
 /**
  * Peels every known qualifier suffix off the end of `value`, in whatever order they appear.
  * Never strips the whole value away.
+ *
+ * Deliberately more lenient than the server's read-back (`BookQualifiers.ApplyExpected`), which
+ * only accepts the canonical alphabetical order: this only decides what gets cleaned *before* a
+ * value is stored, and the server normalizes the stored set, so what is written to disk is always
+ * canonical whatever order the scrape used.
  */
 function stripKnownSuffixes(
   value: string,
