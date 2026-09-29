@@ -72,7 +72,9 @@ function comparablePersonNames(joined: string): string {
   const meaningful = new Set(
     joined
       .split(PERSON_LIST_SEPARATOR)
-      .map((name) => collapseInitials(name.trim()))
+      // Collapse runs of whitespace like the backend's InitialsSpacingFormatter.Format does
+      // (split on ' ', drop empties) - "Thomas  Pope" and "Thomas Pope" are the same author.
+      .map((name) => collapseInitials(name.trim().replace(/\s+/g, " ")))
       .filter((name) => name.length > 0),
   );
   return Array.from(meaningful).sort(ordinalCompare).join(", ");
