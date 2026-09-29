@@ -193,6 +193,11 @@ export const queryKeys = {
   },
 
   bookDetail: (id: number) => ["bookDetail", id] as const,
+  // The bare AudiobookDetail record. It must not share bookDetail(id)'s key: that entry caches the
+  // BookDetail page's `{ detail, bookIssues }` wrapper, and two shapes under one key made the page
+  // render "Audiobook not found" when a row had been expanded first. It still extends
+  // bookDetail(id), so invalidating that key refreshes this one too.
+  bookDetailRecord: (id: number) => ["bookDetail", id, "record"] as const,
 
   missingTagFields: () => ["missingTagFields"] as const,
 
