@@ -6,6 +6,7 @@ using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AudiobookDb = AudiobookManager.Database.Models.Audiobook;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Services;
 public class AudiobookService : IAudiobookService
@@ -180,6 +181,10 @@ public class AudiobookService : IAudiobookService
         // identical genres in a different order looked like a real change on every save.
         audiobook.Genres = audiobook.Genres.OrderBy(g => g, StringComparer.Ordinal).ToList();
 
+        // Canonical (alphabetical, de-duplicated) qualifier keys: the same set always produces the
+        // same suffix on disk and the same stored column value.
+        audiobook.Qualifiers = BookQualifiers.Normalize(audiobook.Qualifiers);
+
         // Computed here rather than after the tag write, even though nothing between the two
         // changes the answer: JoinLibraryPath asserts the result stays inside the library root,
         // and an assertion is only a backstop if it fires before anything irreversible. Tripping
@@ -235,6 +240,9 @@ public class AudiobookService : IAudiobookService
         // tags for the consistency check to discover later.
         // The verification compares text tags only, so skip encoding the cover we just wrote.
         var savedTags = ParseAudiobook(audiobook.FileInfo.FullPath, includeCoverData: false);
+        // The file carries the qualifier suffixes; the requested metadata holds clean values, so
+        // reshape what was read back the same way the consistency check does.
+        BookQualifiers.ApplyExpected(savedTags, audiobook.Qualifiers);
         var mismatches = TagConsistencyChecker.FindMismatches(audiobook, savedTags);
         if (mismatches.Count > 0)
         {
@@ -263,6 +271,9 @@ public class AudiobookService : IAudiobookService
         }
 
         var newParsed = ParseAudiobook(newFullPath);
+        // Sidecars and the DB row are built from this object: it must be clean-name-plus-
+        // qualifiers, not the suffixed names the file carries.
+        BookQualifiers.ApplyExpected(newParsed, audiobook.Qualifiers);
 
         await progressAction("Reparsed", 85);
 
@@ -418,7 +429,8 @@ public class AudiobookService : IAudiobookService
         {
             Authors = authors,
             Narrators = narrators,
-            Genres = genres
+            Genres = genres,
+            Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers))
         };
 
         var result = await _audiobookRepository.InsertAudiobook(dbAudiobook);
@@ -465,6 +477,7 @@ public class AudiobookService : IAudiobookService
         existing.Subtitle = audiobook.Subtitle;
         existing.Series = audiobook.Series;
         existing.SeriesPart = audiobook.SeriesPart;
+        existing.Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers));
         existing.Year = audiobook.Year ?? existing.Year;
         existing.Description = audiobook.Description;
         existing.Copyright = audiobook.Copyright;
@@ -577,6 +590,9 @@ public class AudiobookService : IAudiobookService
             Subtitle = audiobookDb.Subtitle,
             Series = audiobookDb.Series,
             SeriesPart = audiobookDb.SeriesPart,
+            // Carried through every FromDb -> UpdateAudiobook round trip (consistency resolves,
+            // alignment, bulk edit): dropping it there would silently strip the suffix off disk.
+            Qualifiers = QualifierColumn.Parse(audiobookDb.Qualifiers),
             Genres = audiobookDb.Genres.Select(x => x.Name).ToList(),
             Description = audiobookDb.Description,
             Copyright = audiobookDb.Copyright,

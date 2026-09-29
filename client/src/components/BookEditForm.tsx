@@ -38,6 +38,15 @@ import {
 } from "@/helpers/organizeAudiobookInput";
 import { buildDefaultMetadataSearchQuery } from "@/helpers/metadataSearchQuery";
 import { normalizeLanguage } from "@/helpers/languages";
+import {
+  applyQualifiers,
+  cleanSearchResult,
+  normalizeQualifiers,
+  qualifierLabel,
+  splitQualifiers,
+} from "@/helpers/bookQualifiers";
+import { useBookQualifiers } from "@/hooks/useBookQualifiers";
+import { QualifiersField } from "@/components/fields/QualifiersField";
 import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
@@ -53,6 +62,7 @@ const bookEditFormSchema = z.object({
   subtitle: z.string(),
   series: z.string(),
   seriesPart: z.string(),
+  qualifiers: z.array(z.string()),
   year: z
     .string()
     .trim()
@@ -78,6 +88,7 @@ function valuesFromBook(book: Audiobook): BookEditFormValues {
     subtitle: book.subtitle || "",
     series: book.series || "",
     seriesPart: book.seriesPart || "",
+    qualifiers: book.qualifiers ?? [],
     year: book.year ? String(book.year) : "",
     genres: book.genres || [],
     description: book.description || "",
@@ -105,6 +116,7 @@ function buildAudiobook(
     subtitle: values.subtitle?.trim() || undefined,
     series: values.series?.trim() || undefined,
     seriesPart: values.seriesPart?.trim() || undefined,
+    qualifiers: values.qualifiers ?? [],
     year: values.year ? parseInt(values.year, 10) : undefined,
     genres: values.genres ?? [],
     description: values.description?.trim() || undefined,
@@ -246,6 +258,7 @@ export function BookEditForm({
     queryFn: () => settingsApi.getLanguages(),
   });
   const languages: LanguageOption[] = languagesRes?.languages ?? [];
+  const qualifierOptions = useBookQualifiers();
 
   const watchedValues = useWatch({ control: form.control });
 
@@ -279,10 +292,25 @@ export function BookEditForm({
     return () => clearTimeout(timer);
   }, [seriesPartValue]);
   const seriesSetWithNoPart = seriesValue.length > 0 && seriesPartValue.length === 0;
+  // The qualifier set is part of the conflict question: a dramatized Book 2 and a regular Book 2
+  // are different editions, so only books with the same set conflict. Joined into a string so the
+  // query key (and the effect deps) stay stable across renders.
+  const qualifiersValue = normalizeQualifiers(watchedValues.qualifiers, qualifierOptions);
+  const qualifiersKey = qualifiersValue.join(",");
   const { data: seriesPartConflictCheck, isError: seriesPartConflictError } = useQuery({
-    queryKey: queryKeys.seriesPartConflicts(currentBookId, debouncedSeries, debouncedPart),
+    queryKey: queryKeys.seriesPartConflicts(
+      currentBookId,
+      debouncedSeries,
+      debouncedPart,
+      qualifiersKey,
+    ),
     queryFn: () =>
-      audiobookApi.getSeriesPartConflicts(currentBookId!, debouncedSeries, debouncedPart),
+      audiobookApi.getSeriesPartConflicts(
+        currentBookId!,
+        debouncedSeries,
+        debouncedPart,
+        qualifiersKey ? qualifiersKey.split(",") : [],
+      ),
     enabled: currentBookId !== undefined && debouncedSeries.length > 0 && debouncedPart.length > 0,
   });
   const seriesPartConflicts = seriesPartConflictCheck?.conflicts ?? [];
@@ -363,6 +391,38 @@ export function BookEditForm({
   // arming an external ref that could outlive this specific save attempt.
   const autoSavedFromSearchRef = useRef(false);
 
+  // A title that already ends in a known qualifier ("Killing Floor (Dramatized)") on a book with
+  // no qualifiers set: offer to move the suffix into the qualifier set. Only ever a suggestion -
+  // the server never splits a name on its own, since a title can legitimately end that way.
+  const suffixSplit = splitQualifiers(
+    watchedValues.bookName,
+    watchedValues.series,
+    qualifierOptions,
+  );
+  const suffixSuggestion = !qualifiersKey && suffixSplit.qualifiers.length > 0 ? suffixSplit : null;
+
+  const moveSuffixToQualifiers = () => {
+    if (!suffixSuggestion) return;
+    form.setValue("bookName", suffixSuggestion.bookName, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("series", suffixSuggestion.series ?? "", { shouldDirty: true });
+    form.setValue("qualifiers", suffixSuggestion.qualifiers, { shouldDirty: true });
+  };
+
+  // Scraped titles carry the suffix ("Killing Floor (Dramatized)") that a stored clean name never
+  // does; cleaning it off before the diff means a book that already has the qualifier shows no
+  // spurious title/series difference, and a book that does not gets it pre-selected on apply.
+  const cleanedPendingSearch = useMemo(
+    () => (pendingSearchResult ? cleanSearchResult(pendingSearchResult, qualifierOptions) : null),
+    [pendingSearchResult, qualifierOptions],
+  );
+  const cleanedPendingRefresh = useMemo(
+    () => (pendingRefreshResult ? cleanSearchResult(pendingRefreshResult, qualifierOptions) : null),
+    [pendingRefreshResult, qualifierOptions],
+  );
+
   const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
     () => ({
       authors: joinList(watchedValues.authors),
@@ -394,11 +454,29 @@ export function BookEditForm({
   const handleApplyPreviewedTags = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
+    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
+    }
+    // The scraped title/series carried qualifier suffixes that were cleaned off them; keep what
+    // they said by adding them to the book's qualifiers (never removing one already set). Applies
+    // when either cleaned field is taken - applying only the series must not drop the qualifier
+    // its suffix stood for.
+    if (
+      detectedQualifiers.length > 0 &&
+      (selectedFields.has("bookName") || selectedFields.has("series"))
+    ) {
+      form.setValue(
+        "qualifiers",
+        normalizeQualifiers(
+          [...(form.getValues("qualifiers") ?? []), ...detectedQualifiers],
+          qualifierOptions,
+        ),
+        { shouldDirty: true },
+      );
     }
     if (selectedFields.has("subtitle")) {
       form.setValue("subtitle", result.subtitle ?? "", { shouldDirty: true });
@@ -585,10 +663,11 @@ export function BookEditForm({
   const handleApplyPendingRefresh = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
+    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields, detectedQualifiers);
     pendingRefreshAppliedRef.current = true;
     void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
   };
@@ -606,10 +685,11 @@ export function BookEditForm({
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
+    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     if (saveImmediately) setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields, detectedQualifiers);
     if (saveImmediately) {
       autoSavedFromSearchRef.current = true;
       void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
@@ -719,6 +799,60 @@ export function BookEditForm({
               </div>
             )}
           </div>
+
+          <Controller
+            control={form.control}
+            name="qualifiers"
+            render={({ field }) => (
+              <QualifiersField value={field.value ?? []} onChange={field.onChange} />
+            )}
+          />
+
+          {qualifiersValue.length > 0 && (
+            <p
+              className="text-muted-foreground text-xs break-words"
+              data-testid="qualifier-preview"
+            >
+              Saved as:{" "}
+              <span className="text-foreground font-medium">
+                {applyQualifiers(watchedValues.bookName, qualifiersValue, qualifierOptions)}
+              </span>
+              {seriesValue && (
+                <>
+                  {" "}
+                  in series{" "}
+                  <span className="text-foreground font-medium">
+                    {applyQualifiers(seriesValue, qualifiersValue, qualifierOptions)}
+                  </span>
+                </>
+              )}
+            </p>
+          )}
+
+          {suffixSuggestion && (
+            <p
+              className="text-status-unknown flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+              data-testid="qualifier-suggestion"
+            >
+              <Info className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 break-words">
+                The title ends in{" "}
+                {suffixSuggestion.qualifiers
+                  .map((k) => `(${qualifierLabel(k, qualifierOptions)})`)
+                  .join(" ")}
+                , which is written to disk as a qualifier.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={moveSuffixToQualifiers}
+              >
+                Move to qualifiers
+              </Button>
+            </p>
+          )}
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <Controller
@@ -975,27 +1109,36 @@ export function BookEditForm({
         )}
       />
 
-      {pendingSearchResult && (
+      {cleanedPendingSearch && (
         <TagPreviewDialog
           open={tagPreviewOpen}
           onOpenChange={setTagPreviewOpen}
           currentInput={currentOrganizeInput}
-          searchResult={pendingSearchResult}
+          searchResult={cleanedPendingSearch.result}
           onApply={(result, selectedFields, saveImmediately) => {
-            void handleApplySearchResult(result, selectedFields, saveImmediately);
+            void handleApplySearchResult(
+              result,
+              selectedFields,
+              saveImmediately,
+              cleanedPendingSearch.qualifiers,
+            );
           }}
           showAutoSaveToggle
         />
       )}
 
-      {pendingRefreshResult && (
+      {cleanedPendingRefresh && (
         <TagPreviewDialog
           open={pendingRefreshOpen ?? false}
           onOpenChange={(open) => onPendingRefreshOpenChange?.(open)}
           currentInput={currentOrganizeInput}
-          searchResult={pendingRefreshResult}
+          searchResult={cleanedPendingRefresh.result}
           onApply={(result, selectedFields) => {
-            void handleApplyPendingRefresh(result, selectedFields);
+            void handleApplyPendingRefresh(
+              result,
+              selectedFields,
+              cleanedPendingRefresh.qualifiers,
+            );
           }}
         />
       )}

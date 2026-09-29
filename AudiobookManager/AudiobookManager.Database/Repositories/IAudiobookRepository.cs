@@ -117,7 +117,7 @@ public interface IAudiobookRepository
     /// explicit truncation flag when more genuine conflicts exist, per the bounded-list invariant.
     /// </summary>
     Task<(List<SeriesPartConflictRow> Items, bool Truncated)> GetSeriesPartConflictCandidatesAsync(
-        string series, long excludeAudiobookId, string seriesPart, int limit);
+        string series, long excludeAudiobookId, string seriesPart, string qualifiers, int limit);
 
     Task<List<string>> GetSeriesNamesAsync();
     Task<string?> GetCoverFilePathAsync(long id);

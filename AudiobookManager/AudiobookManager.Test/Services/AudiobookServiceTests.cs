@@ -775,6 +775,172 @@ public class AudiobookServiceTests
         _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
     }
 
+    // ---- Qualifiers: clean values in the DB and domain, suffixed values on disk ----
+
+    private Audiobook DramatizedUpdate(Person author) =>
+        new(new List<Person> { author }, "Killing Floor", 1997, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Series = "Jack Reacher",
+            SeriesPart = "1",
+            Qualifiers = new List<string> { "dramatized" },
+        };
+
+    [TestMethod]
+    public async Task UpdateAudiobook_WithQualifiers_StoresCleanValuesAndRelocatesToTheSuffixedPath()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        var author = new Person("Lee Child");
+        Audiobook? tagsSavedFor = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback<Audiobook, Action<float>?>((a, _) => tagsSavedFor = a);
+        // The file carries the suffixed names, exactly as the tag writer put them there.
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Killing Floor (Dramatized)", 1997, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Series = "Jack Reacher (Dramatized)",
+                SeriesPart = "1",
+            });
+
+        var result = await _service.UpdateAudiobook(1, DramatizedUpdate(author));
+
+        Assert.AreEqual("Killing Floor", existing.BookName, "the database keeps the clean name");
+        Assert.AreEqual("Jack Reacher", existing.Series, "the database keeps the clean series");
+        Assert.AreEqual(",dramatized,", existing.Qualifiers);
+        StringAssert.Contains(existing.FileInfoFullPath, "Jack Reacher (Dramatized)");
+        StringAssert.Contains(existing.FileInfoFullPath, "Killing Floor (Dramatized)");
+        Assert.IsTrue(File.Exists(existing.FileInfoFullPath), "the file moved to the suffixed path");
+
+        Assert.IsNotNull(tagsSavedFor);
+        Assert.AreEqual("Killing Floor (Dramatized)", tagsSavedFor.EffectiveBookName);
+
+        Assert.AreEqual("Killing Floor", result.BookName);
+        Assert.AreEqual("Jack Reacher", result.Series);
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, result.Qualifiers);
+
+        var opf = File.ReadAllText(Path.Combine(Path.GetDirectoryName(existing.FileInfoFullPath)!, "metadata.opf"));
+        StringAssert.Contains(opf, "<dc:title>Killing Floor (Dramatized)</dc:title>");
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_QualifiersAreNormalizedBeforeTheyAreWrittenOrStored()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        var author = new Person("Lee Child");
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Killing Floor (Abridged) (Dramatized)", 1997, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var update = new Audiobook(new List<Person> { author }, "Killing Floor", 1997, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Qualifiers = new List<string> { "Dramatized", "abridged", "dramatized" },
+        };
+
+        await _service.UpdateAudiobook(1, update);
+
+        Assert.AreEqual(",abridged,dramatized,", existing.Qualifiers);
+    }
+
+    // A tag write that does not persist the suffix (the ATL failure mode the round-trip check
+    // exists for) must still be caught now that the file legitimately differs from the clean values.
+    [TestMethod]
+    public async Task UpdateAudiobook_WithQualifiers_TheFileMissingTheSuffixAfterTheWrite_FailsTheRoundTripCheck()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        var author = new Person("Lee Child");
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Killing Floor", 1997, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
+            {
+                Series = "Jack Reacher",
+                SeriesPart = "1",
+            });
+
+        await Assert.ThrowsExactlyAsync<Exception>(() => _service.UpdateAudiobook(1, DramatizedUpdate(author)));
+
+        Assert.IsTrue(File.Exists(oldFilePath), "nothing was relocated");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.IsAny<DbAudiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_WithoutQualifiers_LeavesATitleEndingInALabelAlone()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        var author = new Person("Lee Child");
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Killing Floor (Dramatized)", 1997, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var update = new Audiobook(new List<Person> { author }, "Killing Floor (Dramatized)", 1997, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
+
+        await _service.UpdateAudiobook(1, update);
+
+        Assert.AreEqual("Killing Floor (Dramatized)", existing.BookName);
+        Assert.AreEqual("", existing.Qualifiers);
+    }
+
+    [TestMethod]
+    public void FromDb_CarriesTheQualifiersSoAnyRewriteFromTheDatabaseKeepsTheirSuffixes()
+    {
+        var db = new DbAudiobook(
+            1, "Killing Floor", null, "Jack Reacher", "1", 1997,
+            null, null, null, null, null, null, null, null, null,
+            "/library/a/b.m4b", "b.m4b", 1000)
+        {
+            Qualifiers = ",abridged,dramatized,",
+        };
+
+        var domain = AudiobookService.FromDb(db);
+
+        CollectionAssert.AreEqual(new List<string> { "abridged", "dramatized" }, domain.Qualifiers);
+        Assert.AreEqual("Killing Floor (Abridged) (Dramatized)", domain.EffectiveBookName);
+        Assert.AreEqual("Jack Reacher (Abridged) (Dramatized)", domain.EffectiveSeries);
+    }
+
+    [TestMethod]
+    public async Task InsertAudiobook_PersistsTheQualifiers()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Lee Child") },
+            "Killing Floor",
+            1997,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        {
+            Qualifiers = new List<string> { "dramatized", "abridged" },
+        };
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbPerson> { ["Lee Child"] = new DbPerson(1, "Lee Child") });
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) => { db.Id = 1; return db; });
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.Qualifiers == ",abridged,dramatized,")), Times.Once);
+        CollectionAssert.AreEqual(new List<string> { "abridged", "dramatized" }, result.Qualifiers);
+    }
+
     #endregion
 
     #region OrganizeAudiobook

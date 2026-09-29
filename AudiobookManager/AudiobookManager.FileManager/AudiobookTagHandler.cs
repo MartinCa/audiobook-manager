@@ -113,23 +113,28 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             throw new UnsupportedFormatException($"{audiobook.FileInfo.FullPath} not readable by ATL");
         }
 
+        // Everything written to disk carries the qualifier suffixes; the domain object holds the
+        // clean values (see BookQualifiers).
+        var bookName = audiobook.EffectiveBookName;
+        var series = audiobook.EffectiveSeries;
+
         // Series
         string? group = null;
-        string? albumSort = audiobook.BookName;
-        string? title = $"{audiobook.Year} - {audiobook.BookName}";
-        if (!string.IsNullOrEmpty(audiobook.Series))
+        string? albumSort = bookName;
+        string? title = $"{audiobook.Year} - {bookName}";
+        if (!string.IsNullOrEmpty(series))
         {
             var paddedSeriesPart = audiobook.SeriesPart is not null ? PadSeriesPart(audiobook.SeriesPart) : "";
             var paddedSeriesPartWithLeadingSpace = audiobook.SeriesPart is not null ? $" {paddedSeriesPart}" : "";
             var groupSeriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $", Book #{paddedSeriesPart}" : "";
-            albumSort = $"{audiobook.Series}{paddedSeriesPartWithLeadingSpace} - {albumSort}";
-            group = $"{audiobook.Series}{groupSeriesPart}";
-            title = $"{audiobook.Series}{paddedSeriesPartWithLeadingSpace} - {title}";
+            albumSort = $"{series}{paddedSeriesPartWithLeadingSpace} - {albumSort}";
+            group = $"{series}{groupSeriesPart}";
+            title = $"{series}{paddedSeriesPartWithLeadingSpace} - {title}";
         }
 
         track.AlbumArtist = GetStringFromListOfPersons(audiobook.Authors);
         track.Composer = GetStringFromListOfPersons(audiobook.Narrators);
-        track.Album = audiobook.BookName;
+        track.Album = bookName;
         track.WriteSpecialTag(SpecialTagField.Subtitle, audiobook.Subtitle);
         WriteYear(track, audiobook.Year);
         track.Artist = GetStringFromListOfPersons(audiobook.Authors.Concat(audiobook.Narrators));
@@ -155,9 +160,9 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.WriteSpecialTag(SpecialTagField.Www, audiobook.Www);
         track.Comment = audiobook.Description ?? "";
 
-        track.WriteSpecialTag(SpecialTagField.ShowMovement, !string.IsNullOrEmpty(audiobook.Series) ? "1" : "0");
-        track.SeriesTitle = audiobook.Series ?? "";
-        track.WriteSpecialTag(SpecialTagField.Mp4Series, audiobook.Series);
+        track.WriteSpecialTag(SpecialTagField.ShowMovement, !string.IsNullOrEmpty(series) ? "1" : "0");
+        track.SeriesTitle = series ?? "";
+        track.WriteSpecialTag(SpecialTagField.Mp4Series, series);
         track.WriteSeriesPart(audiobook.SeriesPart);
 
         track.WriteSpecialTag(SpecialTagField.ItunesGapless, "1");

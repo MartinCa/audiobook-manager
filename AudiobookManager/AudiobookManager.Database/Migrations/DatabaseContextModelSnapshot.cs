@@ -106,6 +106,13 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("publisher");
 
+                    b.Property<string>("Qualifiers")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("")
+                        .HasColumnName("qualifiers");
+
                     b.Property<string>("Rating")
                         .HasColumnType("TEXT")
                         .HasColumnName("rating");

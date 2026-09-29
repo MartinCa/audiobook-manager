@@ -491,4 +491,72 @@ public class AudiobookTagHandlerTests
         Assert.AreEqual(0, AudiobookTagHandler.ParsePersonsFromString("").Count);
         Assert.AreEqual(0, AudiobookTagHandler.ParsePersonsFromString(null).Count);
     }
+
+    // Qualifiers are not a tag of their own: the suffixes are written into the name and series
+    // tags, and the parser hands them back untouched. Recovering the clean values is the consistency
+    // layer's job (BookQualifiers.ApplyExpected), and only for a book that stores the qualifier.
+    [TestMethod]
+    public void SaveAudiobookTagsToFile_WithQualifiers_WritesTheSuffixesIntoEveryNameTag()
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Lee Child") },
+                "Killing Floor",
+                1997,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length))
+            {
+                Series = "Jack Reacher",
+                SeriesPart = "1",
+                Qualifiers = new List<string> { "dramatized", "abridged" },
+            };
+
+            _handler.SaveAudiobookTagsToFile(audiobook);
+
+            var raw = _handler.ParseAudiobook(new FileInfo(tempFile));
+            Assert.AreEqual("Killing Floor (Abridged) (Dramatized)", raw.BookName);
+            Assert.AreEqual("Jack Reacher (Abridged) (Dramatized)", raw.Series);
+            Assert.AreEqual(0, raw.Qualifiers.Count, "the parser never guesses a qualifier");
+
+            BookQualifiers.ApplyExpected(raw, audiobook.Qualifiers);
+            Assert.AreEqual("Killing Floor", raw.BookName);
+            Assert.AreEqual("Jack Reacher", raw.Series);
+            CollectionAssert.AreEqual(new List<string> { "abridged", "dramatized" }, raw.Qualifiers);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
+    public void SaveAudiobookTagsToFile_WithoutQualifiers_LeavesATitleThatEndsInALabelExactlyAsWritten()
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            var audiobook = new Audiobook(
+                new List<Person> { new Person("Lee Child") },
+                "Killing Floor (Dramatized)",
+                1997,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length));
+
+            _handler.SaveAudiobookTagsToFile(audiobook);
+
+            var reparsed = _handler.ParseAudiobook(new FileInfo(tempFile));
+            BookQualifiers.ApplyExpected(reparsed, audiobook.Qualifiers);
+
+            Assert.AreEqual("Killing Floor (Dramatized)", reparsed.BookName);
+            Assert.AreEqual(0, reparsed.Qualifiers.Count);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AudiobookManager.Domain;
 
 public class Audiobook
@@ -9,6 +11,22 @@ public class Audiobook
     public string? Subtitle { get; set; }
     public string? Series { get; set; }
     public string? SeriesPart { get; set; }
+
+    /// <summary>
+    /// Keys of the <see cref="BookQualifiers"/> this book carries (canonical order). The
+    /// <see cref="BookName"/> and <see cref="Series"/> above are always the clean values; the
+    /// suffix only appears in <see cref="EffectiveBookName"/> / <see cref="EffectiveSeries"/>,
+    /// which is what every writer to disk uses.
+    /// </summary>
+    public List<string> Qualifiers { get; set; } = new();
+
+    /// <summary><see cref="BookName"/> with the qualifier suffixes appended - the name on disk.</summary>
+    [JsonIgnore]
+    public string? EffectiveBookName => BookQualifiers.Apply(BookName, Qualifiers);
+
+    /// <summary><see cref="Series"/> with the qualifier suffixes appended - the series on disk.</summary>
+    [JsonIgnore]
+    public string? EffectiveSeries => BookQualifiers.Apply(Series, Qualifiers);
     public int? Year { get; set; }
     public List<string> Genres { get; set; }
     public string? Description { get; set; }

@@ -1,5 +1,6 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.RateLimiting;
@@ -134,7 +135,8 @@ public class BrowseController : ControllerBase
                 a.Authors.Select(p => p.Name).ToList(),
                 a.Series,
                 a.Year,
-                a.CoverFilePath))
+                a.CoverFilePath,
+                QualifierColumn.Parse(a.Qualifiers)))
             .ToList();
 
         var authorHits = authors
@@ -873,7 +875,8 @@ public class BrowseController : ControllerBase
             audiobook.LastMetadataRefreshedAt,
             audiobook.Authors
                 .Select(a => new AudiobookAuthorDto(a.Id, a.Name))
-                .ToList()
+                .ToList(),
+            QualifierColumn.Parse(audiobook.Qualifiers)
         );
     }
 
@@ -926,7 +929,8 @@ public class BrowseController : ControllerBase
             a.CoverFilePath,
             a.DurationInSeconds,
             !string.IsNullOrEmpty(a.MatchedSourceName),
-            a.MatchedSourceName
+            a.MatchedSourceName,
+            QualifierColumn.Parse(a.Qualifiers)
         );
     }
 

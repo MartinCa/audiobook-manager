@@ -5,6 +5,8 @@ using AudiobookManager.Services.MappingExtensions;
 using AudiobookManager.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
+using BookQualifiers = AudiobookManager.Domain.BookQualifiers;
 
 namespace AudiobookManager.Services;
 
@@ -201,6 +203,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // thread, mirroring DetectIssuesForAudiobookAsync.
         var parsed = await Task.Run(() =>
             _tagHandler.ParseAudiobook(new FileInfo(dbAudiobook.FileInfoFullPath), includeCoverData: false));
+        BookQualifiers.ApplyExpected(parsed, domain.Qualifiers);
 
         return TagConsistencyChecker.FindMismatches(domain, parsed)
             .Select(m => new TagMismatchField(m.Field, m.Expected, m.Actual))

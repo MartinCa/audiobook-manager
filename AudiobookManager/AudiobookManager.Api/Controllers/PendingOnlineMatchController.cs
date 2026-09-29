@@ -4,6 +4,7 @@ using AudiobookManager.Database.Models;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -197,5 +198,6 @@ public class PendingOnlineMatchController : ControllerBase
                 s.Publisher,
                 s.Asin,
                 s.NumberOfRatings))
-            .ToList());
+            .ToList(),
+        QualifierColumn.Parse(row.Audiobook.Qualifiers));
 }

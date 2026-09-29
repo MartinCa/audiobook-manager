@@ -102,7 +102,7 @@ public class AudiobookRepository : IAudiobookRepository
             .OrderBy(a => a.BookName).ThenBy(a => a.Id)
             .Skip(offset)
             .Take(limit)
-            .Select(a => new DirtyUrlRow(a.Id, a.BookName, a.Authors.Select(p => p.Name).ToList(), a.Www!))
+            .Select(a => new DirtyUrlRow(a.Id, a.BookName, a.Authors.Select(p => p.Name).ToList(), a.Www!, a.Qualifiers))
             .ToListAsync();
 
         return (items, total);
@@ -387,7 +387,8 @@ public class AudiobookRepository : IAudiobookRepository
                 a.DurationInSeconds,
                 a.CoverFilePath,
                 a.MatchedSourceName != null && a.MatchedSourceName != "",
-                a.MatchedSourceName))
+                a.MatchedSourceName,
+                a.Qualifiers))
             .ToListAsync();
 
         return (items, total);
@@ -654,7 +655,8 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Publisher == null || a.Publisher.Trim() == "",
                 a.Rating == null || a.Rating.Trim() == "",
                 a.Asin == null || a.Asin.Trim() == "",
-                a.Www == null || a.Www.Trim() == ""))
+                a.Www == null || a.Www.Trim() == "",
+                a.Qualifiers))
             .ToListAsync();
 
         return (items, total);
@@ -1242,9 +1244,13 @@ public class AudiobookRepository : IAudiobookRepository
     /// sort past an alphabetical bound and be silently missed. The result is still capped -
     /// <paramref name="limit"/> rows, with an explicit truncation flag when more genuine conflicts
     /// exist, so the caller can tell the user the list is partial rather than claim it is complete.
+    ///
+    /// Only books carrying the same qualifier set (<paramref name="qualifiers"/>, the serialized
+    /// column value) conflict: a dramatized Book 2 and a regular Book 2 are different editions
+    /// that legitimately share a series part.
     /// </summary>
     public async Task<(List<SeriesPartConflictRow> Items, bool Truncated)> GetSeriesPartConflictCandidatesAsync(
-        string series, long excludeAudiobookId, string seriesPart, int limit)
+        string series, long excludeAudiobookId, string seriesPart, string qualifiers, int limit)
     {
         var trimmed = series?.Trim();
         if (string.IsNullOrEmpty(trimmed) || string.IsNullOrWhiteSpace(seriesPart))
@@ -1256,6 +1262,7 @@ public class AudiobookRepository : IAudiobookRepository
             .AsNoTracking()
             .Where(a => a.Series == trimmed
                 && a.Id != excludeAudiobookId
+                && a.Qualifiers == qualifiers
                 && a.SeriesPart != null
                 && SeriesPartEquivalence.PartsEquivalent(a.SeriesPart, seriesPart))
             .OrderBy(a => a.BookName).ThenBy(a => a.Id)

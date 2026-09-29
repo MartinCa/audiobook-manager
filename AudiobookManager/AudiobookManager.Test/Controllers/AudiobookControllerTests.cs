@@ -437,7 +437,7 @@ public class AudiobookControllerTests
     public async Task GetSeriesPartConflicts_DelegatesToTheServiceAndMapsTheResult()
     {
         _seriesService
-            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", It.IsAny<IReadOnlyCollection<string>?>(), SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync(new Domain.SeriesPartConflictCheck(
                 new List<Domain.SeriesPartConflict> { new(7, "The Well of Ascension", "2.0") },
                 Truncated: false));
@@ -457,7 +457,7 @@ public class AudiobookControllerTests
     public async Task GetSeriesPartConflicts_NoConflicts_ReturnsEmptyCheck()
     {
         _seriesService
-            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", It.IsAny<IReadOnlyCollection<string>?>(), SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync(new Domain.SeriesPartConflictCheck(new List<Domain.SeriesPartConflict>(), Truncated: false));
 
         var result = await _controller.GetSeriesPartConflicts(42, "Mistborn", "2");
@@ -472,7 +472,7 @@ public class AudiobookControllerTests
     public async Task GetSeriesPartConflicts_TruncationFlag_IsSurfacedToTheClient()
     {
         _seriesService
-            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", SeriesService.MaxSeriesPartConflictRows))
+            .Setup(s => s.GetSeriesPartConflictsAsync(42, "Mistborn", "2", It.IsAny<IReadOnlyCollection<string>?>(), SeriesService.MaxSeriesPartConflictRows))
             .ReturnsAsync(new Domain.SeriesPartConflictCheck(
                 new List<Domain.SeriesPartConflict> { new(7, "The Well of Ascension", "2.0") },
                 Truncated: true));
@@ -609,6 +609,20 @@ public class AudiobookControllerTests
         await WaitUntilAsync(
             () => _controller.UpdateAudiobook(104, dto) is OkResult,
             TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_NormalizesTheQualifiersToCanonicalOrder()
+    {
+        var dto = MakeDto();
+        dto.Qualifiers = new List<string> { "Dramatized", "abridged", "dramatized", " " };
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.Qualifiers.SequenceEqual(new[] { "abridged", "dramatized" })), false), Times.Once);
     }
 
     [TestMethod]

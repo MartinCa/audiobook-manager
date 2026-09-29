@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using DbAudiobook = AudiobookManager.Database.Models.Audiobook;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Services;
 
@@ -123,7 +124,8 @@ public class MissingTagService : IMissingTagService
                 r.Row.DurationInSeconds,
                 r.Row.IsMatched,
                 r.Row.MatchedSourceName,
-                r.Missing))
+                r.Missing,
+                QualifierColumn.Parse(r.Row.Qualifiers)))
             .ToList();
 
         return (results, total);

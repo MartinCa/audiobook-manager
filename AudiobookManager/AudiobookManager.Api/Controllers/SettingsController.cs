@@ -72,6 +72,15 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
+    /// The book qualifiers (abridged, dramatized, ...) a book can carry, served from
+    /// <see cref="BookQualifiers"/> so the client fetches its list rather than holding its own.
+    /// Adding a qualifier to that one list makes it appear in the edit form and every badge.
+    /// </summary>
+    [HttpGet("book-qualifiers")]
+    public BookQualifierOptionsDto GetBookQualifiers() =>
+        new(BookQualifiers.All.Select(q => new BookQualifierDto(q.Key, q.Label, q.Suffix)).ToList());
+
+    /// <summary>
     /// The UI-editable library-wide settings. The enum is carried as its name string ("Spaced"/
     /// "Unspaced") so the wire format stays legible and an out-of-range value is a 400 rather
     /// than a silent numeric cast.

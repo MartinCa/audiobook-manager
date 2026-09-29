@@ -7,7 +7,8 @@ public record LibraryBookHitDto(
     List<string> Authors,
     string? Series,
     int? Year,
-    string? CoverFilePath
+    string? CoverFilePath,
+    List<string> Qualifiers
 );
 
 public record LibraryAuthorHitDto(

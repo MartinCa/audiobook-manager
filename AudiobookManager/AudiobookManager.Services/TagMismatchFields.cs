@@ -61,6 +61,9 @@ public static class TagMismatchFields
             case "Series":
                 audiobook.Series = string.IsNullOrEmpty(value) ? null : value;
                 break;
+            case "Qualifiers":
+                audiobook.Qualifiers = BookQualifiers.Parse(value);
+                break;
             case "Series Part":
                 audiobook.SeriesPart = string.IsNullOrEmpty(value) ? null : value;
                 break;

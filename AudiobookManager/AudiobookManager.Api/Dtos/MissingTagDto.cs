@@ -19,7 +19,8 @@ public record AudiobookMissingTagsDto(
     int? DurationInSeconds,
     bool IsMatched,
     string? MatchedSourceName,
-    List<string> MissingFields);
+    List<string> MissingFields,
+    List<string>? Qualifiers = null);
 
 /// <summary>
 /// One page of audiobooks missing the selected tags plus the total matching that field set, so

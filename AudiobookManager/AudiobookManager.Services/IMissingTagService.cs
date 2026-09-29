@@ -22,7 +22,8 @@ public record AudiobookMissingTags(
     int? DurationInSeconds,
     bool IsMatched,
     string? MatchedSourceName,
-    List<string> MissingFields);
+    List<string> MissingFields,
+    List<string>? Qualifiers = null);
 
 public interface IMissingTagService
 {

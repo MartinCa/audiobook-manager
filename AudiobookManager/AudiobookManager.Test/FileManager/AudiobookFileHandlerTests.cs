@@ -878,4 +878,84 @@ public class AudiobookFileHandlerTests
 
         StringAssert.Contains(opf, "<dc:description>BeforeAfter</dc:description>");
     }
+
+    // ---- Qualifiers: the clean values stay on the domain object, the suffixes appear on disk ----
+
+    private static Audiobook DramatizedKillingFloor() =>
+        new(
+            new List<Person> { new Person("Lee Child") },
+            "Killing Floor",
+            1997,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Series = "Jack Reacher",
+            SeriesPart = "1",
+            Qualifiers = new List<string> { "dramatized" },
+        };
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithQualifiers_SuffixesTheSeriesDirectoryBookDirectoryAndFileName()
+    {
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(DramatizedKillingFloor());
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        Assert.AreEqual(
+            string.Join(sep, "Lee Child", "Jack Reacher (Dramatized)", "Book 01 - 1997 - Killing Floor (Dramatized)",
+                "Jack Reacher (Dramatized) 01 - 1997 - Killing Floor (Dramatized).m4b"),
+            result);
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithSeveralQualifiers_OrdersTheSuffixesAlphabetically()
+    {
+        var book = DramatizedKillingFloor();
+        book.Qualifiers = new List<string> { "dramatized", "abridged" };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+
+        StringAssert.Contains(result, "Killing Floor (Abridged) (Dramatized)");
+        StringAssert.Contains(result, "Jack Reacher (Abridged) (Dramatized)");
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_WithoutQualifiers_IsUnchanged()
+    {
+        var book = DramatizedKillingFloor();
+        book.Qualifiers = new List<string>();
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        Assert.AreEqual(
+            string.Join(sep, "Lee Child", "Jack Reacher", "Book 01 - 1997 - Killing Floor",
+                "Jack Reacher 01 - 1997 - Killing Floor.m4b"),
+            result);
+    }
+
+    [TestMethod]
+    public void GenerateRelativeAudiobookPath_QualifierOnABookWithoutASeries_SuffixesOnlyTheBookName()
+    {
+        var book = new Audiobook(
+            new List<Person> { new Person("Author Name") },
+            "Standalone Title",
+            2023,
+            new AudiobookFileInfo("/import/standalone.m4b", "standalone.m4b", 1000))
+        {
+            Qualifiers = new List<string> { "abridged" },
+        };
+
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+
+        var sep = AudiobookFileHandler.GetDirectorySeparator();
+        StringAssert.Contains(result, $"Author Name{sep}2023 - Standalone Title (Abridged){sep}");
+    }
+
+    [TestMethod]
+    public void BuildOpfContent_WithQualifiers_SuffixesTheTitleAndTheSeries()
+    {
+        var opf = AudiobookFileHandler.BuildOpfContent(DramatizedKillingFloor());
+
+        Assert.IsTrue(opf.Contains("<dc:title>Killing Floor (Dramatized)</dc:title>"), opf);
+        Assert.IsTrue(opf.Contains("content=\"Jack Reacher (Dramatized)\""), opf);
+    }
 }

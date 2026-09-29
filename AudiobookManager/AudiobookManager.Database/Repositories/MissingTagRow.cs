@@ -41,6 +41,7 @@ public record MissingTagRow(
     bool PublisherBlank,
     bool RatingBlank,
     bool AsinBlank,
-    bool WwwBlank)
+    bool WwwBlank,
+    string Qualifiers = "")
 {
 }

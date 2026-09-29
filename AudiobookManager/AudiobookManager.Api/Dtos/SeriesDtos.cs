@@ -45,7 +45,8 @@ public record SeriesOwnedBookDto(
     int? DurationInSeconds,
     string? CoverFilePath,
     bool IsMatched = false,
-    string? MatchedSourceName = null
+    string? MatchedSourceName = null,
+    List<string>? Qualifiers = null
 );
 
 public record SeriesDetailDto(

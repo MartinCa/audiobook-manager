@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -171,6 +172,7 @@ export function PendingOnlineMatches() {
                       <div className="min-w-0 flex-1">
                         <div className="text-foreground font-semibold break-words">
                           {item.authors.join(", ")} &mdash; {item.bookName}
+                          <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                         </div>
                         <div className="text-muted-foreground mt-0.5 text-xs">
                           Searched {formatDateTime(item.searchedAt)} · {item.results.length}{" "}
@@ -260,6 +262,7 @@ export function PendingOnlineMatches() {
                 <div className="min-w-0 flex-1">
                   <div className="text-foreground font-semibold break-words">
                     {item.authors.join(", ")} &mdash; {item.bookName}
+                    <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                   </div>
                   <div className="text-muted-foreground mt-0.5 text-xs">
                     Searched {formatDateTime(item.searchedAt)}

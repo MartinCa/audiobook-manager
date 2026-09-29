@@ -7,6 +7,7 @@ using AudiobookManager.Settings;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -171,7 +172,8 @@ public class ConsistencyController : ControllerBase
         issue.Description,
         issue.ExpectedValue,
         issue.ActualValue,
-        issue.DetectedAt
+        issue.DetectedAt,
+        QualifierColumn.Parse(issue.Audiobook.Qualifiers)
     );
 
     [HttpGet("issues/summary")]
@@ -208,7 +210,8 @@ public class ConsistencyController : ControllerBase
                 i.Description,
                 i.ExpectedValue,
                 i.ActualValue,
-                i.DetectedAt
+                i.DetectedAt,
+                QualifierColumn.Parse(i.Audiobook.Qualifiers)
             )).ToList());
         }
         catch (KeyNotFoundException)

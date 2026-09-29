@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookEditForm } from "./BookEditForm";
 import type { Audiobook } from "@/types/Audiobook";
@@ -22,6 +22,12 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getBookQualifiers: vi.fn().mockResolvedValue({
+      qualifiers: [
+        { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+        { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+      ],
+    }),
   },
   similarValuesApi: {
     getAutocomplete: vi.fn().mockResolvedValue([]),
@@ -1016,6 +1022,7 @@ describe("BookEditForm", () => {
         42,
         "The Stormlight Archive",
         "1",
+        [],
       ),
     );
 
@@ -1606,5 +1613,223 @@ describe("BookEditForm", () => {
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+  });
+  // ---- Qualifiers ----
+
+  it("saves the toggled qualifiers alphabetically and previews what the book is saved as", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, bookName: "Killing Floor", series: "Jack Reacher" }}
+        onSave={onSave}
+      />,
+    );
+
+    // Toggled out of alphabetical order on purpose.
+    fireEvent.click(await screen.findByRole("button", { name: "Dramatized" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abridged" }));
+
+    expect(screen.getByRole("button", { name: "Dramatized" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("qualifier-preview")).toHaveTextContent(
+      "Saved as: Killing Floor (Abridged) (Dramatized) in series Jack Reacher (Abridged) (Dramatized)",
+    );
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.qualifiers).toEqual(["abridged", "dramatized"]);
+    expect(saved.bookName).toBe("Killing Floor");
+    expect(saved.series).toBe("Jack Reacher");
+  });
+
+  it("shows no qualifier preview and saves no qualifiers when none are set", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+
+    expect(await screen.findByRole("button", { name: "Abridged" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByTestId("qualifier-preview")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0]?.[0] as Audiobook).qualifiers).toEqual([]);
+  });
+
+  it("renders a book's existing qualifiers as pressed and clears one when it is toggled off", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, qualifiers: ["abridged", "dramatized"] }}
+        onSave={onSave}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Abridged" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Abridged" }));
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0]?.[0] as Audiobook).qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("passes the qualifiers being saved to the series-part conflict check", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.getSeriesPartConflicts).mockClear();
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          series: "Jack Reacher",
+          seriesPart: "1",
+          qualifiers: ["dramatized"],
+        }}
+        onSave={vi.fn()}
+        currentBookId={42}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(audiobookApi.getSeriesPartConflicts).toHaveBeenCalledWith(42, "Jack Reacher", "1", [
+        "dramatized",
+      ]),
+    );
+  });
+
+  it("offers to move a suffix the title already carries into the qualifiers, and only on request", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          bookName: "Killing Floor (Dramatized)",
+          series: "Jack Reacher (Dramatized)",
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    const suggestion = await screen.findByTestId("qualifier-suggestion");
+    expect(suggestion).toHaveTextContent("(Dramatized)");
+    // A suggestion only: the name is untouched until the user accepts it.
+    expect(screen.getByDisplayValue("Killing Floor (Dramatized)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Move to qualifiers" }));
+
+    expect(screen.getByDisplayValue("Killing Floor")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Jack Reacher")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dramatized" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByTestId("qualifier-suggestion")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.bookName).toBe("Killing Floor");
+    expect(saved.series).toBe("Jack Reacher");
+    expect(saved.qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("does not suggest a split for a book that already has its qualifiers set", async () => {
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          bookName: "Killing Floor (Dramatized)",
+          qualifiers: ["abridged"],
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("button", { name: "Abridged" });
+    expect(screen.queryByTestId("qualifier-suggestion")).not.toBeInTheDocument();
+  });
+
+  it("pre-selects the qualifiers a scraped title carries and applies the clean title", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Killing Floor (Dramatized)",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [{ seriesName: "Jack Reacher (Dramatized)", seriesPart: "1" }],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+    await screen.findByRole("button", { name: "Dramatized" });
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Killing" } });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply & Save All" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.bookName).toBe("Killing Floor");
+    expect(saved.series).toBe("Jack Reacher");
+    expect(saved.qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("keeps the qualifier a scraped series suffix stood for when only the series is applied", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Killing Floor (Dramatized)",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [{ seriesName: "Jack Reacher (Dramatized)", seriesPart: "1" }],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+    await screen.findByRole("button", { name: "Dramatized" });
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Killing" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+    // Deselect the Book Name row so only the (cleaned) series is applied.
+    const bookNameRow = (await screen.findByText("Book Name")).closest("tr")!;
+    fireEvent.click(within(bookNameRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByRole("button", { name: /Apply & Save Selected/ }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.bookName).toBe("Original Title");
+    expect(saved.series).toBe("Jack Reacher");
+    expect(saved.qualifiers).toEqual(["dramatized"]);
   });
 });

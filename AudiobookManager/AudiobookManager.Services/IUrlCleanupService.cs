@@ -1,6 +1,6 @@
 namespace AudiobookManager.Services;
 
-public record AudiobookUrlCleanup(long AudiobookId, string BookName, List<string> Authors, string CurrentUrl, string CleanedUrl);
+public record AudiobookUrlCleanup(long AudiobookId, string BookName, List<string> Authors, string CurrentUrl, string CleanedUrl, List<string>? Qualifiers = null);
 
 public interface IUrlCleanupService
 {

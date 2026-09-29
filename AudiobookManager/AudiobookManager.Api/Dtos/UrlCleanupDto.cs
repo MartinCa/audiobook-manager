@@ -1,6 +1,6 @@
 namespace AudiobookManager.Api.Dtos;
 
-public record AudiobookUrlCleanupDto(long AudiobookId, string BookName, List<string> Authors, string CurrentUrl, string CleanedUrl);
+public record AudiobookUrlCleanupDto(long AudiobookId, string BookName, List<string> Authors, string CurrentUrl, string CleanedUrl, List<string>? Qualifiers = null);
 
 /// <summary>
 /// One page of dirty URLs plus the total number of dirty books, so the client can size its pager

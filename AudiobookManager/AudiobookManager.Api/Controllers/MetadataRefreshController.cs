@@ -5,6 +5,7 @@ using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Api.Controllers;
 
@@ -186,7 +187,8 @@ public class MetadataRefreshController : ControllerBase
                     p.Audiobook.Authors.Select(a => a.Name).ToList(),
                     p.FetchedAt,
                     p.SourceName,
-                    MetadataRefreshFields.ParseChangedFieldsJson(p.ChangedFieldsJson)))
+                    MetadataRefreshFields.ParseChangedFieldsJson(p.ChangedFieldsJson),
+                    QualifierColumn.Parse(p.Audiobook.Qualifiers)))
                 .ToList(),
             total));
     }

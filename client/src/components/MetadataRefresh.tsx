@@ -1,3 +1,4 @@
+import { BookQualifierBadges } from "@/components/BookQualifierBadges";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -699,6 +700,7 @@ export function MetadataRefresh() {
                       <div className="min-w-0 flex-1">
                         <div className="text-foreground font-semibold break-words">
                           {item.authors.join(", ")} &mdash; {item.bookName}
+                          <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                         </div>
                         <div className="text-muted-foreground mt-0.5 text-xs">
                           Pending since {formatDateTime(item.fetchedAt)}

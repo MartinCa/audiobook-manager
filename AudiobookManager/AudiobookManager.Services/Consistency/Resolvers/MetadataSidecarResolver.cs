@@ -1,7 +1,9 @@
 using AudiobookManager.Database.Models;
+using AudiobookManager.Domain;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.FileManager;
 using Microsoft.Extensions.Logging;
+using QualifierColumn = AudiobookManager.Database.Models.QualifierColumn;
 
 namespace AudiobookManager.Services;
 
@@ -36,6 +38,9 @@ public class MetadataSidecarResolver : IBookConsistencyIssueResolver
         var audiobook = issue.Audiobook;
         var fileInfo = new FileInfo(audiobook.FileInfoFullPath);
         var parsed = _tagHandler.ParseAudiobook(fileInfo);
+        // The sidecars are written from clean values plus qualifiers, taken from the database -
+        // the file only says what is on disk, not whether a trailing "(Dramatized)" is a qualifier.
+        BookQualifiers.ApplyExpected(parsed, QualifierColumn.Parse(audiobook.Qualifiers));
 
         _fileHandler.WriteMetadata(parsed);
 

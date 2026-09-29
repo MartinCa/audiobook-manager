@@ -23,5 +23,7 @@ public record AudiobookDetailDto(
     string FileName,
     long SizeInBytes,
     DateTime? LastMetadataRefreshedAt,
-    List<AudiobookAuthorDto> AuthorRefs
+    List<AudiobookAuthorDto> AuthorRefs,
+    /// <summary>Keys of the book's qualifiers (abridged, dramatized, ...), canonical order. <c>BookName</c> and <c>Series</c> are the clean values.</summary>
+    List<string> Qualifiers
 );

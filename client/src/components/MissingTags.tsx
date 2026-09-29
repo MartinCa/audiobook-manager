@@ -36,6 +36,7 @@ function toManagedAudiobook(b: AudiobookMissingTags): ManagedAudiobook {
     durationInSeconds: b.durationInSeconds,
     isMatched: b.isMatched,
     matchedSourceName: b.matchedSourceName,
+    qualifiers: b.qualifiers ?? [],
   };
 }
 

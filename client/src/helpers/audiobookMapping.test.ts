@@ -118,4 +118,24 @@ describe("toAudiobook", () => {
       sizeInBytes: 54321,
     });
   });
+
+  it("carries the qualifiers of an AudiobookDetail through, alongside the clean name", () => {
+    const result = toAudiobook({
+      id: 1,
+      filePath: "/library/a.m4b",
+      fileName: "a.m4b",
+      sizeInBytes: 1,
+      bookName: "Killing Floor",
+      series: "Jack Reacher",
+      authors: ["Lee Child"],
+      narrators: [],
+      genres: [],
+      authorRefs: [],
+      qualifiers: ["abridged", "dramatized"],
+    });
+
+    expect(result.bookName).toBe("Killing Floor");
+    expect(result.series).toBe("Jack Reacher");
+    expect(result.qualifiers).toEqual(["abridged", "dramatized"]);
+  });
 });

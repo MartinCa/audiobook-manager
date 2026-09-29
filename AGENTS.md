@@ -533,6 +533,61 @@ are left empty on purpose so they stay visible under Missing Tags. Unlike the ot
 operations this one publishes no SignalR event; the client follows it by polling
 `GET api/operations/{key}/status`.
 
+### Book qualifiers (abridged, dramatized, ...) are stored clean and written suffixed
+
+**Invariant: the database and the domain `Audiobook` hold the clean `BookName`/`Series` plus a set
+of qualifier keys; the parenthetical suffix (`Killing Floor (Abridged) (Dramatized)`) exists only
+on disk.** A qualifier is a fact about how a work was produced. The supported set lives in exactly
+one place, `AudiobookManager.Domain/BookQualifiers.cs` (a stable `Key` stored on the book, a `Label`
+that is also the text inside the suffix), and is served over `GET /api/settings/book-qualifiers` -
+**the frontend holds no list of its own**, and adding a qualifier is one entry in `BookQualifiers.All`
+(no migration: the column is a delimited string of keys). Keys are stored lowercased in canonical
+alphabetical-by-label order (`Normalize`), wrapped in commas (`,abridged,dramatized,` - see
+`QualifierColumn`) so an exact-key filter is a plain `LIKE '%,key,%'`.
+
+Why clean values in the database: the series catalog, roster reconciliation, similar-value
+detection, Hardcover matching and the author/series browse pages all key off `Series`, and the
+metadata refresh diff compares stored values against a source that never has the suffix. Storing
+the suffixed name would split `Jack Reacher` from `Jack Reacher (Dramatized)` everywhere and turn
+every refresh into a spurious title diff.
+
+Three rules keep it from desyncing:
+
+- **Everything written to disk uses the effective names.** `Audiobook.EffectiveBookName` /
+  `EffectiveSeries` (`BookQualifiers.Apply`) feed `GenerateRelativeAudiobookPath`, every name tag
+  `SaveAudiobookTagsToFile` writes (Album, Title, SortAlbum, Group, SeriesTitle, Mp4Series) and
+  `BuildOpfContent`. A new writer of a book/series name must use them, not `BookName`/`Series`.
+- **A file is only ever split back into clean name + qualifiers for the qualifiers the book
+  already stores.** `ParseAudiobook` is raw and never guesses; `BookQualifiers.ApplyExpected(parsed,
+  storedQualifiers)` reshapes a parse into the database's form, and only where a DB row is known
+  (the consistency detectors, the sidecar resolver, the save round-trip check, the post-relocation
+  re-parse). It strips the exact canonical suffixes from the name - and from the series, which must
+  carry the same set - or leaves the book untouched so the difference surfaces as a `TagMismatch`
+  (`TagConsistencyChecker` compares a `Qualifiers` field). **A book stored without qualifiers is
+  never split**, so a title that merely ends in `(Dramatized)` - every book filed before this
+  feature existed - is not reported as a mismatch, and a blind split would also make a save
+  un-round-trippable. There is deliberately **no backfill and no automatic split**: moving a suffix
+  into the qualifier set is a user decision (the edit form's "Move to qualifiers" suggestion, and
+  the pre-selection when a scraped title carries one - both client-side, via `splitQualifiers` /
+  `cleanSearchResult` in `helpers/bookQualifiers.ts`, driven by the served list).
+- **Every rewrite that goes `FromDb` -> `UpdateAudiobook` carries the qualifiers.** `FromDb` maps
+  them, which is what keeps consistency resolves, similar-value alignment, bulk edit, series
+  adoption and URL cleanup from stripping the suffix off a file. Resolvers must take qualifiers
+  from the database row, never from a fresh file parse (a parse of a file missing its suffix has
+  none). The queued organize task round-trips the domain object through JSON, so
+  `Audiobook.Qualifiers` must stay a serialized property (the derived `Effective*` ones are
+  `[JsonIgnore]`).
+
+`Qualifiers` is a path-driving field, so the Author/Series/SeriesPart/Year/BookName binding
+invariant below covers it too. It is intentionally **not** in `MissingTagService.Fields`: it is not
+a tag of its own, only part of the name tags, and an unset qualifier is the normal state. The
+series-part advisory conflict check compares only books with the same qualifier set (a dramatized
+Book 2 and a regular Book 2 are different editions and legitimately share a part).
+
+Where clients present a book, `BookQualifierBadges` renders the set (book lists, owned series
+books, the library search dropdown, the book page, consistency / missing-tags / pending-refresh /
+pending-match / URL-cleanup lists); a list DTO that names a library book carries `qualifiers` for it.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)
@@ -568,6 +623,9 @@ expected key set and must be updated alongside `Fields`. This was audited and fo
 missing five writable fields (Copyright, Publisher, Rating, Asin, Www) before the fix that added
 them.
 
+(Qualifiers are the one deliberate exception: they are not a tag of their own, only part of the
+name tags - see "Book qualifiers" above.)
+
 ### Similar author/series detection & bulk alignment
 
 Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is computed, not persisted — there is no "issue" table like `ConsistencyIssue` — but the *grouping* is cached: `SimilarValueDetectionCache` (an in-memory TTL cache, invalidated by every alignment) stops a paged request from re-reading every distinct value and re-clustering the library once per page. Publish is **version-gated**: a compute that missed the cache and is still reading when an alignment invalidates cannot republish its pre-alignment groups for the TTL — the stale publish is dropped (`Set` takes the version captured at compute start and refuses if an invalidation intervened), and `Get` refuses any entry whose generation is stale. Book counts are never cached — they are re-read per page — so a stale slot can only delay group updates by the TTL, never show a wrong number. The same two-layer pattern backs the series detail's missing/ignored sections: `SeriesReconciliationCache` caches the per-series fuzzy roster reconciliation (computed once per series per change, not once per page request), invalidated by every roster write (match/refresh/ignore/omnibus toggle) and every book write that can change a book's `Series`/`SeriesPart`/`BookName` (`AudiobookService` and the one resolver that deletes directly). Both caches are **explicitly capacity-bounded**: `SeriesReconciliationCache` (capacity 1024, configurable for tests) LRU-evicts reconcile entries and prunes idle per-series version cells and single-flight gates when they overflow, the gates are *never disposed* (evicted = dereferenced, so no disposal race), and the version-check on publish and the invalidation bump run under the same lock so a stale publish can't slip through while an eviction is happening.
@@ -580,7 +638,7 @@ Author names and series values are free text, so the same real-world value can e
 - **Ignoring a pair ("Ben Winters" is not "Ed Winters")** — a user can mark two specific values within a detected group as explicitly not similar. `ignored_similar_value_pairs` (`Kind`/`ValueA`/`ValueB`, `ValueA < ValueB` by `StringComparer.Ordinal` so a pair is unordered, unique index on `(Kind, ValueA, ValueB)`) stores these; `SimilarValueService.IgnorePairAsync(kind, value, againstValues)` adds one row per `againstValues` entry (the UI passes the rest of the candidate's current group) and `RemoveIgnoredPairAsync`/`GetIgnoredPairsAsync` round out the CRUD, all behind `SimilarValuesController`'s `POST similar-values/ignore` / `DELETE similar-values/ignore/{id}` / `GET similar-values/ignored`. `GetOrComputeGroupsAsync` loads the kind's ignored pairs and passes them into `SimilarityGrouper.GroupSimilarValues` as `ignoredPairs`, which skips unioning that one edge directly — the two values can still end up in the same cluster transitively through a third value neither is ignored against, so ignoring a pair narrows the grouping rather than exiling either value from consideration. Both mutations invalidate the detection cache immediately, exactly like alignment. `SimilarValues.tsx` exposes this as a per-candidate "not similar" action plus a "Show ignored" dialog (`IgnoredSimilarValuesDialog.tsx`) listing and removing ignored pairs for the active tab.
 - **Series "the"-insensitivity** — `NameNormalizer.StripLeadingArticle` strips a leading `"the "` token from an already-normalized string. `SimilarityGrouper.GroupSimilarValues`'s `isSeries` flag (passed `true` only from the series detection call site, never for authors) runs an extra O(n) bucketing pass keyed on the stripped form, independent of the length-blocking loop, so `"The Mistborn Saga"` and `"Mistborn Saga"` group even though the edit distance (inserting `"The "`) and the length gap can both fall outside the normal thresholds. `SimilarValueService.ScoreSimilarMatches` applies the same rule for series-kind entry-status matches, for consistency between the detection screen and the entry-time "similar" indicator. This is series-only by construction — an author literally named "The Rock" is never affected, because `isSeries` is never passed for the author call site.
 
-**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName.** Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, or `BookName` on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
+**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers.** Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
 
 ### Adding a metadata source scraper
 
@@ -784,7 +842,7 @@ change is not complete until the tests covering it exist and pass.
   fix, so the specific bug can never silently return. Reference the failure in the test name
   (e.g. `..._DoesNotResurrectStaleSidecarsOnRelocation`).
 - **Invariants** — behavior AGENTS.md calls out as an invariant (the Author/Series/SeriesPart/
-  Year/BookName binding rule, "no hardcoded source list on the frontend", Hardcover's
+  Year/BookName/Qualifiers binding rule, the "a book without stored qualifiers is never split" rule, "no hardcoded source list on the frontend", Hardcover's
   disabled pattern-matching operators, Missing Tags covering every writable tag field) deserves
   an explicit regression guard, since the cost of a silent regression there is high.
 

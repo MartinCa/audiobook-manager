@@ -190,7 +190,7 @@ public interface ISeriesService
     /// Purely advisory - the caller must never use it to block a save.
     /// </summary>
     Task<SeriesPartConflictCheck> GetSeriesPartConflictsAsync(
-        long currentAudiobookId, string? series, string? seriesPart, int limit = SeriesService.MaxSeriesPartConflictRows);
+        long currentAudiobookId, string? series, string? seriesPart, IReadOnlyCollection<string>? qualifiers, int limit = SeriesService.MaxSeriesPartConflictRows);
 
     /// <summary>
     /// Applies the series name and the roster entry's position to a chosen audiobook, through

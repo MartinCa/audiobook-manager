@@ -391,4 +391,18 @@ public class SettingsControllerTests
         Assert.IsTrue(dtos[0].Enabled);
         Assert.AreEqual(nextRun, dtos[0].NextRunAt);
     }
+
+    [TestMethod]
+    public void GetBookQualifiers_ServesExactlyTheRegistryInOrderWithTheSuffixWrittenToDisk()
+    {
+        var result = _controller.GetBookQualifiers();
+
+        CollectionAssert.AreEqual(
+            BookQualifiers.All.Select(q => q.Key).ToList(),
+            result.Qualifiers.Select(q => q.Key).ToList());
+        CollectionAssert.AreEqual(
+            BookQualifiers.All.Select(q => q.Suffix).ToList(),
+            result.Qualifiers.Select(q => q.Suffix).ToList());
+        Assert.AreEqual(" (Dramatized)", result.Qualifiers.Single(q => q.Key == "dramatized").Suffix);
+    }
 }

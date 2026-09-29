@@ -19,5 +19,7 @@ public record AudiobookSummaryDto(
     /// so there is no separate match confidence or source id/url to carry, unlike a series match.
     /// </summary>
     bool IsMatched,
-    string? MatchedSourceName
+    string? MatchedSourceName,
+    /// <summary>Keys of the book's qualifiers (abridged, dramatized, ...), canonical order. <c>BookName</c> and <c>Series</c> are the clean values.</summary>
+    List<string> Qualifiers
 );

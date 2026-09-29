@@ -76,7 +76,7 @@ public class UrlCleanupController : ControllerBase
 
         return Ok(new UrlCleanupPageDto(
             results
-                .Select(r => new AudiobookUrlCleanupDto(r.AudiobookId, r.BookName, r.Authors, r.CurrentUrl, r.CleanedUrl))
+                .Select(r => new AudiobookUrlCleanupDto(r.AudiobookId, r.BookName, r.Authors, r.CurrentUrl, r.CleanedUrl, r.Qualifiers))
                 .ToList(),
             totalCount));
     }

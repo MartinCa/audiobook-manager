@@ -423,14 +423,16 @@ public class AudiobookController : ControllerBase
     /// carrying the (series, series part) combination about to be saved, excluding this book.
     /// Read-only, bounded and never gates a save - the client uses it to warn. Part equivalence
     /// is applied in SQL, so no conflict is skipped; the response's Truncated flag tells the
-    /// client when more genuine conflicts exist than the bounded response carries. A blank series
+    /// client when more genuine conflicts exist than the bounded response carries. Only books with
+    /// the same qualifier set conflict (a dramatized Book 2 and a regular Book 2 are different
+    /// editions), so the caller passes the qualifiers being saved. A blank series
     /// or part returns no conflicts (an empty part is its own informational state in the form).
     /// </summary>
     [HttpGet("{id}/series-part-conflicts")]
     public async Task<ActionResult<SeriesPartConflictCheckDto>> GetSeriesPartConflicts(
-        long id, [FromQuery] string? series, [FromQuery] string? seriesPart)
+        long id, [FromQuery] string? series, [FromQuery] string? seriesPart, [FromQuery] List<string>? qualifiers = null)
     {
-        var result = await _seriesService.GetSeriesPartConflictsAsync(id, series, seriesPart);
+        var result = await _seriesService.GetSeriesPartConflictsAsync(id, series, seriesPart, qualifiers);
         return new SeriesPartConflictCheckDto(
             result.Conflicts
                 .Select(c => new SeriesPartConflictBookDto(c.AudiobookId, c.BookName, c.SeriesPart))
@@ -511,6 +513,7 @@ public class AudiobookController : ControllerBase
             Subtitle = dto.Subtitle,
             Series = dto.Series,
             SeriesPart = dto.SeriesPart,
+            Qualifiers = BookQualifiers.Normalize(dto.Qualifiers),
             Genres = CleanNames(dto.Genres),
             Description = dto.Description,
             Copyright = dto.Copyright,

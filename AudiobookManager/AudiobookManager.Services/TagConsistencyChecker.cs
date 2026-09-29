@@ -29,6 +29,11 @@ public static class TagConsistencyChecker
         Compare("Subtitle", expected.Subtitle, actual.Subtitle);
         Compare("Series", expected.Series, actual.Series);
         Compare("Series Part", expected.SeriesPart, actual.SeriesPart);
+        // Qualifiers are not a tag of their own - they live as suffixes on the book name and
+        // series - so `actual` only carries them when the caller reshaped the parse with
+        // BookQualifiers.ApplyExpected. A file missing (or mangling) an expected suffix therefore
+        // reads as a Qualifiers difference alongside the name/series difference.
+        Compare("Qualifiers", BookQualifiers.Format(expected.Qualifiers), BookQualifiers.Format(actual.Qualifiers));
         Compare("Year", expected.Year?.ToString(), actual.Year?.ToString());
         Compare("Description", expected.Description, actual.Description);
         Compare("Copyright", expected.Copyright, actual.Copyright);
