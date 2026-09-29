@@ -65,6 +65,23 @@ describe("useMetadataFieldDiffs", () => {
     expect(findField(result.current, "authors").changed).toBe(false);
   });
 
+  // Regression: the backend's InitialsSpacingFormatter.Format splits on ' ' and drops empty
+  // entries, so a doubled space inside a name is collapsed before it compares - the pending-row
+  // chips did not list Authors, but this hook compared the raw strings and showed an Authors row
+  // whose current and new values looked identical (HTML collapses the extra space).
+  it("does not flag an Authors change when only internal whitespace differs", () => {
+    const current: OrganizeAudiobookInput = {
+      authors: "David Weber, Timothy Zahn, Thomas  Pope",
+    };
+    const searchResult = baseSearchResult({
+      authors: [{ name: "David Weber" }, { name: "Timothy Zahn" }, { name: "Thomas Pope" }],
+    });
+
+    const { result } = renderHook(() => useMetadataFieldDiffs(current, searchResult, []));
+
+    expect(findField(result.current, "authors").changed).toBe(false);
+  });
+
   it("still flags a genuinely different lone middle initial", () => {
     const current: OrganizeAudiobookInput = { authors: "Andrew R. Chow" };
     const searchResult = baseSearchResult({
