@@ -24,12 +24,18 @@ public interface IOrphanDirectoryConsistencyService
     /// its own running total. The walk itself is done once by the combined scan's
     /// <see cref="AudiobookManager.FileManager.LibraryTreeWalker"/> and handed in, so the sweep
     /// does not re-walk the library.
+    ///
+    /// <paramref name="trackedFilePaths"/> are the file paths of the books the library already
+    /// tracks. Every folder above one of them is kept regardless of what the walk snapshot says:
+    /// a folder holding (or leading to) a tracked book is never an orphan, and the snapshot can be
+    /// stale by the time the sweep runs.
     /// </summary>
     Task<int> ScanAsync(
         Func<string, int, int, int, Task> progressAction,
         int totalBooks,
         int issuesFound,
-        IReadOnlyList<AudiobookManager.FileManager.LibraryDirectory> directories);
+        IReadOnlyList<AudiobookManager.FileManager.LibraryDirectory> directories,
+        IEnumerable<string>? trackedFilePaths = null);
 
     Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId);
 

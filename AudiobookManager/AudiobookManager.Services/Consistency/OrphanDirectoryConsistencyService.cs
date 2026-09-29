@@ -32,12 +32,18 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         Func<string, int, int, int, Task> progressAction,
         int totalBooks,
         int issuesFound,
-        IReadOnlyList<LibraryDirectory> directories)
+        IReadOnlyList<LibraryDirectory> directories,
+        IEnumerable<string>? trackedFilePaths = null)
     {
         if (!Directory.Exists(_settings.AudiobookLibraryPath))
         {
             return issuesFound;
         }
+
+        // Folders above a book the library tracks. The walk snapshot only knows what was on disk
+        // when it ran; the library's own records are the second opinion, so a tracked book's
+        // author/series/book folders are never reported no matter what the snapshot missed.
+        var trackedAncestors = GetTrackedAncestorDirectories(trackedFilePaths ?? []);
 
         // A single directory walk, sorted deepest-first.
         //
@@ -86,6 +92,7 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
             // ends in a recursive delete of a folder whose contents were never examined.
             var mustKeepDirectory =
                 directory.HasSupportedAudioFile
+                || trackedAncestors.Contains(directory.Path)
                 || directory.Subdirectories.Any(mustKeep.Contains)
                 || directory.HasLinkSubdirectory;
 
@@ -123,6 +130,31 @@ public class OrphanDirectoryConsistencyService : IOrphanDirectoryConsistencyServ
         await progressAction("Checked library directories for orphaned folders", totalBooks, totalBooks, issuesFound);
 
         return issuesFound;
+    }
+
+    private HashSet<string> GetTrackedAncestorDirectories(IEnumerable<string> trackedFilePaths)
+    {
+        var ancestors = new HashSet<string>(AudiobookFileHandler.PathComparer);
+        var libraryRoot = Path.GetFullPath(_settings.AudiobookLibraryPath);
+
+        foreach (var filePath in trackedFilePaths)
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(filePath));
+            while (directory is not null
+                   && AudiobookFileHandler.PathStartsWith(directory, libraryRoot)
+                   && !AudiobookFileHandler.PathsEqual(directory, libraryRoot))
+            {
+                // Already seen: so is everything above it.
+                if (!ancestors.Add(directory))
+                {
+                    break;
+                }
+
+                directory = Path.GetDirectoryName(directory);
+            }
+        }
+
+        return ancestors;
     }
 
     public async Task<OrphanDirectoryResolveResult> ResolveOrphanDirectory(long orphanDirectoryId)
