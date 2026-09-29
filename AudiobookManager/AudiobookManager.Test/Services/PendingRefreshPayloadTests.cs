@@ -25,7 +25,8 @@ public class PendingRefreshPayloadTests
             "4.5",
             "2020 Publisher",
             "The Publisher",
-            "B0123456789");
+            "B0123456789",
+            NumberOfRatings: 1234);
 
         var parsed = PendingRefreshPayload.TryParse(PendingRefreshPayload.Serialize(snapshot));
 
@@ -47,6 +48,34 @@ public class PendingRefreshPayloadTests
         Assert.AreEqual(snapshot.Copyright, parsed.Copyright);
         Assert.AreEqual(snapshot.Publisher, parsed.Publisher);
         Assert.AreEqual(snapshot.Asin, parsed.Asin);
+        Assert.AreEqual(1234, parsed.NumberOfRatings);
+    }
+
+    [TestMethod]
+    public void FromSearchResult_CarriesTheReviewCountSoTheCandidateListCanShowIt()
+    {
+        var fetched = new AudiobookManager.Scraping.Models.MetadataSearchResult("https://hardcover.app/books/x", "X")
+        {
+            Source = "Hardcover",
+            Rating = 4.5f,
+            NumberOfRatings = 987,
+        };
+
+        var snapshot = PendingRefreshPayload.FromSearchResult(fetched);
+        var parsed = PendingRefreshPayload.TryParse(PendingRefreshPayload.Serialize(snapshot));
+
+        Assert.AreEqual(987, parsed!.NumberOfRatings);
+    }
+
+    [TestMethod]
+    public void TryParse_LegacyVersion2Payload_HasNoReviewCount()
+    {
+        var legacy = """{"version":2,"url":"https://x","source":"Audible","authors":[],"narrators":[],"bookName":"B","genres":[]}""";
+
+        var parsed = PendingRefreshPayload.TryParse(legacy);
+
+        Assert.IsNotNull(parsed);
+        Assert.IsNull(parsed.NumberOfRatings);
     }
 
     [TestMethod]

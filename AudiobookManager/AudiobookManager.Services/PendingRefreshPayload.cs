@@ -22,9 +22,11 @@ public static class PendingRefreshPayload
     /// Version 2 added <see cref="Snapshot.OriginalSeriesName"/>. A version-1 row on disk simply
     /// deserializes with that property null - nothing about the shape changed enough to need a
     /// conversion step, so the version bump exists only to record when the field became
-    /// available, per this class's own convention.
+    /// available, per this class's own convention. Version 3 added
+    /// <see cref="Snapshot.NumberOfRatings"/> (the review count the online-match candidate list
+    /// shows; a row written earlier deserializes it as null and simply shows no count).
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
     // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
@@ -63,7 +65,8 @@ public static class PendingRefreshPayload
         /// re-applied to it later (<see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>)
         /// without re-fetching the book from its source.
         /// </summary>
-        string? OriginalSeriesName = null);
+        string? OriginalSeriesName = null,
+        int? NumberOfRatings = null);
 
     public static string Serialize(Snapshot snapshot) =>
         JsonSerializer.Serialize(snapshot, JsonOptions);
@@ -117,5 +120,6 @@ public static class PendingRefreshPayload
         fetched.Copyright,
         fetched.Publisher,
         fetched.Asin,
-        fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName);
+        fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName,
+        fetched.NumberOfRatings);
 }

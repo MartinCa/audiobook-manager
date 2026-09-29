@@ -37,7 +37,8 @@ public record PendingRefreshSnapshotDto(
     string? Rating,
     string? Copyright,
     string? Publisher,
-    string? Asin);
+    string? Asin,
+    int? NumberOfRatings = null);
 
 /// <summary>One row of the pending-refresh list page.</summary>
 public record PendingMetadataRefreshListItemDto(

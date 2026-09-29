@@ -5942,6 +5942,8 @@ export interface components {
             copyright?: string | null;
             publisher?: string | null;
             asin?: string | null;
+            /** Format: int32 */
+            numberOfRatings?: number | null;
         };
         Person: {
             /** Format: int64 */

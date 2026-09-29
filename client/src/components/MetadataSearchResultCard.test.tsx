@@ -102,4 +102,32 @@ describe("MetadataSearchResultCard", () => {
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
+
+  it("renders the average rating and the grouped review count", () => {
+    render(
+      <MetadataSearchResultCard
+        result={{ ...baseResult, rating: 4.2367, numberOfRatings: 12345 }}
+      />,
+    );
+
+    expect(screen.getByTestId("result-rating")).toHaveTextContent("4.24 · 12,345 ratings");
+  });
+
+  it("uses the singular for a single rating", () => {
+    render(<MetadataSearchResultCard result={{ ...baseResult, rating: 5, numberOfRatings: 1 }} />);
+
+    expect(screen.getByTestId("result-rating")).toHaveTextContent("5 · 1 rating");
+  });
+
+  it("still shows the review count when the source reports no average", () => {
+    render(<MetadataSearchResultCard result={{ ...baseResult, numberOfRatings: 87 }} />);
+
+    expect(screen.getByTestId("result-rating")).toHaveTextContent("87 ratings");
+  });
+
+  it("omits the rating line when the source reports neither value", () => {
+    render(<MetadataSearchResultCard result={baseResult} />);
+
+    expect(screen.queryByTestId("result-rating")).not.toBeInTheDocument();
+  });
 });
