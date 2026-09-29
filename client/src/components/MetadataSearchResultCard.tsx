@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { metadataSearchApi } from "@/services/api";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
@@ -12,11 +12,32 @@ interface MetadataSearchResultCardProps {
 }
 
 /**
+ * "4.24 · 1,234 ratings" - the review count is the useful part when picking between near-identical
+ * candidates (a real edition has thousands, a stray duplicate has a handful), so a count with no
+ * average still shows. Returns null when the source reported neither. The count uses a fixed
+ * locale so the grouping separator doesn't vary with the browser.
+ */
+function formatRatingSummary(rating?: number, numberOfRatings?: number): string | null {
+  const parts: string[] = [];
+  if (rating != null && rating > 0) {
+    parts.push(String(Number(rating.toFixed(2))));
+  }
+  if (numberOfRatings != null) {
+    parts.push(
+      `${numberOfRatings.toLocaleString("en-US")} ${numberOfRatings === 1 ? "rating" : "ratings"}`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
  * One scraped metadata result's presentation, shared by every flow that shows candidate search
  * results: BookSearchDialog's interactive search and the bulk online-match pending list's
  * per-book expand panel. Extracted so both render a result identically - no drift.
  */
 export function MetadataSearchResultCard({ result, actions }: MetadataSearchResultCardProps) {
+  const ratingSummary = formatRatingSummary(result.rating, result.numberOfRatings);
+
   return (
     <div className="border-border bg-card hover:bg-muted/50 flex flex-col justify-between gap-3 rounded-lg border p-3 transition-colors sm:flex-row sm:items-start sm:gap-4">
       <div className="flex min-w-0 flex-1 gap-3">
@@ -63,6 +84,12 @@ export function MetadataSearchResultCard({ result, actions }: MetadataSearchResu
               <div className="break-words">
                 Series: {result.series[0].seriesName}{" "}
                 {result.series[0].seriesPart && `#${result.series[0].seriesPart}`}
+              </div>
+            )}
+            {ratingSummary && (
+              <div className="flex items-center gap-1" data-testid="result-rating">
+                <Star className="h-3 w-3 fill-current" aria-hidden="true" />
+                <span>{ratingSummary}</span>
               </div>
             )}
           </div>
