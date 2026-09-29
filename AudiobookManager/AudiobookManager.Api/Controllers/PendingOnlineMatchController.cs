@@ -195,6 +195,7 @@ public class PendingOnlineMatchController : ControllerBase
                 s.Rating,
                 s.Copyright,
                 s.Publisher,
-                s.Asin))
+                s.Asin,
+                s.NumberOfRatings))
             .ToList());
 }
