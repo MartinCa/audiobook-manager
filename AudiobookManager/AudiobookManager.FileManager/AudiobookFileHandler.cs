@@ -148,30 +148,30 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         var metadata = new XElement(_opfNamespace + "metadata",
             new XAttribute(XNamespace.Xmlns + "dc", _dcNamespace),
             new XAttribute(XNamespace.Xmlns + "opf", _opfNamespace),
-            new XElement(_dcNamespace + "title", audiobook.BookName ?? ""));
+            new XElement(_dcNamespace + "title", XmlSafe(audiobook.BookName ?? "")));
 
         foreach (var author in audiobook.Authors)
         {
             metadata.Add(new XElement(_dcNamespace + "creator",
                 new XAttribute(_opfNamespace + "role", "aut"),
-                author.Name));
+                XmlSafe(author.Name)));
         }
 
         foreach (var narrator in audiobook.Narrators)
         {
             metadata.Add(new XElement(_dcNamespace + "contributor",
                 new XAttribute(_opfNamespace + "role", "nrt"),
-                narrator.Name));
+                XmlSafe(narrator.Name)));
         }
 
         if (!string.IsNullOrEmpty(audiobook.Description))
         {
-            metadata.Add(new XElement(_dcNamespace + "description", audiobook.Description));
+            metadata.Add(new XElement(_dcNamespace + "description", XmlSafe(audiobook.Description!)));
         }
 
         if (!string.IsNullOrEmpty(audiobook.Publisher))
         {
-            metadata.Add(new XElement(_dcNamespace + "publisher", audiobook.Publisher));
+            metadata.Add(new XElement(_dcNamespace + "publisher", XmlSafe(audiobook.Publisher!)));
         }
 
         if (audiobook.Year is not null)
@@ -181,32 +181,32 @@ public class AudiobookFileHandler : IAudiobookFileHandler
 
         if (!string.IsNullOrEmpty(audiobook.Language))
         {
-            metadata.Add(new XElement(_dcNamespace + "language", audiobook.Language));
+            metadata.Add(new XElement(_dcNamespace + "language", XmlSafe(audiobook.Language!)));
         }
 
         foreach (var genre in audiobook.Genres)
         {
-            metadata.Add(new XElement(_dcNamespace + "subject", genre));
+            metadata.Add(new XElement(_dcNamespace + "subject", XmlSafe(genre)));
         }
 
         if (!string.IsNullOrEmpty(audiobook.Asin))
         {
             metadata.Add(new XElement(_dcNamespace + "identifier",
                 new XAttribute(_opfNamespace + "scheme", "ASIN"),
-                audiobook.Asin));
+                XmlSafe(audiobook.Asin!)));
         }
 
         if (!string.IsNullOrEmpty(audiobook.Series))
         {
             metadata.Add(new XElement(_opfNamespace + "meta",
                 new XAttribute("name", "calibre:series"),
-                new XAttribute("content", audiobook.Series)));
+                new XAttribute("content", XmlSafe(audiobook.Series!))));
 
             if (!string.IsNullOrEmpty(audiobook.SeriesPart))
             {
                 metadata.Add(new XElement(_opfNamespace + "meta",
                     new XAttribute("name", "calibre:series_index"),
-                    new XAttribute("content", audiobook.SeriesPart)));
+                    new XAttribute("content", XmlSafe(audiobook.SeriesPart!))));
             }
         }
 
@@ -220,6 +220,12 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         document.Save(writer);
         return writer.ToString();
     }
+
+    // Tag values (and scraped descriptions) can carry control characters such as BEL (0x07);
+    // XmlWriter throws on those, which used to fail the whole save after the m4b was already
+    // rewritten and moved. Strip anything XML 1.0 does not allow.
+    internal static string XmlSafe(string value) =>
+        string.Concat(value.Where(c => System.Xml.XmlConvert.IsXmlChar(c) || char.IsSurrogate(c)));
 
     public string? WriteCover(Audiobook audiobook)
     {

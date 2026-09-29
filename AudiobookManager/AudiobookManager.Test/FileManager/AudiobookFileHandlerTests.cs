@@ -859,4 +859,23 @@ public class AudiobookFileHandlerTests
 
         Assert.AreEqual(expected, AudiobookFileHandler.IsSidecarFileName("COVER.JPG"));
     }
+
+    [TestMethod]
+    public void BuildOpfContent_StripsControlCharactersXmlCannotRepresent()
+    {
+        // Regression: a BEL (0x07) in a scraped description made XmlWriter throw
+        // "'\a', hexadecimal value 0x07, is an invalid character", failing the whole organize.
+        var audiobook = new Audiobook(
+            new List<Person> { new("Andrew Chaikin") },
+            "A Man on the Moon",
+            1994,
+            new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000))
+        {
+            Description = "Before\u0007After",
+        };
+
+        var opf = AudiobookFileHandler.BuildOpfContent(audiobook);
+
+        StringAssert.Contains(opf, "<dc:description>BeforeAfter</dc:description>");
+    }
 }
