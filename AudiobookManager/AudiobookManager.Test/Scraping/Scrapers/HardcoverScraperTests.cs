@@ -535,6 +535,41 @@ public class HardcoverScraperTests
         Assert.IsNull(result.Subtitle);
     }
 
+    // Regression test: narrators live on the audio edition's contributions; the book-level list
+    // carries only the author, so narrators used to come back empty.
+    [TestMethod]
+    public async Task GetBookDetails_NarratorOnlyOnAudioEdition_IsReturned()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 427401,
+                    "title": "A Wizard of Earthsea",
+                    "slug": "a-wizard-of-earthsea",
+                    "contributions": [
+                      { "contribution": "Author", "author": { "name": "Ursula K. Le Guin" } }
+                    ],
+                    "default_audio_edition": {
+                      "contributions": [
+                        { "contribution": "Narrator", "author": { "name": "Rob Inglis" } },
+                        { "contribution": "Author", "author": { "name": "Ursula K. Le Guin" } }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/a-wizard-of-earthsea");
+
+        CollectionAssert.AreEqual(new[] { "Rob Inglis" }, result.Narrators.Select(n => n.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Ursula K. Le Guin" }, result.Authors.Select(a => a.Name).ToArray());
+    }
+
     [TestMethod]
     public async Task GetBookDetails_AudioEditionHasSubtitle_UsesIt()
     {

@@ -1337,6 +1337,12 @@ public class HardcoverScraper : IScraper
             }
             default_audio_edition {
               subtitle
+              contributions {
+                contribution
+                author {
+                  name
+                }
+              }
               isbn_13
               asin
               audio_seconds
@@ -1606,6 +1612,19 @@ public class HardcoverScraper : IScraper
         try
         {
             (authors, narrators) = ParseContributions(bookElement);
+
+            // Hardcover records narrators on the audio edition; the book-level contributions
+            // are mostly authors only (confirmed live for "A Wizard of Earthsea" and "The
+            // Hobbit"). The edition's narrators win, the book-level ones are the fallback.
+            var audioEditionForNarrators = GetEditionElement(bookElement, "default_audio_edition");
+            if (audioEditionForNarrators is not null)
+            {
+                var editionNarrators = ParseContributions(audioEditionForNarrators.Value).Narrators;
+                if (editionNarrators.Count > 0)
+                {
+                    narrators = editionNarrators;
+                }
+            }
         }
         catch (Exception ex)
         {
