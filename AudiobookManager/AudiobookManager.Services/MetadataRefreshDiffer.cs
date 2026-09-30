@@ -33,8 +33,8 @@ public static class MetadataRefreshDiffer
             JoinNames(fetched.Narrators.Select(n => n.Name), spacing, punctuation));
         add(MetadataRefreshFields.BookName, book.BookName, fetched.BookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, fetched.Subtitle);
-        add(MetadataRefreshFields.Series, book.Series, fetched.Series?.FirstOrDefault()?.SeriesName);
-        add(MetadataRefreshFields.SeriesPart, book.SeriesPart, fetched.Series?.FirstOrDefault()?.SeriesPart);
+        AddSeries(diffs, book, (fetched.Series ?? new List<MetadataSeriesSearchResult>())
+            .Select(s => new SeriesRelationSet.Entry(s.SeriesName, s.SeriesPart, s.OriginalSeriesName)));
 
         // Year is non-nullable on the DB model; a source that reports no year must not offer
         // blanking it, so a null source year never becomes a diff.
@@ -90,8 +90,7 @@ public static class MetadataRefreshDiffer
             JoinNames(snapshot.Narrators, spacing, punctuation));
         add(MetadataRefreshFields.BookName, book.BookName, snapshot.BookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, snapshot.Subtitle);
-        add(MetadataRefreshFields.Series, book.Series, snapshot.SeriesName);
-        add(MetadataRefreshFields.SeriesPart, book.SeriesPart, snapshot.SeriesPart);
+        AddSeries(diffs, book, PendingRefreshPayload.SeriesOf(snapshot));
 
         if (snapshot.Year.HasValue)
         {
@@ -115,6 +114,24 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Www, book.Www, snapshot.Url);
 
         return diffs;
+    }
+
+    /// <summary>
+    /// The book's series against the source's, as sets (see <see cref="SeriesRelationSet"/>): one
+    /// <see cref="MetadataRefreshFields.Series"/> diff when a series is added or removed, a part
+    /// differs, or the primary the refresh would choose is not the book's current one - and never
+    /// for the source merely listing them in another order.
+    /// </summary>
+    private static void AddSeries(
+        List<MetadataRefreshDiff> diffs, Database.Models.Audiobook book, IEnumerable<SeriesRelationSet.Entry> source)
+    {
+        var current = SeriesRelationSet.OfBook(book);
+        var proposed = SeriesRelationSet.Resolve(current.All.ToList(), source);
+        if (SeriesRelationSet.Differs(current, proposed))
+        {
+            diffs.Add(new MetadataRefreshDiff(
+                MetadataRefreshFields.Series, SeriesRelationSet.Format(current), SeriesRelationSet.Format(proposed)));
+        }
     }
 
     private static Action<string, string?, string?> MakeAdd(List<MetadataRefreshDiff> diffs) =>

@@ -24,9 +24,12 @@ public static class PendingRefreshPayload
     /// conversion step, so the version bump exists only to record when the field became
     /// available, per this class's own convention. Version 3 added
     /// <see cref="Snapshot.NumberOfRatings"/> (the review count the online-match candidate list
-    /// shows; a row written earlier deserializes it as null and simply shows no count).
+    /// shows; a row written earlier deserializes it as null and simply shows no count). Version 4
+    /// added <see cref="Snapshot.Series"/>, every series the source reported - a row written
+    /// earlier deserializes it as null and is read as the single series in
+    /// <see cref="Snapshot.SeriesName"/>/<see cref="Snapshot.SeriesPart"/> (see <see cref="SeriesOf"/>).
     /// </summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
     // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
@@ -66,7 +69,47 @@ public static class PendingRefreshPayload
         /// without re-fetching the book from its source.
         /// </summary>
         string? OriginalSeriesName = null,
-        int? NumberOfRatings = null);
+        int? NumberOfRatings = null,
+        /// <summary>
+        /// Every series the source reported, mapped names with their parts and pre-mapping names,
+        /// in the source's order (which carries no meaning - see <see cref="SeriesRelationSet"/>).
+        /// <see cref="SeriesName"/>/<see cref="SeriesPart"/>/<see cref="OriginalSeriesName"/> stay
+        /// the first entry, for readers of the earlier shape. Null on a row written before
+        /// Version 4 and whenever the source reported none.
+        /// </summary>
+        IReadOnlyList<SnapshotSeries>? Series = null);
+
+    /// <summary>One series a source reported for the book.</summary>
+    public sealed record SnapshotSeries(string Name, string? Part, string? OriginalName = null);
+
+    /// <summary>
+    /// The snapshot's series as <see cref="SeriesRelationSet"/> entries: the Version-4 list, or for
+    /// an earlier row the single series it carried (none when that was blank).
+    /// </summary>
+    public static IReadOnlyList<SeriesRelationSet.Entry> SeriesOf(Snapshot snapshot)
+    {
+        if (snapshot.Series is not null)
+        {
+            return snapshot.Series.Select(s => new SeriesRelationSet.Entry(s.Name, s.Part, s.OriginalName)).ToList();
+        }
+
+        return string.IsNullOrWhiteSpace(snapshot.SeriesName)
+            ? new List<SeriesRelationSet.Entry>()
+            : new List<SeriesRelationSet.Entry> { new(snapshot.SeriesName, snapshot.SeriesPart, snapshot.OriginalSeriesName) };
+    }
+
+    /// <summary>
+    /// <paramref name="snapshot"/> with its series replaced by <paramref name="series"/>; the
+    /// first-entry mirror fields follow.
+    /// </summary>
+    public static Snapshot WithSeries(Snapshot snapshot, IReadOnlyList<SnapshotSeries> series) =>
+        snapshot with
+        {
+            SeriesName = series.FirstOrDefault()?.Name,
+            SeriesPart = series.FirstOrDefault()?.Part,
+            OriginalSeriesName = series.FirstOrDefault()?.OriginalName,
+            Series = series.Count == 0 ? null : series,
+        };
 
     public static string Serialize(Snapshot snapshot) =>
         JsonSerializer.Serialize(snapshot, JsonOptions);
@@ -121,5 +164,8 @@ public static class PendingRefreshPayload
         fetched.Publisher,
         fetched.Asin,
         fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName,
-        fetched.NumberOfRatings);
+        fetched.NumberOfRatings,
+        fetched.Series is { Count: > 0 }
+            ? fetched.Series.Select(s => new SnapshotSeries(s.SeriesName, s.SeriesPart, s.OriginalSeriesName ?? s.SeriesName)).ToList()
+            : null);
 }

@@ -197,7 +197,10 @@ public class PendingOnlineMatchController : ControllerBase
                 s.Copyright,
                 s.Publisher,
                 s.Asin,
-                s.NumberOfRatings))
+                s.NumberOfRatings,
+                PendingRefreshPayload.SeriesOf(s)
+                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
+                    .ToList()))
             .ToList(),
         QualifierColumn.Parse(row.Audiobook.Qualifiers));
 }

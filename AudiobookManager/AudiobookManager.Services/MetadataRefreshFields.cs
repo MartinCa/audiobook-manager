@@ -17,6 +17,12 @@ public static class MetadataRefreshFields
     public const string BookName = "BookName";
     public const string Subtitle = "Subtitle";
     public const string Series = "Series";
+    /// <summary>
+    /// Retired as a field of its own: <see cref="Series"/> now covers every series a book has with
+    /// their parts and the primary, so a part can no longer be applied apart from its series. Kept
+    /// only so a stored changed-fields list or an older client that still names it is understood
+    /// as <see cref="Series"/>; the differ never emits it.
+    /// </summary>
     public const string SeriesPart = "SeriesPart";
     public const string Year = "Year";
     public const string Genres = "Genres";
@@ -31,7 +37,7 @@ public static class MetadataRefreshFields
     /// <summary>Every field name a pending snapshot can offer as a change, in display order.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
-        Authors, Narrators, BookName, Subtitle, Series, SeriesPart, Year, Genres, Description,
+        Authors, Narrators, BookName, Subtitle, Series, Year, Genres, Description,
         Language, Rating, Copyright, Publisher, Asin, Www,
     };
 
@@ -52,7 +58,11 @@ public static class MetadataRefreshFields
 
         try
         {
-            return JsonSerializer.Deserialize<List<string>>(changedFieldsJson, JsonOptions) ?? new List<string>();
+            // A list stored before SeriesPart was folded into Series names it; read it as Series.
+            return (JsonSerializer.Deserialize<List<string>>(changedFieldsJson, JsonOptions) ?? new List<string>())
+                .Select(f => f == SeriesPart ? Series : f)
+                .Distinct()
+                .ToList();
         }
         catch (JsonException)
         {

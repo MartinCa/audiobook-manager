@@ -23,7 +23,8 @@ public static class MetadataRefreshApplier
         Audiobook book,
         PendingRefreshPayload.Snapshot snapshot,
         IReadOnlySet<string> fields,
-        bool splitTitleOnColon = false)
+        bool splitTitleOnColon = false,
+        string? primarySeriesName = null)
     {
         if (fields.Contains(MetadataRefreshFields.Authors))
         {
@@ -75,14 +76,17 @@ public static class MetadataRefreshApplier
             book.Subtitle = subtitleToWrite;
         }
 
-        if (fields.Contains(MetadataRefreshFields.Series))
+        // Series and its part are one field: the whole set of series the source reports replaces
+        // the book's, with the primary chosen now (the caller's explicit choice, else the book's
+        // current primary if the source still lists it - see SeriesRelationSet.ChoosePrimary).
+        // The retired SeriesPart name is honoured as Series so an older selection cannot apply a
+        // part without its series.
+        if (fields.Contains(MetadataRefreshFields.Series) || fields.Contains(MetadataRefreshFields.SeriesPart))
         {
-            book.Series = snapshot.SeriesName;
-        }
-
-        if (fields.Contains(MetadataRefreshFields.SeriesPart))
-        {
-            book.SeriesPart = snapshot.SeriesPart;
+            var current = SeriesRelationSet.OfBook(book);
+            SeriesRelationSet.ApplyTo(
+                book,
+                SeriesRelationSet.Resolve(current.All.ToList(), PendingRefreshPayload.SeriesOf(snapshot), primarySeriesName));
         }
 
         // Same "never blank a missing source year" rule the differ applies: an absent snapshot

@@ -216,7 +216,7 @@ public class MetadataRefreshController : ControllerBase
     {
         try
         {
-            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields, dto?.SplitTitleOnColon ?? false);
+            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName);
             return applied ? Ok() : NoContent();
         }
         catch (AudiobookBusyException ex)
@@ -421,5 +421,8 @@ public class MetadataRefreshController : ControllerBase
                 payload.Copyright,
                 payload.Publisher,
                 payload.Asin,
-                payload.NumberOfRatings));
+                payload.NumberOfRatings,
+                PendingRefreshPayload.SeriesOf(payload)
+                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
+                    .ToList()));
 }
