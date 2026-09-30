@@ -55,6 +55,11 @@ namespace AudiobookManager.Database.Migrations
             // Every existing book with a series gets its one relation, the primary. fold_accents is
             // the per-connection SQLite function AccentFoldingConnectionInterceptor registers, so
             // the folded column starts out exactly as the save interceptor would have written it.
+            //
+            // Known exception to the mirror invariant: a row whose series is whitespace-only is
+            // skipped (it has no usable name to relate to), so such a legacy book keeps that value
+            // in audiobooks.series with no relation row. Normalizing legacy series values is the
+            // follow-up tracked in #1564; nothing reads the blank value as a series meanwhile.
             migrationBuilder.Sql(
                 """
                 INSERT INTO audiobook_series (audiobook_id, series_name, series_part, is_primary, sort_order, series_name_folded)
