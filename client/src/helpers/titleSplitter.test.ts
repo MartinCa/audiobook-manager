@@ -37,4 +37,24 @@ describe("splitTitleOnColon", () => {
       subtitle: "An Unexpected Subtitle",
     });
   });
+
+  it("strips a subtitle already repeated at the end of the title when enabled", () => {
+    const result = splitTitleOnColon(
+      "Agatha Christie: A Very Elusive Woman",
+      "A Very Elusive Woman",
+      true,
+    );
+    expect(result).toEqual({
+      bookName: "Agatha Christie",
+      subtitle: "A Very Elusive Woman",
+    });
+  });
+
+  it("leaves a title with a differing existing subtitle alone when enabled", () => {
+    const result = splitTitleOnColon("Agatha Christie: A Very Elusive Woman", "Other", true);
+    expect(result).toEqual({
+      bookName: "Agatha Christie: A Very Elusive Woman",
+      subtitle: "Other",
+    });
+  });
 });
