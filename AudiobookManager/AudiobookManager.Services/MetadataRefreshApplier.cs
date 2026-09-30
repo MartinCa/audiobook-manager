@@ -37,16 +37,15 @@ public static class MetadataRefreshApplier
 
         var (splitBookName, splitSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, splitTitleOnColon);
 
-        // The split recovers a subtitle only out of an otherwise-blank snapshot.Subtitle (see
-        // TitleSplitter.Apply), so a non-null splitSubtitle here can only be text the split itself
-        // just carved out of BookName - there was nothing pre-existing on Subtitle for the caller
-        // to have deliberately left unselected. Applying BookName without also writing that
-        // recovered half would silently discard the very text the split moved there, which is
-        // worse than not splitting at all - so this counts as implicitly covered by selecting
-        // BookName. A genuinely pre-existing snapshot.Subtitle is untouched by the split
-        // (TitleSplitter leaves it alone when non-blank) and still requires its own explicit
-        // selection - the "no smuggling a field change past the caller's selection" rule still
-        // holds for that case.
+        // The split has two cases. With a blank snapshot.Subtitle it carves the subtitle out of
+        // BookName, so a non-null splitSubtitle can only be text the split itself just moved
+        // there. Applying BookName without also writing that recovered half would silently
+        // discard it, so this counts as implicitly covered by selecting BookName. With a
+        // non-blank snapshot.Subtitle the split only strips a duplicate ": <subtitle>" tail from
+        // BookName (the subtitle is already the snapshot's own); the toggle just changes the
+        // proposed values, and whether BookName and/or Subtitle are applied stays the caller's
+        // independent choice - a pre-existing snapshot.Subtitle still requires its own explicit
+        // selection, so nothing is smuggled past the caller's selection.
         var subtitleRecoveredBySplit = splitTitleOnColon
             && string.IsNullOrWhiteSpace(snapshot.Subtitle)
             && !string.IsNullOrWhiteSpace(splitSubtitle);
