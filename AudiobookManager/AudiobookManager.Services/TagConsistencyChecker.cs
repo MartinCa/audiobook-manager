@@ -59,6 +59,7 @@ public static class TagConsistencyChecker
     // and a resolve would write tags the checker then claims still mismatch.
     internal static string FormatGenres(IEnumerable<string> genres) =>
         string.Join(", ", genres
+            .SelectMany(g => AudiobookTagHandler.ParseGenresFromString(g))
             .Select(g => g?.Trim() ?? "")
             .Where(g => g.Length > 0)
             .Distinct(StringComparer.Ordinal)

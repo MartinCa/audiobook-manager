@@ -184,7 +184,9 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             metadata.Add(new XElement(_dcNamespace + "language", XmlSafe(audiobook.Language!)));
         }
 
-        foreach (var genre in audiobook.Genres)
+        // Same normalization as the genre tag (AudiobookTagHandler.GetStringFromListOfGenres), so
+        // the two on-disk representations of the field never diverge.
+        foreach (var genre in audiobook.Genres.SelectMany(g => AudiobookTagHandler.ParseGenresFromString(g)).Distinct(StringComparer.Ordinal))
         {
             metadata.Add(new XElement(_dcNamespace + "subject", XmlSafe(genre)));
         }
