@@ -24,7 +24,7 @@ export function PrimarySeriesChooser({
   idPrefix,
 }: PrimarySeriesChooserProps) {
   return (
-    <fieldset className="min-w-0 space-y-1">
+    <fieldset className="max-w-full min-w-0 space-y-1">
       <legend className="text-muted-foreground mb-1 text-[11px] font-normal">
         Choose the primary series (tags and file location)
       </legend>
@@ -33,12 +33,29 @@ export function PrimarySeriesChooser({
           const id = `${idPrefix}-primary-series-${index}`;
           return (
             <div key={option.name} className="flex items-start gap-2">
-              <RadioGroupItem value={option.name} id={id} className="mt-0.5 shrink-0" />
-              <label htmlFor={id} className="min-w-0 cursor-pointer break-words">
+              <RadioGroupItem
+                value={option.name}
+                id={id}
+                aria-describedby={option.part ? `${id}-part` : undefined}
+                className="mt-0.5 shrink-0"
+              />
+              {/* Name and part share one wrapping label so a long name pushes neither the part nor
+                  the cell's edge; overflow-wrap:anywhere breaks an unbreakable long word. The part
+                  is aria-hidden here so the radio's accessible name stays the series name, and is
+                  announced as its description instead. */}
+              <label htmlFor={id} className="min-w-0 cursor-pointer [overflow-wrap:anywhere]">
                 {option.name}
+                {option.part && (
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    {" "}
+                    #{option.part}
+                  </span>
+                )}
               </label>
               {option.part && (
-                <span className="text-muted-foreground shrink-0">#{option.part}</span>
+                <span id={`${id}-part`} className="sr-only">
+                  Part {option.part}
+                </span>
               )}
             </div>
           );
