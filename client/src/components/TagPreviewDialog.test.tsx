@@ -492,4 +492,32 @@ describe("TagPreviewDialog", () => {
       expect(removed).toBe(sameOrder + 1);
     });
   });
+
+  it("offers source qualifiers as their own optional row, independent of the title", () => {
+    const onApply = vi.fn();
+
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={currentInput}
+        searchResult={{ ...searchResult, qualifiers: ["dramatized"] }}
+        onApply={onApply}
+      />,
+    );
+
+    const row = screen.getByText("Qualifiers").closest("tr");
+    expect(row).not.toBeNull();
+    const checkbox = within(row as HTMLElement).getByRole("checkbox");
+    // Changed, so it is selected by default like every other changed field...
+    expect(checkbox).toBeChecked();
+
+    // ...and deselecting it leaves the title (already clean of the wording) applying on its own.
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: /selected/i }));
+
+    const [, appliedKeys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    expect(appliedKeys.has("qualifiers")).toBe(false);
+    expect(appliedKeys.has("bookName")).toBe(true);
+  });
 });

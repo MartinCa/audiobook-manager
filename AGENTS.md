@@ -578,6 +578,22 @@ Three rules keep it from desyncing:
   `Audiobook.Qualifiers` must stay a serialized property (the derived `Effective*` ones are
   `[JsonIgnore]`).
 
+**Online sources spell qualifiers in their titles; that is mapped, not stored.** Audible titles carry
+`[Dramatized Adaptation]`, `(Full-Cast Dramatized Adaptation)`, `(Dramatized)`, `(Abridged)`, and an
+abridged edition is also marked by its format ("Abridged Audiobook"). `ScrapingService` is the one place
+a scraped result is cleaned (search, multi-source search, and details - so the refresh, bulk refresh and
+online matching all see the same thing): `QualifierIndicators.Extract` removes a bracketed group that
+*exactly* matches a configured per-source rule (`qualifier_indicator` table, seeded for Audible, edited
+under Library Settings via `GET/PUT api/settings/qualifier-indicators`, which replaces the whole bounded
+list) and puts the qualifier in `MetadataSearchResult.Qualifiers`, merged with what the scraper read from
+structured data (`AudibleScraper.QualifiersFromFormat` - whole-word "abridged", never "Unabridged").
+The sources and qualifiers offered in that editor come from the backend; neither is hardcoded on the
+client. The pending-refresh snapshot (version 5) stores `Qualifiers`, and the refresh diff treats them as
+**additive only**: the `Qualifiers` field proposes the book's set *united with* the source's, never
+removes one the book has, and is an optional, separately selectable field (`MetadataRefreshApplier`
+unions, `useMetadataFieldDiffs` mirrors it). Because the name is cleaned but the qualifier is optional, a
+book already filed with the suffix in its name shows a BookName diff next to the Qualifiers one.
+
 `Qualifiers` is a path-driving field, so the Author/Series/SeriesPart/Year/BookName binding
 invariant below covers it too. It is intentionally **not** in `MissingTagService.Fields`: it is not
 a tag of its own, only part of the name tags, and an unset qualifier is the normal state. The

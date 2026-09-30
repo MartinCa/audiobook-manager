@@ -52,6 +52,7 @@ public class DatabaseContext : DbContext
 
     public DbSet<SeriesMapping> SeriesMappings { get; set; }
     public DbSet<LibrarySettings> LibrarySettings { get; set; }
+    public DbSet<QualifierIndicator> QualifierIndicators { get; set; }
     public DbSet<Audiobook> Audiobooks { get; set; }
     public DbSet<AudiobookSeries> AudiobookSeries { get; set; }
     public DbSet<Genre> Genres { get; set; }

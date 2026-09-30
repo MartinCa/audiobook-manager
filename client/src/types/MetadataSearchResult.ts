@@ -32,6 +32,12 @@ export interface MetadataSearchResult {
   publisher?: string;
   asin?: string;
   isbn?: string;
+  /**
+   * Keys of the book qualifiers (abridged, dramatized, ...) the source says this edition carries.
+   * The server has already removed their wording from `bookName` (per the configured indicator
+   * rules) and sets this; the diff offers them as an additive, optional "Qualifiers" field.
+   */
+  qualifiers?: string[];
 }
 
 export type { MetadataSearchResult as default };

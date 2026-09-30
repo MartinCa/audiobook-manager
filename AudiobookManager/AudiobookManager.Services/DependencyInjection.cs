@@ -28,6 +28,7 @@ public static class DependencyInjection
         .AddScoped<IAudiobookService, AudiobookService>()
         .AddScoped<IScrapingService, ScrapingService>()
         .AddScoped<ISettingsService, SettingsService>()
+        .AddScoped<IQualifierIndicatorService, QualifierIndicatorService>()
         .AddScoped<IScheduledTaskService, ScheduledTaskService>()
         .AddScoped<IQueuedOrganizeTaskService, QueuedOrganizeTaskService>()
         .AddScoped<ILibraryScanService, LibraryScanService>()

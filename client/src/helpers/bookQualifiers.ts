@@ -154,7 +154,12 @@ export function splitQualifiers(
  * and series of a metadata search result, returning the cleaned result and the qualifier keys it
  * found. The same result object is returned when there is nothing to move, so callers that key
  * state on its identity (TagPreviewDialog resets its selection whenever the result changes) are
- * not disturbed. The caller decides what to do with the keys - the edit form pre-selects them.
+ * not disturbed.
+ *
+ * The keys found are also merged into the returned result's own `qualifiers`, beside any the
+ * server already reported (it removes the wording it was configured to recognise before the result
+ * ever reaches the client - see `QualifierIndicators`). The diff then offers them as one optional,
+ * additive "Qualifiers" field rather than tying them to taking the title.
  */
 export function cleanSearchResult(
   result: MetadataSearchResult,
@@ -175,5 +180,13 @@ export function cleanSearchResult(
       normalizeQualifiers(stripped.keys, options).join(",") === split.qualifiers.join(",");
     return sameSet ? { ...s, seriesName: stripped.value } : s;
   });
-  return { result: { ...result, bookName: split.bookName, series }, qualifiers: split.qualifiers };
+  return {
+    result: {
+      ...result,
+      bookName: split.bookName,
+      series,
+      qualifiers: normalizeQualifiers([...(result.qualifiers ?? []), ...split.qualifiers], options),
+    },
+    qualifiers: split.qualifiers,
+  };
 }
