@@ -16,6 +16,19 @@ public class QualifierIndicatorService : IQualifierIndicatorService
         _scrapers = scrapers;
     }
 
+    /// <summary>
+    /// Folds ASCII letters only, which is exactly what SQLite's NOCASE collation on the unique
+    /// index does - a fuller fold here would let two rows through that the index then refuses.
+    /// </summary>
+    private static string AsciiLower(string value) =>
+        string.Create(value.Length, value, (span, v) =>
+        {
+            for (var i = 0; i < v.Length; i++)
+            {
+                span[i] = v[i] is >= 'A' and <= 'Z' ? (char)(v[i] + 32) : v[i];
+            }
+        });
+
     public async Task<IReadOnlyList<QualifierIndicatorRule>> GetRulesAsync() =>
         (await _repository.GetAllAsync())
             .Select(r => new QualifierIndicatorRule(r.Source, r.Indicator, r.QualifierKey))
@@ -42,7 +55,7 @@ public class QualifierIndicatorService : IQualifierIndicatorService
             }
 
             // The same wording twice for one source is one rule; keep the first.
-            if (seen.Add((source.ToLowerInvariant(), indicator.ToLowerInvariant())))
+            if (seen.Add((AsciiLower(source), AsciiLower(indicator))))
             {
                 normalized.Add(new QualifierIndicator(0, source, indicator, qualifier.Key));
             }

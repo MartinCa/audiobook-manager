@@ -17,6 +17,21 @@ import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 
+/** The wording as the server compares it (QualifierIndicators.NormalizeIndicator), ASCII-lowercased like the index. */
+function comparable(indicator: string): string {
+  const text = indicator.trim();
+  const inner =
+    text.length >= 2 &&
+    ((text.startsWith("(") && text.endsWith(")")) || (text.startsWith("[") && text.endsWith("]")))
+      ? text.slice(1, -1)
+      : text;
+  return inner
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ")
+    .replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
 interface Row {
   id: number;
   source: string;
@@ -87,7 +102,20 @@ export function QualifierIndicatorsCard() {
       },
     ]);
 
-  const hasBlank = rows.some((r) => !r.indicator.trim() || !r.source || !r.qualifierKey);
+  const hasBlank = rows.some((r) => !comparable(r.indicator) || !r.source || !r.qualifierKey);
+  // A source that is no longer registered would be refused by the server; say so up front.
+  const hasUnknownSource =
+    sources.length > 0 && rows.some((r) => r.source && !sources.includes(r.source));
+  // The server keeps only the first of identical rules, so the list would quietly shrink on save.
+  const keys = rows.map((r) => `${r.source.toLowerCase()}|${comparable(r.indicator)}`);
+  const hasDuplicate = keys.some((k, i) => k.split("|")[1] !== "" && keys.indexOf(k) !== i);
+  const problem = hasBlank
+    ? "Fill in or remove empty rows to save."
+    : hasUnknownSource
+      ? "A row uses a source that no longer exists; change or remove it to save."
+      : hasDuplicate
+        ? "Remove duplicate rows (same source and wording) to save."
+        : null;
 
   return (
     <Card>
@@ -194,15 +222,11 @@ export function QualifierIndicatorsCard() {
                 Add indicator
               </Button>
               <div className="flex items-center gap-2">
-                {hasBlank && (
-                  <span className="text-muted-foreground text-xs">
-                    Fill in or remove empty rows to save.
-                  </span>
-                )}
+                {problem && <span className="text-muted-foreground text-xs">{problem}</span>}
                 <Button
                   type="button"
                   size="sm"
-                  disabled={mutation.isPending || draft === null || hasBlank}
+                  disabled={mutation.isPending || draft === null || problem !== null}
                   onClick={() => mutation.mutate(rows)}
                 >
                   {mutation.isPending ? (

@@ -393,7 +393,7 @@ public partial class AudibleScraper : IScraper
 
         var ratingResult = ParseRating(resultElem);
 
-        var formatText = resultElem.QuerySelector("li[class*='ormat']")?.Text();
+        var formatText = resultElem.QuerySelector(FormatLineSelector)?.Text();
 
         return new MetadataSearchResult(link, titleTag!.Text().Trim())
         {
@@ -826,6 +826,10 @@ public partial class AudibleScraper : IScraper
     /// the title, so it is read from there. "Unabridged" contains the word, which is why the match
     /// is on a whole word.
     /// </summary>
+    // Anchored at a class-token boundary ("formatLabel"), so a class merely containing the letters
+    // (an "information" or "reformat" token) is not mistaken for the format line.
+    public const string FormatLineSelector = "li[class^='format'], li[class*=' format']";
+
     public static IList<string> QualifiersFromFormat(string? format) =>
         !string.IsNullOrWhiteSpace(format) && ReAbridgedFormat().IsMatch(format)
             ? new List<string> { "abridged" }

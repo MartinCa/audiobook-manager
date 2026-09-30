@@ -108,4 +108,35 @@ describe("QualifierIndicatorsCard", () => {
 
     expect(screen.getByRole("button", { name: /save indicators/i })).toBeDisabled();
   });
+
+  it("blocks saving two rows that are the same rule, however they are written", async () => {
+    vi.mocked(settingsApi.getQualifierIndicators).mockResolvedValue({
+      indicators: [
+        { source: "Audible", indicator: "Dramatized Adaptation", qualifierKey: "dramatized" },
+        { source: "Audible", indicator: "[dramatized  adaptation]", qualifierKey: "dramatized" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderCard();
+    await screen.findByDisplayValue("Dramatized Adaptation");
+    await user.type(screen.getAllByLabelText("Indicator")[0]!, "x");
+    await user.type(screen.getAllByLabelText("Indicator")[0]!, "{Backspace}");
+
+    expect(screen.getByText(/remove duplicate rows/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save indicators/i })).toBeDisabled();
+  });
+
+  it("blocks saving a row whose source is no longer registered", async () => {
+    vi.mocked(settingsApi.getQualifierIndicators).mockResolvedValue({
+      indicators: [{ source: "Gone", indicator: "Abridged", qualifierKey: "abridged" }],
+    });
+    const user = userEvent.setup();
+    renderCard();
+    await screen.findByDisplayValue("Abridged");
+    await user.type(screen.getByLabelText("Indicator"), "x");
+    await user.type(screen.getByLabelText("Indicator"), "{Backspace}");
+
+    expect(await screen.findByText(/source that no longer exists/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save indicators/i })).toBeDisabled();
+  });
 });

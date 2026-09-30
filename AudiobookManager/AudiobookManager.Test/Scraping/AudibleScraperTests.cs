@@ -455,4 +455,16 @@ public class AudibleScraperTests
 
         CollectionAssert.AreEqual(expectedAbridged ? new List<string> { "abridged" } : new List<string>(), qualifiers.ToList());
     }
+
+    [TestMethod]
+    [DataRow("<ul><li class=\"bc-list-item formatLabel\">Format: Abridged Audiobook</li></ul>", true)]
+    [DataRow("<ul><li class=\"formatLabel\">Format: Abridged Audiobook</li></ul>", true)]
+    [DataRow("<ul><li class=\"bc-list-item information\">Abridged</li></ul>", false)]
+    [DataRow("<ul><li class=\"bc-list-item reformat\">Abridged</li></ul>", false)]
+    public void FormatLineSelector_MatchesOnlyAClassTokenStartingWithFormat(string html, bool expected)
+    {
+        var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+
+        Assert.AreEqual(expected, doc.QuerySelector(AudibleScraper.FormatLineSelector) is not null);
+    }
 }

@@ -111,4 +111,20 @@ public class QualifierIndicatorServiceTests
 
         CollectionAssert.AreEqual(new[] { new QualifierIndicatorRule("Audible", "Abridged", "abridged") }, rules.ToArray());
     }
+
+    // Regression for the service/index fold mismatch: SQLite's NOCASE only folds ASCII, so two
+    // non-ASCII wordings differing by case are distinct to the unique index. The service must not
+    // fold them together (full Unicode folding would pass a pair the index then refuses, or drop
+    // one the index would have kept).
+    [TestMethod]
+    public async Task ReplaceRules_NonAsciiCaseDifferencesAreDistinctLikeTheIndexTreatsThem()
+    {
+        var saved = await _service.ReplaceRulesAsync(new[]
+        {
+            new QualifierIndicatorRule("Audible", "\u00C1bridged", "abridged"),
+            new QualifierIndicatorRule("Audible", "\u00E1bridged", "abridged"),
+        });
+
+        Assert.AreEqual(2, saved.Count);
+    }
 }
