@@ -53,4 +53,16 @@ public class TitleSplitterTests
         Assert.AreEqual("The Shining", bookName);
         Assert.IsNull(subtitle);
     }
+
+    // Regression: a source (Hardcover) that returns both "Title: Subtitle" as the title and the
+    // subtitle separately left the duplicated tail in the book name, so the toggle did nothing.
+    [TestMethod]
+    public void Apply_SplitOnColonTrue_SubtitleRepeatedInTitle_StripsDuplicatedTail()
+    {
+        var (bookName, subtitle) = TitleSplitter.Apply(
+            "Agatha Christie: A Very Elusive Woman", "A Very Elusive Woman", splitOnColon: true);
+
+        Assert.AreEqual("Agatha Christie", bookName);
+        Assert.AreEqual("A Very Elusive Woman", subtitle);
+    }
 }

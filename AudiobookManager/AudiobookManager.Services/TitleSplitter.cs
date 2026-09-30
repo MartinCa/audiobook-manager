@@ -17,13 +17,29 @@ public static class TitleSplitter
     /// Splits <paramref name="bookName"/> at the first ": " (colon-space) when
     /// <paramref name="splitOnColon"/> is true and <paramref name="subtitle"/> is blank. A bare
     /// colon with no following space (e.g. "4:50") is never treated as a separator. Returns the
-    /// inputs unchanged when <paramref name="splitOnColon"/> is false, a subtitle is already
-    /// present, or no ": " separator exists in the title.
+    /// inputs unchanged when <paramref name="splitOnColon"/> is false or no ": " separator exists
+    /// in the title. When a subtitle is already present the title is never re-split; only a title
+    /// ending in ": &lt;that subtitle&gt;" loses the duplicated tail.
     /// </summary>
     public static (string BookName, string? Subtitle) Apply(string bookName, string? subtitle, bool splitOnColon)
     {
-        if (!splitOnColon || !string.IsNullOrWhiteSpace(subtitle))
+        if (!splitOnColon)
         {
+            return (bookName, subtitle);
+        }
+
+        if (!string.IsNullOrWhiteSpace(subtitle))
+        {
+            // The source already carries the subtitle and repeats it in the title: drop the
+            // duplicated ": <subtitle>" tail from the title and keep the subtitle as is.
+            var suffix = ": " + subtitle.Trim();
+            var trimmedName = bookName.TrimEnd();
+            if (trimmedName.Length > suffix.Length
+                && trimmedName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (trimmedName[..^suffix.Length].Trim(), subtitle);
+            }
+
             return (bookName, subtitle);
         }
 
