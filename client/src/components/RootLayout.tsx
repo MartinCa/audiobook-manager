@@ -32,12 +32,21 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Toaster } from "@/components/ui/toast";
 import LibrarySearch from "@/components/LibrarySearch";
+import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
+import { SignalREvents } from "@/constants/signalrEvents";
+import { bumpCoverVersion } from "@/lib/coverVersion";
 import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 
 export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const pathname = location.pathname;
+
+  // Mounted for the life of the app, unlike BookDetail: a save that finishes after the user has
+  // left the book page, or while the connection was down, still changes the cover on disk, and
+  // the next render of that book's cover must not reuse the browser's cached image.
+  useSignalREvent(SignalREvents.AudiobookSaveComplete, bumpCoverVersion);
+  useSignalRReconnected(bumpCoverVersion);
 
   const isLibraryActive =
     pathname === "/library" ||

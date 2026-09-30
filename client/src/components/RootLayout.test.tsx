@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SignalREvents } from "@/constants/signalrEvents";
+import { withCoverVersion } from "@/lib/coverVersion";
 
 // Same api-mock shape the other full-router tests use; RootLayout itself needs no extra data,
 // the /library page it wraps does.
@@ -90,6 +92,10 @@ describe("RootLayout", () => {
     offReconnected: vi.fn(),
   };
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient = new QueryClient({
@@ -122,6 +128,35 @@ describe("RootLayout", () => {
 
     return { ...result, router, history };
   }
+
+  // A cover URL must change after any save or reconnect, not only while BookDetail is mounted for
+  // that book - RootLayout is the always-mounted listener that guarantees it.
+  it("re-versions cover URLs when any save completes or the connection is restored, wherever the user is", async () => {
+    const now = vi.spyOn(Date, "now");
+    renderWithRouter();
+    await screen.findByRole("button", { name: /tools/i });
+
+    const onCalls = mockSignalRValue.on.mock.calls as unknown as [
+      string,
+      (data: unknown) => void,
+    ][];
+    const saveComplete = onCalls.find(
+      ([event]) => event === SignalREvents.AudiobookSaveComplete,
+    )?.[1];
+    const reconnectCalls = mockSignalRValue.onReconnected.mock.calls as unknown as [() => void][];
+    // Other mounted components register reconnect listeners too; fire them all, as the provider does.
+    const reconnected = () => reconnectCalls.forEach(([listener]) => listener());
+    expect(saveComplete).toBeTypeOf("function");
+    expect(reconnectCalls.length).toBeGreaterThan(0);
+
+    now.mockReturnValue(111);
+    saveComplete!({ audiobookId: 7 });
+    expect(withCoverVersion("/c")).toBe("/c?v=111");
+
+    now.mockReturnValue(222);
+    reconnected();
+    expect(withCoverVersion("/c")).toBe("/c?v=222");
+  });
 
   it("lists the maintenance tools in order with Metadata Refresh after Missing Tags", async () => {
     const user = userEvent.setup();

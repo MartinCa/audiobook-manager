@@ -1,4 +1,5 @@
 import { api, getOrUndefined } from "@/lib/api";
+import { withCoverVersion } from "@/lib/coverVersion";
 import { PAGE_SIZE, TYPEAHEAD_LIMIT } from "@/constants/paging";
 import type { Audiobook } from "@/types/Audiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
@@ -267,7 +268,7 @@ export const browseApi = {
 
   getAudiobookDetail: (id: number) => api.get<AudiobookDetail>(`/browse/audiobooks/${id}`),
 
-  getCoverUrl: (id: number) => `/api/browse/audiobooks/${id}/cover`,
+  getCoverUrl: (id: number) => withCoverVersion(`/api/browse/audiobooks/${id}/cover`),
 
   getSeriesBooks: (seriesName: string, authorId?: number) =>
     api.get<ManagedAudiobook[]>("/browse/series", {
@@ -970,5 +971,6 @@ export const filesApi = {
 
   deleteBook: (bookPath: string) => api.post<void>("/files/delete_directory", { path: bookPath }),
 
-  getCoverUrl: (path: string) => `/api/files/cover?path=${encodeURIComponent(path)}`,
+  getCoverUrl: (path: string) =>
+    withCoverVersion(`/api/files/cover?path=${encodeURIComponent(path)}`),
 };
