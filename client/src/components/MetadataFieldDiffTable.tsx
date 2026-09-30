@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  PrimarySeriesChooser,
+  type PrimarySeriesChooserProps,
+} from "@/components/PrimarySeriesChooser";
 import type { FieldDiff } from "@/hooks/useMetadataFieldDiffs";
 
 interface MetadataFieldDiffTableProps {
@@ -8,6 +12,11 @@ interface MetadataFieldDiffTableProps {
   onToggleField: (key: string) => void;
   onToggleAll: () => void;
   changedFieldKeys: string[];
+  /**
+   * When the source reports several series, the Series row's "New Value" cell becomes the
+   * primary-series choice (a radio per series) instead of plain text. Omit for a single series.
+   */
+  seriesChoice?: PrimarySeriesChooserProps;
 }
 
 /**
@@ -21,6 +30,7 @@ export function MetadataFieldDiffTable({
   onToggleField,
   onToggleAll,
   changedFieldKeys,
+  seriesChoice,
 }: MetadataFieldDiffTableProps) {
   return (
     <div className="space-y-2">
@@ -41,13 +51,16 @@ export function MetadataFieldDiffTable({
       </div>
 
       <div className="border-border max-h-[50vh] overflow-x-auto overflow-y-auto rounded-md border">
-        <table className="w-full border-collapse text-left text-xs">
+        {/* table-fixed + no phone minimums: the columns share the dialog's width instead of forcing it
+            wider (the old min-widths made the grid ~370px, so on a phone the Use checkboxes
+            scrolled out of view). Long values wrap; the wide sm: layout is unchanged. */}
+        <table className="w-full table-fixed border-collapse text-left text-xs">
           <thead className="bg-muted/70 text-muted-foreground sticky top-0 z-10 border-b">
             <tr>
-              <th className="w-8 p-2 text-center sm:w-10">Use</th>
-              <th className="w-20 p-2 sm:w-28">Field</th>
-              <th className="min-w-[90px] p-2">Current Value</th>
-              <th className="min-w-[120px] p-2">New Value</th>
+              <th className="w-10 p-1.5 text-center sm:w-10 sm:p-2">Use</th>
+              <th className="w-[4.5rem] p-1.5 sm:w-28 sm:p-2">Field</th>
+              <th className="p-1.5 sm:min-w-[90px] sm:p-2">Current Value</th>
+              <th className="p-1.5 sm:min-w-[120px] sm:p-2">New Value</th>
             </tr>
           </thead>
           <tbody className="divide-border divide-y">
@@ -63,15 +76,17 @@ export function MetadataFieldDiffTable({
                       : "text-muted-foreground hover:bg-muted/10 opacity-70"
                   }
                 >
-                  <td className="p-2 text-center">
+                  <td className="p-1.5 text-center sm:p-2">
                     <Checkbox
                       checked={isChecked}
                       onCheckedChange={() => onToggleField(field.key)}
                     />
                   </td>
-                  <td className="text-foreground p-2 font-semibold">{field.label}</td>
+                  <td className="text-foreground p-1.5 font-semibold break-words sm:p-2">
+                    {field.label}
+                  </td>
                   <td
-                    className={`p-2 ${
+                    className={`p-1.5 break-words sm:p-2 ${
                       isLinkOrCover
                         ? "text-[11px] break-all"
                         : "max-w-[150px] break-words sm:max-w-[200px]"
@@ -80,19 +95,23 @@ export function MetadataFieldDiffTable({
                     {field.currentValue || <span className="text-muted-foreground italic">—</span>}
                   </td>
                   <td
-                    className={`p-2 ${
+                    className={`p-1.5 break-words sm:p-2 ${
                       isLinkOrCover
                         ? "text-[11px] break-all"
                         : "max-w-[200px] break-words sm:max-w-[300px]"
                     }`}
                   >
-                    <span
-                      className={
-                        field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
-                      }
-                    >
-                      {field.newValue || <span className="text-muted-foreground italic">—</span>}
-                    </span>
+                    {field.key === "series" && seriesChoice && seriesChoice.options.length > 1 ? (
+                      <PrimarySeriesChooser {...seriesChoice} />
+                    ) : (
+                      <span
+                        className={
+                          field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
+                        }
+                      >
+                        {field.newValue || <span className="text-muted-foreground italic">—</span>}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );

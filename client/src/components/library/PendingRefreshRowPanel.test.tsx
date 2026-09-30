@@ -286,7 +286,7 @@ describe("PendingRefreshRowPanel", () => {
       renderPanel();
 
       await screen.findByRole("button", { name: /apply all/i });
-      expect(screen.queryByText("Primary series")).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     });
   });
 });

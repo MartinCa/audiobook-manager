@@ -382,7 +382,7 @@ describe("TagPreviewDialog", () => {
           onApply={() => {}}
         />,
       );
-      expect(screen.queryByText("Primary series")).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
       unmount();
 
       renderWithQuery(
@@ -394,7 +394,10 @@ describe("TagPreviewDialog", () => {
           onApply={() => {}}
         />,
       );
-      expect(screen.getByText("Primary series")).toBeInTheDocument();
+      // The choice lives on the Series row itself (its New Value cell), not below the scrolling table.
+      const row = screen.getByText("Series").closest("tr")!;
+      expect(within(row).getByRole("radio", { name: "Mistborn" })).toBeInTheDocument();
+      expect(within(row).getByRole("radio", { name: "Cosmere" })).toBeInTheDocument();
     });
 
     it("defaults the primary to the book's current series when the source still lists it, whatever the source's order", () => {
