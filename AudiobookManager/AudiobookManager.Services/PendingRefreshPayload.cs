@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
 
@@ -27,9 +28,10 @@ public static class PendingRefreshPayload
     /// shows; a row written earlier deserializes it as null and simply shows no count). Version 4
     /// added <see cref="Snapshot.Series"/>, every series the source reported - a row written
     /// earlier deserializes it as null and is read as the single series in
-    /// <see cref="Snapshot.SeriesName"/>/<see cref="Snapshot.SeriesPart"/> (see <see cref="SeriesOf"/>).
+    /// <see cref="Snapshot.SeriesName"/>/<see cref="Snapshot.SeriesPart"/> (see <see cref="SeriesOf"/>). Version 5 added <see cref="Snapshot.Qualifiers"/>, the book
+    /// qualifiers the source reported; a row written earlier deserializes it as null, meaning none.
     /// </summary>
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 
     // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
     // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
@@ -77,7 +79,13 @@ public static class PendingRefreshPayload
         /// the first entry, for readers of the earlier shape. Null on a row written before
         /// Version 4 and whenever the source reported none.
         /// </summary>
-        IReadOnlyList<SnapshotSeries>? Series = null);
+        IReadOnlyList<SnapshotSeries>? Series = null,
+        /// <summary>
+        /// Keys of the book qualifiers the source reported (see <c>BookQualifiers</c>); the
+        /// <see cref="BookName"/> is already clean of their wording. Null on a row written before
+        /// Version 5 and whenever there are none.
+        /// </summary>
+        IReadOnlyList<string>? Qualifiers = null);
 
     /// <summary>One series a source reported for the book.</summary>
     public sealed record SnapshotSeries(string Name, string? Part, string? OriginalName = null);
@@ -167,5 +175,6 @@ public static class PendingRefreshPayload
         fetched.NumberOfRatings,
         fetched.Series is { Count: > 0 }
             ? fetched.Series.Select(s => new SnapshotSeries(s.SeriesName, s.SeriesPart, s.OriginalSeriesName ?? s.SeriesName)).ToList()
-            : null);
+            : null,
+        fetched.Qualifiers is { Count: > 0 } ? BookQualifiers.Normalize(fetched.Qualifiers) : null);
 }

@@ -131,6 +131,12 @@ public static class MetadataRefreshApplier
             book.Asin = snapshot.Asin;
         }
 
+        // Additive only, like the differ: the book keeps every qualifier it has.
+        if (fields.Contains(MetadataRefreshFields.Qualifiers))
+        {
+            book.Qualifiers = BookQualifiers.Normalize((book.Qualifiers ?? new List<string>()).Concat(snapshot.Qualifiers ?? Array.Empty<string>()));
+        }
+
         // snapshot.Url is already the cleaned source URL (see MetadataRefreshDiffer's matching
         // comment). Writing it here is what lets a bulk-applied pending refresh actually record
         // which online source a book was matched to - MatchedSourceName then follows

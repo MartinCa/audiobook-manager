@@ -21,11 +21,16 @@ public class SettingsController : ControllerBase
 
     private readonly ISettingsService _settingsService;
     private readonly IScheduledTaskService _scheduledTaskService;
+    private readonly IQualifierIndicatorService _qualifierIndicatorService;
 
-    public SettingsController(ISettingsService settingsService, IScheduledTaskService scheduledTaskService)
+    public SettingsController(
+        ISettingsService settingsService,
+        IScheduledTaskService scheduledTaskService,
+        IQualifierIndicatorService qualifierIndicatorService)
     {
         _settingsService = settingsService;
         _scheduledTaskService = scheduledTaskService;
+        _qualifierIndicatorService = qualifierIndicatorService;
     }
 
     [HttpGet("system_info")]
@@ -156,6 +161,41 @@ public class SettingsController : ControllerBase
         });
         return Ok(ToDto(updated));
     }
+
+    /// <summary>
+    /// The per-source wordings that stand for a book qualifier ("[Dramatized Adaptation]" on
+    /// Audible means dramatized). Applied to scraped titles, which then arrive clean with the
+    /// qualifier set alongside - see <c>QualifierIndicators</c>.
+    /// </summary>
+    [HttpGet("qualifier-indicators")]
+    public async Task<ActionResult<QualifierIndicatorsDto>> GetQualifierIndicators() =>
+        Ok(ToDto(await _qualifierIndicatorService.GetRulesAsync()));
+
+    /// <summary>Replaces the whole rule set.</summary>
+    [HttpPut("qualifier-indicators")]
+    public async Task<ActionResult<QualifierIndicatorsDto>> UpdateQualifierIndicators([FromBody] QualifierIndicatorsDto dto)
+    {
+        if (dto?.Indicators is null || dto.Indicators.Any(i => i is null))
+        {
+            return this.InvalidRequest("Indicators must be a list of rules.");
+        }
+
+        try
+        {
+            var saved = await _qualifierIndicatorService.ReplaceRulesAsync(
+                dto.Indicators.Select(i => new QualifierIndicatorRule(i.Source, i.Indicator, i.QualifierKey)).ToList());
+            return Ok(ToDto(saved));
+        }
+        catch (ArgumentException ex)
+        {
+            // Raised only with messages written for the caller (an unknown source or qualifier, a
+            // blank indicator, too many rules), so relaying it is what tells them what to fix.
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
+    private static QualifierIndicatorsDto ToDto(IReadOnlyList<QualifierIndicatorRule> rules) =>
+        new(rules.Select(r => new QualifierIndicatorDto(r.Source, r.Indicator, r.QualifierKey)).ToList());
 
     /// <summary>Every registered scheduled task, for the Settings "Tasks" page.</summary>
     [HttpGet("tasks")]

@@ -13,3 +13,13 @@ public record BookQualifierDto(string Key, string Label, string Suffix);
 /// holds no list of its own to drift from.
 /// </summary>
 public record BookQualifierOptionsDto(List<BookQualifierDto> Qualifiers);
+
+
+/// <summary>
+/// One configured rule: a bracketed <paramref name="Indicator"/> in a title from
+/// <paramref name="Source"/> stands for the qualifier <paramref name="QualifierKey"/>.
+/// </summary>
+public record QualifierIndicatorDto(string Source, string Indicator, string QualifierKey);
+
+/// <summary>The whole rule set - it is small and always read and replaced as one unit.</summary>
+public record QualifierIndicatorsDto(List<QualifierIndicatorDto> Indicators);

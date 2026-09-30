@@ -17,7 +17,7 @@ public class SettingsControllerTests
     [TestInitialize]
     public void Setup()
     {
-        _controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>());
+        _controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
     }
 
     [TestMethod]
@@ -102,7 +102,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.GetLibrarySettings())
             .ReturnsAsync(new Domain.LibrarySettings { InitialsSpacing = DomainInitialsSpacing.Spaced });
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.GetLibrarySettings();
 
@@ -121,7 +121,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("spaced", null, 1000, null, null, null));
 
@@ -140,7 +140,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("spaced", "undotted", 1000, null, null, null));
@@ -161,7 +161,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
 
@@ -175,7 +175,7 @@ public class SettingsControllerTests
     {
         var service = new Mock<ISettingsService>();
         service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", "Periodic", 1000, null, null, null));
@@ -191,7 +191,7 @@ public class SettingsControllerTests
     public async Task UpdateLibrarySettings_UnknownValue_ReturnsProblemDetailsWithoutCallingService()
     {
         var service = new Mock<ISettingsService>();
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("WidelySpaced", null, 1000, null, null, null));
 
@@ -210,7 +210,7 @@ public class SettingsControllerTests
     public async Task UpdateLibrarySettings_OutOfRangeNumericValue_ReturnsProblemDetailsWithoutCallingService()
     {
         var service = new Mock<ISettingsService>();
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("7", null, 1000, null, null, null));
 
@@ -226,7 +226,7 @@ public class SettingsControllerTests
     {
         var service = new Mock<ISettingsService>();
         service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", "7", 1000, null, null, null));
 
@@ -241,7 +241,7 @@ public class SettingsControllerTests
     public async Task UpdateLibrarySettings_MissingValue_ReturnsProblemDetails()
     {
         var service = new Mock<ISettingsService>();
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto(null!, null, 1000, null, null, null));
 
@@ -254,7 +254,7 @@ public class SettingsControllerTests
     {
         var service = new Mock<ISettingsService>();
         service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", null, 1000, true, "not a cron expression", null));
@@ -271,7 +271,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", null, 1000, false, "0 4 * * *", null));
@@ -300,7 +300,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
 
@@ -315,7 +315,7 @@ public class SettingsControllerTests
     {
         var service = new Mock<ISettingsService>();
         service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new Domain.LibrarySettings());
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, 25));
@@ -335,7 +335,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, 100));
@@ -357,7 +357,7 @@ public class SettingsControllerTests
         service
             .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
             .ReturnsAsync((Domain.LibrarySettings s) => s);
-        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>());
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.UpdateLibrarySettings(
             new UpdateLibrarySettingsDto("Spaced", null, 1000, null, null, null));
@@ -378,7 +378,7 @@ public class SettingsControllerTests
             {
                 new(ScheduledTaskKeys.UpcomingReleasesRefresh, "Upcoming Releases Refresh", "0 3 * * *", true, null, null, null, nextRun),
             });
-        var controller = new SettingsController(Mock.Of<ISettingsService>(), scheduledTaskService.Object);
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), scheduledTaskService.Object, Mock.Of<IQualifierIndicatorService>());
 
         var result = await controller.GetScheduledTasks();
 
@@ -404,5 +404,65 @@ public class SettingsControllerTests
             BookQualifiers.All.Select(q => q.Suffix).ToList(),
             result.Qualifiers.Select(q => q.Suffix).ToList());
         Assert.AreEqual(" (Dramatized)", result.Qualifiers.Single(q => q.Key == "dramatized").Suffix);
+    }
+
+    [TestMethod]
+    public async Task GetQualifierIndicators_ReturnsEveryStoredRule()
+    {
+        var service = new Mock<IQualifierIndicatorService>();
+        service.Setup(s => s.GetRulesAsync()).ReturnsAsync(new List<QualifierIndicatorRule>
+        {
+            new("Audible", "Dramatized Adaptation", "dramatized"),
+            new("Audible", "Abridged", "abridged"),
+        });
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>(), service.Object);
+
+        var result = await controller.GetQualifierIndicators();
+
+        var dto = Assert.IsInstanceOfType<QualifierIndicatorsDto>(Assert.IsInstanceOfType<OkObjectResult>(result.Result).Value);
+        CollectionAssert.AreEqual(
+            new List<string> { "Audible|Dramatized Adaptation|dramatized", "Audible|Abridged|abridged" },
+            dto.Indicators.Select(i => $"{i.Source}|{i.Indicator}|{i.QualifierKey}").ToList());
+    }
+
+    [TestMethod]
+    public async Task UpdateQualifierIndicators_ReplacesTheRuleSetAndReturnsWhatWasStored()
+    {
+        var service = new Mock<IQualifierIndicatorService>();
+        service.Setup(s => s.ReplaceRulesAsync(It.IsAny<IReadOnlyList<QualifierIndicatorRule>>()))
+            .ReturnsAsync((IReadOnlyList<QualifierIndicatorRule> rules) => rules);
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>(), service.Object);
+
+        var result = await controller.UpdateQualifierIndicators(new QualifierIndicatorsDto(
+            new List<QualifierIndicatorDto> { new("Audible", "[Dramatized Adaptation]", "dramatized") }));
+
+        var dto = Assert.IsInstanceOfType<QualifierIndicatorsDto>(Assert.IsInstanceOfType<OkObjectResult>(result.Result).Value);
+        Assert.AreEqual(1, dto.Indicators.Count);
+        service.Verify(s => s.ReplaceRulesAsync(It.Is<IReadOnlyList<QualifierIndicatorRule>>(r =>
+            r.Count == 1 && r[0].Source == "Audible" && r[0].Indicator == "[Dramatized Adaptation]" && r[0].QualifierKey == "dramatized")), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateQualifierIndicators_ARejectedRuleIsA400WithTheMessage()
+    {
+        var service = new Mock<IQualifierIndicatorService>();
+        service.Setup(s => s.ReplaceRulesAsync(It.IsAny<IReadOnlyList<QualifierIndicatorRule>>()))
+            .ThrowsAsync(new ArgumentException("'nope' is not a known book qualifier."));
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>(), service.Object);
+
+        var result = await controller.UpdateQualifierIndicators(new QualifierIndicatorsDto(
+            new List<QualifierIndicatorDto> { new("Audible", "x", "nope") }));
+
+        var problem = Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(400, problem.StatusCode);
+        StringAssert.Contains(Assert.IsInstanceOfType<Microsoft.AspNetCore.Mvc.ProblemDetails>(problem.Value).Detail, "not a known book qualifier");
+    }
+
+    [TestMethod]
+    public async Task UpdateQualifierIndicators_ANullListIsA400()
+    {
+        var result = await _controller.UpdateQualifierIndicators(new QualifierIndicatorsDto(null!));
+
+        Assert.AreEqual(400, Assert.IsInstanceOfType<ObjectResult>(result.Result).StatusCode);
     }
 }

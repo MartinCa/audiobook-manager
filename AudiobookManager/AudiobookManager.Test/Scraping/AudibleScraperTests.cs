@@ -414,4 +414,45 @@ public class AudibleScraperTests
         Assert.IsFalse(target.SupportsUrl("https://example.net/?to=https://audible.com/pd/x"));
         Assert.IsFalse(target.SupportsUrl("file:///etc/passwd"));
     }
+
+    [TestMethod]
+    public async Task ParseAudibleDetails_AbridgedFormat_SetsTheAbridgedQualifier()
+    {
+        var target = CreateScraper();
+        var html = (await File.ReadAllTextAsync("Scraping/TestData/audible-killing-floor.html"))
+            .Replace("\"format\":\"Unabridged Audiobook\"", "\"format\":\"Abridged Audiobook\"");
+        Assert.IsTrue(html.Contains("Abridged Audiobook"), "the fixture edit must have taken effect");
+
+        var result = await target.ParseAudibleDetails(html, "https://www.audible.com/pd/Killing-Floor-Audiobook/B015RQON6I");
+
+        CollectionAssert.AreEqual(new List<string> { "abridged" }, result.Qualifiers!.ToList());
+        Assert.AreEqual("Killing Floor", result.BookName, "the format is structured data; the title is untouched");
+    }
+
+    [TestMethod]
+    public async Task ParseAudibleDetails_UnabridgedFormat_SetsNoQualifier()
+    {
+        var target = CreateScraper();
+        var html = await File.ReadAllTextAsync("Scraping/TestData/audible-killing-floor.html");
+        Assert.IsTrue(html.Contains("Unabridged Audiobook"));
+
+        var result = await target.ParseAudibleDetails(html, "https://www.audible.com/pd/Killing-Floor-Audiobook/B015RQON6I");
+
+        Assert.AreEqual(0, result.Qualifiers!.Count);
+    }
+
+    [TestMethod]
+    [DataRow("Format: Abridged Audiobook", true)]
+    [DataRow("Format Abridged Audiobook", true)]
+    [DataRow("Abridged Audiobook", true)]
+    [DataRow("Format: Unabridged Audiobook", false)]
+    [DataRow("Unabridged Audiobook", false)]
+    [DataRow("", false)]
+    [DataRow(null, false)]
+    public void QualifiersFromFormat_OnlyAWholeWordAbridgedCounts(string? format, bool expectedAbridged)
+    {
+        var qualifiers = AudibleScraper.QualifiersFromFormat(format);
+
+        CollectionAssert.AreEqual(expectedAbridged ? new List<string> { "abridged" } : new List<string>(), qualifiers.ToList());
+    }
 }

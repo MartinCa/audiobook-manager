@@ -393,6 +393,8 @@ public partial class AudibleScraper : IScraper
 
         var ratingResult = ParseRating(resultElem);
 
+        var formatText = resultElem.QuerySelector("li[class*='ormat']")?.Text();
+
         return new MetadataSearchResult(link, titleTag!.Text().Trim())
         {
             Authors = authors,
@@ -410,6 +412,7 @@ public partial class AudibleScraper : IScraper
             Copyright = null,
             Publisher = null,
             Asin = asin,
+            Qualifiers = QualifiersFromFormat(formatText),
         };
     }
 
@@ -503,6 +506,7 @@ public partial class AudibleScraper : IScraper
 
         return new MetadataSearchResult(bookUrl, title)
         {
+            Qualifiers = QualifiersFromFormat(ParseFormatFromDetailsJson(doc)),
             Authors = authors,
             Narrators = narrators,
             Subtitle = subtitle,
@@ -794,6 +798,42 @@ public partial class AudibleScraper : IScraper
     /// search-result markup) - it's only present as JSON inside a script tag nested in the
     /// &lt;adbl-product-details&gt; metadata block: {"series":[{"part":"Book 1","name":"Jack Reacher",...}]}.
     /// </summary>
+    /// <summary>
+    /// The product's format label from the details page's metadata blob ("Unabridged Audiobook",
+    /// "Abridged Audiobook"), or null when the page does not carry one.
+    /// </summary>
+    private static string? ParseFormatFromDetailsJson(IDocument doc)
+    {
+        var text = doc.QuerySelector("adbl-product-details adbl-product-metadata script[type='application/json']")?.TextContent;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var jsonDoc = JsonDocument.Parse(text);
+            return jsonDoc.RootElement.ValueKind == JsonValueKind.Object ? GetJsonString(jsonDoc.RootElement, "format") : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Audible marks an abridged edition only in its format ("Format: Abridged Audiobook"), not in
+    /// the title, so it is read from there. "Unabridged" contains the word, which is why the match
+    /// is on a whole word.
+    /// </summary>
+    public static IList<string> QualifiersFromFormat(string? format) =>
+        !string.IsNullOrWhiteSpace(format) && ReAbridgedFormat().IsMatch(format)
+            ? new List<string> { "abridged" }
+            : new List<string>();
+
+    [GeneratedRegex(@"\babridged\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ReAbridgedFormat();
+
     private static IList<MetadataSeriesSearchResult> ParseBookSeriesFromDetailsJson(IDocument doc)
     {
         var result = new List<MetadataSeriesSearchResult>();

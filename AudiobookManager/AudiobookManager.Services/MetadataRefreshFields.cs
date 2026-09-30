@@ -33,12 +33,18 @@ public static class MetadataRefreshFields
     public const string Publisher = "Publisher";
     public const string Asin = "Asin";
     public const string Www = "Www";
+    /// <summary>
+    /// Book qualifiers (abridged, dramatized). Only ever additive: a refresh can add the ones the
+    /// source reports, never remove one the book has, so the diff is the book's set against its
+    /// union with the source's.
+    /// </summary>
+    public const string Qualifiers = "Qualifiers";
 
     /// <summary>Every field name a pending snapshot can offer as a change, in display order.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
         Authors, Narrators, BookName, Subtitle, Series, Year, Genres, Description,
-        Language, Rating, Copyright, Publisher, Asin, Www,
+        Language, Rating, Copyright, Publisher, Asin, Www, Qualifiers,
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

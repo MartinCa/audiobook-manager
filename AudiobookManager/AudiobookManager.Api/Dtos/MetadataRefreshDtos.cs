@@ -40,7 +40,9 @@ public record PendingRefreshSnapshotDto(
     string? Asin,
     int? NumberOfRatings = null,
     /// <summary>Every series the source reported (<c>SeriesName</c>/<c>SeriesPart</c> are only the first). Empty when it reported none.</summary>
-    IReadOnlyList<PendingRefreshSeriesDto>? Series = null);
+    IReadOnlyList<PendingRefreshSeriesDto>? Series = null,
+    /// <summary>Keys of the book qualifiers the source reported (the book name is already clean of their wording). Null when none.</summary>
+    IReadOnlyList<string>? Qualifiers = null);
 
 /// <summary>One series a source reported for a book: the mapped name, its part, and the name before series mapping.</summary>
 public record PendingRefreshSeriesDto(string SeriesName, string? SeriesPart, string? OriginalSeriesName);
