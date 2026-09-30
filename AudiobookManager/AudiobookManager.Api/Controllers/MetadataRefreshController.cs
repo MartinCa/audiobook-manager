@@ -424,5 +424,6 @@ public class MetadataRefreshController : ControllerBase
                 payload.NumberOfRatings,
                 PendingRefreshPayload.SeriesOf(payload)
                     .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
-                    .ToList()));
+                    .ToList(),
+                payload.Qualifiers?.ToList()));
 }

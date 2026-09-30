@@ -25,6 +25,14 @@ public class MetadataSearchResult
     public string? Isbn { get; set; }
 
     /// <summary>
+    /// Keys of the book qualifiers (<c>AudiobookManager.Domain.BookQualifiers</c>) the source says
+    /// this edition carries - abridged, dramatized. A scraper sets what it can read from structured
+    /// data; <c>ScrapingService</c> adds the ones spelled out in the title and removes that text from
+    /// <see cref="BookName"/>. Empty (never null once it has been through the service) when none.
+    /// </summary>
+    public IList<string>? Qualifiers { get; set; }
+
+    /// <summary>
     /// The canonical form of <see cref="Url"/> - scheme/host/path only, with tracking/session
     /// query parameters (Audible's ref=/pf_rd_*, Goodreads' qid=/from_search=, etc.) stripped.
     /// This is what a caller should persist (e.g. into Audiobook.Www); Url itself stays a

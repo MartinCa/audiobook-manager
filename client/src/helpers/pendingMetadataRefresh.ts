@@ -36,6 +36,7 @@ export function pendingSnapshotToSearchResult(snapshot: SnapshotWireShape): Meta
     copyright: snapshot.copyright ?? undefined,
     publisher: snapshot.publisher ?? undefined,
     asin: snapshot.asin ?? undefined,
+    qualifiers: snapshot.qualifiers ?? undefined,
     // Every series the source reported; a row stored before the list existed carries only the
     // first (seriesName/seriesPart), which is then the one series.
     series:

@@ -61,6 +61,7 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Publisher, book.Publisher, fetched.Publisher);
         add(MetadataRefreshFields.Asin, book.Asin, fetched.Asin);
         add(MetadataRefreshFields.Www, book.Www, fetched.CleanUrl);
+        AddQualifiers(diffs, book, fetched.Qualifiers);
 
         return diffs;
     }
@@ -112,6 +113,7 @@ public static class MetadataRefreshDiffer
         // it - see that method's own comment), matching how Diff() above compares against
         // fetched.CleanUrl rather than the raw Url.
         add(MetadataRefreshFields.Www, book.Www, snapshot.Url);
+        AddQualifiers(diffs, book, snapshot.Qualifiers);
 
         return diffs;
     }
@@ -131,6 +133,25 @@ public static class MetadataRefreshDiffer
         {
             diffs.Add(new MetadataRefreshDiff(
                 MetadataRefreshFields.Series, SeriesRelationSet.Format(current), SeriesRelationSet.Format(proposed)));
+        }
+    }
+
+    /// <summary>
+    /// A qualifier is a fact about how the edition was produced, and a source that does not say so
+    /// is not saying the book lacks it - so a refresh only ever adds. The proposed value is the
+    /// book's qualifiers united with the source's; it is a diff only when that adds something.
+    /// </summary>
+    private static void AddQualifiers(
+        List<MetadataRefreshDiff> diffs, Database.Models.Audiobook book, IEnumerable<string?>? source)
+    {
+        var current = BookQualifiers.Normalize(QualifierColumn.Parse(book.Qualifiers));
+        var proposed = BookQualifiers.Normalize(current.Concat(source ?? Enumerable.Empty<string?>()));
+        if (!proposed.SequenceEqual(current, StringComparer.Ordinal))
+        {
+            diffs.Add(new MetadataRefreshDiff(
+                MetadataRefreshFields.Qualifiers,
+                current.Count == 0 ? null : BookQualifiers.Format(current),
+                BookQualifiers.Format(proposed)));
         }
     }
 

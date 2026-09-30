@@ -18,6 +18,12 @@ vi.mock("@/services/api", () => ({
   settingsApi: {
     getLibrarySettings: vi.fn(),
     updateLibrarySettings: vi.fn(),
+    getQualifierIndicators: vi.fn().mockResolvedValue({ indicators: [] }),
+    updateQualifierIndicators: vi.fn(),
+    getBookQualifiers: vi.fn().mockResolvedValue({ qualifiers: [] }),
+  },
+  metadataSearchApi: {
+    getServices: vi.fn().mockResolvedValue([]),
   },
 }));
 

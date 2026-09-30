@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
+import { normalizeQualifiers, qualifierLabel } from "@/helpers/bookQualifiers";
 import { splitList } from "@/helpers/organizeAudiobookInput";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import {
@@ -14,6 +15,7 @@ import {
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
+import type { BookQualifierOption } from "@/types/BookQualifier";
 
 /**
  * A plain code-point, case-insensitive comparison - what backend `StringComparer.OrdinalIgnoreCase`
@@ -88,6 +90,9 @@ function comparablePersonNames(joined: string): string {
   return Array.from(meaningful).sort(ordinalCompare).join(", ");
 }
 
+// A stable default: a fresh `[]` per call would defeat the useMemo below on every render.
+const NO_QUALIFIER_OPTIONS: BookQualifierOption[] = [];
+
 export interface FieldDiff {
   key: string;
   label: string;
@@ -113,6 +118,7 @@ export function useMetadataFieldDiffs(
   languages: LanguageOption[],
   splitTitleOnColonEnabled: boolean = false,
   primarySeriesName?: string,
+  qualifierOptions: BookQualifierOption[] = NO_QUALIFIER_OPTIONS,
 ): FieldDiff[] {
   return useMemo((): FieldDiff[] => {
     const cur = currentInput;
@@ -134,6 +140,17 @@ export function useMetadataFieldDiffs(
       primarySeriesName,
     );
     const newGenres = res.genres?.join("/") ?? "";
+
+    // Qualifiers only ever add: a source that does not report one is not saying the book lacks
+    // it, so the proposed set is the book's own united with the source's (the server's differ and
+    // applier follow the same rule).
+    const currentQualifiers = normalizeQualifiers(cur.qualifiers, qualifierOptions);
+    const proposedQualifiers = normalizeQualifiers(
+      [...currentQualifiers, ...(res.qualifiers ?? [])],
+      qualifierOptions,
+    );
+    const formatQualifiers = (keys: string[]) =>
+      keys.map((key) => qualifierLabel(key, qualifierOptions)).join(", ");
 
     const currentLanguage = normalizeLanguage(cur.language, languages) ?? cur.language ?? "";
     const newLanguage = normalizeLanguage(res.language, languages) ?? currentLanguage;
@@ -241,6 +258,13 @@ export function useMetadataFieldDiffs(
         changed: (cur.www ?? "") !== (res.cleanUrl ?? ""),
       },
       {
+        key: "qualifiers",
+        label: "Qualifiers",
+        currentValue: formatQualifiers(currentQualifiers),
+        newValue: formatQualifiers(proposedQualifiers),
+        changed: proposedQualifiers.join(",") !== currentQualifiers.join(","),
+      },
+      {
         key: "cover",
         label: "Cover",
         currentValue: cur.cover_base64 ? "Has cover" : "",
@@ -248,5 +272,12 @@ export function useMetadataFieldDiffs(
         changed: Boolean(res.imageUrl),
       },
     ];
-  }, [currentInput, searchResult, languages, splitTitleOnColonEnabled, primarySeriesName]);
+  }, [
+    currentInput,
+    searchResult,
+    languages,
+    splitTitleOnColonEnabled,
+    primarySeriesName,
+    qualifierOptions,
+  ]);
 }

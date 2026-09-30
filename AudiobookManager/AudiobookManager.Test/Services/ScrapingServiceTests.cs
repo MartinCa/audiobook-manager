@@ -1,3 +1,4 @@
+using AudiobookManager.Domain;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services;
@@ -12,6 +13,7 @@ public class ScrapingServiceTests
     private Mock<IScraper> _audibleScraper = null!;
     private Mock<IScraper> _goodreadsScraper = null!;
     private Mock<ILogger<ScrapingService>> _logger = null!;
+    private Mock<IQualifierIndicatorService> _qualifierIndicators = null!;
     private ScrapingService _service = null!;
 
     [TestInitialize]
@@ -20,9 +22,12 @@ public class ScrapingServiceTests
         _audibleScraper = CreateScraperMock("Audible");
         _goodreadsScraper = CreateScraperMock("Goodreads");
         _logger = new Mock<ILogger<ScrapingService>>();
+        _qualifierIndicators = new Mock<IQualifierIndicatorService>();
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(new List<QualifierIndicatorRule>());
 
         _service = new ScrapingService(
             new[] { _audibleScraper.Object, _goodreadsScraper.Object },
+            _qualifierIndicators.Object,
             _logger.Object);
     }
 
@@ -112,6 +117,7 @@ public class ScrapingServiceTests
 
         var service = new ScrapingService(
             new[] { _audibleScraper.Object, _goodreadsScraper.Object, hardcoverScraper.Object },
+            _qualifierIndicators.Object,
             _logger.Object);
 
         var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.GetBookDetails(url));
@@ -137,5 +143,89 @@ public class ScrapingServiceTests
         var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.GetBookDetails(url));
 
         StringAssert.Contains(ex.Message, url);
+    }
+
+    private static readonly List<QualifierIndicatorRule> AudibleRules = new()
+    {
+        new("Audible", "Dramatized Adaptation", "dramatized"),
+        new("Audible", "Full-Cast Dramatized Adaptation", "dramatized"),
+        new("Audible", "Dramatized", "dramatized"),
+        new("Audible", "Abridged", "abridged"),
+    };
+
+    [TestMethod]
+    public async Task Search_MovesAConfiguredIndicatorOffTheTitleAndIntoQualifiers()
+    {
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(AudibleRules);
+        _audibleScraper.Setup(s => s.Search("frontier"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://audible.com/pd/1", "A Frontier Christmas [Dramatized Adaptation]") });
+
+        var results = await _service.Search("Audible", "frontier");
+
+        Assert.AreEqual("A Frontier Christmas", results.Single().BookName);
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, results.Single().Qualifiers!.ToList());
+    }
+
+    [TestMethod]
+    public async Task Search_KeepsAQualifierTheScraperReadFromStructuredData()
+    {
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(AudibleRules);
+        var fromFormat = new MetadataSearchResult("https://audible.com/pd/2", "Nancy Drew: The Secret of the Old Clock (Abridged)")
+        {
+            Qualifiers = new List<string> { "abridged" },
+        };
+        _audibleScraper.Setup(s => s.Search("nancy")).ReturnsAsync(new List<MetadataSearchResult> { fromFormat });
+
+        var results = await _service.Search("Audible", "nancy");
+
+        Assert.AreEqual("Nancy Drew: The Secret of the Old Clock", results.Single().BookName);
+        CollectionAssert.AreEqual(new List<string> { "abridged" }, results.Single().Qualifiers!.ToList());
+    }
+
+    [TestMethod]
+    public async Task Search_RulesForAnotherSourceDoNotTouchTheTitle()
+    {
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(AudibleRules);
+        _goodreadsScraper.Setup(s => s.Search("musketeers"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://goodreads.com/book/3", "The Three Musketeers (Dramatized)") });
+
+        var results = await _service.Search("Goodreads", "musketeers");
+
+        Assert.AreEqual("The Three Musketeers (Dramatized)", results.Single().BookName);
+        Assert.AreEqual(0, results.Single().Qualifiers!.Count);
+    }
+
+    [TestMethod]
+    public async Task SearchMultiple_CleansEachSourcesResultsWithThatSourcesRules()
+    {
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(AudibleRules);
+        _audibleScraper.Setup(s => s.Search("x"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://audible.com/pd/4", "Powerless (Full-Cast Dramatized Adaptation)") });
+        _goodreadsScraper.Setup(s => s.Search("x"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://goodreads.com/book/4", "Powerless (Dramatized)") });
+
+        var result = await _service.SearchMultiple(new[] { "Audible", "Goodreads" }, "x");
+
+        var audible = result.Results.Single(r => r.Source == "Audible");
+        var goodreads = result.Results.Single(r => r.Source == "Goodreads");
+        Assert.AreEqual("Powerless", audible.BookName);
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, audible.Qualifiers!.ToList());
+        Assert.AreEqual("Powerless (Dramatized)", goodreads.BookName);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_MovesAConfiguredIndicatorOffTheTitleAndIntoQualifiers()
+    {
+        _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(AudibleRules);
+        const string url = "https://www.audible.com/pd/ABC";
+        _audibleScraper.Setup(s => s.SupportsUrl(url)).Returns(true);
+        _goodreadsScraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+        _audibleScraper.Setup(s => s.GetBookDetails(url))
+            .ReturnsAsync(new MetadataSearchResult(url, "House of Earth and Blood (Part 1 of 2) (Dramatized Adaptation)"));
+
+        var result = await _service.GetBookDetails(url);
+
+        Assert.AreEqual("House of Earth and Blood (Part 1 of 2)", result.BookName);
+        CollectionAssert.AreEqual(new List<string> { "dramatized" }, result.Qualifiers!.ToList());
     }
 }

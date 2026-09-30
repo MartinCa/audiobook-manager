@@ -17,6 +17,7 @@ import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import { QualifierIndicatorsCard } from "@/components/settings/QualifierIndicatorsCard";
 import { PAGE_SIZE_OPTIONS, type PageSizeOption } from "@/constants/paging";
 import type { InitialsPunctuation, InitialsSpacing } from "@/types/LibrarySettings";
 
@@ -261,6 +262,8 @@ export function LibrarySettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <QualifierIndicatorsCard />
 
       <div className="flex justify-end">
         <Button

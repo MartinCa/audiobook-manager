@@ -12,6 +12,7 @@ public static class DependencyInjection
             .AddScoped<IGenreRepository, GenreRepository>()
             .AddScoped<ISeriesMappingRepository, SeriesMappingRepository>()
             .AddScoped<ILibrarySettingsRepository, LibrarySettingsRepository>()
+            .AddScoped<IQualifierIndicatorRepository, QualifierIndicatorRepository>()
             .AddScoped<IQueuedOrganizeTaskRepository, QueuedOrganizeTaskRepository>()
             .AddScoped<IDiscoveredAudiobookRepository, DiscoveredAudiobookRepository>()
             .AddScoped<IBookConsistencyIssueRepository, BookConsistencyIssueRepository>()

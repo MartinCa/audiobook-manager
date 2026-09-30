@@ -8,6 +8,7 @@ import { browseApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { toAudiobook } from "@/helpers/audiobookMapping";
 import { audiobookToOrganizeInput } from "@/helpers/organizeInput";
+import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
 import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
@@ -37,6 +38,7 @@ const CLIENT_KEY_TO_BACKEND_FIELDS: Record<string, string[]> = {
   copyright: ["Copyright"],
   asin: ["Asin"],
   www: ["Www"],
+  qualifiers: ["Qualifiers"],
 };
 
 interface PendingRefreshRowPanelProps {
@@ -79,6 +81,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     staleTime: Infinity,
   });
   const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
+  const qualifierOptions = useBookQualifiers();
 
   const currentInput = useMemo(
     () => (bookDetail ? audiobookToOrganizeInput(toAudiobook(bookDetail)) : {}),
@@ -104,6 +107,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     languages,
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
+    qualifierOptions,
   );
 
   const sourceSeries = useMemo(

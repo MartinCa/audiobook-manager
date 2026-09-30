@@ -26,5 +26,6 @@ export function audiobookToOrganizeInput(book: Audiobook): OrganizeAudiobookInpu
     www: book.www,
     rating: book.rating ? Number(book.rating) : undefined,
     asin: book.asin,
+    qualifiers: book.qualifiers,
   };
 }
