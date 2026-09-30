@@ -5248,6 +5248,7 @@ export interface components {
         ApplyPendingRefreshDto: {
             fields?: string[] | null;
             splitTitleOnColon?: boolean;
+            primarySeriesName?: string | null;
         };
         ApplySelectedMetadataRefreshDto: {
             audiobookIds?: number[] | null;
@@ -5280,6 +5281,7 @@ export interface components {
             subtitle?: string | null;
             series?: string | null;
             seriesPart?: string | null;
+            additionalSeries?: components["schemas"]["SeriesRelation"][] | null;
             qualifiers?: string[] | null;
             /** Format: int32 */
             year?: number | null;
@@ -5335,6 +5337,7 @@ export interface components {
             lastMetadataRefreshedAt?: string | null;
             authorRefs?: components["schemas"]["AudiobookAuthorDto"][] | null;
             qualifiers?: string[] | null;
+            additionalSeries?: components["schemas"]["SeriesRelationDto"][] | null;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -5901,6 +5904,7 @@ export interface components {
             subtitle?: string | null;
             series?: string | null;
             seriesPart?: string | null;
+            additionalSeries?: components["schemas"]["SeriesRelationDto"][] | null;
             qualifiers?: string[] | null;
             /** Format: int32 */
             year: number;
@@ -5980,6 +5984,11 @@ export interface components {
             /** Format: int32 */
             total?: number;
         };
+        PendingRefreshSeriesDto: {
+            seriesName?: string | null;
+            seriesPart?: string | null;
+            originalSeriesName?: string | null;
+        };
         PendingRefreshSnapshotDto: {
             url?: string | null;
             source?: string | null;
@@ -6000,6 +6009,7 @@ export interface components {
             asin?: string | null;
             /** Format: int32 */
             numberOfRatings?: number | null;
+            series?: components["schemas"]["PendingRefreshSeriesDto"][] | null;
         };
         Person: {
             /** Format: int64 */
@@ -6175,6 +6185,7 @@ export interface components {
             isMatched?: boolean;
             matchedSourceName?: string | null;
             qualifiers?: string[] | null;
+            primarySeries?: string | null;
         };
         SeriesOwnedBookPageDto: {
             items?: components["schemas"]["SeriesOwnedBookDto"][] | null;
@@ -6246,6 +6257,14 @@ export interface components {
             /** Format: int32 */
             changeCount?: number;
             sourceName?: string | null;
+        };
+        SeriesRelation: {
+            name?: string | null;
+            part?: string | null;
+        };
+        SeriesRelationDto: {
+            seriesName: string;
+            seriesPart?: string | null;
         };
         SimilarValueCandidateDto: {
             value?: string | null;

@@ -36,13 +36,24 @@ export function pendingSnapshotToSearchResult(snapshot: SnapshotWireShape): Meta
     copyright: snapshot.copyright ?? undefined,
     publisher: snapshot.publisher ?? undefined,
     asin: snapshot.asin ?? undefined,
-    series: snapshot.seriesName
-      ? [
-          {
-            seriesName: snapshot.seriesName,
-            seriesPart: snapshot.seriesPart ?? undefined,
-          },
-        ]
-      : [],
+    // Every series the source reported; a row stored before the list existed carries only the
+    // first (seriesName/seriesPart), which is then the one series.
+    series:
+      snapshot.series && snapshot.series.length > 0
+        ? snapshot.series
+            .filter((s) => s.seriesName)
+            .map((s) => ({
+              seriesName: s.seriesName!,
+              seriesPart: s.seriesPart ?? undefined,
+              originalSeriesName: s.originalSeriesName ?? undefined,
+            }))
+        : snapshot.seriesName
+          ? [
+              {
+                seriesName: snapshot.seriesName,
+                seriesPart: snapshot.seriesPart ?? undefined,
+              },
+            ]
+          : [],
   };
 }

@@ -38,7 +38,12 @@ public record PendingRefreshSnapshotDto(
     string? Copyright,
     string? Publisher,
     string? Asin,
-    int? NumberOfRatings = null);
+    int? NumberOfRatings = null,
+    /// <summary>Every series the source reported (<c>SeriesName</c>/<c>SeriesPart</c> are only the first). Empty when it reported none.</summary>
+    IReadOnlyList<PendingRefreshSeriesDto>? Series = null);
+
+/// <summary>One series a source reported for a book: the mapped name, its part, and the name before series mapping.</summary>
+public record PendingRefreshSeriesDto(string SeriesName, string? SeriesPart, string? OriginalSeriesName);
 
 /// <summary>One row of the pending-refresh list page.</summary>
 public record PendingMetadataRefreshListItemDto(
@@ -70,7 +75,12 @@ public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields, bool Spli
 /// source's raw, unsplit title (AudiobookManager.Services.TitleSplitter), so this opts in to
 /// recovering "Title: Subtitle" from it rather than assuming every colon is a separator.
 /// </summary>
-public record ApplyPendingRefreshDto(List<string>? Fields, bool SplitTitleOnColon = false);
+/// <remarks>
+/// <paramref name="PrimarySeriesName"/> optionally picks which of the snapshot's series becomes the
+/// book's primary one (the one in its tags and path). Left out, the primary is chosen the way a
+/// bulk apply chooses it: the book's current primary if the source still lists it.
+/// </remarks>
+public record ApplyPendingRefreshDto(List<string>? Fields, bool SplitTitleOnColon = false, string? PrimarySeriesName = null);
 
 /// <summary>The body of POST api/metadata-refresh/apply-selected.</summary>
 public record ApplySelectedMetadataRefreshDto(List<long> AudiobookIds, bool SplitTitleOnColon = false);

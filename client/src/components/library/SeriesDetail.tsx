@@ -704,6 +704,9 @@ export function SeriesDetail() {
 
   const ownedBooks = ownedSection.items as SeriesOwnedBook[];
   const ownedManagedBooks = ownedBooks.map(toManagedBook);
+  // A book listed here under an additional series is filed under another one (its primary series,
+  // the one in its tags and path); the row says which, linking to it.
+  const primarySeriesById = new Map(ownedBooks.map((b) => [b.id, b.primarySeries ?? null]));
   const missingBooks = missingSection.items as SeriesExpectedBook[];
   const ignoredMissingBooks = ignoredMissingSection.items as SeriesExpectedBook[];
   const ignoredUpcomingBooks = ignoredUpcomingSection.items as SeriesExpectedBook[];
@@ -802,6 +805,21 @@ export function SeriesDetail() {
           showSeriesPart
           hideSeries
           itemNoun="books"
+          renderExtraBadges={(book) => {
+            const primary = primarySeriesById.get(book.id);
+            return primary && primary !== seriesName ? (
+              <Badge variant="outline" className="h-5 gap-1 px-1.5 text-[10px]">
+                Primary series:
+                <Link
+                  to="/library/series/$seriesName"
+                  params={{ seriesName: primary }}
+                  className="hover:underline"
+                >
+                  {primary}
+                </Link>
+              </Badge>
+            ) : null;
+          }}
         />
       </div>
 

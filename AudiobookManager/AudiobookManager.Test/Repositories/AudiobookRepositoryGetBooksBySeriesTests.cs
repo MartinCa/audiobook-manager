@@ -63,7 +63,7 @@ public class AudiobookRepositoryGetBooksBySeriesTests
             Narrators = new List<Person> { _narrator },
         };
 
-        _db.Audiobooks.Add(audiobook);
+        _db.Audiobooks.Add(audiobook.WithPrimaryRelation());
         await _db.SaveChangesAsync();
         return audiobook;
     }

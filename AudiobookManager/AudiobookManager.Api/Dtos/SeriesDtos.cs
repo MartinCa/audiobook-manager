@@ -46,7 +46,9 @@ public record SeriesOwnedBookDto(
     string? CoverFilePath,
     bool IsMatched = false,
     string? MatchedSourceName = null,
-    List<string>? Qualifiers = null
+    List<string>? Qualifiers = null,
+    /// <summary>The book's primary series; <c>SeriesPart</c> is its part in the series being viewed, so a different value here marks an additional series.</summary>
+    string? PrimarySeries = null
 );
 
 public record SeriesDetailDto(

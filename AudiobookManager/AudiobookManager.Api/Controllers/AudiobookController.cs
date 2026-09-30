@@ -507,12 +507,16 @@ public class AudiobookController : ControllerBase
             ? null
             : _coverImageProcessor.Normalize(dto.Cover.Base64Data, dto.Cover.MimeType);
 
-        return new Audiobook(authors, dto.BookName, dto.Year, fileInfo)
+        var mapped = new Audiobook(authors, dto.BookName, dto.Year, fileInfo)
         {
             Narrators = narrators,
             Subtitle = dto.Subtitle,
             Series = dto.Series,
             SeriesPart = dto.SeriesPart,
+            AdditionalSeries = dto.AdditionalSeries?
+                .Where(r => !string.IsNullOrWhiteSpace(r.SeriesName))
+                .Select(r => new SeriesRelation(r.SeriesName.Trim(), string.IsNullOrWhiteSpace(r.SeriesPart) ? null : r.SeriesPart.Trim()))
+                .ToList(),
             Qualifiers = BookQualifiers.Normalize(dto.Qualifiers),
             Genres = CleanNames(dto.Genres),
             Description = dto.Description,
@@ -525,5 +529,10 @@ public class AudiobookController : ControllerBase
             Cover = cover,
             ReplaceExisting = dto.ReplaceExisting
         };
+
+        // A book with additional series but no primary one files under the first of them, the same
+        // way the save does - so the path preview and target check agree with where it will land.
+        mapped.PromoteAdditionalSeriesIfNoPrimary();
+        return mapped;
     }
 }

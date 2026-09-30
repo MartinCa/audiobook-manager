@@ -363,4 +363,130 @@ describe("TagPreviewDialog", () => {
     expect(appliedKeys.has("bookName")).toBe(false);
     expect(appliedResult.subtitle).toBeUndefined();
   });
+
+  describe("series", () => {
+    const withSeries = (
+      ...series: { seriesName: string; seriesPart?: string }[]
+    ): MetadataSearchResult => ({ ...searchResult, series });
+
+    const appliedSeriesNames = (onApply: ReturnType<typeof vi.fn>) =>
+      (onApply.mock.calls[0]?.[0] as MetadataSearchResult).series.map((s) => s.seriesName);
+
+    it("offers the primary choice only when the source reports more than one series", () => {
+      const { unmount } = renderWithQuery(
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={currentInput}
+          searchResult={withSeries({ seriesName: "Mistborn", seriesPart: "1" })}
+          onApply={() => {}}
+        />,
+      );
+      expect(screen.queryByText("Primary series")).not.toBeInTheDocument();
+      unmount();
+
+      renderWithQuery(
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={currentInput}
+          searchResult={withSeries({ seriesName: "Mistborn" }, { seriesName: "Cosmere" })}
+          onApply={() => {}}
+        />,
+      );
+      expect(screen.getByText("Primary series")).toBeInTheDocument();
+    });
+
+    it("defaults the primary to the book's current series when the source still lists it, whatever the source's order", () => {
+      const onApply = vi.fn();
+      renderWithQuery(
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={{ ...currentInput, series: "Mistborn", seriesPart: "1" }}
+          searchResult={withSeries(
+            { seriesName: "Cosmere", seriesPart: "3" },
+            { seriesName: "Mistborn", seriesPart: "1" },
+          )}
+          onApply={onApply}
+        />,
+      );
+
+      expect(screen.getByRole("radio", { name: "Mistborn" })).toBeChecked();
+      fireEvent.click(screen.getByText("Apply All"));
+
+      // Handed over primary-first: the consumer applies "first = primary, the rest = additional".
+      expect(appliedSeriesNames(onApply)).toEqual(["Mistborn", "Cosmere"]);
+    });
+
+    it("hands the chosen primary over first", () => {
+      const onApply = vi.fn();
+      renderWithQuery(
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={{ ...currentInput, series: "Mistborn", seriesPart: "1" }}
+          searchResult={withSeries(
+            { seriesName: "Mistborn", seriesPart: "1" },
+            { seriesName: "Cosmere", seriesPart: "3" },
+          )}
+          onApply={onApply}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("radio", { name: "Cosmere" }));
+      fireEvent.click(screen.getByText("Apply All"));
+
+      expect(appliedSeriesNames(onApply)).toEqual(["Cosmere", "Mistborn"]);
+    });
+
+    it("counts the series as a changed field only for a real change, not for the source's ordering", () => {
+      const current: OrganizeAudiobookInput = {
+        ...currentInput,
+        series: "Mistborn",
+        seriesPart: "1",
+        additionalSeries: [{ seriesName: "Cosmere", seriesPart: "3" }],
+      };
+      const selectedCount = (result: MetadataSearchResult) => {
+        const { unmount } = renderWithQuery(
+          <TagPreviewDialog
+            open
+            onOpenChange={() => {}}
+            currentInput={current}
+            searchResult={result}
+            onApply={() => {}}
+          />,
+        );
+        const match = /Apply Selected \((\d+)\)/.exec(
+          screen.getByRole("button", { name: /Apply Selected/ }).textContent ?? "",
+        );
+        unmount();
+        return Number(match?.[1]);
+      };
+
+      const sameOrder = selectedCount(
+        withSeries(
+          { seriesName: "Mistborn", seriesPart: "1" },
+          { seriesName: "Cosmere", seriesPart: "3" },
+        ),
+      );
+      const reordered = selectedCount(
+        withSeries(
+          { seriesName: "Cosmere", seriesPart: "3" },
+          { seriesName: "Mistborn", seriesPart: "1" },
+        ),
+      );
+      const partChanged = selectedCount(
+        withSeries(
+          { seriesName: "Cosmere", seriesPart: "4" },
+          { seriesName: "Mistborn", seriesPart: "1" },
+        ),
+      );
+      const removed = selectedCount(withSeries({ seriesName: "Mistborn", seriesPart: "1" }));
+
+      expect(reordered).toBe(sameOrder);
+      expect(partChanged).toBe(sameOrder + 1);
+      expect(removed).toBe(sameOrder + 1);
+    });
+  });
 });

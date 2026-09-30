@@ -10,16 +10,24 @@ import { toAudiobook } from "@/helpers/audiobookMapping";
 import { audiobookToOrganizeInput } from "@/helpers/organizeInput";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
+import {
+  allSeries,
+  canonicalizeSeries,
+  chooseSeriesPrimary,
+  currentSeriesSet,
+  sourceSeriesEntries,
+} from "@/helpers/seriesRelations";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 
-/** Maps a diff row's client-side key to the backend field name(s) MetadataRefreshFields defines; "series" covers both Series and SeriesPart since they are edited together. */
+/** Maps a diff row's client-side key to the backend field name(s) MetadataRefreshFields defines; "series" is the whole set of a book's series with their parts and the primary. */
 const CLIENT_KEY_TO_BACKEND_FIELDS: Record<string, string[]> = {
   authors: ["Authors"],
   narrators: ["Narrators"],
   bookName: ["BookName"],
   subtitle: ["Subtitle"],
-  series: ["Series", "SeriesPart"],
+  series: ["Series"],
   year: ["Year"],
   genres: ["Genres"],
   description: ["Description"],
@@ -51,6 +59,9 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   // off (see helpers/titleSplitter.ts); no need to persist across anything since this component
   // remounts per row.
   const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
+  // Which of the source's series becomes the book's primary one; undefined = the default the
+  // server would pick (the book's current primary when the source still lists it).
+  const [chosenPrimarySeries, setChosenPrimarySeries] = useState<string | undefined>(undefined);
 
   const { data: bookDetail, isLoading: loadingBook } = useQuery({
     queryKey: queryKeys.bookDetailRecord(audiobookId),
@@ -92,7 +103,20 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     },
     languages,
     splitTitleOnColonEnabled,
+    chosenPrimarySeries,
   );
+
+  const sourceSeries = useMemo(
+    () => canonicalizeSeries(sourceSeriesEntries(searchResult?.series)),
+    [searchResult],
+  );
+  const effectivePrimarySeries = chooseSeriesPrimary(
+    allSeries(
+      currentSeriesSet(currentInput.series, currentInput.seriesPart, currentInput.additionalSeries),
+    ),
+    sourceSeries,
+    chosenPrimarySeries,
+  )?.name;
 
   // Only fields the backend can actually apply, and only the ones that changed - "cover" has no
   // backend counterpart in the stored snapshot (see MetadataRefreshApplier), and an unchanged
@@ -146,6 +170,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
         audiobookId,
         backendFieldsFor(keys),
         splitTitleOnColonEnabled,
+        chosenPrimarySeries,
       );
       notifications.success("Metadata changes applied");
       void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
@@ -186,6 +211,14 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
         onToggleAll={toggleAll}
         changedFieldKeys={changedFieldKeys}
       />
+      {changedFieldKeys.includes("series") && (
+        <PrimarySeriesChooser
+          options={sourceSeries.map((s) => s.name)}
+          value={effectivePrimarySeries ?? ""}
+          onChange={setChosenPrimarySeries}
+          idPrefix={`pending-refresh-${audiobookId}`}
+        />
+      )}
       {
         // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate onto
         // the aria-label instead of the aria-label standing alone (see the same pattern in

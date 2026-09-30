@@ -81,6 +81,7 @@ export function toAudiobookDto(data: Audiobook) {
     subtitle: data.subtitle,
     series: data.series,
     seriesPart: data.seriesPart,
+    additionalSeries: data.additionalSeries,
     qualifiers: data.qualifiers ?? [],
     year: data.year,
     genres: data.genres,
@@ -587,10 +588,19 @@ export const metadataRefreshApi = {
   // fields applies every field the snapshot recorded as changed. `splitTitleOnColon` (default
   // off) opts into recovering a "Title: Subtitle" pair from a raw scraped title at its first
   // colon-space - see helpers/titleSplitter.ts.
-  applyPending: (id: number, fields?: readonly string[], splitTitleOnColon: boolean = false) =>
+  // `primarySeriesName` picks which of the snapshot's series becomes the book's primary one when
+  // the Series field is applied; left out, the server keeps the book's current primary if the
+  // source still lists it (the same choice a bulk apply makes).
+  applyPending: (
+    id: number,
+    fields?: readonly string[],
+    splitTitleOnColon: boolean = false,
+    primarySeriesName?: string,
+  ) =>
     api.post<void>(`/metadata-refresh/${id}/apply`, {
       fields: fields && fields.length > 0 ? fields : undefined,
       splitTitleOnColon,
+      primarySeriesName,
     }),
 
   // Fire-and-forget: applies the full pending snapshot to every explicitly selected book.

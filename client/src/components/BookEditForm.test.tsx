@@ -911,6 +911,51 @@ describe("BookEditForm", () => {
     expect(onSave.mock.calls[0]?.[0].seriesPart).toBeUndefined();
   });
 
+  it("applies every series of a scraped result: the book's current primary stays primary, the rest become additional", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          // Listed with the book's own series second: the source's order must not pick the primary.
+          series: [
+            { seriesName: "Cosmere", seriesPart: "3" },
+            { seriesName: "Mistborn", seriesPart: "Book 2" },
+          ],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "Mistborn", seriesPart: "1" }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply & Save All" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0];
+    expect(saved?.series).toBe("Mistborn");
+    // The part goes through the same "Book 2" -> "2" normalisation a single series always did.
+    expect(saved?.seriesPart).toBe("2");
+    expect(saved?.additionalSeries).toEqual([{ seriesName: "Cosmere", seriesPart: "3" }]);
+  });
+
   // Regression test for Issue C: a scalar text field (subtitle here) with no source value must
   // be cleared too, not left at its stale current value - matches the dialog's own "-> (empty)".
   it("clears subtitle when Apply All is used with a scraped result reporting no subtitle", async () => {
@@ -1831,5 +1876,236 @@ describe("BookEditForm", () => {
     expect(saved.bookName).toBe("Original Title");
     expect(saved.series).toBe("Jack Reacher");
     expect(saved.qualifiers).toEqual(["dramatized"]);
+  });
+});
+
+describe("BookEditForm additional series", () => {
+  const twoSeriesBook: Audiobook = {
+    ...initialBook,
+    series: "Mistborn",
+    seriesPart: "1",
+    additionalSeries: [{ seriesName: "Cosmere", seriesPart: "3" }],
+  };
+
+  it("shows a row for each additional series with its part, below the primary series", () => {
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={vi.fn()} />);
+
+    expect(screen.getByText("Additional series 1")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Cosmere")).toBeInTheDocument();
+    expect(screen.getByLabelText("Part of additional series 1")).toHaveValue("3");
+    expect(screen.getByText(/The series above is the primary one/i)).toBeInTheDocument();
+  });
+
+  it("shows no additional-series rows or primary note for a book with one series", () => {
+    renderWithProviders(
+      <BookEditForm initialBook={{ ...initialBook, series: "Mistborn" }} onSave={vi.fn()} />,
+    );
+
+    expect(screen.queryByText("Additional series 1")).not.toBeInTheDocument();
+    expect(screen.queryByText(/The series above is the primary one/i)).not.toBeInTheDocument();
+  });
+
+  it("saves the primary as series/seriesPart and the rest as additionalSeries", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText("Part of additional series 1"), {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.series).toBe("Mistborn");
+    expect(saved.seriesPart).toBe("1");
+    expect(saved.additionalSeries).toEqual([{ seriesName: "Cosmere", seriesPart: "4" }]);
+  });
+
+  it("adds an additional series row and saves it", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "Mistborn", seriesPart: "1" }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add series/i }));
+    const nameInput = screen.getAllByPlaceholderText("Series name")[1];
+    fireEvent.change(nameInput!, { target: { value: "Cosmere" } });
+    fireEvent.change(screen.getByLabelText("Part of additional series 1"), {
+      target: { value: "3" },
+    });
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0]?.[0] as Audiobook).additionalSeries).toEqual([
+      { seriesName: "Cosmere", seriesPart: "3" },
+    ]);
+  });
+
+  it("drops a blank additional row on save instead of sending an empty series", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "Mistborn", seriesPart: "1" }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add series/i }));
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect((onSave.mock.calls[0]?.[0] as Audiobook).additionalSeries).toEqual([]);
+  });
+
+  it("removes an additional series", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove additional series 1" }));
+    expect(screen.queryByText("Additional series 1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.series).toBe("Mistborn");
+    expect(saved.additionalSeries).toEqual([]);
+  });
+
+  it("makes an additional series the primary one, moving the old primary into its place", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /make additional series 1 the primary/i }));
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.series).toBe("Cosmere");
+    expect(saved.seriesPart).toBe("3");
+    expect(saved.additionalSeries).toEqual([{ seriesName: "Mistborn", seriesPart: "1" }]);
+  });
+
+  it("promotes the first additional series when the primary series is removed", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove primary series" }));
+    expect(screen.queryByText("Additional series 1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+    expect(saved.series).toBe("Cosmere");
+    expect(saved.seriesPart).toBe("3");
+    expect(saved.additionalSeries).toEqual([]);
+  });
+
+  it("rejects a series listed twice, case-insensitively, and does not save", async () => {
+    const onSave = vi.fn();
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...twoSeriesBook,
+          additionalSeries: [{ seriesName: "mistborn", seriesPart: "3" }],
+        }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Save Audiobook"));
+
+    expect(
+      await screen.findByText("This series is already listed for the book"),
+    ).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("warns about a missing part and checks part conflicts for each series row separately", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.getSeriesPartConflicts).mockImplementation((_id, series) =>
+      Promise.resolve(
+        series === "Cosmere"
+          ? {
+              conflicts: [{ audiobookId: 77, bookName: "Elantris", seriesPart: "3" }],
+              truncated: false,
+            }
+          : { conflicts: [], truncated: false },
+      ),
+    );
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...twoSeriesBook,
+          additionalSeries: [
+            { seriesName: "Cosmere", seriesPart: "3" },
+            { seriesName: "Standalone Universe" },
+          ],
+        }}
+        onSave={vi.fn()}
+        currentBookId={42}
+      />,
+    );
+
+    // Only the Cosmere row has a conflict, and it was asked about that series and part.
+    const link = await screen.findByRole("link", { name: /Elantris/i });
+    expect(link.getAttribute("href")).toBe("/library/book/77");
+    expect(screen.getAllByText(/another book already uses this series part/i)).toHaveLength(1);
+    expect(audiobookApi.getSeriesPartConflicts).toHaveBeenCalledWith(42, "Cosmere", "3", []);
+    // The third row has a series but no part.
+    expect(screen.getAllByText(/Series is set but no series part is entered/i)).toHaveLength(1);
+  });
+
+  it("diffs a scraped result against the set a save would send when the primary field is emptied by hand", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Original Title",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [{ seriesName: "Cosmere", seriesPart: "3" }],
+          genres: [],
+          year: 2020,
+        },
+      ],
+      sourceStatuses: [],
+    });
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={vi.fn()} />);
+
+    // Emptying the primary field promotes "Cosmere" (what a save would send), so a source that lists
+    // only Cosmere #3 is no change - the preview must not claim the current set lacks Cosmere.
+    fireEvent.change(screen.getAllByPlaceholderText("Series name")[0]!, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Original" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+    const dialog = await screen.findByRole("dialog");
+    // Both the current and the proposed side read "Cosmere #3".
+    expect(within(dialog).getAllByText("Cosmere #3")).toHaveLength(2);
+    expect(within(dialog).queryByText(/\(primary\)/)).not.toBeInTheDocument();
+    // The Series row is unchanged, so its proposed value is not highlighted as a change.
+    const seriesRow = within(dialog).getByText("Series").closest("tr")!;
+    expect(seriesRow.className).not.toContain("font-medium");
+  });
+
+  it("sends only the primary series to the path preview", async () => {
+    const { audiobookApi } = await import("@/services/api");
+    vi.mocked(audiobookApi.generateNewPath).mockClear();
+
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(audiobookApi.generateNewPath).toHaveBeenCalled());
+    const previewed = vi.mocked(audiobookApi.generateNewPath).mock.calls[0]?.[0] as Audiobook;
+    expect(previewed.series).toBe("Mistborn");
+    expect(previewed.seriesPart).toBe("1");
   });
 });

@@ -517,7 +517,12 @@ public class SimilarValueService : ISimilarValueService
 
                 var domain = AudiobookService.FromDb(dbBook);
                 domain.Id = dbBook.Id;
-                domain.Series = targetValue;
+                // The value may be the book's primary or one of its additional series; either way
+                // the relation is renamed (and merged if the book already has the target).
+                foreach (var value in valuesToAlign)
+                {
+                    domain.RenameSeries(value, targetValue);
+                }
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
             },

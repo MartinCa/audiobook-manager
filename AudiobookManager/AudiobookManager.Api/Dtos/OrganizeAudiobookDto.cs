@@ -10,6 +10,13 @@ public class OrganizeAudiobookDto
     public string? SeriesPart { get; set; }
 
     /// <summary>
+    /// The book's non-primary series (<c>Series</c>/<c>SeriesPart</c> are the primary one, the
+    /// only one that reaches the m4b tags and the library path). Null means "not specified" and
+    /// leaves the stored ones alone; an empty list removes them.
+    /// </summary>
+    public List<SeriesRelationDto>? AdditionalSeries { get; set; }
+
+    /// <summary>
     /// Keys of the book's qualifiers (see <c>BookQualifiers</c>). <c>BookName</c> and <c>Series</c>
     /// are the clean values - the suffixes are added when the book is written to disk.
     /// </summary>

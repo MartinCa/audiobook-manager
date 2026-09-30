@@ -3,6 +3,14 @@ import { joinPersons } from "@/helpers/bookDetailsHelpers";
 import { languageLabel, normalizeLanguage } from "@/helpers/languages";
 import { splitList } from "@/helpers/organizeAudiobookInput";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
+import {
+  allSeries,
+  currentSeriesSet,
+  formatSeriesSet,
+  resolveSeriesSet,
+  seriesSetsDiffer,
+  sourceSeriesEntries,
+} from "@/helpers/seriesRelations";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -104,6 +112,7 @@ export function useMetadataFieldDiffs(
   searchResult: MetadataSearchResult,
   languages: LanguageOption[],
   splitTitleOnColonEnabled: boolean = false,
+  primarySeriesName?: string,
 ): FieldDiff[] {
   return useMemo((): FieldDiff[] => {
     const cur = currentInput;
@@ -116,9 +125,14 @@ export function useMetadataFieldDiffs(
 
     const newAuthors = joinPersons(res.authors) ?? "";
     const newNarrators = joinPersons(res.narrators) ?? "";
-    const firstSeries = res.series?.[0];
-    const newSeries = firstSeries?.seriesName ?? "";
-    const newSeriesPart = firstSeries?.seriesPart ?? "";
+    // The book's whole set of series against the source's, as sets (the source's ordering never
+    // matters), with the primary the apply would choose - see helpers/seriesRelations.ts.
+    const currentSeries = currentSeriesSet(cur.series, cur.seriesPart, cur.additionalSeries);
+    const proposedSeries = resolveSeriesSet(
+      allSeries(currentSeries),
+      sourceSeriesEntries(res.series),
+      primarySeriesName,
+    );
     const newGenres = res.genres?.join("/") ?? "";
 
     const currentLanguage = normalizeLanguage(cur.language, languages) ?? cur.language ?? "";
@@ -156,9 +170,9 @@ export function useMetadataFieldDiffs(
       {
         key: "series",
         label: "Series",
-        currentValue: [cur.series, cur.seriesPart].filter(Boolean).join(" #") || "",
-        newValue: [newSeries, newSeriesPart].filter(Boolean).join(" #") || "",
-        changed: (cur.series ?? "") !== newSeries || (cur.seriesPart ?? "") !== newSeriesPart,
+        currentValue: formatSeriesSet(currentSeries),
+        newValue: formatSeriesSet(proposedSeries),
+        changed: seriesSetsDiffer(currentSeries, proposedSeries),
       },
       {
         key: "year",
@@ -234,5 +248,5 @@ export function useMetadataFieldDiffs(
         changed: Boolean(res.imageUrl),
       },
     ];
-  }, [currentInput, searchResult, languages, splitTitleOnColonEnabled]);
+  }, [currentInput, searchResult, languages, splitTitleOnColonEnabled, primarySeriesName]);
 }

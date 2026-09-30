@@ -138,4 +138,30 @@ describe("toAudiobook", () => {
     expect(result.series).toBe("Jack Reacher");
     expect(result.qualifiers).toEqual(["abridged", "dramatized"]);
   });
+
+  it("maps a book detail's additional series, and none for a discovered file", () => {
+    const detail = {
+      id: 7,
+      bookName: "Mistborn",
+      series: "Mistborn",
+      seriesPart: "1",
+      additionalSeries: [
+        { seriesName: "Cosmere", seriesPart: "3" },
+        { seriesName: "Standalone Universe", seriesPart: null },
+      ],
+      authors: ["Brandon Sanderson"],
+      narrators: [],
+      genres: [],
+      filePath: "/library/a.m4b",
+      fileName: "a.m4b",
+      sizeInBytes: 1,
+      authorRefs: [],
+    } as AudiobookDetail;
+
+    expect(toAudiobook(detail).additionalSeries).toEqual([
+      { seriesName: "Cosmere", seriesPart: "3" },
+      { seriesName: "Standalone Universe", seriesPart: undefined },
+    ]);
+    expect(toAudiobook({ ...detail, additionalSeries: undefined }).additionalSeries).toEqual([]);
+  });
 });

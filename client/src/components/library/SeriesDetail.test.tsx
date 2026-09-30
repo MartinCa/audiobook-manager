@@ -306,6 +306,24 @@ describe("SeriesDetail", () => {
     expect(img.closest("a")).toHaveAttribute("href", "/library/book/10");
   });
 
+  it("flags a book listed under an additional series with its primary series, linking to it", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [
+        { ...defaultOwned, seriesPart: "7", primarySeries: "Cosmere" },
+        { ...defaultOwned, id: 11, bookName: "The Well of Ascension", primarySeries: "Mistborn" },
+      ]),
+    );
+
+    renderWithProviders();
+
+    const link = await screen.findByRole("link", { name: "Cosmere" });
+    expect(link.getAttribute("href")).toBe("/library/series/Cosmere");
+    // The part shown is the one in THIS series, and a book whose primary is this series carries
+    // no such hint.
+    expect(screen.getByText("Primary series:")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Mistborn" })).not.toBeInTheDocument();
+  });
+
   // Regression for the same bug: a book with no cover must keep rendering the placeholder
   // rather than a broken image or nothing at all.
   it("renders a placeholder icon for owned books without a coverFilePath", async () => {

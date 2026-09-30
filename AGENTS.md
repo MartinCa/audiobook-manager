@@ -588,6 +588,67 @@ Where clients present a book, `BookQualifierBadges` renders the set (book lists,
 books, the library search dropdown, the book page, consistency / missing-tags / pending-refresh /
 pending-match / URL-cleanup lists); a list DTO that names a library book carries `qualifiers` for it.
 
+### Series relations: a book can be in several series, one of them primary
+
+**Invariant: `audiobook_series` holds every series a book belongs to (each with an optional part and
+a primary flag); `audiobooks.series`/`series_part` are a mirror of the primary one.** The primary
+is the only series that reaches the m4b tags, `metadata.opf`, the library path and the book list,
+so none of that code changed and Audiobookshelf sees exactly what it always did. The other
+("additional") series are database-only.
+
+- **`SeriesRelationSync` is the one writer of both.** `AudiobookService.InsertAudiobook`/
+  `UpdateAudiobook` call `SeriesRelationSync.Apply`, which rewrites the relation rows and the mirror
+  in the same `SaveChanges`. Nothing else may set `Series`/`SeriesPart` on a tracked entity; a
+  mirror that drifts from its primary row makes a book vanish from its own series page (every
+  series-keyed query reads `audiobook_series`). `AudiobookRepository.InsertAudiobook` backstops a
+  caller that set only the mirrored columns.
+- **The domain model carries it as `Series`/`SeriesPart` (the primary) plus `AdditionalSeries`.**
+  `null` means "not specified - keep the stored ones"; an empty list removes them. That is what
+  keeps every `FromDb` -> `UpdateAudiobook` round trip (consistency resolves, alignment, bulk edit,
+  the queued organize task's JSON) from wiping relations, and why every repository method that
+  feeds such a round trip `Include`s `SeriesRelations`. `Audiobook.SeriesRelations` (database) is
+  deliberately left null, not empty, until loaded, so "not loaded" is distinguishable from "none".
+- **Edit relations through the helpers in `AudiobookSeriesExtensions`** (`SetSeries`,
+  `RemoveSeries`, `RenameSeries`, `PromoteAdditionalSeriesIfNoPrimary`), then save through
+  `UpdateAudiobook` - the binding invariant below still applies, because a change of primary moves
+  the file. Removing the primary promotes the next relation; renaming onto a series the book already
+  has merges the two. A book with additional series but no primary is promoted *before* the path and
+  tags are built (`WriteTagsRelocateAndWriteSidecarsAsync`, and `MapToDomain` for the previews), so
+  the file and the database can never disagree about which series is primary.
+- **Filling a roster slot never moves a book out of its primary series** (`SeriesService.ApplyMissingBookAsync`
+  and the series-refresh `MissingBook` change): a book with no primary takes the series as primary,
+  one that has a primary gains it as an additional series.
+- **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
+- **Series-keyed reads return one row per (book, series)**, with the part the book has *in that
+  series* - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)
+  still yields one key with no series, and `SeriesOwnedBookRow.PrimarySeries` lets the series page
+  flag a book listed under an additional series. A `SeriesPartMismatch` issue names its series
+  (`book_consistency_issues.series_name`) because one book can have one per series.
+
+**Metadata refresh compares sets, and the primary is chosen at apply time.** Scrapers already
+report every series; the pending snapshot (`PendingRefreshPayload`, version 4) now keeps them all
+(a version-3 row reads as its one series, and the new property is null-omitted so a legacy row
+re-serializes byte-identically). `SeriesRelationSet` is the one implementation the differ
+(`MetadataRefreshDiffer.Diff`/`DiffSnapshot`), the applier and the client twin
+(`client/src/helpers/seriesRelations.ts`) share:
+
+- Entries are canonicalised (trimmed, blanks dropped, a series listed twice merged, ordered by name)
+  and compared as **sets**, so a source that lists the same series in another order is never a
+  diff. There is one `Series` diff: a series added or removed, a different part in a series both
+  have (by `SeriesPartEquivalence`, so `2` = `2.0`), or a different chosen primary. `SeriesPart` is
+  retired as a field of its own and read as `Series` wherever an old list or client names it -
+  a part can no longer be applied apart from its series.
+- **`SeriesRelationSet.ChoosePrimary`** picks the primary: an explicit choice if the source has it,
+  else the book's current primary if the source still lists it, else any series the book already has
+  that the source lists, else the source's first. It is deterministic so bulk/background refreshes
+  need no prompt, and keeping the current primary is what stops a reordered source from re-filing a
+  book (a path change). `POST metadata-refresh/{id}/apply` and the tag-preview/pending-row UIs take
+  an optional explicit choice; the bulk endpoints always use the default.
+- Applying `Series` makes the book's set equal to the source's (a series the source lacks is offered
+  as removed); the user can deselect the field.
+- The client's `TagPreviewDialog` hands the series over primary-first, so `BookEditForm` applies
+  "first = primary, the rest = additional" without a signature of its own for the choice.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)
@@ -638,7 +699,7 @@ Author names and series values are free text, so the same real-world value can e
 - **Ignoring a pair ("Ben Winters" is not "Ed Winters")** — a user can mark two specific values within a detected group as explicitly not similar. `ignored_similar_value_pairs` (`Kind`/`ValueA`/`ValueB`, `ValueA < ValueB` by `StringComparer.Ordinal` so a pair is unordered, unique index on `(Kind, ValueA, ValueB)`) stores these; `SimilarValueService.IgnorePairAsync(kind, value, againstValues)` adds one row per `againstValues` entry (the UI passes the rest of the candidate's current group) and `RemoveIgnoredPairAsync`/`GetIgnoredPairsAsync` round out the CRUD, all behind `SimilarValuesController`'s `POST similar-values/ignore` / `DELETE similar-values/ignore/{id}` / `GET similar-values/ignored`. `GetOrComputeGroupsAsync` loads the kind's ignored pairs and passes them into `SimilarityGrouper.GroupSimilarValues` as `ignoredPairs`, which skips unioning that one edge directly — the two values can still end up in the same cluster transitively through a third value neither is ignored against, so ignoring a pair narrows the grouping rather than exiling either value from consideration. Both mutations invalidate the detection cache immediately, exactly like alignment. `SimilarValues.tsx` exposes this as a per-candidate "not similar" action plus a "Show ignored" dialog (`IgnoredSimilarValuesDialog.tsx`) listing and removing ignored pairs for the active tab.
 - **Series "the"-insensitivity** — `NameNormalizer.StripLeadingArticle` strips a leading `"the "` token from an already-normalized string. `SimilarityGrouper.GroupSimilarValues`'s `isSeries` flag (passed `true` only from the series detection call site, never for authors) runs an extra O(n) bucketing pass keyed on the stripped form, independent of the length-blocking loop, so `"The Mistborn Saga"` and `"Mistborn Saga"` group even though the edit distance (inserting `"The "`) and the length gap can both fall outside the normal thresholds. `SimilarValueService.ScoreSimilarMatches` applies the same rule for series-kind entry-status matches, for consistency between the detection screen and the entry-time "similar" indicator. This is series-only by construction — an author literally named "The Rock" is never affected, because `isSeries` is never passed for the author call site.
 
-**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers.** Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
+**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call). Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
 
 ### Adding a metadata source scraper
 

@@ -1,17 +1,9 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Loader2, Check } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { MetadataSourceSelector } from "@/components/MetadataSourceSelector";
 import { MetadataSearchResultCard } from "@/components/MetadataSearchResultCard";
 import { metadataSearchApi } from "@/services/api";
@@ -45,7 +37,6 @@ export function BookSearchDialog({
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pendingSeriesChoice, setPendingSeriesChoice] = useState<MetadataSearchResult | null>(null);
 
   // Guards against a stale getBookDetails response winning a race: if the user clicks another
   // result before this one's fetch resolves, only the most recently clicked url's response is
@@ -126,13 +117,9 @@ export function BookSearchDialog({
     }
   };
 
-  // A result with more than one candidate series can't be applied as-is: the caller
-  // (BookEditForm) expects a single series, so the user picks which one applies first.
+  // A result reporting several series is handed on whole: the review dialog that follows
+  // (TagPreviewDialog) shows them all and lets the user pick which becomes the primary one.
   const finishChoosing = (result: MetadataSearchResult) => {
-    if (result.series && result.series.length > 1) {
-      setPendingSeriesChoice(result);
-      return;
-    }
     onSelectResult(result);
     onOpenChange(false);
   };
@@ -157,75 +144,8 @@ export function BookSearchDialog({
     }
   };
 
-  const handleChooseSeries = (index: number) => {
-    if (!pendingSeriesChoice) return;
-    const chosen = pendingSeriesChoice.series[index];
-    onSelectResult({ ...pendingSeriesChoice, series: chosen ? [chosen] : [] });
-    setPendingSeriesChoice(null);
-    onOpenChange(false);
-  };
-
-  const handleOpenChange = (next: boolean) => {
-    if (!next) setPendingSeriesChoice(null);
-    onOpenChange(next);
-  };
-
-  if (pendingSeriesChoice) {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        {/* Scrollable-dialog shell (AGENTS.md): header, one flex-1 scroll body, footer after it.
-            A single overflow-y-auto region keeps the table reachable on short screens and never
-            nests dual scrollbars. The table itself handles only horizontal overflow. */}
-        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-lg sm:p-6">
-          <DialogHeader>
-            <DialogTitle>Select Series</DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
-            <p className="text-muted-foreground text-xs">
-              This result matched more than one series. Choose which one applies to{" "}
-              <strong>{pendingSeriesChoice.bookName}</strong>.
-            </p>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Series</TableHead>
-                    <TableHead>Part</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingSeriesChoice.series.map((s, idx) => (
-                    <TableRow key={`${s.seriesName}-${idx}`}>
-                      <TableCell className="break-words">{s.seriesName}</TableCell>
-                      <TableCell>{s.seriesPart}</TableCell>
-                      <TableCell>
-                        <Button size="sm" onClick={() => handleChooseSeries(idx)}>
-                          <Check className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-          <div className="border-border flex justify-end border-t pt-4">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setPendingSeriesChoice(null)}
-            >
-              Back to results
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:max-w-3xl sm:p-6">
         <DialogHeader>
           <DialogTitle>Search Online Metadata</DialogTitle>

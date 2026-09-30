@@ -444,7 +444,8 @@ public class MetadataRefreshService : IMetadataRefreshService
     }
 
     public async Task<bool> ApplyPendingRefreshAsync(
-        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false)
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
+        string? primarySeriesName = null)
     {
         var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -452,7 +453,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             return false;
         }
 
-        return await ApplyOneAsync(row, fields, splitTitleOnColon);
+        return await ApplyOneAsync(row, fields, splitTitleOnColon, primarySeriesName);
     }
 
     public Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
@@ -509,7 +510,8 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// single-book endpoint maps the throw to a 400 rather than silently reporting success.
     /// </summary>
     private async Task<bool> ApplyOneAsync(
-        PendingMetadataRefresh row, IReadOnlyCollection<string>? fields, bool splitTitleOnColon = false)
+        PendingMetadataRefresh row, IReadOnlyCollection<string>? fields, bool splitTitleOnColon = false,
+        string? primarySeriesName = null)
     {
         var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
         if (payload is null)
@@ -567,7 +569,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var domain = AudiobookService.FromDb(dbBook);
         domain.Id = dbBook.Id;
-        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon);
+        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
 
         if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
         {
@@ -780,21 +782,25 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// </summary>
     private async Task<PendingRefreshPayload.Snapshot> RemapSeriesAsync(PendingRefreshPayload.Snapshot payload)
     {
-        var sourceName = payload.OriginalSeriesName ?? payload.SeriesName;
-        if (string.IsNullOrWhiteSpace(sourceName))
+        var entries = PendingRefreshPayload.SeriesOf(payload);
+        if (entries.Count == 0)
         {
             return payload;
         }
 
-        var mapped = await _bookSeriesMapper.MapBookSeries(new List<MetadataSeriesSearchResult>
-        {
-            new(sourceName) { SeriesPart = payload.SeriesPart },
-        });
-        var mappedName = mapped[0].SeriesName;
+        // Every series is remapped from its own pre-mapping name (falling back to the stored name
+        // for a row that predates that field, as described above).
+        var mapped = await _bookSeriesMapper.MapBookSeries(entries
+            .Select(e => new MetadataSeriesSearchResult(e.OriginalName ?? e.Name) { SeriesPart = e.Part })
+            .ToList());
 
-        return string.Equals(mappedName, payload.SeriesName, StringComparison.Ordinal)
+        var remapped = entries
+            .Select((e, i) => new PendingRefreshPayload.SnapshotSeries(mapped[i].SeriesName, e.Part, e.OriginalName ?? e.Name))
+            .ToList();
+
+        return remapped.Select(r => r.Name).SequenceEqual(entries.Select(e => e.Name), StringComparer.Ordinal)
             ? payload
-            : payload with { SeriesName = mappedName };
+            : PendingRefreshPayload.WithSeries(payload, remapped);
     }
 
     /// <summary>

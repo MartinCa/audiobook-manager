@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Domain;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using Microsoft.Extensions.Logging;
 
@@ -75,12 +76,15 @@ public class SeriesPartMismatchResolver : IBookConsistencyIssueResolver
         // reports from, so a written part can never be one the roster has already replaced. An
         // over-cap series throws (the detector skips it); let that failure surface here rather
         // than treating "cannot verify" as "stale" and clearing a possibly-live issue.
-        if (string.IsNullOrWhiteSpace(dbAudiobook.Series))
+        // The issue names the series it was detected in (a book can be in several); an issue stored
+        // before that column existed is about the primary series.
+        var seriesName = string.IsNullOrWhiteSpace(issue.SeriesName) ? dbAudiobook.Series : issue.SeriesName;
+        if (string.IsNullOrWhiteSpace(seriesName) || !SeriesRelationSync.AllNames(dbAudiobook).Contains(seriesName))
         {
             return await ClearIssueBookNoLongerInSeries(issue);
         }
 
-        var reconciliation = await _reconciliation.GetReconciliationAsync(dbAudiobook.Series);
+        var reconciliation = await _reconciliation.GetReconciliationAsync(seriesName);
         var currentMismatch = reconciliation.PartMismatches
             .FirstOrDefault(m => m.AudiobookId == dbAudiobook.Id);
 
@@ -90,7 +94,7 @@ public class SeriesPartMismatchResolver : IBookConsistencyIssueResolver
         }
 
         var domain = AudiobookService.FromDb(dbAudiobook);
-        domain.SeriesPart = currentMismatch.ExpectedPart;
+        domain.SetSeries(seriesName, currentMismatch.ExpectedPart);
 
         await _audiobookService.UpdateAudiobook(dbAudiobook.Id, domain);
 

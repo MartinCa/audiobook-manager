@@ -694,6 +694,71 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public async Task UpdateAudiobook_AdditionalSeries_AreRecordedButNeverReachTheTagsOrThePath()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "Main", "Book 01 - 2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath, series: "Main", seriesPart: "1");
+        SetupCommonRepositoryMocks(1, existing);
+
+        Audiobook? written = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback<Audiobook, Action<float>?>((a, _) => written = a);
+
+        var author = new Person("Old Author");
+        var updateDto = new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Series = "Main",
+            SeriesPart = "1",
+            AdditionalSeries = new List<SeriesRelation> { new("Cosmere", "3") },
+        };
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)) { Series = "Main", SeriesPart = "1" });
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual("Main", written!.Series, "the primary is what is written to the file");
+        Assert.IsFalse(result.FileInfo.FullPath.Contains("Cosmere"), "an additional series never appears in the path");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.Is<DbAudiobook>(db =>
+            db.Series == "Main" && db.SeriesPart == "1"
+            && db.SeriesRelations!.Count == 2
+            && db.SeriesRelations.Any(x => x.SeriesName == "Main" && x.IsPrimary)
+            && db.SeriesRelations.Any(x => x.SeriesName == "Cosmere" && x.SeriesPart == "3" && !x.IsPrimary))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_OnlyAdditionalSeries_PromotesTheFirstBeforeThePathAndTagsAreBuilt()
+    {
+        SetupUpdateAudiobookTest();
+
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+
+        Audiobook? written = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback<Audiobook, Action<float>?>((a, _) => written = a);
+
+        var author = new Person("Old Author");
+        var updateDto = new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0))
+        {
+            Series = null,
+            AdditionalSeries = new List<SeriesRelation> { new("Cosmere", "3") },
+        };
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "Old Book Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)) { Series = "Cosmere", SeriesPart = "3" });
+
+        var result = await _service.UpdateAudiobook(1, updateDto);
+
+        Assert.AreEqual("Cosmere", written!.Series, "the tags carry the series the database will record as primary");
+        Assert.IsTrue(result.FileInfo.FullPath.Contains("Cosmere"), "and so does the path");
+        _audiobookRepository.Verify(r => r.UpdateAudiobookAsync(It.Is<DbAudiobook>(db =>
+            db.Series == "Cosmere" && db.SeriesPart == "3"
+            && db.SeriesRelations!.Single().IsPrimary)), Times.Once);
+    }
+
+    [TestMethod]
     public async Task UpdateAudiobook_TagWriteThrows_ExceptionPropagatesAndDbIsNotUpdated()
     {
         SetupUpdateAudiobookTest();

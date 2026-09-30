@@ -59,7 +59,7 @@ public class AudiobookRepositorySeriesOverviewPagingTests
             Authors = new List<Person> { new Person(default, authorName ?? UniqueAuthorName()) }
         };
 
-        _db.Audiobooks.Add(audiobook);
+        _db.Audiobooks.Add(audiobook.WithPrimaryRelation());
         await _db.SaveChangesAsync();
         return audiobook;
     }
@@ -94,7 +94,7 @@ public class AudiobookRepositorySeriesOverviewPagingTests
             Authors = new List<Person> { person }
         };
 
-        _db.Audiobooks.Add(audiobook);
+        _db.Audiobooks.Add(audiobook.WithPrimaryRelation());
         await _db.SaveChangesAsync();
         return audiobook;
     }

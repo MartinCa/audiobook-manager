@@ -97,10 +97,13 @@ public interface IMetadataRefreshService
     /// apply" case. A save failure (including <see cref="AudiobookBusyException"/> from the
     /// shared per-book save gate) also throws. <paramref name="splitTitleOnColon"/> gates
     /// <see cref="TitleSplitter"/> on the snapshot's BookName/Subtitle - off by default (see that
-    /// class's remarks for why the split is never assumed).
+    /// class's remarks for why the split is never assumed). <paramref name="primarySeriesName"/>
+    /// picks which of the snapshot's series becomes the primary one when the Series field is
+    /// applied; without it the book keeps its current primary if the source still lists it.
     /// </summary>
     Task<bool> ApplyPendingRefreshAsync(
-        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false);
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
+        string? primarySeriesName = null);
 
     /// <summary>
     /// Applies every explicitly selected book's full pending snapshot and dismisses it, tolerating

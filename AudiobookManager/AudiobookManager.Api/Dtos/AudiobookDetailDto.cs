@@ -25,5 +25,7 @@ public record AudiobookDetailDto(
     DateTime? LastMetadataRefreshedAt,
     List<AudiobookAuthorDto> AuthorRefs,
     /// <summary>Keys of the book's qualifiers (abridged, dramatized, ...), canonical order. <c>BookName</c> and <c>Series</c> are the clean values.</summary>
-    List<string> Qualifiers
+    List<string> Qualifiers,
+    /// <summary>The book's non-primary series in display order. <c>Series</c>/<c>SeriesPart</c> above are the primary one.</summary>
+    List<SeriesRelationDto> AdditionalSeries
 );

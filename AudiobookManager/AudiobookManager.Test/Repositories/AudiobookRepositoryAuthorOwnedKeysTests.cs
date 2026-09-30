@@ -60,7 +60,7 @@ public class AudiobookRepositoryAuthorOwnedKeysTests
             Authors = new List<Person> { author },
         };
 
-        _db.Audiobooks.Add(audiobook);
+        _db.Audiobooks.Add(audiobook.WithPrimaryRelation());
         await _db.SaveChangesAsync();
         return audiobook;
     }
@@ -85,7 +85,7 @@ public class AudiobookRepositoryAuthorOwnedKeysTests
     }
 
     [TestMethod]
-    public async Task GetOwnedKeysByAuthorAsync_EmptyStringSeriesKeepsItsValue()
+    public async Task GetOwnedKeysByAuthorAsync_EmptyStringSeriesIsStandalone()
     {
         await SeedBookAsync("Warbreaker", series: "", seriesPart: null, _author);
 
@@ -93,8 +93,8 @@ public class AudiobookRepositoryAuthorOwnedKeysTests
 
         Assert.IsFalse(overflow);
         Assert.AreEqual(1, keys.Count);
-        Assert.AreEqual("", keys.Single().Series,
-            "the raw series value is carried verbatim - the classifier treats null/blank as standalone");
+        Assert.IsNull(keys.Single().Series,
+            "a blank series has no relation row, so the book is reported standalone");
     }
 
     [TestMethod]

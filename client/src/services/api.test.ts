@@ -41,6 +41,24 @@ describe("api service mappings and contracts", () => {
   });
 
   describe("DTO serialization", () => {
+    it("sends the additional series with a save, but only the primary to the path preview", () => {
+      const book: Audiobook = {
+        ...sampleAudiobook,
+        additionalSeries: [{ seriesName: "Cosmere", seriesPart: "3" }],
+      };
+
+      expect(toAudiobookDto(book).additionalSeries).toEqual([
+        { seriesName: "Cosmere", seriesPart: "3" },
+      ]);
+      const preview = toPathPreviewDto(book);
+      expect(preview.series).toBe("The Stormlight Archive");
+      expect(preview).not.toHaveProperty("additionalSeries");
+    });
+
+    it("leaves additionalSeries out when the book never read it, so the server keeps the stored ones", () => {
+      expect(toAudiobookDto(sampleAudiobook).additionalSeries).toBeUndefined();
+    });
+
     it("serializes Audiobook to DTO with flattened author/narrator strings", () => {
       const dto = toAudiobookDto(sampleAudiobook);
       expect(dto.authors).toEqual(["Brandon Sanderson"]);

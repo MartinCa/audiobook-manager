@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookSearchDialog } from "./BookSearchDialog";
@@ -33,24 +33,31 @@ const baseResult: MetadataSearchResult = {
   genres: [],
 };
 
-function renderDialog() {
+function renderDialog(handlers: { onSelectResult?: () => void; onOpenChange?: () => void } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <BookSearchDialog open onOpenChange={vi.fn()} onSelectResult={vi.fn()} />
+      <BookSearchDialog
+        open
+        onOpenChange={handlers.onOpenChange ?? vi.fn()}
+        onSelectResult={handlers.onSelectResult ?? vi.fn()}
+      />
     </QueryClientProvider>,
   );
 }
 
-async function searchWithResults(results: MetadataSearchResult[]) {
+async function searchWithResults(
+  results: MetadataSearchResult[],
+  handlers: { onSelectResult?: () => void; onOpenChange?: () => void } = {},
+) {
   vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
     results,
     sourceStatuses: [],
   });
   const user = userEvent.setup();
-  renderDialog();
+  renderDialog(handlers);
   await screen.findByPlaceholderText("Search title, author, or paste URL...");
   await user.type(screen.getByPlaceholderText("Search title, author, or paste URL..."), "mole");
   await user.click(screen.getByRole("button", { name: /search/i }));
@@ -78,62 +85,39 @@ describe("BookSearchDialog", () => {
     expect(screen.queryByText("English")).not.toBeInTheDocument();
   });
 
-  it("routes a multi-series result through the series-choice dialog and back to the results", async () => {
-    await searchWithResults([
-      {
-        ...baseResult,
-        series: [
-          { seriesName: "Mistborn", seriesPart: "1" },
-          { seriesName: "Mistborn Saga", seriesPart: "2" },
-        ],
-      },
-    ]);
+  it("hands a multi-series result on whole - every series, no choice step here - and closes", async () => {
+    const onSelectResult = vi.fn();
+    const onOpenChange = vi.fn();
+    const series = [
+      { seriesName: "Mistborn", seriesPart: "1" },
+      { seriesName: "Mistborn Saga", seriesPart: "2" },
+    ];
+    const full = { ...baseResult, series };
+    vi.mocked(metadataSearchApi.getBookDetails).mockResolvedValue(full);
+    await searchWithResults([full], { onSelectResult, onOpenChange });
 
     const applyButtons = await screen.findAllByRole("button", { name: /apply/i });
     fireEvent.click(applyButtons[0]!);
 
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Select Series")).toBeInTheDocument();
-    expect(within(dialog).getByText("Mistborn")).toBeInTheDocument();
-    expect(within(dialog).getByText("Mistborn Saga")).toBeInTheDocument();
-
-    // The action stays paged-safe: Back to results returns to the search dialog and results.
-    fireEvent.click(within(dialog).getByRole("button", { name: /back to results/i }));
-
-    expect(screen.getByText("Search Online Metadata")).toBeInTheDocument();
-    expect(screen.getByText("The Boy, the Mole, the Fox and the Horse")).toBeInTheDocument();
+    // Details are fetched first for a result that lacks them, so the hand-off is asynchronous.
+    await waitFor(() => expect(onSelectResult).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Select Series")).not.toBeInTheDocument();
+    expect(onSelectResult).toHaveBeenCalledWith(expect.objectContaining({ series }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("bounds the series-choice dialog to the viewport with a single scroll region", async () => {
+  it("lists every series a result reports on its card", async () => {
     await searchWithResults([
       {
         ...baseResult,
         series: [
           { seriesName: "Mistborn", seriesPart: "1" },
-          { seriesName: "Mistborn Saga", seriesPart: "2" },
+          { seriesName: "Cosmere", seriesPart: undefined },
         ],
       },
     ]);
 
-    const applyButtons = await screen.findAllByRole("button", { name: /apply/i });
-    fireEvent.click(applyButtons[0]!);
-
-    // The scrollable-dialog shell (AGENTS.md): width bounded to the viewport, height bounded to
-    // 90dvh, outer overflow hidden and a single inner overflow-y-auto body so nothing clips on
-    // a narrow phone and scrollbars never nest. The table keeps only horizontal overflow.
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.className).toContain("overflow-hidden");
-    expect(dialog.className).toContain("flex-col");
-    expect(dialog.className).toContain("max-h-[90dvh]");
-    expect(dialog.className).toContain("w-[calc(100vw-2rem)]");
-    // The dialog shell itself must not carry the base's vertical scroll - that would nest a
-    // second scrollbar next to the inner body's.
-    expect(dialog.className).not.toContain("overflow-y-auto");
-    expect(within(dialog).getByText("Select Series")).toBeInTheDocument();
-
-    const scrollBodies = dialog.querySelectorAll(".overflow-y-auto");
-    expect(scrollBodies.length).toBe(1);
-    expect(dialog.querySelector(".overflow-x-auto")).not.toBeNull();
+    expect(await screen.findByText("Series: Mistborn #1; Cosmere")).toBeInTheDocument();
   });
 
   // Regression: on a narrow phone the result card's action row was `shrink-0` and its Apply

@@ -233,8 +233,9 @@ export function MissingBookCandidatesDialog({
                   </div>
 
                   <p className="text-sm">
-                    This will set the series and part on the book, update its tags, and move it to
-                    the correct library folder.
+                    {(selectedCandidate.series ?? "").trim()
+                      ? "The book keeps its current primary series and is added to this series as an additional one, with the part shown. Its tags and file location do not change."
+                      : "This will set the series and part on the book, update its tags, and move it to the correct library folder."}
                   </p>
                 </div>
               ) : null}

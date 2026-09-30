@@ -80,10 +80,12 @@ export function MetadataSearchResultCard({ result, actions }: MetadataSearchResu
                 Narrated by: {result.narrators.map((n) => n.name).join(", ")}
               </div>
             )}
-            {result.series?.[0] && (
+            {result.series && result.series.length > 0 && (
               <div className="break-words">
-                Series: {result.series[0].seriesName}{" "}
-                {result.series[0].seriesPart && `#${result.series[0].seriesPart}`}
+                Series:{" "}
+                {result.series
+                  .map((s) => (s.seriesPart ? `${s.seriesName} #${s.seriesPart}` : s.seriesName))
+                  .join("; ")}
               </div>
             )}
             {ratingSummary && (
