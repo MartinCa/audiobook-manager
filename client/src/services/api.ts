@@ -19,6 +19,7 @@ import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
 import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { BookQualifierOptions } from "@/types/BookQualifier";
+import type { QualifierIndicators } from "@/types/QualifierIndicator";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
@@ -963,6 +964,12 @@ export const settingsApi = {
   getLanguages: () => api.get<LanguageOptions>("/settings/languages"),
 
   getBookQualifiers: () => api.get<BookQualifierOptions>("/settings/book-qualifiers"),
+
+  getQualifierIndicators: () => api.get<QualifierIndicators>("/settings/qualifier-indicators"),
+
+  // Replaces the whole rule set (it is small, and always read and written as one unit).
+  updateQualifierIndicators: (indicators: QualifierIndicators["indicators"]) =>
+    api.put<QualifierIndicators>("/settings/qualifier-indicators", { indicators }),
 
   getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
 

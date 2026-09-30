@@ -4587,6 +4587,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/qualifier-indicators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["QualifierIndicatorsDto"];
+                        "application/json": components["schemas"]["QualifierIndicatorsDto"];
+                        "text/json": components["schemas"]["QualifierIndicatorsDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["QualifierIndicatorsDto"];
+                    "text/json": components["schemas"]["QualifierIndicatorsDto"];
+                    "application/*+json": components["schemas"]["QualifierIndicatorsDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["QualifierIndicatorsDto"];
+                        "application/json": components["schemas"]["QualifierIndicatorsDto"];
+                        "text/json": components["schemas"]["QualifierIndicatorsDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/tasks": {
         parameters: {
             query?: never;
@@ -5863,6 +5927,7 @@ export interface components {
             publisher?: string | null;
             asin?: string | null;
             isbn?: string | null;
+            qualifiers?: string[] | null;
             readonly cleanUrl?: string | null;
         };
         MetadataSearchServiceInfo: {
@@ -6010,12 +6075,21 @@ export interface components {
             /** Format: int32 */
             numberOfRatings?: number | null;
             series?: components["schemas"]["PendingRefreshSeriesDto"][] | null;
+            qualifiers?: string[] | null;
         };
         Person: {
             /** Format: int64 */
             id?: number | null;
             name?: string | null;
             role?: string | null;
+        };
+        QualifierIndicatorDto: {
+            source?: string | null;
+            indicator?: string | null;
+            qualifierKey?: string | null;
+        };
+        QualifierIndicatorsDto: {
+            indicators?: components["schemas"]["QualifierIndicatorDto"][] | null;
         };
         ResolveTagMismatchRequest: {
             fieldValues: {

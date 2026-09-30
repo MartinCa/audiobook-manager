@@ -19,6 +19,9 @@ export const queryKeys = {
   // The supported book qualifiers (abridged, dramatized, ...) - see BookQualifiers on the backend.
   bookQualifiers: () => ["bookQualifiers"] as const,
 
+  // The per-source wordings that stand for a book qualifier ("[Dramatized Adaptation]" -> dramatized).
+  qualifierIndicators: () => ["qualifierIndicators"] as const,
+
   // The book/author/series source filter dropdown options (registered scrapers) plus the book
   // list's genre/language filter options - see BrowseController.GetFilterOptions.
   browseFilterOptions: () => ["browseFilterOptions"] as const,

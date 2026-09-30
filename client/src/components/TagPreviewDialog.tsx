@@ -7,6 +7,7 @@ import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import {
@@ -53,6 +54,7 @@ export function TagPreviewDialog({
   });
 
   const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
+  const qualifierOptions = useBookQualifiers();
 
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
@@ -90,6 +92,7 @@ export function TagPreviewDialog({
     languages,
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
+    qualifierOptions,
   );
 
   const changedFieldKeys = useMemo(

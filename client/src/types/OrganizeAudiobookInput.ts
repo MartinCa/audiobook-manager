@@ -24,6 +24,8 @@ export interface OrganizeAudiobookInput {
   www?: string;
   rating?: number;
   asin?: string;
+  /** The book's current qualifier keys, for the diff's additive "Qualifiers" row. */
+  qualifiers?: string[];
 }
 
 export type { OrganizeAudiobookInput as default };

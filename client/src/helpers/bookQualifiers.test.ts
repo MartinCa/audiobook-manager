@@ -194,4 +194,21 @@ describe("cleanSearchResult", () => {
     expect(cleaned.result).toBe(plain);
     expect(cleaned.qualifiers).toEqual([]);
   });
+
+  it("merges the qualifiers it finds into the result's own, beside the ones the server reported", () => {
+    const cleaned = cleanSearchResult({ ...result, qualifiers: ["abridged"] }, options);
+
+    expect(cleaned.result.qualifiers).toEqual(["abridged", "dramatized"]);
+    // What was found in the title alone is still reported separately.
+    expect(cleaned.qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("keeps the server-reported qualifiers when the title carries no suffix to move", () => {
+    const plain = { ...result, bookName: "Killing Floor", series: [], qualifiers: ["abridged"] };
+
+    const cleaned = cleanSearchResult(plain, options);
+
+    expect(cleaned.result).toBe(plain);
+    expect(cleaned.result.qualifiers).toEqual(["abridged"]);
+  });
 });

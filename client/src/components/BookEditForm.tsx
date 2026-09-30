@@ -523,6 +523,7 @@ export function BookEditForm({
       rating: watchedValues.rating ? Number(watchedValues.rating) : undefined,
       asin: watchedValues.asin,
       www: watchedValues.www,
+      qualifiers: watchedValues.qualifiers,
       cover_base64: cover?.base64Data,
       cover_mime: cover?.mimeType,
     };
@@ -536,25 +537,20 @@ export function BookEditForm({
   const handleApplyPreviewedTags = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
-    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
     }
-    // The scraped title/series carried qualifier suffixes that were cleaned off them; keep what
-    // they said by adding them to the book's qualifiers (never removing one already set). Applies
-    // when either cleaned field is taken - applying only the series must not drop the qualifier
-    // its suffix stood for.
-    if (
-      detectedQualifiers.length > 0 &&
-      (selectedFields.has("bookName") || selectedFields.has("series"))
-    ) {
+    // Qualifiers the source reported (or whose wording was cleaned off the title) are their own
+    // optional field, and only ever add to the book's - taking or skipping the title does not
+    // decide them, and one the book already has is never removed.
+    if (selectedFields.has("qualifiers") && result.qualifiers?.length) {
       form.setValue(
         "qualifiers",
         normalizeQualifiers(
-          [...(form.getValues("qualifiers") ?? []), ...detectedQualifiers],
+          [...(form.getValues("qualifiers") ?? []), ...result.qualifiers],
           qualifierOptions,
         ),
         { shouldDirty: true },
@@ -748,11 +744,10 @@ export function BookEditForm({
   const handleApplyPendingRefresh = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
-    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields, detectedQualifiers);
+    await handleApplyPreviewedTags(result, selectedFields);
     pendingRefreshAppliedRef.current = true;
     void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
   };
@@ -770,11 +765,10 @@ export function BookEditForm({
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
-    detectedQualifiers: readonly string[] = [],
   ) => {
     if (selectedFields.size === 0) return;
     if (saveImmediately) setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields, detectedQualifiers);
+    await handleApplyPreviewedTags(result, selectedFields);
     if (saveImmediately) {
       autoSavedFromSearchRef.current = true;
       void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
@@ -1199,12 +1193,7 @@ export function BookEditForm({
           currentInput={currentOrganizeInput}
           searchResult={cleanedPendingSearch.result}
           onApply={(result, selectedFields, saveImmediately) => {
-            void handleApplySearchResult(
-              result,
-              selectedFields,
-              saveImmediately,
-              cleanedPendingSearch.qualifiers,
-            );
+            void handleApplySearchResult(result, selectedFields, saveImmediately);
           }}
           showAutoSaveToggle
         />
@@ -1217,11 +1206,7 @@ export function BookEditForm({
           currentInput={currentOrganizeInput}
           searchResult={cleanedPendingRefresh.result}
           onApply={(result, selectedFields) => {
-            void handleApplyPendingRefresh(
-              result,
-              selectedFields,
-              cleanedPendingRefresh.qualifiers,
-            );
+            void handleApplyPendingRefresh(result, selectedFields);
           }}
         />
       )}

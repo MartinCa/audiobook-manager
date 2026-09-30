@@ -292,3 +292,52 @@ describe("useMetadataFieldDiffs", () => {
     expect(findField(result.current, "authors").changed).toBe(true);
   });
 });
+
+describe("useMetadataFieldDiffs qualifiers", () => {
+  const options = [
+    { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+    { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+  ];
+
+  const diff = (current: OrganizeAudiobookInput, source: MetadataSearchResult) =>
+    findField(
+      renderHook(() => useMetadataFieldDiffs(current, source, [], false, undefined, options)).result
+        .current,
+      "qualifiers",
+    );
+
+  it("offers a qualifier the source reports and the book lacks", () => {
+    const field = diff({}, baseSearchResult({ qualifiers: ["dramatized"] }));
+
+    expect(field.changed).toBe(true);
+    expect(field.currentValue).toBe("");
+    expect(field.newValue).toBe("Dramatized");
+  });
+
+  it("proposes the union, so a qualifier the book already has is never dropped", () => {
+    const field = diff(
+      { qualifiers: ["abridged"] },
+      baseSearchResult({ qualifiers: ["dramatized"] }),
+    );
+
+    expect(field.changed).toBe(true);
+    expect(field.currentValue).toBe("Abridged");
+    expect(field.newValue).toBe("Abridged, Dramatized");
+  });
+
+  it("is no change when the source reports none, even if the book has some", () => {
+    const field = diff({ qualifiers: ["dramatized"] }, baseSearchResult());
+
+    expect(field.changed).toBe(false);
+    expect(field.newValue).toBe("Dramatized");
+  });
+
+  it("is no change when the book already has what the source reports", () => {
+    const field = diff(
+      { qualifiers: ["dramatized"] },
+      baseSearchResult({ qualifiers: ["dramatized"] }),
+    );
+
+    expect(field.changed).toBe(false);
+  });
+});

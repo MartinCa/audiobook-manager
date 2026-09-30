@@ -75,6 +75,7 @@ export const METADATA_REFRESH_FIELDS = [
   "Publisher",
   "Asin",
   "Www",
+  "Qualifiers",
 ] as const;
 
 export type MetadataRefreshFieldName = (typeof METADATA_REFRESH_FIELDS)[number];
@@ -96,6 +97,7 @@ export const METADATA_REFRESH_FIELD_LABELS: Record<string, string> = {
   Publisher: "Publisher",
   Asin: "ASIN",
   Www: "URL",
+  Qualifiers: "Qualifiers",
 };
 
 export type { MetadataRefreshResult as default };
