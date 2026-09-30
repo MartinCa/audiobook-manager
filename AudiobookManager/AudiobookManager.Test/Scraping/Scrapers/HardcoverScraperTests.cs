@@ -647,6 +647,27 @@ public class HardcoverScraperTests
         Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
     }
 
+    // Regression test (PR review): Hasura can return cached_image as a JSON string holding the
+    // object; the size check used to read only the inline-object form and demoted a large cover.
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionCoverAsJsonString_SizeIsStillChecked()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg", "width": 333, "height": 500 },
+                "default_audio_edition": { "cached_image": "{\"url\":\"https://covers.hardcover.app/audio.jpg\",\"width\":500,\"height\":500}" }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
+    }
+
     [TestMethod]
     public async Task GetBookDetails_AudioEditionHasSubtitle_UsesIt()
     {

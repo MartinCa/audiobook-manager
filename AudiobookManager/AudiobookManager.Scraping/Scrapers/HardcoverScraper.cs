@@ -1639,12 +1639,13 @@ public class HardcoverScraper : IScraper
             // but only when it is a usable size: Hardcover sometimes holds a tiny thumbnail there
             // (98x98 for "A Wizard of Earthsea") next to a 333x500 book-level cover. A small
             // edition cover is kept only as a last resort when the book-level one is missing.
-            var audioEditionForCover = GetEditionElement(bookElement, "default_audio_edition");
-            var editionImage = audioEditionForCover is null ? null : ParseCachedImage(audioEditionForCover.Value);
+            var audioEdition = GetEditionElement(bookElement, "default_audio_edition");
+            var editionImage = audioEdition is null ? null : ParseCachedImageObject(audioEdition.Value);
+            var editionUrl = editionImage?.GetPropertyValueOrNull("url");
             var bookImage = ParseCachedImage(bookElement);
-            imageUrl = editionImage is not null && IsUsableCoverSize(audioEditionForCover!.Value)
-                ? editionImage
-                : bookImage ?? editionImage;
+            imageUrl = editionUrl is not null && IsUsableCoverSize(editionImage!.Value)
+                ? editionUrl
+                : bookImage ?? editionUrl;
         }
         catch (Exception ex)
         {
@@ -1858,23 +1859,28 @@ public class HardcoverScraper : IScraper
     private const int _minEditionCoverPixels = 300;
 
     /// <summary>
-    /// True when the edition's cached_image reports both dimensions and each is at least
+    /// True when the cached_image object reports both dimensions and each is at least
     /// <see cref="_minEditionCoverPixels"/>. Missing dimensions count as unusable.
     /// </summary>
-    private static bool IsUsableCoverSize(JsonElement editionElement)
+    private static bool IsUsableCoverSize(JsonElement image)
     {
-        if (!editionElement.TryGetProperty("cached_image", out var image) || image.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
         return image.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number && w.GetInt32() >= _minEditionCoverPixels
             && image.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number && h.GetInt32() >= _minEditionCoverPixels;
     }
 
     private static string? ParseCachedImage(JsonElement bookElement)
     {
-        if (!bookElement.TryGetProperty("cached_image", out var cachedImageElement))
+        return ParseCachedImageObject(bookElement)?.GetPropertyValueOrNull("url");
+    }
+
+    /// <summary>
+    /// The <c>cached_image</c> jsonb column as an object, whether Hasura returned it inline or
+    /// as a JSON string containing the object (the same two shapes as cached_tags). Null when
+    /// absent, null or not an object.
+    /// </summary>
+    private static JsonElement? ParseCachedImageObject(JsonElement element)
+    {
+        if (!element.TryGetProperty("cached_image", out var cachedImageElement))
         {
             return null;
         }
@@ -1882,18 +1888,16 @@ public class HardcoverScraper : IScraper
         if (cachedImageElement.ValueKind == JsonValueKind.String)
         {
             var jsonStr = cachedImageElement.GetString();
-            if (jsonStr is not null)
+            if (jsonStr is null)
             {
-                var imageObj = JsonSerializer.Deserialize<JsonElement>(jsonStr);
-                return imageObj.GetPropertyValueOrNull("url");
+                return null;
             }
-        }
-        else if (cachedImageElement.ValueKind == JsonValueKind.Object)
-        {
-            return cachedImageElement.GetPropertyValueOrNull("url");
+
+            var parsed = JsonSerializer.Deserialize<JsonElement>(jsonStr);
+            return parsed.ValueKind == JsonValueKind.Object ? parsed : null;
         }
 
-        return null;
+        return cachedImageElement.ValueKind == JsonValueKind.Object ? cachedImageElement : null;
     }
 
     private IList<string> ParseGenres(JsonElement bookElement)
