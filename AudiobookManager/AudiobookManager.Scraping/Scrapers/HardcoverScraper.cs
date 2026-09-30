@@ -1635,12 +1635,16 @@ public class HardcoverScraper : IScraper
         string? imageUrl = null;
         try
         {
-            // The audio edition's cover is the audiobook's own (square) art; the book-level
-            // cached_image is usually the print cover. Fall back to the book-level one when the
-            // audio edition has none.
+            // The audio edition's cover is the audiobook's own (square) art, so it is preferred -
+            // but only when it is a usable size: Hardcover sometimes holds a tiny thumbnail there
+            // (98x98 for "A Wizard of Earthsea") next to a 333x500 book-level cover. A small
+            // edition cover is kept only as a last resort when the book-level one is missing.
             var audioEditionForCover = GetEditionElement(bookElement, "default_audio_edition");
-            imageUrl = (audioEditionForCover is null ? null : ParseCachedImage(audioEditionForCover.Value))
-                       ?? ParseCachedImage(bookElement);
+            var editionImage = audioEditionForCover is null ? null : ParseCachedImage(audioEditionForCover.Value);
+            var bookImage = ParseCachedImage(bookElement);
+            imageUrl = editionImage is not null && IsUsableCoverSize(audioEditionForCover!.Value)
+                ? editionImage
+                : bookImage ?? editionImage;
         }
         catch (Exception ex)
         {
@@ -1849,6 +1853,23 @@ public class HardcoverScraper : IScraper
         }
 
         return (authors, narrators);
+    }
+
+    private const int _minEditionCoverPixels = 300;
+
+    /// <summary>
+    /// True when the edition's cached_image reports both dimensions and each is at least
+    /// <see cref="_minEditionCoverPixels"/>. Missing dimensions count as unusable.
+    /// </summary>
+    private static bool IsUsableCoverSize(JsonElement editionElement)
+    {
+        if (!editionElement.TryGetProperty("cached_image", out var image) || image.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        return image.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number && w.GetInt32() >= _minEditionCoverPixels
+            && image.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number && h.GetInt32() >= _minEditionCoverPixels;
     }
 
     private static string? ParseCachedImage(JsonElement bookElement)

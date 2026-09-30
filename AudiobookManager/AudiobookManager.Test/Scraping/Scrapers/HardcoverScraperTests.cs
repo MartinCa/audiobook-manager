@@ -578,7 +578,7 @@ public class HardcoverScraperTests
               "data": { "books": [ {
                 "id": 1, "title": "T", "slug": "t",
                 "cached_image": { "url": "https://covers.hardcover.app/book.jpg" },
-                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg" } }
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 500, "height": 500 } }
               } ] }
             }
             """;
@@ -606,6 +606,45 @@ public class HardcoverScraperTests
         var result = await target.GetBookDetails("https://hardcover.app/books/t");
 
         Assert.AreEqual("https://covers.hardcover.app/book.jpg", result.ImageUrl);
+    }
+
+    // Regression test: A Wizard of Earthsea's audio edition cover is a 98x98 thumbnail while the
+    // book-level cover is 333x500; preferring the edition unconditionally downgraded the cover.
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionCoverIsTinyThumbnail_KeepsBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg", "width": 333, "height": 500 },
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 98, "height": 98 } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/book.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_TinyAudioCoverAndNoBookCover_UsesTheTinyOne()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 98, "height": 98 } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
     }
 
     [TestMethod]
