@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
@@ -92,6 +92,10 @@ describe("RootLayout", () => {
     offReconnected: vi.fn(),
   };
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient = new QueryClient({
@@ -152,7 +156,6 @@ describe("RootLayout", () => {
     now.mockReturnValue(222);
     reconnected();
     expect(withCoverVersion("/c")).toBe("/c?v=222");
-    now.mockRestore();
   });
 
   it("lists the maintenance tools in order with Metadata Refresh after Missing Tags", async () => {
