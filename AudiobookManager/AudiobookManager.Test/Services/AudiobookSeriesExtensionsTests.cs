@@ -169,4 +169,17 @@ public class AudiobookSeriesExtensionsTests
         unspecified.PromoteAdditionalSeriesIfNoPrimary();
         Assert.IsNull(unspecified.Series);
     }
+
+    [TestMethod]
+    public void PromoteAdditionalSeriesIfNoPrimary_SkipsBlankNamedEntriesAndNeverThrowsWhenAllAreBlank()
+    {
+        var mixed = Book(null, null, new SeriesRelation("  ", "1"), new SeriesRelation("Spinoff", "3"));
+        mixed.PromoteAdditionalSeriesIfNoPrimary();
+        Assert.AreEqual("Spinoff", mixed.Series);
+        Assert.AreEqual("3", mixed.SeriesPart);
+
+        var allBlank = Book(null, null, new SeriesRelation("", "1"), new SeriesRelation(" ", null));
+        allBlank.PromoteAdditionalSeriesIfNoPrimary();
+        Assert.IsNull(allBlank.Series);
+    }
 }

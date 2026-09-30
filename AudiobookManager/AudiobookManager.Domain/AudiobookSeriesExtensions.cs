@@ -43,7 +43,14 @@ public static class AudiobookSeriesExtensions
             return;
         }
 
-        var next = book.AdditionalSeries.First(r => !string.IsNullOrWhiteSpace(r.Name));
+        // Blank names are not relations (SeriesRelationSync.Normalize drops them too), so a
+        // whitespace-only entry must neither be promoted nor make this throw.
+        var next = book.AdditionalSeries.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.Name));
+        if (next is null)
+        {
+            return;
+        }
+
         book.Series = next.Name.Trim();
         book.SeriesPart = next.Part;
         book.AdditionalSeries = book.AdditionalSeries.Where(r => !ReferenceEquals(r, next)).ToList();

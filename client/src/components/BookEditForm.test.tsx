@@ -2059,6 +2059,44 @@ describe("BookEditForm additional series", () => {
     expect(screen.getAllByText(/Series is set but no series part is entered/i)).toHaveLength(1);
   });
 
+  it("diffs a scraped result against the set a save would send when the primary field is emptied by hand", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Original Title",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [{ seriesName: "Cosmere", seriesPart: "3" }],
+          genres: [],
+          year: 2020,
+        },
+      ],
+      sourceStatuses: [],
+    });
+    renderWithProviders(<BookEditForm initialBook={twoSeriesBook} onSave={vi.fn()} />);
+
+    // Emptying the primary field promotes "Cosmere" (what a save would send), so a source that lists
+    // only Cosmere #3 is no change - the preview must not claim the current set lacks Cosmere.
+    fireEvent.change(screen.getAllByPlaceholderText("Series name")[0]!, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Original" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+    const dialog = await screen.findByRole("dialog");
+    // Both the current and the proposed side read "Cosmere #3".
+    expect(within(dialog).getAllByText("Cosmere #3")).toHaveLength(2);
+    expect(within(dialog).queryByText(/\(primary\)/)).not.toBeInTheDocument();
+    // The Series row is unchanged, so its proposed value is not highlighted as a change.
+    const seriesRow = within(dialog).getByText("Series").closest("tr")!;
+    expect(seriesRow.className).not.toContain("font-medium");
+  });
+
   it("sends only the primary series to the path preview", async () => {
     const { audiobookApi } = await import("@/services/api");
     vi.mocked(audiobookApi.generateNewPath).mockClear();

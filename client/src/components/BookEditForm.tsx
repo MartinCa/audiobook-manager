@@ -497,20 +497,23 @@ export function BookEditForm({
     [pendingRefreshResult, qualifierOptions],
   );
 
-  const currentOrganizeInput: OrganizeAudiobookInput = useMemo(
-    () => ({
+  const currentOrganizeInput: OrganizeAudiobookInput = useMemo(() => {
+    // The series fields exactly as a save would send them (a cleared primary promotes the first
+    // additional row), so the tag preview's "current" side matches what buildAudiobook produces.
+    const currentSeries = primaryAndAdditionalSeries({
+      series: watchedValues.series ?? "",
+      seriesPart: watchedValues.seriesPart ?? "",
+      additionalSeries: (watchedValues.additionalSeries ??
+        []) as BookEditFormValues["additionalSeries"],
+    });
+    return {
       authors: joinList(watchedValues.authors),
       narrators: joinList(watchedValues.narrators),
       bookName: watchedValues.bookName,
       subtitle: watchedValues.subtitle,
-      series: watchedValues.series,
-      seriesPart: watchedValues.seriesPart,
-      additionalSeries: primaryAndAdditionalSeries({
-        series: watchedValues.series ?? "",
-        seriesPart: watchedValues.seriesPart ?? "",
-        additionalSeries: (watchedValues.additionalSeries ??
-          []) as BookEditFormValues["additionalSeries"],
-      }).additionalSeries,
+      series: currentSeries.series,
+      seriesPart: currentSeries.seriesPart,
+      additionalSeries: currentSeries.additionalSeries,
       year: watchedValues.year ? parseInt(watchedValues.year, 10) : undefined,
       genres: watchedValues.genres?.join("/"),
       description: watchedValues.description,
@@ -522,9 +525,8 @@ export function BookEditForm({
       www: watchedValues.www,
       cover_base64: cover?.base64Data,
       cover_mime: cover?.mimeType,
-    }),
-    [watchedValues, cover],
-  );
+    };
+  }, [watchedValues, cover]);
 
   const handleSelectSearchResult = (result: MetadataSearchResult) => {
     setPendingSearchResult(result);
