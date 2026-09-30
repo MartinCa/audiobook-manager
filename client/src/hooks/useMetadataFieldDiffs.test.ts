@@ -24,6 +24,85 @@ function findField(fields: ReturnType<typeof useMetadataFieldDiffs>, key: string
   return field;
 }
 
+describe("useMetadataFieldDiffs series", () => {
+  const source = (...entries: [string, string?][]) =>
+    baseSearchResult({
+      series: entries.map(([seriesName, seriesPart]) => ({ seriesName, seriesPart })),
+    });
+
+  it("does not flag a change when the source lists the same series in a different order", () => {
+    const current: OrganizeAudiobookInput = {
+      series: "Main",
+      seriesPart: "1",
+      additionalSeries: [{ seriesName: "Spinoff", seriesPart: "3" }],
+    };
+
+    const { result } = renderHook(() =>
+      useMetadataFieldDiffs(current, source(["Spinoff", "3"], ["Main", "1"]), []),
+    );
+
+    expect(findField(result.current, "series").changed).toBe(false);
+  });
+
+  it("flags an added series and shows both sets with the primary marked", () => {
+    const current: OrganizeAudiobookInput = { series: "Main", seriesPart: "1" };
+
+    const { result } = renderHook(() =>
+      useMetadataFieldDiffs(current, source(["Main", "1"], ["Spinoff", "3"]), []),
+    );
+
+    const series = findField(result.current, "series");
+    expect(series.changed).toBe(true);
+    expect(series.currentValue).toBe("Main #1");
+    expect(series.newValue).toBe("Main #1 (primary); Spinoff #3");
+  });
+
+  it("flags a removed series, a changed part and a different chosen primary", () => {
+    const current: OrganizeAudiobookInput = {
+      series: "Main",
+      seriesPart: "1",
+      additionalSeries: [{ seriesName: "Spinoff", seriesPart: "3" }],
+    };
+
+    expect(
+      findField(
+        renderHook(() => useMetadataFieldDiffs(current, source(["Main", "1"]), [])).result.current,
+        "series",
+      ).changed,
+    ).toBe(true);
+    expect(
+      findField(
+        renderHook(() =>
+          useMetadataFieldDiffs(current, source(["Main", "1"], ["Spinoff", "4"]), []),
+        ).result.current,
+        "series",
+      ).changed,
+    ).toBe(true);
+    expect(
+      findField(
+        renderHook(() =>
+          useMetadataFieldDiffs(
+            current,
+            source(["Main", "1"], ["Spinoff", "3"]),
+            [],
+            false,
+            "Spinoff",
+          ),
+        ).result.current,
+        "series",
+      ).changed,
+    ).toBe(true);
+  });
+
+  it("flags a source with no series against a book that has one", () => {
+    const current: OrganizeAudiobookInput = { series: "Main", seriesPart: "1" };
+
+    const { result } = renderHook(() => useMetadataFieldDiffs(current, source(), []));
+
+    expect(findField(result.current, "series").changed).toBe(true);
+  });
+});
+
 describe("useMetadataFieldDiffs", () => {
   // Regression: "Stephen M. R. Covey" (spaced) and "Stephen M.R. Covey" (unspaced) name the
   // same author under a different initials-spacing convention, not a content change - a

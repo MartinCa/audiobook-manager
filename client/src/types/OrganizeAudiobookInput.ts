@@ -13,6 +13,8 @@ export interface OrganizeAudiobookInput {
   seriesOriginal?: string;
   seriesPart?: string;
   seriesPartWarning?: boolean;
+  /** The book's non-primary series; `series`/`seriesPart` above are the primary one. */
+  additionalSeries?: { seriesName: string; seriesPart?: string }[];
   year?: number;
   genres?: string;
   description?: string;

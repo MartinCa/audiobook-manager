@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useForm, Controller, useWatch } from "react-hook-form";
+import { useForm, useFieldArray, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Info,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,8 @@ import { TagsInput } from "@/components/tags-input";
 import { AuthorsField } from "@/components/fields/AuthorsField";
 import { NarratorsField } from "@/components/fields/NarratorsField";
 import { SeriesField } from "@/components/fields/SeriesField";
+import { SeriesPartHints } from "@/components/fields/SeriesPartHints";
+import { SeriesRelationRow } from "@/components/fields/SeriesRelationRow";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
@@ -55,28 +58,50 @@ import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 
 // DESIGN.md section 1: forms use react-hook-form + zod for client-side validation. The
 // server validates independently; this only stops an obviously incomplete submit early.
-const bookEditFormSchema = z.object({
-  authors: z.array(z.string()).min(1, "At least one author is required"),
-  narrators: z.array(z.string()),
-  bookName: z.string().trim().min(1, "Book title is required"),
-  subtitle: z.string(),
-  series: z.string(),
-  seriesPart: z.string(),
-  qualifiers: z.array(z.string()),
-  year: z
-    .string()
-    .trim()
-    .min(1, "Year is required")
-    .refine((v) => Number.isFinite(Number(v)), "Year must be a number"),
-  genres: z.array(z.string()),
-  description: z.string(),
-  copyright: z.string(),
-  publisher: z.string(),
-  language: z.string(),
-  rating: z.string(),
-  asin: z.string(),
-  www: z.string(),
-});
+const bookEditFormSchema = z
+  .object({
+    authors: z.array(z.string()).min(1, "At least one author is required"),
+    narrators: z.array(z.string()),
+    bookName: z.string().trim().min(1, "Book title is required"),
+    subtitle: z.string(),
+    series: z.string(),
+    seriesPart: z.string(),
+    // The book's additional (non-primary) series; `series`/`seriesPart` above are the primary one.
+    additionalSeries: z.array(z.object({ name: z.string(), part: z.string() })),
+    qualifiers: z.array(z.string()),
+    year: z
+      .string()
+      .trim()
+      .min(1, "Year is required")
+      .refine((v) => Number.isFinite(Number(v)), "Year must be a number"),
+    genres: z.array(z.string()),
+    description: z.string(),
+    copyright: z.string(),
+    publisher: z.string(),
+    language: z.string(),
+    rating: z.string(),
+    asin: z.string(),
+    www: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    // A book relates to a series once: a name repeated (case-insensitively) across the primary and
+    // the additional rows is rejected on the later row.
+    const seen = new Set<string>();
+    const primary = values.series.trim().toLowerCase();
+    if (primary) seen.add(primary);
+    values.additionalSeries.forEach((row, index) => {
+      const name = row.name.trim().toLowerCase();
+      if (!name) return;
+      if (seen.has(name)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "This series is already listed for the book",
+          path: ["additionalSeries", index, "name"],
+        });
+      }
+      seen.add(name);
+    });
+  });
 
 type BookEditFormValues = z.infer<typeof bookEditFormSchema>;
 
@@ -88,6 +113,10 @@ function valuesFromBook(book: Audiobook): BookEditFormValues {
     subtitle: book.subtitle || "",
     series: book.series || "",
     seriesPart: book.seriesPart || "",
+    additionalSeries: (book.additionalSeries ?? []).map((r) => ({
+      name: r.seriesName,
+      part: r.seriesPart ?? "",
+    })),
     qualifiers: book.qualifiers ?? [],
     year: book.year ? String(book.year) : "",
     genres: book.genres || [],
@@ -98,6 +127,36 @@ function valuesFromBook(book: Audiobook): BookEditFormValues {
     rating: book.rating || "",
     asin: book.asin || "",
     www: book.www || "",
+  };
+}
+
+/**
+ * The form's series fields as the book's model: the primary plus the additional ones, blank names
+ * dropped. A book whose primary field is empty but has additional series promotes the first of
+ * them, so "only one series left" always means it is the primary.
+ */
+function primaryAndAdditionalSeries(
+  values: Pick<BookEditFormValues, "series" | "seriesPart" | "additionalSeries">,
+): Pick<Audiobook, "series" | "seriesPart" | "additionalSeries"> {
+  const rows = (values.additionalSeries ?? [])
+    .map((r) => ({
+      seriesName: (r?.name ?? "").trim(),
+      seriesPart: (r?.part ?? "").trim() || undefined,
+    }))
+    .filter((r) => r.seriesName.length > 0);
+  const primaryName = values.series?.trim();
+  if (primaryName) {
+    return {
+      series: primaryName,
+      seriesPart: values.seriesPart?.trim() || undefined,
+      additionalSeries: rows,
+    };
+  }
+  const [promoted, ...rest] = rows;
+  return {
+    series: promoted?.seriesName,
+    seriesPart: promoted?.seriesPart,
+    additionalSeries: rest,
   };
 }
 
@@ -114,8 +173,7 @@ function buildAudiobook(
     narrators: (values.narrators ?? []).map((name) => ({ name })),
     bookName: (values.bookName ?? "").trim(),
     subtitle: values.subtitle?.trim() || undefined,
-    series: values.series?.trim() || undefined,
-    seriesPart: values.seriesPart?.trim() || undefined,
+    ...primaryAndAdditionalSeries(values),
     qualifiers: values.qualifiers ?? [],
     year: values.year ? parseInt(values.year, 10) : undefined,
     genres: values.genres ?? [],
@@ -273,48 +331,56 @@ export function BookEditForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
-  // Advisory series-part conflict check: does another book already carry this (series, part)?
-  // Server-backed and bounded (per-book, part-equivalence applied server-side, capped result).
-  // Debounced so a keystroke in either field does not fire one request per character; the query
-  // is disabled for the organize/discovered flows, which have no currentBookId yet, and for an
-  // empty series or part. Saving stays allowed no matter what this returns - the warning is
-  // informational, never a blocker.
-  const seriesValue = (watchedValues.series ?? "").trim();
-  const seriesPartValue = (watchedValues.seriesPart ?? "").trim();
-  const [debouncedSeries, setDebouncedSeries] = useState(seriesValue);
-  const [debouncedPart, setDebouncedPart] = useState(seriesPartValue);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSeries(seriesValue), 300);
-    return () => clearTimeout(timer);
-  }, [seriesValue]);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedPart(seriesPartValue), 300);
-    return () => clearTimeout(timer);
-  }, [seriesPartValue]);
-  const seriesSetWithNoPart = seriesValue.length > 0 && seriesPartValue.length === 0;
-  // The qualifier set is part of the conflict question: a dramatized Book 2 and a regular Book 2
-  // are different editions, so only books with the same set conflict. Joined into a string so the
-  // query key (and the effect deps) stay stable across renders.
+  // The qualifier set is part of the series-part conflict question (a dramatized Book 2 and a
+  // regular Book 2 are different editions, so only books with the same set conflict), and of the
+  // suffix suggestion below.
   const qualifiersValue = normalizeQualifiers(watchedValues.qualifiers, qualifierOptions);
   const qualifiersKey = qualifiersValue.join(",");
-  const { data: seriesPartConflictCheck, isError: seriesPartConflictError } = useQuery({
-    queryKey: queryKeys.seriesPartConflicts(
-      currentBookId,
-      debouncedSeries,
-      debouncedPart,
-      qualifiersKey,
-    ),
-    queryFn: () =>
-      audiobookApi.getSeriesPartConflicts(
-        currentBookId!,
-        debouncedSeries,
-        debouncedPart,
-        qualifiersKey ? qualifiersKey.split(",") : [],
-      ),
-    enabled: currentBookId !== undefined && debouncedSeries.length > 0 && debouncedPart.length > 0,
-  });
-  const seriesPartConflicts = seriesPartConflictCheck?.conflicts ?? [];
-  const seriesPartConflictsTruncated = seriesPartConflictCheck?.truncated ?? false;
+  const seriesValue = (watchedValues.series ?? "").trim();
+
+  const {
+    fields: additionalSeriesFields,
+    append: appendAdditionalSeries,
+    remove: removeAdditionalSeries,
+  } = useFieldArray({ control: form.control, name: "additionalSeries" });
+
+  const addSeries = () => {
+    if (!form.getValues("series")?.trim()) {
+      // Nothing is the primary yet; the new row would only ever be promoted, so fill the primary.
+      form.setFocus("series");
+      return;
+    }
+    appendAdditionalSeries({ name: "", part: "" });
+  };
+
+  // Swaps additional series `index` with the primary. An empty primary just promotes the row.
+  const makeSeriesPrimary = (index: number) => {
+    const row = form.getValues(`additionalSeries.${index}`);
+    const primary = {
+      name: form.getValues("series") ?? "",
+      part: form.getValues("seriesPart") ?? "",
+    };
+    form.setValue("series", row.name, { shouldDirty: true, shouldValidate: true });
+    form.setValue("seriesPart", row.part, { shouldDirty: true });
+    if (primary.name.trim()) {
+      form.setValue(`additionalSeries.${index}`, primary, { shouldDirty: true });
+    } else {
+      removeAdditionalSeries(index);
+    }
+  };
+
+  // Removes the primary series: the first additional one is promoted, or the fields just clear.
+  const removePrimarySeries = () => {
+    const first = form.getValues("additionalSeries")?.[0];
+    if (first) {
+      form.setValue("series", first.name, { shouldDirty: true, shouldValidate: true });
+      form.setValue("seriesPart", first.part, { shouldDirty: true });
+      removeAdditionalSeries(0);
+    } else {
+      form.setValue("series", "", { shouldDirty: true });
+      form.setValue("seriesPart", "", { shouldDirty: true });
+    }
+  };
 
   const isFieldVisible = useCallback(
     (field: CollapsedField) => {
@@ -345,7 +411,15 @@ export function BookEditForm({
 
   useEffect(() => {
     let cancelled = false;
-    const values: BookEditFormValues = { ...valuesFromBook(initialBook), ...watchedValues };
+    const { additionalSeries: watchedAdditional, ...watchedRest } = watchedValues;
+    const initialValues = valuesFromBook(initialBook);
+    const values: BookEditFormValues = {
+      ...initialValues,
+      ...watchedRest,
+      additionalSeries:
+        watchedAdditional?.map((r) => ({ name: r?.name ?? "", part: r?.part ?? "" })) ??
+        initialValues.additionalSeries,
+    };
     if (!values.bookName?.trim() || !values.authors || values.authors.length === 0) return;
 
     const book = buildAudiobook(values, undefined, initialBook);
@@ -431,6 +505,12 @@ export function BookEditForm({
       subtitle: watchedValues.subtitle,
       series: watchedValues.series,
       seriesPart: watchedValues.seriesPart,
+      additionalSeries: primaryAndAdditionalSeries({
+        series: watchedValues.series ?? "",
+        seriesPart: watchedValues.seriesPart ?? "",
+        additionalSeries: (watchedValues.additionalSeries ??
+          []) as BookEditFormValues["additionalSeries"],
+      }).additionalSeries,
       year: watchedValues.year ? parseInt(watchedValues.year, 10) : undefined,
       genres: watchedValues.genres?.join("/"),
       description: watchedValues.description,
@@ -496,18 +576,21 @@ export function BookEditForm({
       );
     }
     if (selectedFields.has("series")) {
-      const firstSeries = result.series?.[0];
-      if (firstSeries) {
-        const sName = firstSeries.seriesName;
-        const sPart = firstSeries.seriesPart;
-        if (sName !== undefined) form.setValue("series", sName || "", { shouldDirty: true });
-        if (sPart !== undefined) {
-          form.setValue("seriesPart", normalizeSeriesPart(sPart || ""), { shouldDirty: true });
-        }
-      } else if (result.series && result.series.length === 0) {
-        form.setValue("series", "", { shouldDirty: true });
-        form.setValue("seriesPart", "", { shouldDirty: true });
-      }
+      // The dialog hands the series over primary-first (see TagPreviewDialog): the first becomes
+      // the book's primary series, the rest its additional ones. A source with no series clears
+      // them all, like the server's apply does.
+      const [primary, ...others] = result.series ?? [];
+      form.setValue("series", primary?.seriesName || "", { shouldDirty: true });
+      form.setValue("seriesPart", normalizeSeriesPart(primary?.seriesPart || ""), {
+        shouldDirty: true,
+      });
+      form.setValue(
+        "additionalSeries",
+        others
+          .filter((s) => s.seriesName?.trim())
+          .map((s) => ({ name: s.seriesName, part: normalizeSeriesPart(s.seriesPart || "") })),
+        { shouldDirty: true, shouldValidate: true },
+      );
     }
     if (selectedFields.has("year") && result.year) {
       form.setValue("year", String(result.year), { shouldDirty: true, shouldValidate: true });
@@ -874,54 +957,52 @@ export function BookEditForm({
             </div>
           </div>
 
-          {seriesSetWithNoPart && (
-            <p className="text-status-unknown mt-1 flex items-center gap-1 text-xs">
-              <Info className="h-3 w-3 shrink-0" />
-              <span>
-                Series is set but no series part is entered — the book will have no position within
-                it.
-              </span>
-            </p>
-          )}
+          <SeriesPartHints
+            series={watchedValues.series ?? ""}
+            part={watchedValues.seriesPart ?? ""}
+            qualifiers={qualifiersValue}
+            currentBookId={currentBookId}
+          />
 
-          {seriesPartConflictError && (
-            <p role="alert" className="text-status-error mt-1 flex items-center gap-1 text-xs">
-              <AlertTriangle className="h-3 w-3 shrink-0" />
-              <span>Couldn't check for series-part conflicts — saving is still allowed.</span>
-            </p>
-          )}
-
-          {seriesPartConflicts.length > 0 && (
-            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-300">
-              <div className="flex items-center gap-1.5 font-semibold">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>Another book already uses this series part</span>
-              </div>
-              <ul className="mt-1 list-inside list-disc space-y-0.5">
-                {seriesPartConflicts.map((conflict) => (
-                  <li key={conflict.audiobookId}>
-                    <a
-                      href={`/library/book/${conflict.audiobookId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium break-all underline"
-                    >
-                      {conflict.bookName}
-                      {conflict.seriesPart ? ` · part ${conflict.seriesPart}` : ""}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-              {seriesPartConflictsTruncated && (
-                <p className="mt-1 opacity-80">
-                  List is truncated — more books share this series part than are shown.
-                </p>
-              )}
-              <p className="mt-1 opacity-80">
-                Saving is still allowed — this is a heads-up, not a blocker.
+          {additionalSeriesFields.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-muted-foreground min-w-0 text-xs">
+                The series above is the primary one — it is used for the file&apos;s tags and
+                location.
               </p>
+              <Button type="button" variant="ghost" size="sm" onClick={removePrimarySeries}>
+                Remove primary series
+              </Button>
             </div>
           )}
+
+          {additionalSeriesFields.map((row, index) => (
+            <Controller
+              key={row.id}
+              control={form.control}
+              name={`additionalSeries.${index}`}
+              render={({ field, fieldState }) => (
+                <SeriesRelationRow
+                  position={index + 1}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onMakePrimary={() => makeSeriesPrimary(index)}
+                  onRemove={() => removeAdditionalSeries(index)}
+                  qualifiers={qualifiersValue}
+                  currentBookId={currentBookId}
+                  error={
+                    form.formState.errors.additionalSeries?.[index]?.name?.message ??
+                    fieldState.error?.message
+                  }
+                />
+              )}
+            />
+          ))}
+
+          <Button type="button" variant="outline" size="sm" onClick={addSeries}>
+            <Plus />
+            Add series
+          </Button>
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <div className="min-w-0 flex-1">

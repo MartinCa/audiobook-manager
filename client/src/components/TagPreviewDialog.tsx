@@ -7,7 +7,16 @@ import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
+import {
+  allSeries,
+  canonicalizeSeries,
+  chooseSeriesPrimary,
+  currentSeriesSet,
+  sourceSeriesEntries,
+  withPrimarySeriesFirst,
+} from "@/helpers/seriesRelations";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
@@ -50,11 +59,37 @@ export function TagPreviewDialog({
   // helpers/titleSplitter.ts).
   const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
 
+  // Which of the source's series becomes the book's primary one. Undefined = the default the
+  // apply would pick (the book's current primary when the source still lists it); reset with the
+  // rest of the per-flow state below.
+  const [chosenPrimarySeries, setChosenPrimarySeries] = useState<string | undefined>(undefined);
+  const currentSeriesEntries = useMemo(
+    () =>
+      allSeries(
+        currentSeriesSet(
+          currentInput.series,
+          currentInput.seriesPart,
+          currentInput.additionalSeries,
+        ),
+      ),
+    [currentInput.series, currentInput.seriesPart, currentInput.additionalSeries],
+  );
+  const sourceSeries = useMemo(
+    () => canonicalizeSeries(sourceSeriesEntries(searchResult.series)),
+    [searchResult.series],
+  );
+  const effectivePrimarySeries = chooseSeriesPrimary(
+    currentSeriesEntries,
+    sourceSeries,
+    chosenPrimarySeries,
+  )?.name;
+
   const fields = useMetadataFieldDiffs(
     currentInput,
     searchResult,
     languages,
     splitTitleOnColonEnabled,
+    chosenPrimarySeries,
   );
 
   const changedFieldKeys = useMemo(
@@ -76,6 +111,7 @@ export function TagPreviewDialog({
     setSelected(new Set(changedFieldKeys));
     setDontSaveAutomatically(false);
     setSplitTitleOnColonEnabled(false);
+    setChosenPrimarySeries(undefined);
   }
 
   // Belt-and-suspenders reset alongside the identity check above: that check assumes every new
@@ -89,6 +125,7 @@ export function TagPreviewDialog({
     if (open) {
       setDontSaveAutomatically(false);
       setSplitTitleOnColonEnabled(false);
+      setChosenPrimarySeries(undefined);
     }
   }
 
@@ -151,7 +188,13 @@ export function TagPreviewDialog({
     const subtitleRecoveredBySplit = originalSubtitleBlank && Boolean(subtitle);
     const effectiveSubtitle =
       subtitleRecoveredBySplit && !keys.has("bookName") ? searchResult.subtitle : subtitle;
-    return { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined };
+    // The series go out primary-first (then the rest in canonical order), so the consumer applies
+    // "first = primary, the others = additional" without a signature of its own for the choice.
+    return withPrimarySeriesFirst(
+      { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
+      currentSeriesEntries,
+      chosenPrimarySeries,
+    );
   };
 
   const handleApplySelected = () => {
@@ -185,6 +228,13 @@ export function TagPreviewDialog({
             onToggleField={toggleField}
             onToggleAll={toggleAll}
             changedFieldKeys={changedFieldKeys}
+          />
+
+          <PrimarySeriesChooser
+            options={sourceSeries.map((s) => s.name)}
+            value={effectivePrimarySeries ?? ""}
+            onChange={setChosenPrimarySeries}
+            idPrefix="tag-preview"
           />
         </div>
 

@@ -46,6 +46,10 @@ export function toAudiobook(dto: DiscoveredAudiobook | AudiobookDetail): Audiobo
     subtitle: dto.subtitle ?? undefined,
     series: dto.series ?? undefined,
     seriesPart: dto.seriesPart ?? undefined,
+    additionalSeries: (dto.additionalSeries ?? []).map((r) => ({
+      seriesName: r.seriesName,
+      seriesPart: r.seriesPart ?? undefined,
+    })),
     qualifiers: dto.qualifiers ?? [],
     year: dto.year ?? undefined,
     authors: dto.authors.map((name) => ({ name })),

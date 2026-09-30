@@ -19,8 +19,14 @@ export interface Audiobook {
   narrators: AudiobookPerson[];
   bookName?: string;
   subtitle?: string;
+  /** The book's primary series - the one in its tags, metadata files and library path. */
   series?: string;
   seriesPart?: string;
+  /**
+   * The book's other series, in display order (database-only: they never reach the file). Missing
+   * means "not specified" and leaves the stored ones alone; an empty array removes them.
+   */
+  additionalSeries?: AudiobookSeriesRelation[];
   /**
    * Keys of the book's qualifiers (abridged, dramatized, ...). `bookName` and `series` above are
    * always the clean values - the suffixes are added when the book is written to disk. Missing
@@ -70,6 +76,13 @@ export interface Audiobook {
   autoSavedFromSearch?: boolean;
 
   fileInfo?: BookFileInfo;
+}
+
+// Not generated (see Audiobook above): the wire's SeriesRelationDto with the optional part made
+// a plain optional rather than nullable, for form code that builds these locally.
+export interface AudiobookSeriesRelation {
+  seriesName: string;
+  seriesPart?: string;
 }
 
 // Not generated (see Audiobook above) — also used to construct locally-built author/narrator

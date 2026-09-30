@@ -16,6 +16,7 @@ export function audiobookToOrganizeInput(book: Audiobook): OrganizeAudiobookInpu
     subtitle: book.subtitle,
     series: book.series,
     seriesPart: book.seriesPart,
+    additionalSeries: book.additionalSeries,
     year: book.year,
     genres: book.genres?.join("/"),
     description: book.description,

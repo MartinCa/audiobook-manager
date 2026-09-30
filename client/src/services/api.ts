@@ -81,6 +81,7 @@ export function toAudiobookDto(data: Audiobook) {
     subtitle: data.subtitle,
     series: data.series,
     seriesPart: data.seriesPart,
+    additionalSeries: data.additionalSeries,
     qualifiers: data.qualifiers ?? [],
     year: data.year,
     genres: data.genres,
