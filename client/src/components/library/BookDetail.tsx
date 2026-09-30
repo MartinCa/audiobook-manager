@@ -28,6 +28,7 @@ import {
   metadataRefreshApi,
   settingsApi,
 } from "@/services/api";
+import { bumpCoverVersion } from "@/lib/coverVersion";
 import { queryKeys } from "@/lib/queryKeys";
 import { SignalREvents } from "@/constants/signalrEvents";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
@@ -160,6 +161,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       setSaveProgress(null);
       setSaveMessage(null);
       notifications.success("Audiobook saved successfully");
+      bumpCoverVersion();
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.metadataRefresh.pendingForBook(id),
