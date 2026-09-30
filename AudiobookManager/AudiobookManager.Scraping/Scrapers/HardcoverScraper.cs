@@ -1336,6 +1336,7 @@ public class HardcoverScraper : IScraper
               }
             }
             default_audio_edition {
+              subtitle
               isbn_13
               asin
               audio_seconds
@@ -1347,6 +1348,7 @@ public class HardcoverScraper : IScraper
               }
             }
             default_physical_edition {
+              subtitle
               isbn_13
               asin
               publisher {
@@ -1592,7 +1594,7 @@ public class HardcoverScraper : IScraper
                 bookName = fullTitle.Trim();
             }
 
-            subtitle = bookElement.GetPropertyValueOrNull("subtitle");
+            subtitle = ResolveSubtitle(bookElement);
         }
         catch (Exception ex)
         {
@@ -1927,6 +1929,28 @@ public class HardcoverScraper : IScraper
         }
 
         return await _bookSeriesMapper.MapBookSeries(series);
+    }
+
+    /// <summary>
+    /// The book-level <c>subtitle</c> is community-edited and can be wrong (book 427401,
+    /// "A Wizard of Earthsea", carries a business-book subtitle while both its editions have
+    /// none). The default audio edition - falling back to the physical one - is the record this
+    /// audiobook tool actually cares about, so its subtitle wins whenever the response carries
+    /// the field at all, even as null. The book-level value is used only when neither edition
+    /// reports a subtitle field.
+    /// </summary>
+    private static string? ResolveSubtitle(JsonElement bookElement)
+    {
+        foreach (var editionProperty in new[] { "default_audio_edition", "default_physical_edition" })
+        {
+            var edition = GetEditionElement(bookElement, editionProperty);
+            if (edition is not null && edition.Value.TryGetProperty("subtitle", out _))
+            {
+                return edition.Value.GetPropertyValueOrNull("subtitle");
+            }
+        }
+
+        return bookElement.GetPropertyValueOrNull("subtitle");
     }
 
     private static JsonElement? GetEditionElement(JsonElement bookElement, string editionProperty)

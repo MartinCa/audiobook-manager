@@ -507,6 +507,59 @@ public class HardcoverScraperTests
         Assert.IsNull(result.Subtitle);
     }
 
+    // Regression test: Hardcover's book-level subtitle for "A Wizard of Earthsea" (id 427401) is
+    // "Achieving Practical Results Through Effective Engagement" while its editions have none.
+    [TestMethod]
+    public async Task GetBookDetails_EditionReportsNullSubtitle_OverridesBogusBookLevelSubtitle()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 427401,
+                    "title": "A Wizard of Earthsea",
+                    "subtitle": "Achieving Practical Results Through Effective Engagement",
+                    "slug": "a-wizard-of-earthsea",
+                    "default_audio_edition": { "subtitle": null, "asin": "B002VA3CDO" },
+                    "default_physical_edition": { "subtitle": null, "asin": null }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/a-wizard-of-earthsea");
+
+        Assert.IsNull(result.Subtitle);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasSubtitle_UsesIt()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 1,
+                    "title": "T",
+                    "subtitle": "Book level",
+                    "slug": "t",
+                    "default_audio_edition": { "subtitle": "Audio level" }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("Audio level", result.Subtitle);
+    }
+
     [TestMethod]
     public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
     {
