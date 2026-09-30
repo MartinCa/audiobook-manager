@@ -58,6 +58,14 @@ public sealed class AccentFoldedColumnsInterceptor : SaveChangesInterceptor
             }
         }
 
+        foreach (var entry in context.ChangeTracker.Entries<AudiobookSeries>())
+        {
+            if (entry.State is EntityState.Added or EntityState.Modified)
+            {
+                entry.Entity.SeriesNameFolded = AccentFolding.FoldPlain(entry.Entity.SeriesName);
+            }
+        }
+
         foreach (var entry in context.ChangeTracker.Entries<Person>())
         {
             if (entry.State is EntityState.Added or EntityState.Modified)

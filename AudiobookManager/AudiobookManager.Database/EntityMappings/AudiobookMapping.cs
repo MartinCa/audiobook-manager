@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -39,6 +39,12 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
         // GetSeriesGroupingDataAsync, GetSeriesNamesAsync, GetSeriesBookCountsAsync, SearchSeriesAsync.
         builder
             .HasIndex(a => a.Series, "ix_audiobooks_series");
+
+        builder
+            .HasMany(a => a.SeriesRelations)
+            .WithOne(r => r.Audiobook)
+            .HasForeignKey(r => r.AudiobookId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // The book-list source filter (BookSummaryFilter.Sources) filters on this column, and
         // the book/author/series source filters all page with a CountAsync alongside it - mirrors

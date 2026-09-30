@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AudiobookManager.Database.Models;
@@ -27,6 +27,14 @@ public class Audiobook
 
     [Column("series_part")]
     public string? SeriesPart { get; set; }
+
+    /// <summary>
+    /// Every series this book belongs to, primary included (see <see cref="AudiobookSeries"/>).
+    /// Deliberately left null - not an empty list - until a query loads it, so a caller can tell
+    /// "not loaded" from "no relations" and never rewrite relations it did not read.
+    /// <see cref="Series"/>/<see cref="SeriesPart"/> above always mirror the primary one.
+    /// </summary>
+    public List<AudiobookSeries>? SeriesRelations { get; set; }
 
     /// <summary>
     /// The book's qualifiers (abridged, dramatized, ...) as a delimited list of their keys, in

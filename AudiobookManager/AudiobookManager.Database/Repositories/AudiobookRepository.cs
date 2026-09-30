@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Search;
 using AudiobookManager.Database.Sort;
@@ -540,6 +540,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .FirstOrDefaultAsync(a => a.Id == id);
     }
@@ -557,6 +558,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .Where(a => ids.Contains(a.Id))
             .OrderBy(a => a.Id)
@@ -570,6 +572,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .OrderBy(a => a.BookName).ThenBy(a => a.Id)
             .ToListAsync();
@@ -1298,6 +1301,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .Where(a => a.Authors.Any(p => names.Contains(p.Name)))
             .ToListAsync();
@@ -1310,6 +1314,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .Where(a => a.Authors.Any(p => names.Contains(p.Name))
                         || a.Narrators.Any(p => names.Contains(p.Name)))
@@ -1323,6 +1328,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .Where(a => a.Series != null && values.Contains(a.Series))
             .ToListAsync();

@@ -13,6 +13,16 @@ public class Audiobook
     public string? SeriesPart { get; set; }
 
     /// <summary>
+    /// The book's other (non-primary) series, in display order. <see cref="Series"/> and
+    /// <see cref="SeriesPart"/> above are the primary one - the only series that reaches the m4b
+    /// tags, <c>metadata.opf</c> and the library path - so these are database-only.
+    /// <c>null</c> means "not specified: leave the stored relations as they are" (a domain object
+    /// parsed from a file, or built by a caller that never read them); an empty list means "this
+    /// book has no other series" and removes any that were stored.
+    /// </summary>
+    public List<SeriesRelation>? AdditionalSeries { get; set; }
+
+    /// <summary>
     /// Keys of the <see cref="BookQualifiers"/> this book carries (canonical order). The
     /// <see cref="BookName"/> and <see cref="Series"/> above are always the clean values; the
     /// suffix only appears in <see cref="EffectiveBookName"/> / <see cref="EffectiveSeries"/>,

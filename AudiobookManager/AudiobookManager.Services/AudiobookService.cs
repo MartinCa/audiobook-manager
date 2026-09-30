@@ -338,7 +338,7 @@ public class AudiobookService : IAudiobookService
                         existingAudiobook.Id, existingAudiobook.BookName, newFullPath);
                     await _issueRepository.DeleteByAudiobookIdAsync(existingAudiobook.Id);
                     await _audiobookRepository.DeleteAudiobookAsync(existingAudiobook.Id);
-                    InvalidateSeriesReconciliation(existingAudiobook.Series);
+                    InvalidateSeriesReconciliation(SeriesRelationSync.AllNames(existingAudiobook));
                 }
             }
             else
@@ -432,12 +432,13 @@ public class AudiobookService : IAudiobookService
             Genres = genres,
             Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers))
         };
+        var seriesTouched = SeriesRelationSync.Apply(dbAudiobook, audiobook);
 
         var result = await _audiobookRepository.InsertAudiobook(dbAudiobook);
         _logger.LogInformation(
             "Added audiobook {AudiobookId} ('{Title}') to library at '{FilePath}'",
             result.Id, result.BookName, result.FileInfoFullPath);
-        InvalidateSeriesReconciliation(audiobook.Series);
+        InvalidateSeriesReconciliation(seriesTouched);
         return FromDb(result);
     }
 
@@ -471,12 +472,9 @@ public class AudiobookService : IAudiobookService
 
         // The book's Series/SeriesPart/BookName can all change here, so any series it previously
         // recorded and any series it now records need a fresh reconciliation.
-        var previousSeries = existing.Series;
-
         existing.BookName = audiobook.BookName ?? string.Empty;
         existing.Subtitle = audiobook.Subtitle;
-        existing.Series = audiobook.Series;
-        existing.SeriesPart = audiobook.SeriesPart;
+        var seriesTouched = SeriesRelationSync.Apply(existing, audiobook);
         existing.Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers));
         existing.Year = audiobook.Year ?? existing.Year;
         existing.Description = audiobook.Description;
@@ -500,8 +498,7 @@ public class AudiobookService : IAudiobookService
             "Updated audiobook {AudiobookId} ('{Title}') in library (path: '{FilePath}')",
             existing.Id, existing.BookName, existing.FileInfoFullPath);
 
-        InvalidateSeriesReconciliation(previousSeries);
-        InvalidateSeriesReconciliation(audiobook.Series);
+        InvalidateSeriesReconciliation(seriesTouched);
 
         // Only the controller passes the online-search signal; consistency resolves and
         // similar-value alignment use the overload without it, so they never stamp.
@@ -528,11 +525,14 @@ public class AudiobookService : IAudiobookService
     /// write that can change which books belong to a series (or their SeriesPart/BookName) must
     /// invalidate it, or the detail would keep reporting pre-change missing/ignored lists.
     /// </summary>
-    private void InvalidateSeriesReconciliation(string? series)
+    private void InvalidateSeriesReconciliation(IEnumerable<string> seriesNames)
     {
-        if (!string.IsNullOrWhiteSpace(series))
+        foreach (var series in seriesNames)
         {
-            _seriesReconciliationCache.Invalidate(series);
+            if (!string.IsNullOrWhiteSpace(series))
+            {
+                _seriesReconciliationCache.Invalidate(series);
+            }
         }
     }
 
@@ -552,7 +552,7 @@ public class AudiobookService : IAudiobookService
         await _issueRepository.DeleteByAudiobookIdAsync(id);
         await _audiobookRepository.DeleteAudiobookAsync(id);
 
-        InvalidateSeriesReconciliation(existing.Series);
+        InvalidateSeriesReconciliation(SeriesRelationSync.AllNames(existing));
 
         if (File.Exists(existing.FileInfoFullPath))
         {
@@ -590,6 +590,8 @@ public class AudiobookService : IAudiobookService
             Subtitle = audiobookDb.Subtitle,
             Series = audiobookDb.Series,
             SeriesPart = audiobookDb.SeriesPart,
+            // Null when the relations were not loaded, which UpdateAudiobook reads as "leave them".
+            AdditionalSeries = SeriesRelationSync.AdditionalOf(audiobookDb),
             // Carried through every FromDb -> UpdateAudiobook round trip (consistency resolves,
             // alignment, bulk edit): dropping it there would silently strip the suffix off disk.
             Qualifiers = QualifierColumn.Parse(audiobookDb.Qualifiers),
