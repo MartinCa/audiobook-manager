@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using Microsoft.Extensions.Logging;
@@ -55,7 +55,7 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
                 var reconciliation = await _reconciliation.GetReconciliationAsync(seriesName);
                 foreach (var mismatch in reconciliation.PartMismatches)
                 {
-                    issues.Add(ToIssue(mismatch));
+                    issues.Add(ToIssue(mismatch, seriesName));
                 }
             }
             catch (InvalidOperationException ex)
@@ -74,26 +74,26 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
 
     public async Task<IReadOnlyList<BookConsistencyIssue>> DetectForAudiobookAsync(DbAudiobook audiobook)
     {
-        if (string.IsNullOrWhiteSpace(audiobook.Series))
+        // A book is reconciled against every series it belongs to, primary or not.
+        var issues = new List<BookConsistencyIssue>();
+        foreach (var seriesName in SeriesRelationSync.AllNames(audiobook))
         {
-            return new List<BookConsistencyIssue>();
+            try
+            {
+                var reconciliation = await _reconciliation.GetReconciliationAsync(seriesName);
+                issues.AddRange(reconciliation.PartMismatches
+                    .Where(m => m.AudiobookId == audiobook.Id)
+                    .Select(m => ToIssue(m, seriesName)));
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(
+                    ex, "Skipping series-part-mismatch detection for audiobook {AudiobookId} in series {SeriesName}: {Message}",
+                    audiobook.Id, seriesName, ex.Message);
+            }
         }
 
-        try
-        {
-            var reconciliation = await _reconciliation.GetReconciliationAsync(audiobook.Series);
-            return reconciliation.PartMismatches
-                .Where(m => m.AudiobookId == audiobook.Id)
-                .Select(ToIssue)
-                .ToList();
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(
-                ex, "Skipping series-part-mismatch detection for audiobook {AudiobookId} in series {SeriesName}: {Message}",
-                audiobook.Id, audiobook.Series, ex.Message);
-            return new List<BookConsistencyIssue>();
-        }
+        return issues;
     }
 
     /// <summary>
@@ -102,13 +102,14 @@ public class PartMismatchIssueDetector : IPartMismatchIssueDetector
     /// description names the roster title the book was matched against, mirroring what the series
     /// detail's Part Mismatches section shows.
     /// </summary>
-    private static BookConsistencyIssue ToIssue(SeriesPartMismatch mismatch) => new()
+    private static BookConsistencyIssue ToIssue(SeriesPartMismatch mismatch, string seriesName) => new()
     {
         AudiobookId = mismatch.AudiobookId,
         IssueType = BookConsistencyIssueType.SeriesPartMismatch,
+        SeriesName = seriesName,
         Description =
             $"The stored series part of '{mismatch.BookName}' is missing or differs from "
-            + $"part {mismatch.ExpectedPart} assigned to '{mismatch.RosterTitle}' in the matched series.",
+            + $"part {mismatch.ExpectedPart} assigned to '{mismatch.RosterTitle}' in the matched series '{seriesName}'.",
         ExpectedValue = mismatch.ExpectedPart,
         ActualValue = mismatch.StoredPart,
         DetectedAt = DateTime.UtcNow

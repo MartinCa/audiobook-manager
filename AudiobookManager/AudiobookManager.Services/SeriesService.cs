@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Database.Search;
 using AudiobookManager.Domain;
@@ -801,8 +801,10 @@ public class SeriesService : ISeriesService
         // write goes through UpdateAudiobook so the m4b tags, the recomputed library path (and any
         // relocation it implies), the sidecars and the database all update together, per the
         // binding invariant. A roster entry with no position clears the part.
-        audiobook.Series = seriesName;
-        audiobook.SeriesPart = expected.SeriesPosition;
+        // A book with no primary series makes this its primary; a book that already has one keeps
+        // it and is added to this series as an additional relation (or has its part here updated),
+        // so filling a roster slot never silently moves the book out of the series it is filed under.
+        audiobook.SetSeries(seriesName, expected.SeriesPosition);
 
         await _audiobookService.UpdateAudiobook(audiobookId, audiobook);
     }
@@ -1240,8 +1242,9 @@ public class SeriesService : ISeriesService
             {
                 var audiobookId = book.Id!.Value;
                 using var lease = _saveGate.Acquire(audiobookId);
-                book.Series = string.Empty;
-                book.SeriesPart = null;
+                // Only this series' relation goes: a book in other series keeps them, and if this
+                // was its primary the next one is promoted (which is what moves its file).
+                book.RemoveSeries(seriesName);
                 await _audiobookService.UpdateAudiobook(audiobookId, book);
 
                 try
@@ -1290,16 +1293,13 @@ public class SeriesService : ISeriesService
         switch (selection.Type)
         {
             case SeriesRefreshChangeType.PartUpdate:
-                audiobook.Series = seriesName;
-                audiobook.SeriesPart = change.NewPart;
+                audiobook.SetSeries(seriesName, change.NewPart);
                 break;
             case SeriesRefreshChangeType.PartRemoval:
-                audiobook.Series = seriesName;
-                audiobook.SeriesPart = null;
+                audiobook.SetSeries(seriesName, null);
                 break;
             case SeriesRefreshChangeType.MissingBook:
-                audiobook.Series = seriesName;
-                audiobook.SeriesPart = change.Position;
+                audiobook.SetSeries(seriesName, change.Position);
                 break;
             default:
                 throw new ArgumentOutOfRangeException();
@@ -1397,7 +1397,7 @@ public class SeriesService : ISeriesService
             using var lease = _saveGate.Acquire(owned.AudiobookId);
             var audiobook = await _audiobookService.GetAudiobookById(owned.AudiobookId)
                 ?? throw new KeyNotFoundException($"Audiobook {owned.AudiobookId} not found");
-            audiobook.Series = newName;
+            audiobook.RenameSeries(seriesName, newName);
             await _audiobookService.UpdateAudiobook(owned.AudiobookId, audiobook);
 
             // Same best-effort tail as the per-change rewrites: the rename moved tags and

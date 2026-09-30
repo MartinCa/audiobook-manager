@@ -107,9 +107,9 @@ public class MissingMediaFileResolver : IBookConsistencyIssueResolver
 
         // This write path deletes the library record directly (no AudiobookService), so it must
         // invalidate the series detail's owned set itself - same guarantee as every other delete.
-        if (!string.IsNullOrWhiteSpace(audiobook.Series))
+        foreach (var seriesName in SeriesRelationSync.AllNames(audiobook))
         {
-            _reconciliationCache.Invalidate(audiobook.Series);
+            _reconciliationCache.Invalidate(seriesName);
         }
 
         if (directoryPath != null)

@@ -335,6 +335,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Authors)
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
+            .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
             .Where(a => a.SeriesRelations!.Any(r => r.SeriesName == seriesName));
 

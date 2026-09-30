@@ -25,6 +25,13 @@ public class BookConsistencyIssue
     [Column("description")]
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The series a series-scoped issue (<c>SeriesPartMismatch</c>) is about, so a book in several
+    /// series can carry one per series. Null for every other issue type.
+    /// </summary>
+    [Column("series_name")]
+    public string? SeriesName { get; set; }
+
     [Column("expected_value")]
     public string? ExpectedValue { get; set; }
 

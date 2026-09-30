@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Domain;
+using AudiobookManager.Domain;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Scraping.Models;
@@ -1920,11 +1920,13 @@ public class SeriesServiceTests
     };
 
     [TestMethod]
-    public async Task ApplyMissingBookAsync_AppliesSeriesAndPartAndPreservesEverythingElse()
+    public async Task ApplyMissingBookAsync_ABookWithNoSeries_BecomesPrimaryAndPreservesEverythingElse()
     {
         _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "The Hero of Ages"))
             .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
         var book = MakeDomainAudiobook(5);
+        book.Series = null;
+        book.SeriesPart = null;
         _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
 
         DomainAudiobook? captured = null;
@@ -1953,6 +1955,8 @@ public class SeriesServiceTests
         _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", null, "Secret History"))
             .ReturnsAsync(MakeExpected(13, "Secret History", null));
         var book = MakeDomainAudiobook(5);
+        book.Series = "Mistborn";
+        book.SeriesPart = "7";
         _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
 
         DomainAudiobook? captured = null;
@@ -1966,6 +1970,29 @@ public class SeriesServiceTests
         Assert.IsNotNull(captured);
         Assert.AreEqual("Mistborn", captured!.Series);
         Assert.IsNull(captured.SeriesPart, "a roster entry with no position clears the part");
+    }
+
+    [TestMethod]
+    public async Task ApplyMissingBookAsync_ABookAlreadyInAnotherSeries_KeepsItsPrimaryAndGainsThisSeriesAsAnAdditionalOne()
+    {
+        _seriesRepository.Setup(r => r.FindExpectedBookStrictAsync("Mistborn", "3", "The Hero of Ages"))
+            .ReturnsAsync(MakeExpected(12, "The Hero of Ages", "3"));
+        var book = MakeDomainAudiobook(5);
+        _audiobookService.Setup(s => s.GetAudiobookById(5)).ReturnsAsync(book);
+
+        DomainAudiobook? captured = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(5, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .Callback<long, DomainAudiobook, Func<string, int, Task>>((_, b, _) => captured = b)
+            .ReturnsAsync(book);
+
+        await MakeService().ApplyMissingBookAsync("Mistborn", "3", "The Hero of Ages", 5);
+
+        Assert.AreEqual("Some Other Series", captured!.Series, "filling a roster slot must not move the book's primary series");
+        Assert.AreEqual("7", captured.SeriesPart);
+        CollectionAssert.AreEqual(
+            new[] { new SeriesRelation("Mistborn", "3") },
+            captured.AdditionalSeries!.ToArray());
     }
 
     [TestMethod]
@@ -3499,6 +3526,36 @@ var (processed, succeeded, failed, effectiveSeriesName) = await MakeService().Ap
         // AlignSeriesAsync invalidates this cache for, so stale similar-values groups naming the
         // deleted series are not served until the TTL expires.
         _similarValueDetectionCache.Verify(c => c.Invalidate(), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DeleteSeriesAsync_ABookInAnotherSeriesToo_KeepsThatSeriesAndPromotesItWhenThePrimaryGoes()
+    {
+        var book = MakeDbBook(1, "Book A", "Mistborn", "1");
+        book.SeriesRelations = new List<Database.Models.AudiobookSeries>
+        {
+            new() { SeriesName = "Mistborn", SeriesPart = "1", IsPrimary = true, SortOrder = 0 },
+            new() { SeriesName = "Cosmere", SeriesPart = "3", SortOrder = 1 },
+        };
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesAsync("Mistborn", null))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+
+        DomainAudiobook? updated = null;
+        _audiobookService
+            .Setup(s => s.UpdateAudiobook(1, It.IsAny<DomainAudiobook>(), It.IsAny<Func<string, int, Task>>()))
+            .ReturnsAsync((long _, DomainAudiobook b, Func<string, int, Task> _) =>
+            {
+                updated = b;
+                return b;
+            });
+        _seriesRepository.Setup(r => r.DeleteSeriesAsync("Mistborn")).ReturnsAsync(true);
+        _pendingSeriesRefreshRepository.Setup(r => r.DeleteBySeriesNameAsync("Mistborn")).ReturnsAsync(true);
+
+        await MakeService().DeleteSeriesAsync("Mistborn", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual("Cosmere", updated!.Series, "the other series is promoted rather than the book losing every series");
+        Assert.AreEqual("3", updated.SeriesPart);
+        Assert.AreEqual(0, updated.AdditionalSeries!.Count);
     }
 
     [TestMethod]

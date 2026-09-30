@@ -1,4 +1,4 @@
-﻿using AudiobookManager.Database.Models;
+using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
 using AudiobookManager.Services;
@@ -162,6 +162,45 @@ public class PartMismatchIssueDetectorTests
         Assert.AreEqual(1, issue.AudiobookId);
         Assert.AreEqual(BookConsistencyIssueType.SeriesPartMismatch, issue.IssueType);
         Assert.AreEqual("2", issue.ExpectedValue);
+    }
+
+    [TestMethod]
+    public async Task DetectForAudiobookAsync_ABookInTwoMatchedSeries_ReportsAnIssuePerSeriesNamingIt()
+    {
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Mistborn"))
+            .ReturnsAsync(MakeReconciliation(MakeMismatch(1, "2", "")));
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Cosmere"))
+            .ReturnsAsync(MakeReconciliation(MakeMismatch(1, "5", "9")));
+
+        var book = new DbAudiobook(
+            1, "Book 1", null, "Mistborn", null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Mistborn/Book 1.m4b", "Book 1.m4b", 1000)
+        {
+            SeriesRelations = new List<AudiobookSeries>
+            {
+                new() { SeriesName = "Mistborn", IsPrimary = true, SortOrder = 0 },
+                new() { SeriesName = "Cosmere", SeriesPart = "9", SortOrder = 1 },
+            },
+        };
+
+        var issues = await _detector.DetectForAudiobookAsync(book);
+
+        CollectionAssert.AreEquivalent(
+            new[] { ("Mistborn", "2"), ("Cosmere", "5") },
+            issues.Select(i => (i.SeriesName!, i.ExpectedValue!)).ToArray());
+    }
+
+    [TestMethod]
+    public async Task DetectLibraryWideAsync_StampsEachIssueWithTheSeriesItWasDetectedIn()
+    {
+        _seriesRepository.Setup(r => r.GetMatchedSeriesNamesAsync()).ReturnsAsync(new List<string> { "Mistborn" });
+        _seriesReconciliation.Setup(s => s.GetReconciliationAsync("Mistborn"))
+            .ReturnsAsync(MakeReconciliation(MakeMismatch(1, "2", "")));
+
+        var issues = await _detector.DetectLibraryWideAsync();
+
+        Assert.AreEqual("Mistborn", issues.Single().SeriesName);
     }
 
     [TestMethod]
