@@ -238,6 +238,7 @@ public class SeriesService : ISeriesService
                     IsMatched = b.IsMatched,
                     MatchedSourceName = b.MatchedSourceName,
                     Qualifiers = QualifierColumn.Parse(b.Qualifiers),
+                    PrimarySeries = b.PrimarySeries,
                 })
                 .ToList(),
             OwnedBookTotal = ownedPage.Total,

@@ -876,7 +876,10 @@ public class BrowseController : ControllerBase
             audiobook.Authors
                 .Select(a => new AudiobookAuthorDto(a.Id, a.Name))
                 .ToList(),
-            QualifierColumn.Parse(audiobook.Qualifiers)
+            QualifierColumn.Parse(audiobook.Qualifiers),
+            (SeriesRelationSync.AdditionalOf(audiobook) ?? new List<Domain.SeriesRelation>())
+                .Select(r => new SeriesRelationDto { SeriesName = r.Name, SeriesPart = r.Part })
+                .ToList()
         );
     }
 

@@ -626,6 +626,45 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
+    public async Task OrganizeAudiobook_MapsAdditionalSeriesAndDropsBlankOnes()
+    {
+        var dto = MakeDto(series: "Main", seriesPart: "1");
+        dto.AdditionalSeries = new List<SeriesRelationDto>
+        {
+            new() { SeriesName = " Cosmere ", SeriesPart = " 3 " },
+            new() { SeriesName = "  ", SeriesPart = "9" },
+            new() { SeriesName = "Standalone Universe", SeriesPart = " " },
+        };
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(
+                It.Is<Audiobook>(a => a.AdditionalSeries!.SequenceEqual(new[]
+                {
+                    new SeriesRelation("Cosmere", "3"),
+                    new SeriesRelation("Standalone Universe", null),
+                })),
+                false),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_AnUnspecifiedAdditionalSeriesStaysNullSoStoredOnesAreKept()
+    {
+        var dto = MakeDto(series: "Main", seriesPart: "1");
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(
+            s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.AdditionalSeries == null), false), Times.Once);
+    }
+
+    [TestMethod]
     [DataRow("English", "en")]
     [DataRow("eng", "en")]
     [DataRow("en-US", "en")]

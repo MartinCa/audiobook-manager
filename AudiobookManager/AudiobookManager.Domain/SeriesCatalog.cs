@@ -98,6 +98,12 @@ public class SeriesOwnedBook
     public bool IsMatched { get; set; }
     public string? MatchedSourceName { get; set; }
     public List<string> Qualifiers { get; set; } = new();
+
+    /// <summary>
+    /// The book's primary series. <see cref="SeriesPart"/> is the part in the series being
+    /// viewed, so when the two series differ the book is listed here as an additional series.
+    /// </summary>
+    public string? PrimarySeries { get; set; }
 }
 
 public class SeriesExpectedBookInfo

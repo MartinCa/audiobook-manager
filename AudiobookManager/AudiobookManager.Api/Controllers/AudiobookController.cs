@@ -513,6 +513,10 @@ public class AudiobookController : ControllerBase
             Subtitle = dto.Subtitle,
             Series = dto.Series,
             SeriesPart = dto.SeriesPart,
+            AdditionalSeries = dto.AdditionalSeries?
+                .Where(r => !string.IsNullOrWhiteSpace(r.SeriesName))
+                .Select(r => new SeriesRelation(r.SeriesName.Trim(), string.IsNullOrWhiteSpace(r.SeriesPart) ? null : r.SeriesPart.Trim()))
+                .ToList(),
             Qualifiers = BookQualifiers.Normalize(dto.Qualifiers),
             Genres = CleanNames(dto.Genres),
             Description = dto.Description,
