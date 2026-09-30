@@ -10,7 +10,6 @@ import { toAudiobook } from "@/helpers/audiobookMapping";
 import { audiobookToOrganizeInput } from "@/helpers/organizeInput";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
-import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
 import {
   allSeries,
   canonicalizeSeries,
@@ -210,15 +209,13 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
         onToggleField={toggleField}
         onToggleAll={toggleAll}
         changedFieldKeys={changedFieldKeys}
+        seriesChoice={{
+          options: sourceSeries,
+          value: effectivePrimarySeries ?? "",
+          onChange: setChosenPrimarySeries,
+          idPrefix: `pending-refresh-${audiobookId}`,
+        }}
       />
-      {changedFieldKeys.includes("series") && (
-        <PrimarySeriesChooser
-          options={sourceSeries.map((s) => s.name)}
-          value={effectivePrimarySeries ?? ""}
-          onChange={setChosenPrimarySeries}
-          idPrefix={`pending-refresh-${audiobookId}`}
-        />
-      )}
       {
         // Not a <label>: wrapping the Checkbox in one makes its wrapped text concatenate onto
         // the aria-label instead of the aria-label standing alone (see the same pattern in

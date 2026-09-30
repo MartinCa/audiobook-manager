@@ -7,7 +7,6 @@ import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
-import { PrimarySeriesChooser } from "@/components/PrimarySeriesChooser";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import {
   allSeries,
@@ -228,13 +227,12 @@ export function TagPreviewDialog({
             onToggleField={toggleField}
             onToggleAll={toggleAll}
             changedFieldKeys={changedFieldKeys}
-          />
-
-          <PrimarySeriesChooser
-            options={sourceSeries.map((s) => s.name)}
-            value={effectivePrimarySeries ?? ""}
-            onChange={setChosenPrimarySeries}
-            idPrefix="tag-preview"
+            seriesChoice={{
+              options: sourceSeries,
+              value: effectivePrimarySeries ?? "",
+              onChange: setChosenPrimarySeries,
+              idPrefix: "tag-preview",
+            }}
           />
         </div>
 

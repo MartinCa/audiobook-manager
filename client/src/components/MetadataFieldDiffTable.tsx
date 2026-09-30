@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  PrimarySeriesChooser,
+  type PrimarySeriesChooserProps,
+} from "@/components/PrimarySeriesChooser";
 import type { FieldDiff } from "@/hooks/useMetadataFieldDiffs";
 
 interface MetadataFieldDiffTableProps {
@@ -8,6 +12,11 @@ interface MetadataFieldDiffTableProps {
   onToggleField: (key: string) => void;
   onToggleAll: () => void;
   changedFieldKeys: string[];
+  /**
+   * When the source reports several series, the Series row's "New Value" cell becomes the
+   * primary-series choice (a radio per series) instead of plain text. Omit for a single series.
+   */
+  seriesChoice?: PrimarySeriesChooserProps;
 }
 
 /**
@@ -21,6 +30,7 @@ export function MetadataFieldDiffTable({
   onToggleField,
   onToggleAll,
   changedFieldKeys,
+  seriesChoice,
 }: MetadataFieldDiffTableProps) {
   return (
     <div className="space-y-2">
@@ -86,13 +96,17 @@ export function MetadataFieldDiffTable({
                         : "max-w-[200px] break-words sm:max-w-[300px]"
                     }`}
                   >
-                    <span
-                      className={
-                        field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
-                      }
-                    >
-                      {field.newValue || <span className="text-muted-foreground italic">—</span>}
-                    </span>
+                    {field.key === "series" && seriesChoice && seriesChoice.options.length > 1 ? (
+                      <PrimarySeriesChooser {...seriesChoice} />
+                    ) : (
+                      <span
+                        className={
+                          field.changed ? "text-primary font-bold dark:text-emerald-400" : ""
+                        }
+                      >
+                        {field.newValue || <span className="text-muted-foreground italic">—</span>}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
