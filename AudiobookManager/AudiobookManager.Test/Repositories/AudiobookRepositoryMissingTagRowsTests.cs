@@ -79,7 +79,7 @@ public class AudiobookRepositoryMissingTagRowsTests
         if (genres is not null) audiobook.Genres = genres;
         if (coverFilePath is not null) audiobook.CoverFilePath = coverFilePath;
 
-        _db.Audiobooks.Add(audiobook);
+        _db.Audiobooks.Add(audiobook.WithPrimaryRelation());
         await _db.SaveChangesAsync();
         return audiobook;
     }

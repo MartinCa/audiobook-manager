@@ -16,6 +16,25 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
     {
+        // Backstop for the mirror invariant: every series-keyed query reads audiobook_series, so a
+        // book inserted with a series but no relation rows would vanish from its own series page.
+        // AudiobookService always supplies them (SeriesRelationSync); this only fills the gap for
+        // a caller that set the mirrored columns alone.
+        if (audiobook.SeriesRelations is null && !string.IsNullOrWhiteSpace(audiobook.Series))
+        {
+            audiobook.Series = audiobook.Series.Trim();
+            audiobook.SeriesRelations = new List<AudiobookSeries>
+            {
+                new()
+                {
+                    SeriesName = audiobook.Series,
+                    SeriesPart = string.IsNullOrWhiteSpace(audiobook.SeriesPart) ? null : audiobook.SeriesPart.Trim(),
+                    IsPrimary = true,
+                    SortOrder = 0,
+                },
+            };
+        }
+
         _db.Add(audiobook);
         await _db.SaveChangesAsync();
         return audiobook;
@@ -290,14 +309,14 @@ public class AudiobookRepository : IAudiobookRepository
         var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
         var prefixPattern = $"{LikePatterns.EscapeLikePattern(folded)}%";
 
-        var matching = _db.Audiobooks
+        var matching = _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "" && EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter));
+            .Where(r => r.SeriesName != "" && EF.Functions.Like(r.SeriesNameFolded, pattern, LikePatterns.EscapeCharacter));
 
-        var total = await matching.Select(a => a.Series!).Distinct().CountAsync();
+        var total = await matching.Select(r => r.SeriesName).Distinct().CountAsync();
 
         var rows = await matching
-            .GroupBy(a => a.Series!)
+            .GroupBy(r => r.SeriesName)
             .Select(g => new { Series = g.Key, BookCount = g.Count() })
             // Rank before the limit, not after it - see SearchAsync for what ranking the
             // survivors of an alphabetical Take costs.
@@ -317,21 +336,32 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Narrators)
             .Include(a => a.Genres.OrderBy(g => g.Name))
             .AsSplitQuery()
-            .Where(a => a.Series == seriesName);
+            .Where(a => a.SeriesRelations!.Any(r => r.SeriesName == seriesName));
 
         if (authorId.HasValue)
         {
             query = query.Where(a => a.Authors.Any(p => p.Id == authorId.Value));
         }
 
-        return await query.OrderBy(a => SeriesPartSortKey.Key(a.SeriesPart)).ThenBy(a => a.Id).ToListAsync();
+        // The part is the one this book has IN this series, not the mirrored primary's.
+        var ordered = await query
+            .Select(a => new
+            {
+                Book = a,
+                Part = a.SeriesRelations!.Where(r => r.SeriesName == seriesName).Select(r => r.SeriesPart).FirstOrDefault(),
+            })
+            .OrderBy(x => SeriesPartSortKey.Key(x.Part))
+            .ThenBy(x => x.Book.Id)
+            .ToListAsync();
+
+        return ordered.Select(x => x.Book).ToList();
     }
 
     public async Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName)
     {
         var names = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series == seriesName)
+            .Where(a => a.SeriesRelations!.Any(r => r.SeriesName == seriesName))
             .SelectMany(a => a.Authors.Select(p => p.Name))
             .Distinct()
             .ToListAsync();
@@ -360,7 +390,7 @@ public class AudiobookRepository : IAudiobookRepository
     {
         var query = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Series == seriesName);
+            .Where(a => a.SeriesRelations!.Any(r => r.SeriesName == seriesName));
 
         query = ApplyOwnedBookTextSearch(query, search);
         query = ApplyBookSummaryFilter(query, filter);
@@ -372,23 +402,31 @@ public class AudiobookRepository : IAudiobookRepository
             // them, blank parts (null, empty, whitespace-only) last - so the no-longer-needed
             // blank-last branch (SeriesPart == null || Trim() == "" ? 1 : 0) is gone, and a page
             // always shows "1, 2, 3, 17.5, 24" instead of the BINARY-collation "1, 17.5, 2, 24, 3".
-            .OrderBy(a => SeriesPartSortKey.Key(a.SeriesPart))
-            .ThenBy(a => a.BookName)
-            .ThenBy(a => a.Id)
+            // Ordered by the part this book has in THIS series (its relation row), which is the
+            // mirrored primary part only for a book whose primary this series is.
+            .Select(a => new
+            {
+                Book = a,
+                Part = a.SeriesRelations!.Where(r => r.SeriesName == seriesName).Select(r => r.SeriesPart).FirstOrDefault(),
+            })
+            .OrderBy(x => SeriesPartSortKey.Key(x.Part))
+            .ThenBy(x => x.Book.BookName)
+            .ThenBy(x => x.Book.Id)
             .Skip(skip)
             .Take(take)
-            .Select(a => new SeriesOwnedBookRow(
-                a.Id,
-                a.BookName,
-                a.SeriesPart,
-                a.Year,
-                a.Authors.Select(p => p.Name).ToList(),
-                a.Narrators.Select(p => p.Name).ToList(),
-                a.DurationInSeconds,
-                a.CoverFilePath,
-                a.MatchedSourceName != null && a.MatchedSourceName != "",
-                a.MatchedSourceName,
-                a.Qualifiers))
+            .Select(x => new SeriesOwnedBookRow(
+                x.Book.Id,
+                x.Book.BookName,
+                x.Part,
+                x.Book.Year,
+                x.Book.Authors.Select(p => p.Name).ToList(),
+                x.Book.Narrators.Select(p => p.Name).ToList(),
+                x.Book.DurationInSeconds,
+                x.Book.CoverFilePath,
+                x.Book.MatchedSourceName != null && x.Book.MatchedSourceName != "",
+                x.Book.MatchedSourceName,
+                x.Book.Qualifiers,
+                x.Book.Series))
             .ToListAsync();
 
         return (items, total);
@@ -412,12 +450,12 @@ public class AudiobookRepository : IAudiobookRepository
     public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetSeriesOwnedKeysAsync(
         string seriesName, int maxKeys)
     {
-        var rows = await _db.Audiobooks
+        var rows = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series == seriesName)
-            .OrderBy(a => a.Id)
+            .Where(r => r.SeriesName == seriesName)
+            .OrderBy(r => r.AudiobookId)
             .Take(maxKeys + 1)
-            .Select(a => new { a.Id, a.SeriesPart, a.BookName })
+            .Select(r => new { Id = r.AudiobookId, r.SeriesPart, r.Audiobook.BookName })
             .ToListAsync();
 
         return (rows
@@ -450,17 +488,29 @@ public class AudiobookRepository : IAudiobookRepository
     public async Task<(List<SeriesOwnedKey> Keys, bool Overflow)> GetOwnedKeysByAuthorAsync(
         long authorId, int maxKeys)
     {
+        // One key per (book, series): a standalone book still yields one key with no series, and
+        // a book in several series yields one per series, each with its own part.
         var rows = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Authors.Any(p => p.Id == authorId))
+            .Where(a => a.Authors.Any(p => p.Id == authorId) && !a.SeriesRelations!.Any())
             .OrderBy(a => a.Id)
             .Take(maxKeys + 1)
-            .Select(a => new { a.Id, a.Series, a.SeriesPart, a.BookName })
+            .Select(a => new { a.Id, Series = (string?)null, SeriesPart = (string?)null, a.BookName })
             .ToListAsync();
 
-        return (rows
+        var related = await _db.AudiobookSeries
+            .AsNoTracking()
+            .Where(r => r.Audiobook.Authors.Any(p => p.Id == authorId))
+            .OrderBy(r => r.AudiobookId).ThenBy(r => r.SortOrder)
+            .Take(maxKeys + 1)
+            .Select(r => new { Id = r.AudiobookId, Series = (string?)r.SeriesName, r.SeriesPart, r.Audiobook.BookName })
+            .ToListAsync();
+
+        var keys = rows.Concat(related)
+            .OrderBy(r => r.Id)
             .Select(r => new SeriesOwnedKey(r.Id, r.SeriesPart, r.BookName, r.Series))
-            .ToList(), rows.Count > maxKeys);
+            .ToList();
+        return (keys, keys.Count > maxKeys);
     }
 
     /// <summary>
@@ -483,20 +533,37 @@ public class AudiobookRepository : IAudiobookRepository
             return (new List<AuthorOwnedKey>(), false);
         }
 
-        var rows = await _db.Audiobooks
+        // One key per (book, series), as in GetOwnedKeysByAuthorAsync.
+        var standalone = await _db.Audiobooks
             .AsNoTracking()
-            .Where(a => a.Authors.Any(p => personIds.Contains(p.Id)))
+            .Where(a => a.Authors.Any(p => personIds.Contains(p.Id)) && !a.SeriesRelations!.Any())
             .SelectMany(
                 a => a.Authors.Where(p => personIds.Contains(p.Id)),
-                (a, p) => new { PersonId = p.Id, AudiobookId = a.Id, Series = a.Series, SeriesPart = a.SeriesPart, BookName = a.BookName })
+                (a, p) => new { PersonId = p.Id, AudiobookId = a.Id, Series = (string?)null, SeriesPart = (string?)null, BookName = a.BookName })
             .OrderBy(r => r.PersonId)
             .ThenBy(r => r.AudiobookId)
             .Take(maxTotalKeys + 1)
             .ToListAsync();
 
-        return (rows
+        var related = await _db.AudiobookSeries
+            .AsNoTracking()
+            .Where(r => r.Audiobook.Authors.Any(p => personIds.Contains(p.Id)))
+            .SelectMany(
+                r => r.Audiobook.Authors.Where(p => personIds.Contains(p.Id)),
+                (r, p) => new { PersonId = p.Id, AudiobookId = r.AudiobookId, Series = (string?)r.SeriesName, r.SeriesPart, r.Audiobook.BookName, r.SortOrder })
+            .OrderBy(r => r.PersonId)
+            .ThenBy(r => r.AudiobookId)
+            .ThenBy(r => r.SortOrder)
+            .Take(maxTotalKeys + 1)
+            .ToListAsync();
+
+        var keys = standalone
             .Select(r => new AuthorOwnedKey(r.PersonId, r.AudiobookId, r.SeriesPart, r.BookName, r.Series))
-            .ToList(), rows.Count > maxTotalKeys);
+            .Concat(related.Select(r => new AuthorOwnedKey(r.PersonId, r.AudiobookId, r.SeriesPart, r.BookName, r.Series)))
+            .OrderBy(k => k.PersonId)
+            .ThenBy(k => k.Key.AudiobookId)
+            .ToList();
+        return (keys, keys.Count > maxTotalKeys);
     }
 
     /// <summary>
@@ -511,7 +578,7 @@ public class AudiobookRepository : IAudiobookRepository
     {
         var matching = _db.Audiobooks
             .AsNoTracking()
-            .Where(a => (a.Series == null || a.Series == "") && a.Authors.Any(p => p.Id == authorId));
+            .Where(a => !a.SeriesRelations!.Any() && a.Authors.Any(p => p.Id == authorId));
 
         matching = ApplyOwnedBookTextSearch(matching, search);
         matching = ApplyBookSummaryFilter(matching, filter);
@@ -699,15 +766,15 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync()
     {
-        var rows = await _db.Audiobooks
+        var rows = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "")
-            .Select(a => new
+            .Where(r => r.SeriesName != "")
+            .Select(r => new
             {
-                Series = a.Series!,
-                a.SeriesPart,
-                a.BookName,
-                Authors = a.Authors.Select(p => p.Name).ToList(),
+                Series = r.SeriesName,
+                r.SeriesPart,
+                r.Audiobook.BookName,
+                Authors = r.Audiobook.Authors.Select(p => p.Name).ToList(),
             })
             .ToListAsync();
 
@@ -730,15 +797,15 @@ public class AudiobookRepository : IAudiobookRepository
             return new List<SeriesGroupingBook>();
         }
 
-        var rows = await _db.Audiobooks
+        var rows = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => seriesValues.Contains(a.Series!))
-            .Select(a => new
+            .Where(r => seriesValues.Contains(r.SeriesName))
+            .Select(r => new
             {
-                Series = a.Series!,
-                a.SeriesPart,
-                a.BookName,
-                Authors = a.Authors.Select(p => p.Name).ToList(),
+                Series = r.SeriesName,
+                r.SeriesPart,
+                r.Audiobook.BookName,
+                Authors = r.Audiobook.Authors.Select(p => p.Name).ToList(),
             })
             .ToListAsync();
 
@@ -816,9 +883,9 @@ public class AudiobookRepository : IAudiobookRepository
             {
                 var catalogNames = await _db.Series.AsNoTracking().Select(s => s.Name).ToListAsync();
                 var catalogNameSet = new HashSet<string>(catalogNames, StringComparer.Ordinal);
-                var allBookSeriesNames = await _db.Audiobooks.AsNoTracking()
-                    .Where(a => a.Series != null && a.Series != "")
-                    .Select(a => a.Series!)
+                var allBookSeriesNames = await _db.AudiobookSeries.AsNoTracking()
+                    .Where(r => r.SeriesName != "")
+                    .Select(r => r.SeriesName)
                     .Distinct()
                     .ToListAsync();
                 foreach (var name in allBookSeriesNames.Where(n => !catalogNameSet.Contains(n)))
@@ -828,13 +895,15 @@ public class AudiobookRepository : IAudiobookRepository
             }
         }
 
-        var booksQuery = _db.Audiobooks
+        // Series values come from the relations table, so a book counts under every series it
+        // belongs to - not just its primary one.
+        var booksQuery = _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "");
+            .Where(r => r.SeriesName != "");
 
         if (authorId.HasValue)
         {
-            booksQuery = booksQuery.Where(a => a.Authors.Any(p => p.Id == authorId.Value));
+            booksQuery = booksQuery.Where(r => r.Audiobook.Authors.Any(p => p.Id == authorId.Value));
         }
 
         if (pattern is not null)
@@ -844,9 +913,9 @@ public class AudiobookRepository : IAudiobookRepository
             // precomputed folded column keeps the LIKE off a per-row fold call, like every other
             // search in this repository. The matched condition is inlined (not factored into a
             // helper) because EF can only translate conditions written inline in the lambda.
-            booksQuery = booksQuery.Where(a =>
-                EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)));
+            booksQuery = booksQuery.Where(r =>
+                EF.Functions.Like(r.SeriesNameFolded, pattern, LikePatterns.EscapeCharacter) ||
+                r.Audiobook.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)));
         }
 
         if (matched is not null)
@@ -858,8 +927,8 @@ public class AudiobookRepository : IAudiobookRepository
                     && s.MatchedSourceId != null && s.MatchedSourceId != "")
                 .Select(s => s.Name);
 
-            booksQuery = booksQuery.Where(a =>
-                wantMatched ? matchedCatalog.Contains(a.Series!) : !matchedCatalog.Contains(a.Series!));
+            booksQuery = booksQuery.Where(r =>
+                wantMatched ? matchedCatalog.Contains(r.SeriesName) : !matchedCatalog.Contains(r.SeriesName));
         }
 
         // "Unsupported" (SeriesOverviewFilter.UnsupportedSource) covers both a catalog row with no
@@ -881,9 +950,9 @@ public class AudiobookRepository : IAudiobookRepository
                 .Where(s => s.MatchedSourceName != null && s.MatchedSourceName != "")
                 .Select(s => s.Name);
 
-            booksQuery = booksQuery.Where(a =>
-                (realSeriesSources.Count > 0 && sourceMatchedNames.Contains(a.Series!))
-                || (wantsUnsupportedSeriesSource && !matchedAnyNames.Contains(a.Series!)));
+            booksQuery = booksQuery.Where(r =>
+                (realSeriesSources.Count > 0 && sourceMatchedNames.Contains(r.SeriesName))
+                || (wantsUnsupportedSeriesSource && !matchedAnyNames.Contains(r.SeriesName)));
         }
 
         if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
@@ -892,29 +961,29 @@ public class AudiobookRepository : IAudiobookRepository
             // per-book filters above (search/authorId narrow WHICH series values are candidates,
             // not what counts as "owned" for one) - a raw grouped count over the whole table,
             // restricted to the candidate names once they're known below.
-            var countedNames = await _db.Audiobooks.AsNoTracking()
-                .Where(a => a.Series != null && a.Series != "")
-                .GroupBy(a => a.Series!)
+            var countedNames = await _db.AudiobookSeries.AsNoTracking()
+                .Where(r => r.SeriesName != "")
+                .GroupBy(r => r.SeriesName)
                 .Select(g => new { Series = g.Key, Count = g.Count() })
                 .Where(g => (filter.MinOwnedBooks == null || g.Count >= filter.MinOwnedBooks)
                     && (filter.MaxOwnedBooks == null || g.Count <= filter.MaxOwnedBooks))
                 .Select(g => g.Series)
                 .ToListAsync();
             var countedNameSet = new HashSet<string>(countedNames, StringComparer.Ordinal);
-            booksQuery = booksQuery.Where(a => countedNameSet.Contains(a.Series!));
+            booksQuery = booksQuery.Where(r => countedNameSet.Contains(r.SeriesName));
         }
 
         if (catalogEligibleNames is not null)
         {
-            booksQuery = booksQuery.Where(a => catalogEligibleNames.Contains(a.Series!));
+            booksQuery = booksQuery.Where(r => catalogEligibleNames.Contains(r.SeriesName));
         }
 
         if (restrictToNames is not null)
         {
-            booksQuery = booksQuery.Where(a => restrictToNames.Contains(a.Series!));
+            booksQuery = booksQuery.Where(r => restrictToNames.Contains(r.SeriesName));
         }
 
-        var fromBooks = booksQuery.Select(a => a.Series!).Distinct();
+        var fromBooks = booksQuery.Select(r => r.SeriesName).Distinct();
 
         // An author scope is answered entirely from that author's books - a catalog row whose
         // value no longer appears on any audiobook is not a series the author owns. The distinct
@@ -998,10 +1067,10 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<(int Total, int Matched)> GetSeriesValueCountsAsync()
     {
-        var fromBooks = _db.Audiobooks
+        var fromBooks = _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "")
-            .Select(a => a.Series!)
+            .Where(r => r.SeriesName != "")
+            .Select(r => r.SeriesName)
             .Distinct();
         var fromCatalog = _db.Series.AsNoTracking().Select(s => s.Name);
 
@@ -1164,10 +1233,10 @@ public class AudiobookRepository : IAudiobookRepository
     {
         // Sorted in memory rather than by SQL - see GetAuthorNamesAsync for why SQLite's BINARY
         // collation is the wrong order for a name list a human reads.
-        var series = await _db.Audiobooks
+        var series = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.Series != "")
-            .Select(a => a.Series!)
+            .Where(r => r.SeriesName != "")
+            .Select(r => r.SeriesName)
             .Distinct()
             .ToListAsync();
 
@@ -1190,10 +1259,10 @@ public class AudiobookRepository : IAudiobookRepository
         }
 
         var pattern = LikePatterns.EscapeLikePattern(folded);
-        return await _db.Audiobooks
+        return await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.SeriesFolded != null && EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter))
-            .Select(a => a.Series!)
+            .Where(r => r.SeriesNameFolded != null && EF.Functions.Like(r.SeriesNameFolded, pattern, LikePatterns.EscapeCharacter))
+            .Select(r => r.SeriesName)
             .FirstOrDefaultAsync();
     }
 
@@ -1221,14 +1290,14 @@ public class AudiobookRepository : IAudiobookRepository
         var tokenPattern = $"%{LikePatterns.EscapeLikePattern(firstToken)}%";
         var hasFirstToken = firstToken.Length > 0;
 
-        var series = await _db.Audiobooks
+        var series = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && a.SeriesFolded != null && (
-                EF.Functions.Like(a.SeriesFolded, fullPattern, LikePatterns.EscapeCharacter)
-                || (hasFirstToken && EF.Functions.Like(a.SeriesFolded, tokenPattern, LikePatterns.EscapeCharacter))))
-            .OrderByDescending(a => EF.Functions.Like(a.SeriesFolded, fullPattern, LikePatterns.EscapeCharacter))
-            .ThenBy(a => a.Series)
-            .Select(a => a.Series!)
+            .Where(r => r.SeriesNameFolded != null && (
+                EF.Functions.Like(r.SeriesNameFolded, fullPattern, LikePatterns.EscapeCharacter)
+                || (hasFirstToken && EF.Functions.Like(r.SeriesNameFolded, tokenPattern, LikePatterns.EscapeCharacter))))
+            .OrderByDescending(r => EF.Functions.Like(r.SeriesNameFolded, fullPattern, LikePatterns.EscapeCharacter))
+            .ThenBy(r => r.SeriesName)
+            .Select(r => r.SeriesName)
             .Distinct()
             .Take(limit)
             .ToListAsync();
@@ -1261,16 +1330,16 @@ public class AudiobookRepository : IAudiobookRepository
             return (new List<SeriesPartConflictRow>(), Truncated: false);
         }
 
-        var rows = await _db.Audiobooks
+        var rows = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series == trimmed
-                && a.Id != excludeAudiobookId
-                && a.Qualifiers == qualifiers
-                && a.SeriesPart != null
-                && SeriesPartEquivalence.PartsEquivalent(a.SeriesPart, seriesPart))
-            .OrderBy(a => a.BookName).ThenBy(a => a.Id)
+            .Where(r => r.SeriesName == trimmed
+                && r.AudiobookId != excludeAudiobookId
+                && r.Audiobook.Qualifiers == qualifiers
+                && r.SeriesPart != null
+                && SeriesPartEquivalence.PartsEquivalent(r.SeriesPart, seriesPart))
+            .OrderBy(r => r.Audiobook.BookName).ThenBy(r => r.AudiobookId)
             .Take(limit + 1)
-            .Select(a => new SeriesPartConflictRow(a.Id, a.BookName, a.SeriesPart))
+            .Select(r => new SeriesPartConflictRow(r.AudiobookId, r.Audiobook.BookName, r.SeriesPart))
             .ToListAsync();
 
         var truncated = rows.Count > limit;
@@ -1284,10 +1353,10 @@ public class AudiobookRepository : IAudiobookRepository
             return new Dictionary<string, int>();
         }
 
-        var rows = await _db.Audiobooks
+        var rows = await _db.AudiobookSeries
             .AsNoTracking()
-            .Where(a => a.Series != null && seriesValues.Contains(a.Series))
-            .GroupBy(a => a.Series!)
+            .Where(r => seriesValues.Contains(r.SeriesName))
+            .GroupBy(r => r.SeriesName)
             .Select(g => new { Series = g.Key, Count = g.Count() })
             .ToListAsync();
 
@@ -1330,7 +1399,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Include(a => a.Genres.OrderBy(g => g.Name))
             .Include(a => a.SeriesRelations!.OrderBy(r => r.SortOrder))
             .AsSplitQuery()
-            .Where(a => a.Series != null && values.Contains(a.Series))
+            .Where(a => a.SeriesRelations!.Any(r => values.Contains(r.SeriesName)))
             .ToListAsync();
     }
 
