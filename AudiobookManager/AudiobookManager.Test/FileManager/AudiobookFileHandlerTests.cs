@@ -620,6 +620,27 @@ public class AudiobookFileHandlerTests
     }
 
     [TestMethod]
+    public void BuildOpfContent_GenreContainingSlash_IsWrittenAsSeparateSubjectsMatchingTheTag()
+    {
+        // The m4b genre tag can only hold "FICTION/Classics" as two genres, so the opf must list
+        // the same subjects rather than one "FICTION/Classics" entry.
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Betty Smith") },
+            "A Tree Grows in Brooklyn",
+            1947,
+            new AudiobookFileInfo("/library/book.m4b", "book.m4b", 100))
+        {
+            Genres = new List<string> { "Classics", "FICTION/Classics", "FICTION/Literary" },
+        };
+
+        var opf = AudiobookFileHandler.BuildOpfContent(audiobook);
+
+        var subjects = System.Xml.Linq.XDocument.Parse(opf).Descendants()
+            .Where(e => e.Name.LocalName == "subject").Select(e => e.Value).ToList();
+        CollectionAssert.AreEqual(new List<string> { "Classics", "FICTION", "Literary" }, subjects);
+    }
+
+    [TestMethod]
     public void BuildOpfContent_MinimalBook_OmitsEmptyOptionalFields()
     {
         var audiobook = new Audiobook(
