@@ -133,4 +133,40 @@ public class AudiobookSeriesExtensionsTests
             book.AllSeries().Select(r => (r.Name, r.Part, r.IsPrimary)).ToArray(),
             "the merge takes the old part when the target had none, and keeps the primary slot");
     }
+
+    [TestMethod]
+    public void PromoteAdditionalSeriesIfNoPrimary_FilesABookWithOnlyAdditionalSeriesUnderTheFirst()
+    {
+        var book = Book(null, null, new SeriesRelation("Spinoff", "3"), new SeriesRelation("Third", "5"));
+
+        book.PromoteAdditionalSeriesIfNoPrimary();
+
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.AreEqual("3", book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Third", "5"), book.AdditionalSeries!.Single());
+    }
+
+    [TestMethod]
+    public void PromoteAdditionalSeriesIfNoPrimary_LeavesABookThatHasAPrimaryAlone()
+    {
+        var book = Book("Main", "1", new SeriesRelation("Spinoff", "3"));
+
+        book.PromoteAdditionalSeriesIfNoPrimary();
+
+        Assert.AreEqual("Main", book.Series);
+        Assert.AreEqual(new SeriesRelation("Spinoff", "3"), book.AdditionalSeries!.Single());
+    }
+
+    [TestMethod]
+    public void PromoteAdditionalSeriesIfNoPrimary_IsANoOpWithoutAdditionalSeriesOrWhenUnspecified()
+    {
+        var none = Book(null, null);
+        none.PromoteAdditionalSeriesIfNoPrimary();
+        Assert.IsNull(none.Series);
+
+        var unspecified = Book(null, null);
+        unspecified.AdditionalSeries = null;
+        unspecified.PromoteAdditionalSeriesIfNoPrimary();
+        Assert.IsNull(unspecified.Series);
+    }
 }

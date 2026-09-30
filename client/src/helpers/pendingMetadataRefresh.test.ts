@@ -84,4 +84,32 @@ describe("pendingSnapshotToSearchResult", () => {
     expect(result.genres).toEqual([]);
     expect(result.bookName).toBe("");
   });
+
+  it("carries every series the snapshot lists, with their pre-mapping names", () => {
+    const result = pendingSnapshotToSearchResult({
+      ...snapshot,
+      series: [
+        { seriesName: "The Stormlight Archive", seriesPart: "1", originalSeriesName: "Stormlight" },
+        { seriesName: "Cosmere", seriesPart: null, originalSeriesName: "Cosmere" },
+      ],
+    });
+
+    expect(result.series).toEqual([
+      { seriesName: "The Stormlight Archive", seriesPart: "1", originalSeriesName: "Stormlight" },
+      { seriesName: "Cosmere", seriesPart: undefined, originalSeriesName: "Cosmere" },
+    ]);
+  });
+
+  it("reads a snapshot stored before the series list existed as its one series", () => {
+    expect(pendingSnapshotToSearchResult(snapshot).series).toEqual([
+      { seriesName: "The Stormlight Archive", seriesPart: "1" },
+    ]);
+  });
+
+  it("has no series for a snapshot that reported none", () => {
+    expect(
+      pendingSnapshotToSearchResult({ ...snapshot, seriesName: undefined, seriesPart: undefined })
+        .series,
+    ).toEqual([]);
+  });
 });

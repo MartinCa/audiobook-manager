@@ -911,6 +911,51 @@ describe("BookEditForm", () => {
     expect(onSave.mock.calls[0]?.[0].seriesPart).toBeUndefined();
   });
 
+  it("applies every series of a scraped result: the book's current primary stays primary, the rest become additional", async () => {
+    const { metadataSearchApi } = await import("@/services/api");
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "Scraped Book",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          // Listed with the book's own series second: the source's order must not pick the primary.
+          series: [
+            { seriesName: "Cosmere", seriesPart: "3" },
+            { seriesName: "Mistborn", seriesPart: "Book 2" },
+          ],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{ ...initialBook, series: "Mistborn", seriesPart: "1" }}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Scraped" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply & Save All" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0]?.[0];
+    expect(saved?.series).toBe("Mistborn");
+    // The part goes through the same "Book 2" -> "2" normalisation a single series always did.
+    expect(saved?.seriesPart).toBe("2");
+    expect(saved?.additionalSeries).toEqual([{ seriesName: "Cosmere", seriesPart: "3" }]);
+  });
+
   // Regression test for Issue C: a scalar text field (subtitle here) with no source value must
   // be cleared too, not left at its stale current value - matches the dialog's own "-> (empty)".
   it("clears subtitle when Apply All is used with a scraped result reporting no subtitle", async () => {

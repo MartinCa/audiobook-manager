@@ -164,6 +164,44 @@ describe("BookDetail", () => {
     expect(screen.getByText(/An epic fantasy story\./)).toBeInTheDocument();
   });
 
+  it("lists every series with its part and links, the primary first and marked", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...sampleBookDetail,
+      additionalSeries: [
+        { seriesName: "Cosmere", seriesPart: "2" },
+        { seriesName: "Sanderson / Universe", seriesPart: null },
+      ],
+    });
+    renderWithProviders();
+
+    const primary = await screen.findByRole("link", { name: "The Stormlight Archive" });
+    const cosmere = screen.getByRole("link", { name: "Cosmere" });
+    const slashed = screen.getByRole("link", { name: "Sanderson / Universe" });
+
+    expect(cosmere.getAttribute("href")).toBe("/library/series/Cosmere");
+    // A series name with a slash is a path param on the client route, encoded rather than split.
+    expect(slashed.getAttribute("href")).toBe("/library/series/Sanderson%20%2F%20Universe");
+    // Primary first, then the additional series in their stored order.
+    expect(
+      primary.compareDocumentPosition(cosmere) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      cosmere.compareDocumentPosition(slashed) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText("· part 1")).toBeInTheDocument();
+    expect(screen.getByText("· part 2")).toBeInTheDocument();
+    // Exactly one primary marker.
+    expect(screen.getAllByText("Primary")).toHaveLength(1);
+    expect(primary.closest("li")).toHaveTextContent("Primary");
+  });
+
+  it("shows no primary marker for a book with a single series", async () => {
+    renderWithProviders();
+
+    await screen.findByRole("link", { name: "The Stormlight Archive" });
+    expect(screen.queryByText("Primary")).not.toBeInTheDocument();
+  });
+
   it("renders the subtitle on the read-only detail page", async () => {
     vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
       ...sampleBookDetail,
@@ -944,6 +982,8 @@ describe("BookDetail", () => {
       ],
       sourceStatuses: [],
     });
+    // The result has no description, so choosing it fetches the full details first.
+    vi.mocked(metadataSearchApi.getBookDetails).mockRejectedValue(new Error("no details"));
 
     const { router } = renderWithProviders("/library/book/42/edit?openSearch=true");
 
@@ -992,6 +1032,8 @@ describe("BookDetail", () => {
       ],
       sourceStatuses: [],
     });
+    // The result has no description, so choosing it fetches the full details first.
+    vi.mocked(metadataSearchApi.getBookDetails).mockRejectedValue(new Error("no details"));
 
     const { router } = renderWithProviders("/library/book/42/edit?openSearch=true");
 

@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { BookQualifierBadges } from "@/components/BookQualifierBadges";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
@@ -145,6 +146,20 @@ export function BookDetail({ mode }: BookDetailProps) {
 
   const bookDetail = data?.detail ?? null;
   const issues = data?.bookIssues ?? [];
+  // Every series the book belongs to, the primary first: the one in its tags and path, then the
+  // database-only additional ones.
+  const bookSeries = bookDetail
+    ? [
+        ...(bookDetail.series
+          ? [{ name: bookDetail.series, part: bookDetail.seriesPart, isPrimary: true }]
+          : []),
+        ...(bookDetail.additionalSeries ?? []).map((r) => ({
+          name: r.seriesName,
+          part: r.seriesPart,
+          isPrimary: false,
+        })),
+      ]
+    : [];
 
   useSignalREvent<SaveProgressPayload>(SignalREvents.AudiobookSaveProgress, (payload) => {
     if (payload.audiobookId === id) {
@@ -605,21 +620,29 @@ export function BookDetail({ mode }: BookDetailProps) {
                   <DetailRow label="Subtitle">{bookDetail.subtitle || "—"}</DetailRow>
 
                   <DetailRow label="Series">
-                    {bookDetail.series ? (
-                      <span className="flex flex-wrap items-center gap-x-2">
-                        <Link
-                          to="/library/series/$seriesName"
-                          params={{ seriesName: bookDetail.series }}
-                          className="text-primary font-medium hover:underline"
-                        >
-                          {bookDetail.series}
-                        </Link>
-                        {bookDetail.seriesPart && (
-                          <span className="text-muted-foreground">
-                            · part {bookDetail.seriesPart}
-                          </span>
-                        )}
-                      </span>
+                    {bookSeries.length > 0 ? (
+                      <ul className="space-y-1">
+                        {bookSeries.map((relation) => (
+                          <li
+                            key={relation.name}
+                            className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                          >
+                            <Link
+                              to="/library/series/$seriesName"
+                              params={{ seriesName: relation.name }}
+                              className="text-primary font-medium break-words hover:underline"
+                            >
+                              {relation.name}
+                            </Link>
+                            {relation.part && (
+                              <span className="text-muted-foreground">· part {relation.part}</span>
+                            )}
+                            {relation.isPrimary && bookSeries.length > 1 && (
+                              <Badge variant="secondary">Primary</Badge>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     ) : (
                       <span className="text-muted-foreground">None</span>
                     )}

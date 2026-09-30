@@ -121,7 +121,7 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"], false);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"], false, undefined);
   });
 
   // Regression: CLIENT_KEY_TO_BACKEND_FIELDS had no "www" entry, so a book newly matched via the
@@ -148,7 +148,7 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"], false);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"], false, undefined);
   });
 
   // Regression: with the toggle left at its default (unchecked), a "Title: Subtitle"-shaped
@@ -166,7 +166,12 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(42, ["Rating"], false);
+    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(
+      42,
+      ["Rating"],
+      false,
+      undefined,
+    );
 
     const toggle = screen.getByRole("checkbox", {
       name: "Split title into book name and subtitle at first colon",
@@ -175,6 +180,113 @@ describe("PendingRefreshRowPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /apply selected/i }));
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(2));
-    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(42, ["Rating"], true);
+    expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(
+      42,
+      ["Rating"],
+      true,
+      undefined,
+    );
+  });
+
+  describe("series", () => {
+    const bookInMain: AudiobookDetail = {
+      ...bookDetailWithOnlyRatingDiffering,
+      series: "Main",
+      seriesPart: "1",
+      additionalSeries: [],
+    };
+
+    const pendingWithSeries = (
+      series: { seriesName: string; seriesPart?: string }[],
+    ): PendingMetadataRefresh => ({
+      ...pendingWithOnlyRatingDiffering,
+      payload: {
+        ...pendingWithOnlyRatingDiffering.payload,
+        rating: "4.0",
+        seriesName: series[0]?.seriesName,
+        seriesPart: series[0]?.seriesPart,
+        series,
+      },
+    });
+
+    it("offers no change when the source lists the book's series in a different order", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+        ...bookInMain,
+        additionalSeries: [{ seriesName: "Spinoff", seriesPart: "3" }],
+      });
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithSeries([
+          { seriesName: "Spinoff", seriesPart: "3" },
+          { seriesName: "Main", seriesPart: "1" },
+        ]),
+      );
+
+      renderPanel();
+
+      expect(await screen.findByText(/no applicable pending changes/i)).toBeInTheDocument();
+    });
+
+    it("applies the Series field as one field, keeping the current primary unless another is picked", async () => {
+      vi.mocked(metadataRefreshApi.applyPending).mockClear();
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookInMain);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithSeries([
+          { seriesName: "Main", seriesPart: "1" },
+          { seriesName: "Spinoff", seriesPart: "3" },
+        ]),
+      );
+
+      renderPanel();
+
+      // The default primary is the book's current one, so the chooser starts on it.
+      expect(await screen.findByRole("radio", { name: "Main" })).toBeChecked();
+      fireEvent.click(await screen.findByRole("button", { name: /apply all/i }));
+
+      await waitFor(() =>
+        expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+          42,
+          ["Series"],
+          false,
+          undefined,
+        ),
+      );
+    });
+
+    it("sends the chosen primary series along with the apply", async () => {
+      vi.mocked(metadataRefreshApi.applyPending).mockClear();
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookInMain);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithSeries([
+          { seriesName: "Main", seriesPart: "1" },
+          { seriesName: "Spinoff", seriesPart: "3" },
+        ]),
+      );
+
+      renderPanel();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "Spinoff" }));
+      fireEvent.click(await screen.findByRole("button", { name: /apply all/i }));
+
+      await waitFor(() =>
+        expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+          42,
+          ["Series"],
+          false,
+          "Spinoff",
+        ),
+      );
+    });
+
+    it("shows no primary chooser when the source reports only one series", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookInMain);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithSeries([{ seriesName: "Main", seriesPart: "2" }]),
+      );
+
+      renderPanel();
+
+      await screen.findByRole("button", { name: /apply all/i });
+      expect(screen.queryByText("Primary series")).not.toBeInTheDocument();
+    });
   });
 });

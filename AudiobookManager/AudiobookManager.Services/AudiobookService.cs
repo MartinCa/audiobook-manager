@@ -172,6 +172,10 @@ public class AudiobookService : IAudiobookService
 
         await progressAction("Started", 0);
 
+        // First, before the path or any tag is derived: those come from the primary series, and
+        // the database mirrors whichever series is primary afterwards.
+        audiobook.PromoteAdditionalSeriesIfNoPrimary();
+
         // Genres carry no order of their own anywhere in this app (TagConsistencyChecker already
         // sorts them before comparing), but the "/"-joined tag string and the genres_by_name
         // lookup below both preserve whatever order they arrive in. Sorting here - before the tag

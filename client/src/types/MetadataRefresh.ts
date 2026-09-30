@@ -66,7 +66,6 @@ export const METADATA_REFRESH_FIELDS = [
   "BookName",
   "Subtitle",
   "Series",
-  "SeriesPart",
   "Year",
   "Genres",
   "Description",
@@ -80,7 +79,7 @@ export const METADATA_REFRESH_FIELDS = [
 
 export type MetadataRefreshFieldName = (typeof METADATA_REFRESH_FIELDS)[number];
 
-/** Display label for a stored changed-field name; SeriesPart folds into "Series" since the two are edited together. */
+/** Display label for a stored changed-field name. "Series" is the whole set of a book's series; a stored "SeriesPart" (retired as a field of its own) keeps a label for rows written before that. */
 export const METADATA_REFRESH_FIELD_LABELS: Record<string, string> = {
   Authors: "Authors",
   Narrators: "Narrators",

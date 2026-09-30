@@ -61,7 +61,7 @@ describe("consistencyHelpers", () => {
     it("has a label, a bulk description and its own explanatory info", () => {
       expect(getIssueTypeLabel("SeriesPartMismatch")).toBe("Series Part Mismatches");
       expect(getBulkResolveDescription("SeriesPartMismatch")).toContain(
-        "overwritten with the position its matched series assigns it",
+        "overwritten with the position that series' roster assigns it",
       );
       // Its own entry rather than a generic "Continue?".
       expect(getIssueTypeInfo("SeriesPartMismatch")).not.toBe("Continue?");

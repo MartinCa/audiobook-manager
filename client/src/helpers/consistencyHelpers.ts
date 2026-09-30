@@ -47,7 +47,7 @@ export const BULK_RESOLVE_DESCRIPTIONS: Record<string, string> = {
   InitialsSpacingMismatch:
     "For each affected author or narrator, every book carrying that name will have the name rewritten to the configured initials spacing and punctuation (e.g. \u201cJ.K. Rowling\u201d \u2192 \u201cJ. K. Rowling\u201d, or \u201cJ. R. R. Tolkien\u201d \u2192 \u201cJ R R Tolkien\u201d), and the m4b tags, sidecars, and file paths updated to match.",
   SeriesPartMismatch:
-    "Each affected audiobook's series part will be overwritten with the position its matched series assigns it (from that series' roster), and the m4b tags, sidecars, and file paths updated to match.",
+    "Each affected audiobook's series part in the matched series will be overwritten with the position that series' roster assigns it, and the m4b tags, sidecars, and file paths updated to match.",
 };
 
 export const ISSUE_TYPE_INFO: Record<string, string> = {
@@ -60,7 +60,7 @@ export const ISSUE_TYPE_INFO: Record<string, string> = {
   InitialsSpacingMismatch:
     "An author or narrator does not match the configured initials spacing (spaced like \u201cJ. K. Rowling\u201d or unspaced like \u201cJ.K. Rowling\u201d) or punctuation (dotted like \u201cJ. R. R. Tolkien\u201d or undotted like \u201cJ R R Tolkien\u201d). Resolving rewrites the name to the configured style on every book that carries it, and updates the m4b tags, sidecars, and file path for each.",
   SeriesPartMismatch:
-    "An owned book of a matched series stores a series part that is missing or differs from the position that series' roster assigns it (\u201c2\u201d vs \u201c2.0\u201d is not a mismatch). Resolving writes the roster position into the book and updates the m4b tags, sidecars, and file path for each.",
+    "An owned book of a matched series stores a series part in that series that is missing or differs from the position its roster assigns it (\u201c2\u201d vs \u201c2.0\u201d is not a mismatch); a book in several series can have one for each. Resolving writes the roster position into the book and updates the m4b tags, sidecars, and file path for each.",
 };
 
 export function getIssueTypeInfo(issueType: string): string {

@@ -31,6 +31,24 @@ public static class AudiobookSeriesExtensions
         return all;
     }
 
+    /// <summary>
+    /// A book with additional series but no primary one promotes the first of them. Done before
+    /// anything is written, so the file's tags and path are built from the series the database will
+    /// go on to record as primary - the two can never disagree about which series that is.
+    /// </summary>
+    public static void PromoteAdditionalSeriesIfNoPrimary(this Audiobook book)
+    {
+        if (!string.IsNullOrWhiteSpace(book.Series) || book.AdditionalSeries is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var next = book.AdditionalSeries.First(r => !string.IsNullOrWhiteSpace(r.Name));
+        book.Series = next.Name.Trim();
+        book.SeriesPart = next.Part;
+        book.AdditionalSeries = book.AdditionalSeries.Where(r => !ReferenceEquals(r, next)).ToList();
+    }
+
     /// <summary>The book's part in <paramref name="seriesName"/>, or null (also when it has no such relation).</summary>
     public static string? PartIn(this Audiobook book, string seriesName) =>
         book.AllSeries().FirstOrDefault(r => SameName(r.Name, seriesName)).Part;
