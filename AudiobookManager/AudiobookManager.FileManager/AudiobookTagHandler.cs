@@ -150,7 +150,7 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         track.Group = group ?? "";
         track.Title = title;
         track.SortAlbum = albumSort;
-        track.Genre = string.Join("/", audiobook.Genres);
+        track.Genre = GetStringFromListOfGenres(audiobook.Genres);
         track.Description = audiobook.Description ?? "";
         track.Copyright = audiobook.Copyright ?? "";
         track.Publisher = audiobook.Publisher ?? "";
@@ -206,6 +206,15 @@ public class AudiobookTagHandler : IAudiobookTagHandler
         (genreTag ?? string.Empty)
             .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
+
+    /// <summary>
+    /// Joins genres into the "/"-delimited tag. "/" is the delimiter, so a genre that itself
+    /// contains one (Goodreads' "FICTION/Classics") can only ever read back as separate genres;
+    /// it is split here, and repeats dropped, so the tag holds exactly what a re-read will see.
+    /// <see cref="TagConsistencyChecker.FormatGenres"/> must normalize the same way.
+    /// </summary>
+    public static string GetStringFromListOfGenres(IEnumerable<string> genres) =>
+        string.Join("/", genres.SelectMany(g => ParseGenresFromString(g)).Distinct(StringComparer.Ordinal));
 
     public static List<Person> ParsePersonsFromString(string? str)
     {

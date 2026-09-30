@@ -105,6 +105,17 @@ public class TagConsistencyCheckerTests
     }
 
     [TestMethod]
+    public void FindMismatches_GenreContainingSlash_MatchesItsSplitReadBack()
+    {
+        // Regression: "FICTION/Classics" is written into the "/"-delimited tag and can only read
+        // back as "FICTION" + "Classics", which made every save of such a book throw.
+        var requested = MakeBook(genres: new[] { "Classics", "FICTION/Classics", "FICTION/Literary", "Young Adult" });
+        var readBack = MakeBook(genres: new[] { "Classics", "FICTION", "Literary", "Young Adult" });
+
+        Assert.AreEqual(0, TagConsistencyChecker.FindMismatches(requested, readBack).Count);
+    }
+
+    [TestMethod]
     public void FindMismatches_GenuinelyDifferentLanguage_IsStillReported()
     {
         var requested = MakeBook(language: "English");

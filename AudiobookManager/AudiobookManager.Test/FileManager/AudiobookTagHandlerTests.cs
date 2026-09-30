@@ -466,6 +466,14 @@ public class AudiobookTagHandlerTests
     }
 
     [TestMethod]
+    public void GetStringFromListOfGenres_SplitsSlashGenresAndDropsRepeats()
+    {
+        Assert.AreEqual(
+            "Classics/FICTION/Literary",
+            AudiobookTagHandler.GetStringFromListOfGenres(new[] { "Classics", "FICTION/Classics", "FICTION/Literary" }));
+    }
+
+    [TestMethod]
     public void ParseGenresFromString_TrimsAndDropsBlankEntries()
     {
         CollectionAssert.AreEqual(
