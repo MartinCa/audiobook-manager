@@ -1337,6 +1337,7 @@ public class HardcoverScraper : IScraper
             }
             default_audio_edition {
               subtitle
+              cached_image
               contributions {
                 contribution
                 author {
@@ -1634,7 +1635,12 @@ public class HardcoverScraper : IScraper
         string? imageUrl = null;
         try
         {
-            imageUrl = ParseCachedImage(bookElement);
+            // The audio edition's cover is the audiobook's own (square) art; the book-level
+            // cached_image is usually the print cover. Fall back to the book-level one when the
+            // audio edition has none.
+            var audioEditionForCover = GetEditionElement(bookElement, "default_audio_edition");
+            imageUrl = (audioEditionForCover is null ? null : ParseCachedImage(audioEditionForCover.Value))
+                       ?? ParseCachedImage(bookElement);
         }
         catch (Exception ex)
         {

@@ -571,6 +571,44 @@ public class HardcoverScraperTests
     }
 
     [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasCover_PrefersItOverBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg" },
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg" } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasNoCover_FallsBackToBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg" },
+                "default_audio_edition": { "cached_image": null }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/book.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
     public async Task GetBookDetails_AudioEditionHasSubtitle_UsesIt()
     {
         var json = """
