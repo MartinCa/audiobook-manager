@@ -507,6 +507,192 @@ public class HardcoverScraperTests
         Assert.IsNull(result.Subtitle);
     }
 
+    // Regression test: Hardcover's book-level subtitle for "A Wizard of Earthsea" (id 427401) is
+    // "Achieving Practical Results Through Effective Engagement" while its editions have none.
+    [TestMethod]
+    public async Task GetBookDetails_EditionReportsNullSubtitle_OverridesBogusBookLevelSubtitle()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 427401,
+                    "title": "A Wizard of Earthsea",
+                    "subtitle": "Achieving Practical Results Through Effective Engagement",
+                    "slug": "a-wizard-of-earthsea",
+                    "default_audio_edition": { "subtitle": null, "asin": "B002VA3CDO" },
+                    "default_physical_edition": { "subtitle": null, "asin": null }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/a-wizard-of-earthsea");
+
+        Assert.IsNull(result.Subtitle);
+    }
+
+    // Regression test: narrators live on the audio edition's contributions; the book-level list
+    // carries only the author, so narrators used to come back empty.
+    [TestMethod]
+    public async Task GetBookDetails_NarratorOnlyOnAudioEdition_IsReturned()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 427401,
+                    "title": "A Wizard of Earthsea",
+                    "slug": "a-wizard-of-earthsea",
+                    "contributions": [
+                      { "contribution": "Author", "author": { "name": "Ursula K. Le Guin" } }
+                    ],
+                    "default_audio_edition": {
+                      "contributions": [
+                        { "contribution": "Narrator", "author": { "name": "Rob Inglis" } },
+                        { "contribution": "Author", "author": { "name": "Ursula K. Le Guin" } }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/a-wizard-of-earthsea");
+
+        CollectionAssert.AreEqual(new[] { "Rob Inglis" }, result.Narrators.Select(n => n.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Ursula K. Le Guin" }, result.Authors.Select(a => a.Name).ToArray());
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasCover_PrefersItOverBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg" },
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 500, "height": 500 } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasNoCover_FallsBackToBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg" },
+                "default_audio_edition": { "cached_image": null }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/book.jpg", result.ImageUrl);
+    }
+
+    // Regression test: A Wizard of Earthsea's audio edition cover is a 98x98 thumbnail while the
+    // book-level cover is 333x500; preferring the edition unconditionally downgraded the cover.
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionCoverIsTinyThumbnail_KeepsBookLevelCover()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg", "width": 333, "height": 500 },
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 98, "height": 98 } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/book.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_TinyAudioCoverAndNoBookCover_UsesTheTinyOne()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "default_audio_edition": { "cached_image": { "url": "https://covers.hardcover.app/audio.jpg", "width": 98, "height": 98 } }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
+    }
+
+    // Regression test (PR review): Hasura can return cached_image as a JSON string holding the
+    // object; the size check used to read only the inline-object form and demoted a large cover.
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionCoverAsJsonString_SizeIsStillChecked()
+    {
+        var json = """
+            {
+              "data": { "books": [ {
+                "id": 1, "title": "T", "slug": "t",
+                "cached_image": { "url": "https://covers.hardcover.app/book.jpg", "width": 333, "height": 500 },
+                "default_audio_edition": { "cached_image": "{\"url\":\"https://covers.hardcover.app/audio.jpg\",\"width\":500,\"height\":500}" }
+              } ] }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("https://covers.hardcover.app/audio.jpg", result.ImageUrl);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AudioEditionHasSubtitle_UsesIt()
+    {
+        var json = """
+            {
+              "data": {
+                "books": [
+                  {
+                    "id": 1,
+                    "title": "T",
+                    "subtitle": "Book level",
+                    "slug": "t",
+                    "default_audio_edition": { "subtitle": "Audio level" }
+                  }
+                ]
+              }
+            }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/t");
+
+        Assert.AreEqual("Audio level", result.Subtitle);
+    }
+
     [TestMethod]
     public async Task GetBookDetails_AudioEditionMissingLanguageAndAsin_FallsBackToPhysicalEdition()
     {

@@ -1336,6 +1336,14 @@ public class HardcoverScraper : IScraper
               }
             }
             default_audio_edition {
+              subtitle
+              cached_image
+              contributions {
+                contribution
+                author {
+                  name
+                }
+              }
               isbn_13
               asin
               audio_seconds
@@ -1347,6 +1355,7 @@ public class HardcoverScraper : IScraper
               }
             }
             default_physical_edition {
+              subtitle
               isbn_13
               asin
               publisher {
@@ -1592,7 +1601,7 @@ public class HardcoverScraper : IScraper
                 bookName = fullTitle.Trim();
             }
 
-            subtitle = bookElement.GetPropertyValueOrNull("subtitle");
+            subtitle = ResolveSubtitle(bookElement);
         }
         catch (Exception ex)
         {
@@ -1604,6 +1613,19 @@ public class HardcoverScraper : IScraper
         try
         {
             (authors, narrators) = ParseContributions(bookElement);
+
+            // Hardcover records narrators on the audio edition; the book-level contributions
+            // are mostly authors only (confirmed live for "A Wizard of Earthsea" and "The
+            // Hobbit"). The edition's narrators win, the book-level ones are the fallback.
+            var audioEditionForNarrators = GetEditionElement(bookElement, "default_audio_edition");
+            if (audioEditionForNarrators is not null)
+            {
+                var editionNarrators = ParseContributions(audioEditionForNarrators.Value).Narrators;
+                if (editionNarrators.Count > 0)
+                {
+                    narrators = editionNarrators;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -1613,7 +1635,17 @@ public class HardcoverScraper : IScraper
         string? imageUrl = null;
         try
         {
-            imageUrl = ParseCachedImage(bookElement);
+            // The audio edition's cover is the audiobook's own (square) art, so it is preferred -
+            // but only when it is a usable size: Hardcover sometimes holds a tiny thumbnail there
+            // (98x98 for "A Wizard of Earthsea") next to a 333x500 book-level cover. A small
+            // edition cover is kept only as a last resort when the book-level one is missing.
+            var audioEdition = GetEditionElement(bookElement, "default_audio_edition");
+            var editionImage = audioEdition is null ? null : ParseCachedImageObject(audioEdition.Value);
+            var editionUrl = editionImage?.GetPropertyValueOrNull("url");
+            var bookImage = ParseCachedImage(bookElement);
+            imageUrl = editionUrl is not null && IsUsableCoverSize(editionImage!.Value)
+                ? editionUrl
+                : bookImage ?? editionUrl;
         }
         catch (Exception ex)
         {
@@ -1824,9 +1856,31 @@ public class HardcoverScraper : IScraper
         return (authors, narrators);
     }
 
+    private const int _minEditionCoverPixels = 300;
+
+    /// <summary>
+    /// True when the cached_image object reports both dimensions and each is at least
+    /// <see cref="_minEditionCoverPixels"/>. Missing dimensions count as unusable.
+    /// </summary>
+    private static bool IsUsableCoverSize(JsonElement image)
+    {
+        return image.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number && w.GetInt32() >= _minEditionCoverPixels
+            && image.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number && h.GetInt32() >= _minEditionCoverPixels;
+    }
+
     private static string? ParseCachedImage(JsonElement bookElement)
     {
-        if (!bookElement.TryGetProperty("cached_image", out var cachedImageElement))
+        return ParseCachedImageObject(bookElement)?.GetPropertyValueOrNull("url");
+    }
+
+    /// <summary>
+    /// The <c>cached_image</c> jsonb column as an object, whether Hasura returned it inline or
+    /// as a JSON string containing the object (the same two shapes as cached_tags). Null when
+    /// absent, null or not an object.
+    /// </summary>
+    private static JsonElement? ParseCachedImageObject(JsonElement element)
+    {
+        if (!element.TryGetProperty("cached_image", out var cachedImageElement))
         {
             return null;
         }
@@ -1834,18 +1888,16 @@ public class HardcoverScraper : IScraper
         if (cachedImageElement.ValueKind == JsonValueKind.String)
         {
             var jsonStr = cachedImageElement.GetString();
-            if (jsonStr is not null)
+            if (jsonStr is null)
             {
-                var imageObj = JsonSerializer.Deserialize<JsonElement>(jsonStr);
-                return imageObj.GetPropertyValueOrNull("url");
+                return null;
             }
-        }
-        else if (cachedImageElement.ValueKind == JsonValueKind.Object)
-        {
-            return cachedImageElement.GetPropertyValueOrNull("url");
+
+            var parsed = JsonSerializer.Deserialize<JsonElement>(jsonStr);
+            return parsed.ValueKind == JsonValueKind.Object ? parsed : null;
         }
 
-        return null;
+        return cachedImageElement.ValueKind == JsonValueKind.Object ? cachedImageElement : null;
     }
 
     private IList<string> ParseGenres(JsonElement bookElement)
@@ -1927,6 +1979,28 @@ public class HardcoverScraper : IScraper
         }
 
         return await _bookSeriesMapper.MapBookSeries(series);
+    }
+
+    /// <summary>
+    /// The book-level <c>subtitle</c> is community-edited and can be wrong (book 427401,
+    /// "A Wizard of Earthsea", carries a business-book subtitle while both its editions have
+    /// none). The default audio edition - falling back to the physical one - is the record this
+    /// audiobook tool actually cares about, so its subtitle wins whenever the response carries
+    /// the field at all, even as null. The book-level value is used only when neither edition
+    /// reports a subtitle field.
+    /// </summary>
+    private static string? ResolveSubtitle(JsonElement bookElement)
+    {
+        foreach (var editionProperty in new[] { "default_audio_edition", "default_physical_edition" })
+        {
+            var edition = GetEditionElement(bookElement, editionProperty);
+            if (edition is not null && edition.Value.TryGetProperty("subtitle", out _))
+            {
+                return edition.Value.GetPropertyValueOrNull("subtitle");
+            }
+        }
+
+        return bookElement.GetPropertyValueOrNull("subtitle");
     }
 
     private static JsonElement? GetEditionElement(JsonElement bookElement, string editionProperty)
