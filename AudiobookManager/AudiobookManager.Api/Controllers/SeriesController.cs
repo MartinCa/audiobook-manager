@@ -200,7 +200,8 @@ public class SeriesController : ControllerBase
         [FromQuery] List<string>? genres = null,
         [FromQuery] List<string>? languages = null,
         [FromQuery] int? minDurationInSeconds = null,
-        [FromQuery] int? maxDurationInSeconds = null)
+        [FromQuery] int? maxDurationInSeconds = null,
+        [FromQuery] List<string>? qualifiers = null)
     {
         foreach (var check in new[]
         {
@@ -218,7 +219,7 @@ public class SeriesController : ControllerBase
             }
         }
 
-        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
         var detail = await _seriesService.GetSeriesDetailPageAsync(
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,

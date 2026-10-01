@@ -14,7 +14,12 @@ import type { PageSizeOption } from "@/constants/paging";
 import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { languageLabel } from "@/helpers/languages";
-import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
+import { useBookQualifiers } from "@/hooks/useBookQualifiers";
+import {
+  NO_QUALIFIER_VALUE,
+  SOURCE_OPTION_LABELS,
+  UNSUPPORTED_SOURCE_VALUE,
+} from "@/types/EntityFilters";
 import type { BookListFilters } from "@/types/EntityFilters";
 import type { BookSelection } from "@/hooks/useBookSelection";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
@@ -144,6 +149,10 @@ export function OwnedBookList({
     queryFn: () => settingsApi.getLanguages(),
   });
 
+  // Qualifier options are the backend's supported set (never a client list), so the filter can
+  // only ever offer what exists - plus the synthetic "None" bucket.
+  const qualifierOptions = useBookQualifiers();
+
   // Issue-count and pending-refresh badges: fetched once here (globally cached, like the filter
   // options above) rather than folded into each surface's own page query, so every owned-book
   // list gets the same badges the library list used to be the only one to show.
@@ -199,6 +208,16 @@ export function OwnedBookList({
         optionLabels: languageLabels,
       },
       {
+        type: "multiselect",
+        key: "qualifiers",
+        label: "Qualifier",
+        options: [NO_QUALIFIER_VALUE, ...qualifierOptions.map((q) => q.key)],
+        optionLabels: {
+          [NO_QUALIFIER_VALUE]: "None",
+          ...Object.fromEntries(qualifierOptions.map((q) => [q.key, q.label])),
+        },
+      },
+      {
         type: "numberRange",
         label: "Duration (minutes)",
         minKey: "minDurationInSeconds",
@@ -206,7 +225,7 @@ export function OwnedBookList({
         unit: DURATION_FILTER_UNIT,
       },
     ];
-  }, [filterOptionsQuery.data, languagesQuery.data]);
+  }, [filterOptionsQuery.data, languagesQuery.data, qualifierOptions]);
 
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL, or a filter
   // set before this instance mounted) starts expanded so the list isn't filtered with no visible

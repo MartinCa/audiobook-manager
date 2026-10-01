@@ -38,6 +38,12 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getBookQualifiers: vi.fn().mockResolvedValue({
+      qualifiers: [
+        { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
+        { key: "dramatized", label: "Dramatized", suffix: " (Dramatized)" },
+      ],
+    }),
   },
   consistencyApi: {
     getIssueSummary: vi.fn().mockResolvedValue({}),
@@ -252,6 +258,12 @@ describe("OwnedBookList", () => {
     fireEvent.change(minInput, { target: { value: "10" } });
 
     expect(onFiltersChange).toHaveBeenCalledWith({ minDurationInSeconds: 600 });
+  });
+
+  it("labels an active qualifier filter from the backend-served qualifier list and the None bucket", async () => {
+    renderList({ filters: { qualifiers: ["abridged", "(none)"] } });
+
+    expect(await screen.findByText("Qualifier: Abridged, None")).toBeInTheDocument();
   });
 
   it("starts with the filter panel expanded when a filter is already active", () => {

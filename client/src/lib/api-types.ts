@@ -451,6 +451,7 @@ export interface paths {
                     languages?: string[];
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -537,6 +538,7 @@ export interface paths {
                     languages?: string[];
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -721,6 +723,7 @@ export interface paths {
                     languages?: string[];
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path: {
@@ -2819,6 +2822,7 @@ export interface paths {
                     languages?: string[];
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -3490,6 +3494,7 @@ export interface paths {
                     languages?: string[];
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
+                    qualifiers?: string[];
                 };
                 header?: never;
                 path?: never;
