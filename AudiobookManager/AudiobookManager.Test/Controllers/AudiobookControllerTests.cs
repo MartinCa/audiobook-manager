@@ -626,6 +626,19 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
+    public async Task OrganizeAudiobook_MapsTheRecordedTitleSplitOntoTheDomainBook()
+    {
+        var dto = MakeDto();
+        dto.SplitTitleOnColon = true;
+        var queuedTask = new QueuedOrganizeTask("/import/test.m4b", new Audiobook(new List<Person>(), "Test Book", 2024, new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000)), DateTime.UtcNow);
+        _organizeTaskService.Setup(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), It.IsAny<bool>())).ReturnsAsync(queuedTask);
+
+        await _controller.OrganizeAudiobook(dto);
+
+        _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.Is<Audiobook>(a => a.SplitTitleOnColon), false), Times.Once);
+    }
+
+    [TestMethod]
     public async Task OrganizeAudiobook_MapsAdditionalSeriesAndDropsBlankOnes()
     {
         var dto = MakeDto(series: "Main", seriesPart: "1");

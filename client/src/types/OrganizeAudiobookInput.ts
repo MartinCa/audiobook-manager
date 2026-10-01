@@ -9,6 +9,8 @@ export interface OrganizeAudiobookInput {
   narrators?: string;
   bookName?: string;
   subtitle?: string;
+  /** The book is recorded as split at the colon: the tag preview starts with the split on. */
+  splitTitleOnColon?: boolean;
   series?: string;
   seriesOriginal?: string;
   seriesPart?: string;

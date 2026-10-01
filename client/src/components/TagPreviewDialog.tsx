@@ -29,6 +29,12 @@ interface TagPreviewDialogProps {
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
+    /**
+     * The title was actually split at its colon by this apply (the book name field was applied
+     * and the split changed it), so the consumer records that choice on the book and a later
+     * refresh splits the same way.
+     */
+    titleSplit: boolean,
   ) => void;
   /**
    * Shows the "don't save automatically" opt-out checkbox. Only the interactive search-result
@@ -58,7 +64,9 @@ export function TagPreviewDialog({
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
   // helpers/titleSplitter.ts).
-  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(
+    currentInput.splitTitleOnColon ?? false,
+  );
 
   // Which of the source's series becomes the book's primary one. Undefined = the default the
   // apply would pick (the book's current primary when the source still lists it); reset with the
@@ -112,7 +120,7 @@ export function TagPreviewDialog({
     setLastSearchResult(searchResult);
     setSelected(new Set(changedFieldKeys));
     setDontSaveAutomatically(false);
-    setSplitTitleOnColonEnabled(false);
+    setSplitTitleOnColonEnabled(currentInput.splitTitleOnColon ?? false);
     setChosenPrimarySeries(undefined);
   }
 
@@ -126,7 +134,7 @@ export function TagPreviewDialog({
     setWasOpen(open);
     if (open) {
       setDontSaveAutomatically(false);
-      setSplitTitleOnColonEnabled(false);
+      setSplitTitleOnColonEnabled(currentInput.splitTitleOnColon ?? false);
       setChosenPrimarySeries(undefined);
     }
   }
@@ -180,7 +188,9 @@ export function TagPreviewDialog({
   // both fields instead of moving it. Mirrors the same guard in the backend's
   // MetadataRefreshApplier. handleApplyAll's `keys` always includes "bookName" (it's every field
   // key, changed or not), so this only bites Apply Selected after a manual bookName deselection.
-  const applyAdjustedResult = (keys: Set<string>): MetadataSearchResult => {
+  const applyAdjustedResult = (
+    keys: Set<string>,
+  ): { result: MetadataSearchResult; titleSplit: boolean } => {
     const originalSubtitleBlank = !searchResult.subtitle?.trim();
     const { bookName, subtitle } = splitTitleOnColon(
       searchResult.bookName ?? "",
@@ -192,21 +202,31 @@ export function TagPreviewDialog({
       subtitleRecoveredBySplit && !keys.has("bookName") ? searchResult.subtitle : subtitle;
     // The series go out primary-first (then the rest in canonical order), so the consumer applies
     // "first = primary, the others = additional" without a signature of its own for the choice.
-    return withPrimarySeriesFirst(
-      { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
-      currentSeriesEntries,
-      chosenPrimarySeries,
-    );
+    return {
+      result: withPrimarySeriesFirst(
+        { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
+        currentSeriesEntries,
+        chosenPrimarySeries,
+      ),
+      // Only a split that really changed the title is a choice worth recording (the same rule
+      // as the server's MetadataRefreshApplier), and only when the title itself is applied.
+      titleSplit:
+        splitTitleOnColonEnabled &&
+        keys.has("bookName") &&
+        bookName !== (searchResult.bookName ?? ""),
+    };
   };
 
   const handleApplySelected = () => {
-    onApply(applyAdjustedResult(selected), selected, saveImmediately);
+    const { result, titleSplit } = applyAdjustedResult(selected);
+    onApply(result, selected, saveImmediately, titleSplit);
     onOpenChange(false);
   };
 
   const handleApplyAll = () => {
     const allKeys = new Set(fields.map((f) => f.key));
-    onApply(applyAdjustedResult(allKeys), allKeys, saveImmediately);
+    const { result, titleSplit } = applyAdjustedResult(allKeys);
+    onApply(result, allKeys, saveImmediately, titleSplit);
     onOpenChange(false);
   };
 

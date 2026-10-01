@@ -55,6 +55,13 @@ describe("api service mappings and contracts", () => {
       expect(preview).not.toHaveProperty("additionalSeries");
     });
 
+    it("sends the split-title flag, defaulting to false so a book never silently becomes split", () => {
+      expect(toAudiobookDto(sampleAudiobook).splitTitleOnColon).toBe(false);
+      expect(
+        toAudiobookDto({ ...sampleAudiobook, splitTitleOnColon: true }).splitTitleOnColon,
+      ).toBe(true);
+    });
+
     it("leaves additionalSeries out when the book never read it, so the server keeps the stored ones", () => {
       expect(toAudiobookDto(sampleAudiobook).additionalSeries).toBeUndefined();
     });

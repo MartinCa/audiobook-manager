@@ -36,6 +36,10 @@ public static class MetadataRefreshApplier
             book.Narrators = snapshot.Narrators.Select(name => new Person(name)).ToList();
         }
 
+        // A book already recorded as split is split again without being asked: that is the point
+        // of recording it. An explicit request records the choice on the book (below).
+        var splitRequestedNow = splitTitleOnColon;
+        splitTitleOnColon |= book.SplitTitleOnColon;
         var (splitBookName, splitSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, splitTitleOnColon);
 
         // The split has two cases. With a blank snapshot.Subtitle it carves the subtitle out of
@@ -68,6 +72,13 @@ public static class MetadataRefreshApplier
         if (fields.Contains(MetadataRefreshFields.BookName) && !string.IsNullOrWhiteSpace(splitBookName))
         {
             book.BookName = splitBookName;
+
+            // Record the choice only when the split actually changed the title: a bulk apply with
+            // the toggle on must not flag every book that merely has no colon in its title.
+            if (splitRequestedNow && !string.Equals(splitBookName, snapshot.BookName, StringComparison.Ordinal))
+            {
+                book.SplitTitleOnColon = true;
+            }
         }
 
         if (fields.Contains(MetadataRefreshFields.Subtitle)

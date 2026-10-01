@@ -22,6 +22,16 @@ public class Audiobook
     [Column("subtitle")]
     public string? Subtitle { get; set; }
 
+    /// <summary>
+    /// Whether this book's title is kept split at its first ": " into <see cref="BookName"/> and
+    /// <see cref="Subtitle"/>. Recorded when the user splits (while editing, or when applying
+    /// online metadata) so a later metadata refresh splits the source's "Title: Subtitle" the same
+    /// way instead of proposing to undo it. Bookkeeping only: it is never written to a tag or the
+    /// library path.
+    /// </summary>
+    [Column("split_title_on_colon")]
+    public bool SplitTitleOnColon { get; set; }
+
     [Column("series")]
     public string? Series { get; set; }
 

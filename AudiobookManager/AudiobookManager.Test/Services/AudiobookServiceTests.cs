@@ -112,6 +112,36 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public async Task InsertAudiobook_PersistsTheRecordedTitleSplit_AndFromDbReadsItBack()
+    {
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Author1") },
+            "The Hobbit",
+            2024,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        {
+            Subtitle = "There and Back Again",
+            SplitTitleOnColon = true
+        };
+
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbPerson> { ["Author1"] = new DbPerson(1, "Author1") });
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 1;
+                return db;
+            });
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.SplitTitleOnColon)), Times.Once);
+        Assert.IsTrue(result.SplitTitleOnColon);
+    }
+
+    [TestMethod]
     public async Task InsertAudiobook_MapsLanguageThroughToFromDb()
     {
         var audiobook = new Audiobook(
