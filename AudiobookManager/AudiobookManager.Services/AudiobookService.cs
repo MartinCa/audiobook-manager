@@ -347,7 +347,7 @@ public class AudiobookService : IAudiobookService
             }
             else
             {
-                throw new Exception($"'{newFullPath}' already exists");
+                throw new TargetPathExistsException(newFullPath);
             }
         }
 

@@ -202,6 +202,66 @@ public class MetadataRefreshControllerTests
             "Another operation is already modifying audiobook 55");
     }
 
+    // Regression: a file already at the target path used to escape as a bare System.Exception and
+    // surface as a nondescript 500, leaving the user with no message and no way to resolve it.
+    [TestMethod]
+    public async Task ApplyPending_TargetFileAlreadyExists_Returns409WithTheMessage()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(56, null))
+            .ThrowsAsync(new TargetPathExistsException("/library/A/Book.m4b"));
+
+        var result = await _controller.ApplyPending(56, null);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict, "'/library/A/Book.m4b' already exists");
+    }
+
+    [TestMethod]
+    public async Task ApplyPending_ReplaceExistingInDto_PassesThroughToTheService()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(57, null, false, null, true))
+            .ReturnsAsync(true);
+
+        var result = await _controller.ApplyPending(57, new ApplyPendingRefreshDto(null, ReplaceExisting: true));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(57, null, false, null, true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CheckApplyTarget_Collision_ReturnsTheExistingFileDetails()
+    {
+        _metadataRefreshService.Setup(s => s.CheckApplyTargetCollisionAsync(58, null, false, null))
+            .ReturnsAsync(new TargetPathCollisionResult
+            {
+                TargetPath = "/library/A/Book.m4b",
+                Exists = true,
+                ExistingAudiobookId = 9,
+                ExistingSizeInBytes = 123,
+                ExistingDurationInSeconds = 456,
+            });
+
+        var result = await _controller.CheckApplyTarget(58, null);
+
+        var dto = (result.Result as OkObjectResult)?.Value as TargetPathCheckDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("/library/A/Book.m4b", dto.TargetPath);
+        Assert.IsTrue(dto.Exists);
+        Assert.AreEqual(9, dto.Existing!.AudiobookId);
+        Assert.AreEqual(123, dto.Existing.SizeInBytes);
+        Assert.AreEqual(456, dto.Existing.DurationInSeconds);
+    }
+
+    [TestMethod]
+    public async Task CheckApplyTarget_NothingToCheck_Returns204()
+    {
+        _metadataRefreshService.Setup(s => s.CheckApplyTargetCollisionAsync(59, null, false, null))
+            .ReturnsAsync((TargetPathCollisionResult?)null);
+
+        var result = await _controller.CheckApplyTarget(59, null);
+
+        Assert.IsInstanceOfType<NoContentResult>(result.Result);
+    }
+
     // Mapping test, not a regression guard: the controller's InvalidOperationException catch
     // predates this fix, so mocking the service to throw passes with or without it. The actual
     // regression guard - a corrupt/unparseable payload throwing InvalidOperationException instead

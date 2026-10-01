@@ -620,13 +620,33 @@ export const metadataRefreshApi = {
   // `primarySeriesName` picks which of the snapshot's series becomes the book's primary one when
   // the Series field is applied; left out, the server keeps the book's current primary if the
   // source still lists it (the same choice a bulk apply makes).
+  // `replaceExisting` is the user's answer to the duplicate-target dialog: without it, an apply
+  // whose new library path is already occupied is refused with a 409.
   applyPending: (
     id: number,
     fields?: readonly string[],
     splitTitleOnColon: boolean = false,
     primarySeriesName?: string,
+    replaceExisting: boolean = false,
   ) =>
     api.post<void>(`/metadata-refresh/${id}/apply`, {
+      fields: fields && fields.length > 0 ? fields : undefined,
+      splitTitleOnColon,
+      primarySeriesName,
+      replaceExisting,
+    }),
+
+  // Read-only preview of where the same apply would file the book, and whether another file
+  // already sits there - so the page can show the duplicate-target dialog before applying. Takes
+  // the same arguments as applyPending (minus replaceExisting). Resolves to undefined when there
+  // is nothing to check (204: no pending snapshot, no applicable field).
+  checkApplyTarget: (
+    id: number,
+    fields?: readonly string[],
+    splitTitleOnColon: boolean = false,
+    primarySeriesName?: string,
+  ) =>
+    api.post<TargetPathCheckResult | undefined>(`/metadata-refresh/${id}/apply/check-target`, {
       fields: fields && fields.length > 0 ? fields : undefined,
       splitTitleOnColon,
       primarySeriesName,

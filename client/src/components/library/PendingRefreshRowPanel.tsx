@@ -4,6 +4,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
+import { DuplicateTargetDialog } from "@/components/DuplicateTargetDialog";
 import { browseApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { toAudiobook } from "@/helpers/audiobookMapping";
@@ -20,6 +21,7 @@ import {
 } from "@/helpers/seriesRelations";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 /** Maps a diff row's client-side key to the backend field name(s) MetadataRefreshFields defines; "series" is the whole set of a book's series with their parts and the primary. */
 const CLIENT_KEY_TO_BACKEND_FIELDS: Record<string, string[]> = {
@@ -51,7 +53,10 @@ interface PendingRefreshRowPanelProps {
  * the same diff grid TagPreviewDialog shows in a modal (see MetadataFieldDiffTable/
  * useMetadataFieldDiffs), so a user reviewing the bulk list can approve one book without leaving
  * the page. Applying goes straight through the single-book apply endpoint - there is no mounted
- * edit form here for BookEditForm's own apply flow to route through.
+ * edit form here for BookEditForm's own apply flow to route through - so the target-path
+ * collision check every other save flow runs (useTargetCollision) is done here: the apply is
+ * previewed first, and a file already at the new library path opens the duplicate-target dialog
+ * instead of failing.
  */
 export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefreshRowPanelProps) {
   const queryClient = useQueryClient();
@@ -166,14 +171,46 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     return Array.from(fields);
   };
 
-  const apply = async (keys: Iterable<string>) => {
-    setApplying(true);
+  // A different file already sitting where the apply would file the book, awaiting the user's
+  // answer; the fields are kept so "Replace existing" applies exactly what was checked.
+  const [pendingCollision, setPendingCollision] = useState<{
+    fields: string[];
+    check: TargetPathCheckResult;
+  } | null>(null);
+
+  // The server already treats the book's own file as no collision, from a fresh read of the row,
+  // so its answer is trusted as is. If the check itself fails, fall through and let the apply decide: the server refuses a
+  // colliding apply with a 409 either way, so a failed preview cannot overwrite anything.
+  const findTargetCollision = async (fields: string[]): Promise<TargetPathCheckResult | null> => {
     try {
-      await metadataRefreshApi.applyPending(
+      const check = await metadataRefreshApi.checkApplyTarget(
         audiobookId,
-        backendFieldsFor(keys),
+        fields,
         splitTitleOnColonEnabled,
         chosenPrimarySeries,
+      );
+      return check?.exists ? check : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const applyFields = async (fields: string[], replaceExisting = false) => {
+    setApplying(true);
+    try {
+      if (!replaceExisting) {
+        const collision = await findTargetCollision(fields);
+        if (collision) {
+          setPendingCollision({ fields, check: collision });
+          return;
+        }
+      }
+      await metadataRefreshApi.applyPending(
+        audiobookId,
+        fields,
+        splitTitleOnColonEnabled,
+        chosenPrimarySeries,
+        replaceExisting,
       );
       notifications.success("Metadata changes applied");
       void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
@@ -186,6 +223,8 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
       setApplying(false);
     }
   };
+
+  const apply = (keys: Iterable<string>) => applyFields(backendFieldsFor(keys));
 
   if (loadingBook || loadingPending) {
     return (
@@ -255,6 +294,28 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
           Apply All
         </Button>
       </div>
+
+      {pendingCollision && (
+        <DuplicateTargetDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingCollision(null);
+          }}
+          newPath={bookDetail?.filePath ?? ""}
+          newSizeInBytes={bookDetail?.sizeInBytes ?? 0}
+          newDurationInSeconds={bookDetail?.durationInSeconds ?? undefined}
+          targetPath={pendingCollision.check.targetPath}
+          existingSizeInBytes={pendingCollision.check.existing?.sizeInBytes}
+          existingDurationInSeconds={
+            pendingCollision.check.existing?.durationInSeconds ?? undefined
+          }
+          onReplaceExisting={() => {
+            const { fields } = pendingCollision;
+            setPendingCollision(null);
+            void applyFields(fields, true);
+          }}
+        />
+      )}
     </div>
   );
 }

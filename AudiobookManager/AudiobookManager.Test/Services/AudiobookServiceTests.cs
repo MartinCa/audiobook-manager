@@ -1205,9 +1205,11 @@ public class AudiobookServiceTests
 
             _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), false)).Returns(book);
 
-            var ex = await Assert.ThrowsExactlyAsync<Exception>(() =>
+            // Typed so the API can answer 409 with the message rather than a bare 500.
+            var ex = await Assert.ThrowsExactlyAsync<TargetPathExistsException>(() =>
                 _service.OrganizeAudiobook(book, (_, _) => Task.CompletedTask));
 
+            Assert.AreEqual(targetPath, ex.TargetPath);
             StringAssert.Contains(ex.Message, "already exists");
         }
         finally

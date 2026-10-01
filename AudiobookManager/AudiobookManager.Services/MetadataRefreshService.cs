@@ -2,6 +2,7 @@ using System.Text.Json;
 using AudiobookManager.Database.Models;
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
+using AudiobookManager.FileManager;
 using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
@@ -445,7 +446,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     public async Task<bool> ApplyPendingRefreshAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
-        string? primarySeriesName = null)
+        string? primarySeriesName = null, bool replaceExisting = false)
     {
         var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -453,7 +454,43 @@ public class MetadataRefreshService : IMetadataRefreshService
             return false;
         }
 
-        return await ApplyOneAsync(row, fields, splitTitleOnColon, primarySeriesName);
+        return await ApplyOneAsync(row, fields, splitTitleOnColon, primarySeriesName, replaceExisting);
+    }
+
+    public async Task<TargetPathCollisionResult?> CheckApplyTargetCollisionAsync(
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
+        string? primarySeriesName = null)
+    {
+        var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var payload = ParsePayloadOrThrow(row);
+        var dbBook = (await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId })).FirstOrDefault();
+        if (dbBook is null)
+        {
+            return null;
+        }
+
+        var fieldsToApply = await ResolveFieldsToApplyAsync(row, payload, fields, dbBook);
+        if (fieldsToApply.Count == 0)
+        {
+            return null;
+        }
+
+        var domain = BuildAppliedDomain(dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+        var collision = await _audiobookService.CheckTargetPathCollision(domain);
+
+        // The book's own file is not a collision: a field that doesn't move the file leaves the
+        // target equal to where it already is.
+        if (collision.Exists && AudiobookFileHandler.PathsEqual(collision.TargetPath, domain.FileInfo.FullPath))
+        {
+            return new TargetPathCollisionResult { TargetPath = collision.TargetPath, Exists = false };
+        }
+
+        return collision;
     }
 
     public Task<(int Processed, int Succeeded, int Failed)> ApplySelectedPendingRefreshesAsync(
@@ -511,46 +548,14 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// </summary>
     private async Task<bool> ApplyOneAsync(
         PendingMetadataRefresh row, IReadOnlyCollection<string>? fields, bool splitTitleOnColon = false,
-        string? primarySeriesName = null)
+        string? primarySeriesName = null, bool replaceExisting = false)
     {
-        var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
-        if (payload is null)
-        {
-            throw new InvalidOperationException(
-                $"The pending metadata refresh for audiobook {row.AudiobookId} could not be read; its stored payload is not valid.");
-        }
-
-        var storedChangedFields = MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson);
+        var payload = ParsePayloadOrThrow(row);
 
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(new List<long> { row.AudiobookId });
         var dbBook = books.FirstOrDefault();
 
-        // No explicit caller selection: always re-diff against the book's CURRENT state rather
-        // than trusting whatever ChangedFieldsJson happens to have stored. This covers both a row
-        // that predates ChangedFieldsJson entirely (stored as empty, before
-        // EnsureChangedFieldsBackfilledAsync gets to it) and a row whose stored list was computed
-        // under an older field vocabulary - MetadataRefreshFields has grown before (e.g. adding
-        // Www) and a row fetched/backfilled before that change carries a ChangedFieldsJson that
-        // is non-empty but permanently missing the newer field, so the old "recompute only when
-        // storedChangedFields.Count == 0" guard would apply that stale list forever and silently
-        // never write the newer field. Re-diffing here matches
-        // EnsureChangedFieldsBackfilledAsync's own stated intent: "which fields would still
-        // change it" is re-evaluated against the book as it is now, not as some earlier compute
-        // recorded it.
-        //
-        // This reads dbBook before the save gate below is acquired, so a concurrent save could
-        // in principle mutate the book between this diff and the gated apply, leaving the
-        // recomputed field set stale by the time it's used. That is not a new race: the ordinary
-        // path (stored fields applied against this same pre-gate book read) already has the
-        // identical shape, so this recompute just inherits the existing window rather than
-        // opening a new one.
-        if ((fields is null || fields.Count == 0) && dbBook is not null)
-        {
-            var (spacing, punctuation) = await GetInitialsSettingsAsync();
-            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation).Select(d => d.Field).ToList();
-        }
-
-        var fieldsToApply = new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
+        var fieldsToApply = await ResolveFieldsToApplyAsync(row, payload, fields, dbBook);
         if (fieldsToApply.Count == 0)
         {
             // Either the book has genuinely caught up with the snapshot, or it no longer exists
@@ -567,15 +572,8 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         using var lease = _saveGate.Acquire(dbBook.Id);
 
-        var domain = AudiobookService.FromDb(dbBook);
-        domain.Id = dbBook.Id;
-        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
-
-        if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
-        {
-            throw new InvalidOperationException(
-                $"Applying the pending metadata refresh would leave audiobook {dbBook.Id} without an author or a title; the apply was refused.");
-        }
+        var domain = BuildAppliedDomain(dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+        domain.ReplaceExisting = replaceExisting;
 
         await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
 
@@ -603,6 +601,75 @@ public class MetadataRefreshService : IMetadataRefreshService
         // leaving it to show a Failed/Rejected book that was, in fact, just resolved.
         await _pendingOnlineMatchRepository.DeleteByAudiobookIdAsync(dbBook.Id);
         return true;
+    }
+
+    private static PendingRefreshPayload.Snapshot ParsePayloadOrThrow(PendingMetadataRefresh row)
+    {
+        var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
+        if (payload is null)
+        {
+            throw new InvalidOperationException(
+                $"The pending metadata refresh for audiobook {row.AudiobookId} could not be read; its stored payload is not valid.");
+        }
+
+        return payload;
+    }
+
+    /// <summary>
+    /// The fields an apply would write. An explicit caller selection wins; otherwise the book is
+    /// re-diffed against the snapshot as it is now rather than trusting whatever ChangedFieldsJson
+    /// happens to have stored. This covers both a row that predates ChangedFieldsJson entirely
+    /// (stored as empty, before EnsureChangedFieldsBackfilledAsync gets to it) and a row whose
+    /// stored list was computed under an older field vocabulary - MetadataRefreshFields has grown
+    /// before (e.g. adding Www) and a row fetched/backfilled before that change carries a
+    /// ChangedFieldsJson that is non-empty but permanently missing the newer field, so a "recompute
+    /// only when empty" guard would apply that stale list forever and silently never write the
+    /// newer field.
+    ///
+    /// This reads the book before the save gate is acquired, so a concurrent save could in
+    /// principle mutate it between this diff and the gated apply. That is not a new race: the
+    /// ordinary path (stored fields applied against the same pre-gate book read) has the identical
+    /// shape.
+    /// </summary>
+    private async Task<HashSet<string>> ResolveFieldsToApplyAsync(
+        PendingMetadataRefresh row, PendingRefreshPayload.Snapshot payload,
+        IReadOnlyCollection<string>? fields, Database.Models.Audiobook? dbBook)
+    {
+        var storedChangedFields = MetadataRefreshFields.ParseChangedFieldsJson(row.ChangedFieldsJson);
+
+        if ((fields is null || fields.Count == 0) && dbBook is not null)
+        {
+            var (spacing, punctuation) = await GetInitialsSettingsAsync();
+            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation).Select(d => d.Field).ToList();
+        }
+
+        return new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
+    }
+
+    /// <summary>
+    /// The book as it would be saved once <paramref name="fieldsToApply"/> are written, shared by the
+    /// apply and by the target-path check so the two always agree on the path.
+    /// </summary>
+    private static Domain.Audiobook BuildAppliedDomain(
+        Database.Models.Audiobook dbBook, PendingRefreshPayload.Snapshot payload, IReadOnlySet<string> fieldsToApply,
+        bool splitTitleOnColon, string? primarySeriesName)
+    {
+        var domain = AudiobookService.FromDb(dbBook);
+        domain.Id = dbBook.Id;
+        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+
+        // The save promotes an additional series to primary before it derives the path; doing the
+        // same here keeps the collision preview and the apply on the same path by construction
+        // (a preview of the unpromoted path could clear a target the apply then replaces).
+        domain.PromoteAdditionalSeriesIfNoPrimary();
+
+        if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
+        {
+            throw new InvalidOperationException(
+                $"Applying the pending metadata refresh would leave audiobook {dbBook.Id} without an author or a title; the apply was refused.");
+        }
+
+        return domain;
     }
 
     /// <summary>

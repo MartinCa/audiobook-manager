@@ -2486,6 +2486,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metadata-refresh/{id}/apply/check-target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApplyPendingRefreshDto"];
+                    "text/json": components["schemas"]["ApplyPendingRefreshDto"];
+                    "application/*+json": components["schemas"]["ApplyPendingRefreshDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["TargetPathCheckDto"];
+                        "application/json": components["schemas"]["TargetPathCheckDto"];
+                        "text/json": components["schemas"]["TargetPathCheckDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata-refresh/apply-selected": {
         parameters: {
             query?: never;
@@ -5508,6 +5553,7 @@ export interface components {
             fields?: string[] | null;
             splitTitleOnColon?: boolean;
             primarySeriesName?: string | null;
+            replaceExisting?: boolean;
         };
         ApplySelectedMetadataRefreshDto: {
             audiobookIds?: number[] | null;
