@@ -31,6 +31,7 @@ public class BrowseControllerTests
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
     private Mock<IAuthorConsistencyIssueRepository> _authorConsistencyIssueRepository = null!;
+    private Mock<IPendingAuthorRefreshRepository> _pendingAuthorRefreshRepository = null!;
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private ExpectedBookWriteGate _expectedBookWriteGate = null!;
@@ -46,6 +47,7 @@ public class BrowseControllerTests
         _upcomingReleaseService = new Mock<IUpcomingReleaseService>();
         _authorReconciliation = new Mock<IAuthorReconciliationProvider>();
         _authorConsistencyIssueRepository = new Mock<IAuthorConsistencyIssueRepository>();
+        _pendingAuthorRefreshRepository = new Mock<IPendingAuthorRefreshRepository>();
         _authorReconciliation.Setup(r => r.GetReconciliationAsync(It.IsAny<long>(), It.IsAny<bool>()))
             .ReturnsAsync(new AuthorReconciliation(
                 new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(), new List<AuthorExpectedBookInfo>(),
@@ -63,7 +65,7 @@ public class BrowseControllerTests
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
-            _authorConsistencyIssueRepository.Object, _expectedBookWriteGate,
+            _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
             Array.Empty<IScraper>(),
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
@@ -1441,5 +1443,93 @@ public class BrowseControllerTests
         Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
         _authorConsistencyIssueRepository.Verify(
             r => r.GetPageWithAuthorAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    // ---------- Pending author names ----------
+
+    private static PendingAuthorRefresh MakePending(long personId, string name, string proposed) => new()
+    {
+        Id = personId * 10,
+        PersonId = personId,
+        Person = new Person(personId, name),
+        ProposedName = proposed,
+        SourceName = "Hardcover",
+        SourceUrl = $"https://hardcover.app/authors/{personId}",
+        FetchedAt = new DateTime(2026, 5, 5, 0, 0, 0, DateTimeKind.Utc),
+    };
+
+    [TestMethod]
+    public async Task GetPendingAuthorRefreshes_ReturnsTheMappedPage()
+    {
+        _pendingAuthorRefreshRepository
+            .Setup(r => r.GetPageWithAuthorAsync(0, 50))
+            .ReturnsAsync((new List<PendingAuthorRefresh> { MakePending(7, "J K Rowling", "J.K. Rowling") }, 1));
+
+        var result = await _controller.GetPendingAuthorRefreshes();
+
+        var page = (AuthorRefreshPendingPageDto)((OkObjectResult)result.Result!).Value!;
+        Assert.AreEqual(1, page.TotalCount);
+        var item = page.Items.Single();
+        Assert.AreEqual(7, item.AuthorId);
+        Assert.AreEqual("J K Rowling", item.AuthorName);
+        Assert.AreEqual("J.K. Rowling", item.ProposedName);
+        Assert.AreEqual("Hardcover", item.SourceName);
+        Assert.AreEqual("https://hardcover.app/authors/7", item.SourceUrl);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 50)]
+    [DataRow(0, 0)]
+    [DataRow(0, 201)]
+    public async Task GetPendingAuthorRefreshes_AnOutOfRangePage_IsRefused(int page, int pageSize)
+    {
+        var result = await _controller.GetPendingAuthorRefreshes(page, pageSize);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, ((ObjectResult)result.Result!).StatusCode);
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.GetPageWithAuthorAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task GetPendingAuthorRefreshCount_ReturnsTheRepositoryCount()
+    {
+        _pendingAuthorRefreshRepository.Setup(r => r.CountAsync()).ReturnsAsync(3);
+
+        var result = await _controller.GetPendingAuthorRefreshCount();
+
+        Assert.AreEqual(3, ((OkObjectResult)result.Result!).Value);
+    }
+
+    [TestMethod]
+    public async Task GetPendingAuthorRefresh_WithAProposal_ReturnsIt()
+    {
+        _pendingAuthorRefreshRepository.Setup(r => r.GetByPersonIdAsync(7))
+            .ReturnsAsync(MakePending(7, "Old", "New"));
+
+        var result = await _controller.GetPendingAuthorRefresh(7);
+
+        var dto = (AuthorRefreshPendingDto)((OkObjectResult)result.Result!).Value!;
+        Assert.AreEqual("New", dto.ProposedName);
+    }
+
+    [TestMethod]
+    public async Task GetPendingAuthorRefresh_WithNone_Is204NotA404()
+    {
+        _pendingAuthorRefreshRepository.Setup(r => r.GetByPersonIdAsync(7))
+            .ReturnsAsync((PendingAuthorRefresh?)null);
+
+        var result = await _controller.GetPendingAuthorRefresh(7);
+
+        Assert.IsInstanceOfType<NoContentResult>(result.Result);
+    }
+
+    [TestMethod]
+    public async Task DismissPendingAuthorRefresh_DeletesTheAuthorsProposal_WithoutRenamingAnything()
+    {
+        var result = await _controller.DismissPendingAuthorRefresh(7);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+        _personRepo.Verify(r => r.MergeAuthorAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 }

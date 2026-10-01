@@ -717,6 +717,30 @@ Author names and series values are free text, so the same real-world value can e
 
 **Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call). Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
 
+### Renaming an author or series, and the source's name for an author
+
+**A manual rename is an alignment of one value** (`POST api/similar-values/rename`,
+`SimilarValueService.RenameAuthorAsync`/`RenameSeriesAsync`): every book goes through
+`AudiobookService.UpdateAudiobook` per book (so the binding invariant above holds), under the same
+lock, operation key and SignalR events as `align`. Only after **every** book succeeded does the
+entity follow - `PersonRepository.MergeAuthorAsync` (match, follow, roster links, upcoming releases;
+the destination's own match wins; a source that still narrates books is kept) or the series catalog
+row via `SeriesRepository.RenameAsync` - so a partial failure leaves a retryable state. Names are
+checked up front by `ValueRenameRules`: an author name cannot contain a comma (authors share one
+comma-separated tag), a series name cannot carry a qualifier suffix (series are stored clean; each
+book's own qualifiers are appended on write), and a series rename is refused when both names
+already own a catalog row.
+
+**The author refresh proposes, it never renames.** `GetAuthorBibliography` returns the source's
+name in the same request as the books; `AuthorNameReview.ProposeRename` formats both names to the
+library's initials convention (`InitialsSpacingFormatter`) before comparing, so a difference that is
+only initials spacing/punctuation is not a proposal. A real difference is stored in
+`pending_author_refresh` (one row per author, already formatted to the convention) and reviewed on
+the metadata-refresh page or the author page; accepting it is a rename.
+
+Matching an author by URL: `IScraper.GetAuthor` resolves a pasted author page URL, and only the
+source whose `SupportsUrl` accepts the host is asked.
+
 ### Adding a metadata source scraper
 
 Adding a new source (or changing an existing one's name/availability) requires touching exactly **one file** — the scraper itself — and nothing else, front or back end:

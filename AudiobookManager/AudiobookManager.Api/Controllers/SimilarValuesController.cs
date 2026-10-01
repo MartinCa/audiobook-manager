@@ -284,6 +284,61 @@ public class SimilarValuesController : ControllerBase
             _appLifetime.ApplicationStopping);
     }
 
+    /// <summary>
+    /// Renames one author or series across the library: every book goes through the standard
+    /// update pipeline (tags, folders and sidecars follow), then the author's / series' own
+    /// metadata (source match, follow, roster) moves to the new name. Fire-and-forget under the
+    /// SAME lock, operation key and SignalR events as <see cref="StartAlign"/> - a rename IS an
+    /// alignment of a single value, and the two rewrite the same books, so they must never run
+    /// together. The name is checked before anything starts so a bad request is a 400, not a
+    /// background failure nobody sees.
+    /// </summary>
+    [HttpPost("rename")]
+    public async Task<IActionResult> StartRename([FromBody] RenameSimilarValueDto? dto)
+    {
+        if (dto is null || (dto.ValueType != "author" && dto.ValueType != "series"))
+        {
+            return this.InvalidRequest("ValueType must be 'author' or 'series'.");
+        }
+
+        var oldValue = dto.OldValue?.Trim() ?? string.Empty;
+        var newValue = dto.NewValue?.Trim() ?? string.Empty;
+        var invalid = dto.ValueType == "author"
+            ? ValueRenameRules.ValidateAuthor(oldValue, newValue)
+            : await _similarValueService.ValidateSeriesRenameAsync(oldValue, newValue);
+        if (invalid is not null)
+        {
+            return this.InvalidRequest(invalid);
+        }
+
+        return BackgroundOperationRunner.Start(
+            _alignLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            OperationKey,
+            async sp =>
+            {
+                var similarValueService = sp.GetRequiredService<ISimilarValueService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(OperationKey, processed, total);
+                    return _organizeHub.Clients.All.SimilarValueAlignProgress(
+                        new SimilarValueAlignProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) = dto.ValueType == "author"
+                    ? await similarValueService.RenameAuthorAsync(oldValue, newValue, ProgressAction)
+                    : await similarValueService.RenameSeriesAsync(oldValue, newValue, ProgressAction);
+
+                await _organizeHub.Clients.All.SimilarValueAlignComplete(
+                    new SimilarValueAlignComplete(processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.SimilarValueAlignComplete(new SimilarValueAlignComplete(0, 0, 0)),
+            _appLifetime.ApplicationStopping);
+    }
+
     private ObjectResult? ValidatePageSelection(int page, int pageSize)
     {
         if (page < 0)

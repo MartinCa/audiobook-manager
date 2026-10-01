@@ -352,4 +352,55 @@ describe("AuthorFollowSection", () => {
     await waitFor(() => expect(input).toHaveValue("Patrick Rothfuss"));
     expect(input).not.toHaveValue("Stale search text");
   });
+
+  it("searches by the pasted URL as-is, instead of by name", async () => {
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockResolvedValue([]);
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: /match to hardcover/i }));
+    const input = await screen.findByLabelText(/search hardcover authors or paste an author url/i);
+    fireEvent.change(input, {
+      target: { value: "https://hardcover.app/authors/brandon-sanderson" },
+    });
+
+    await waitFor(() =>
+      expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledWith(
+        7,
+        "https://hardcover.app/authors/brandon-sanderson",
+      ),
+    );
+    expect(
+      await screen.findByText(/no hardcover author was found at that url/i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not search while a URL is only half typed", async () => {
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: /match to hardcover/i }));
+    await waitFor(() =>
+      expect(browseApi.getAuthorHardcoverMatchCandidates).toHaveBeenCalledTimes(1),
+    );
+    vi.mocked(browseApi.getAuthorHardcoverMatchCandidates).mockClear();
+
+    const input = await screen.findByLabelText(/search hardcover authors or paste an author url/i);
+    fireEvent.change(input, { target: { value: "https://" } });
+
+    expect(await screen.findByText(/paste the complete author url/i)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(browseApi.getAuthorHardcoverMatchCandidates).not.toHaveBeenCalled();
+  });
+
+  it("offers to change an existing match", async () => {
+    vi.mocked(browseApi.getAuthorHardcoverMatch).mockResolvedValue({
+      sourceId: "123",
+      sourceName: "Hardcover",
+      sourceUrl: null,
+    });
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: /change hardcover match/i }));
+
+    expect(await screen.findByText(/match brandon sanderson to hardcover/i)).toBeInTheDocument();
+  });
 });

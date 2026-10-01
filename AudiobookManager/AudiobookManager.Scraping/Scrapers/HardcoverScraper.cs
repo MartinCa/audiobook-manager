@@ -835,6 +835,132 @@ public class HardcoverScraper : IScraper
         return results;
     }
 
+    private const string _authorByIdQuery = """
+        query GetAuthorById($id: Int!) {
+          authors_by_pk(id: $id) {
+            id
+            name
+            slug
+            books_count
+            canonical {
+              id
+              name
+              slug
+              books_count
+            }
+          }
+        }
+        """;
+
+    private const string _authorBySlugQuery = """
+        query GetAuthorBySlug($slug: String!) {
+          authors(where: {slug: {_eq: $slug}}, limit: 1) {
+            id
+            name
+            slug
+            books_count
+            canonical {
+              id
+              name
+              slug
+              books_count
+            }
+          }
+        }
+        """;
+
+    public async Task<AuthorSearchResult?> GetAuthor(string authorIdOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(authorIdOrUrl))
+        {
+            return null;
+        }
+
+        var input = authorIdOrUrl.Trim();
+        JsonElement authorElement;
+        try
+        {
+            if (int.TryParse(input, out var id))
+            {
+                var responseElement = await ExecuteGraphqlQuery(_authorByIdQuery, new { id });
+                authorElement = responseElement.GetNestedProperty("data", "authors_by_pk");
+            }
+            else
+            {
+                var slug = ParseAuthorSlug(input);
+                if (slug is null)
+                {
+                    _logger.LogWarning("Could not extract a Hardcover author slug from {AuthorIdOrUrl}", authorIdOrUrl);
+                    return null;
+                }
+
+                var responseElement = await ExecuteGraphqlQuery(_authorBySlugQuery, new { slug });
+                var authorsArray = responseElement.GetNestedProperty("data", "authors");
+                authorElement = authorsArray.ValueKind == JsonValueKind.Array && authorsArray.GetArrayLength() > 0
+                    ? authorsArray[0]
+                    : default;
+            }
+        }
+        catch (KeyNotFoundException)
+        {
+            // A malformed/empty envelope is "the source knows no such author" for a lookup the
+            // user typed in, not a server failure.
+            return null;
+        }
+
+        if (authorElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // An alias row (a pen name merged into another author) points at its canonical author via
+        // `canonical`; the roster and books live on the canonical row, so match that one.
+        if (authorElement.TryGetProperty("canonical", out var canonical) && canonical.ValueKind == JsonValueKind.Object)
+        {
+            authorElement = canonical;
+        }
+
+        // Not ParseAuthorSearchHit: that reads search documents (string ids), while this is a
+        // database row whose id is a number.
+        var authorId = GetScalarOrNull(authorElement, "id");
+        var name = authorElement.GetPropertyValueOrNull("name");
+        if (string.IsNullOrEmpty(authorId) || string.IsNullOrEmpty(name))
+        {
+            return null;
+        }
+
+        var authorSlug = authorElement.GetPropertyValueOrNull("slug");
+        var result = new AuthorSearchResult(authorId, name)
+        {
+            SourceUrl = authorSlug is null ? null : $"{_hardcoverBaseUrl}/authors/{authorSlug}",
+        };
+
+        if (authorElement.TryGetProperty("books_count", out var booksCount) && booksCount.ValueKind == JsonValueKind.Number)
+        {
+            result.BookCount = booksCount.GetInt32();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The slug of a Hardcover author page URL (https://hardcover.app/authors/brandon-sanderson).
+    /// Only the segment right after <c>authors</c> counts, so a book or series URL pasted into the
+    /// author box is refused instead of being looked up as an author slug it is not. Not a URL, or
+    /// not an author page, returns null.
+    /// </summary>
+    private static string? ParseAuthorSlug(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var authorsIndex = Array.FindIndex(segments, s => string.Equals(s, "authors", StringComparison.OrdinalIgnoreCase));
+        return authorsIndex >= 0 && authorsIndex + 1 < segments.Length ? segments[authorsIndex + 1] : null;
+    }
+
     private AuthorSearchResult? ParseAuthorSearchHit(JsonElement hit)
     {
         var document = hit.TryGetProperty("document", out var docElement) &&
@@ -1004,7 +1130,10 @@ public class HardcoverScraper : IScraper
         }
         """;
 
-    public async Task<IList<AuthorBookResult>> GetAuthorBooks(string authorSourceId)
+    public async Task<IList<AuthorBookResult>> GetAuthorBooks(string authorSourceId) =>
+        (await GetAuthorBibliography(authorSourceId)).Books;
+
+    public async Task<AuthorBibliographyResult> GetAuthorBibliography(string authorSourceId)
     {
         if (!int.TryParse(authorSourceId, out var id))
         {
@@ -1039,11 +1168,15 @@ public class HardcoverScraper : IScraper
                 $"Hardcover returned no author for source id \"{authorSourceId}\" - the author may have been deleted or merged on the source side, or the source responded with an empty result.");
         }
 
+        // The name rides along in the same response - a roster refresh compares it with the
+        // library's spelling at no extra request cost.
+        var authorName = authorElement.GetPropertyValueOrNull("name");
+
         var results = new List<AuthorBookResult>();
         if (!authorElement.TryGetProperty("contributions", out var contributionsElement) ||
             contributionsElement.ValueKind != JsonValueKind.Array)
         {
-            return results;
+            return new AuthorBibliographyResult(authorName, results);
         }
 
         // The query's `limit: 300` truncates silently server-side - there is no separate overflow
@@ -1087,7 +1220,7 @@ public class HardcoverScraper : IScraper
             }
         }
 
-        return results;
+        return new AuthorBibliographyResult(authorName, results);
     }
 
     private AuthorBookResult? ParseAuthorBook(JsonElement bookElement)

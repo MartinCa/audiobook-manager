@@ -16,6 +16,9 @@ public class SimilarValueService : ISimilarValueService
     private readonly IAudiobookSaveGate _saveGate;
     private readonly ISimilarValueDetectionCache _detectionCache;
     private readonly IIgnoredSimilarValuePairRepository _ignoredPairRepository;
+    private readonly ISeriesRepository _seriesRepository;
+    private readonly IPendingSeriesRefreshRepository _pendingSeriesRefreshRepository;
+    private readonly ISeriesReconciliationCache _seriesReconciliationCache;
     private readonly AudiobookManagerSettings _settings;
     private readonly ILogger<SimilarValueService> _logger;
 
@@ -39,6 +42,9 @@ public class SimilarValueService : ISimilarValueService
         IAudiobookSaveGate saveGate,
         ISimilarValueDetectionCache detectionCache,
         IIgnoredSimilarValuePairRepository ignoredPairRepository,
+        ISeriesRepository seriesRepository,
+        IPendingSeriesRefreshRepository pendingSeriesRefreshRepository,
+        ISeriesReconciliationCache seriesReconciliationCache,
         IOptions<AudiobookManagerSettings> settings,
         ILogger<SimilarValueService> logger)
     {
@@ -48,6 +54,9 @@ public class SimilarValueService : ISimilarValueService
         _saveGate = saveGate;
         _detectionCache = detectionCache;
         _ignoredPairRepository = ignoredPairRepository;
+        _seriesRepository = seriesRepository;
+        _pendingSeriesRefreshRepository = pendingSeriesRefreshRepository;
+        _seriesReconciliationCache = seriesReconciliationCache;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -539,5 +548,110 @@ public class SimilarValueService : ISimilarValueService
         _detectionCache.Invalidate();
 
         return result;
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> RenameAuthorAsync(
+        string oldName,
+        string newName,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        oldName = oldName.Trim();
+        newName = newName.Trim();
+        var invalid = ValueRenameRules.ValidateAuthor(oldName, newName);
+        if (invalid is not null)
+        {
+            throw new ArgumentException(invalid);
+        }
+
+        // A rename is an alignment of one value onto a new one: every book goes through
+        // UpdateAudiobook (under the per-audiobook save gate), which find-or-creates the new
+        // Person by name. Reusing it keeps one implementation of "rewrite an author across books".
+        var result = await AlignAuthorsAsync(new List<string> { oldName, newName }, newName, progressAction);
+
+        // The author entity (match, follow, roster) only follows once every book did: a partial
+        // failure keeps it under the old name next to the books that still carry it, which is the
+        // retryable state.
+        if (result.Failed == 0)
+        {
+            await _personRepository.MergeAuthorAsync(oldName, newName);
+        }
+
+        return result;
+    }
+
+    public async Task<string?> ValidateSeriesRenameAsync(string oldName, string newName)
+    {
+        var invalid = ValueRenameRules.ValidateSeries(oldName, newName);
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        var oldRow = await _seriesRepository.GetByNameAsync(oldName.Trim());
+        var newRow = await _seriesRepository.GetByNameAsync(newName.Trim());
+        if (oldRow is not null && newRow is not null && oldRow.Id != newRow.Id)
+        {
+            return $"A series named '{newName.Trim()}' is already in the catalog alongside '{oldName.Trim()}'. " +
+                "Renaming would have to merge the two rosters, so delete or unmatch one of them first.";
+        }
+
+        return null;
+    }
+
+    public async Task<(int Processed, int Succeeded, int Failed)> RenameSeriesAsync(
+        string oldName,
+        string newName,
+        Func<int, int, int, int, Task> progressAction)
+    {
+        oldName = oldName.Trim();
+        newName = newName.Trim();
+        var invalid = await ValidateSeriesRenameAsync(oldName, newName);
+        if (invalid is not null)
+        {
+            throw new ArgumentException(invalid);
+        }
+
+        // Every book that lists the series (primary or additional) is renamed through
+        // UpdateAudiobook; Audiobook.RenameSeries keeps a book's qualifiers and the pipeline
+        // re-applies them as the suffix on disk, so the stored value stays clean.
+        var result = await AlignSeriesAsync(new List<string> { oldName, newName }, newName, progressAction);
+
+        if (result.Failed == 0)
+        {
+            try
+            {
+                await MoveSeriesCatalogAsync(oldName, newName);
+            }
+            catch (Exception ex)
+            {
+                // Deliberately NOT counted as a failed book: the completion event reports books,
+                // and no progress event ever included this step, so folding it in would make the
+                // numbers disagree with the stream. The books are renamed; the old catalog row
+                // (roster/match) stays under the old name and this is the only trace of it.
+                _logger.LogError(ex, "Renamed the books of series '{OldName}' to '{NewName}' but could not move its catalog row", oldName, newName);
+            }
+        }
+
+        // The old series' reconciliation described books that are no longer in it.
+        _seriesReconciliationCache.Invalidate(oldName);
+        _seriesReconciliationCache.Invalidate(newName);
+
+        return result;
+    }
+
+    private async Task MoveSeriesCatalogAsync(string oldName, string newName)
+    {
+        // The pending review was computed against the old name's books and roster, so it cannot be
+        // applied to anything any more.
+        await _pendingSeriesRefreshRepository.DeleteBySeriesNameAsync(oldName);
+
+        var oldRow = await _seriesRepository.GetByNameAsync(oldName);
+        if (oldRow is not null)
+        {
+            // series.name is unique: ValidateSeriesRenameAsync refused a rename onto another
+            // catalog row up front, and a row that raced in since surfaces here as an
+            // InvalidOperationException from RenameAsync.
+            await _seriesRepository.RenameAsync(oldName, newName);
+        }
     }
 }

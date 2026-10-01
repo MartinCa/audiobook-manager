@@ -107,4 +107,20 @@ public interface IPersonRepository
 
     /// <summary>Every author with a Hardcover match, for the bulk "refresh all matched authors" sweep.</summary>
     Task<List<Person>> GetMatchedAuthorsAsync();
+
+    /// <summary>
+    /// Carries everything the author <see cref="Person"/> named <paramref name="fromName"/> owns
+    /// beyond its books - the source match (kept only when the destination has none), the follow,
+    /// the unified-roster links and upcoming releases - over to <paramref name="toName"/>, then
+    /// removes <paramref name="fromName"/> when no book references it any more (as author or
+    /// narrator). The last step of renaming an author: the books themselves are rewritten
+    /// through <c>AudiobookService.UpdateAudiobook</c> first (which find-or-creates the
+    /// destination by name), so by the time this runs the source holds no authored books, and a
+    /// failed book rewrite never gets here.
+    ///
+    /// The destination is created when it does not exist yet (an author with no books at all is
+    /// instead renamed in place, keeping its id). Returns false when nothing was done: the names
+    /// are equal or no person is named <paramref name="fromName"/>.
+    /// </summary>
+    Task<bool> MergeAuthorAsync(string fromName, string toName);
 }

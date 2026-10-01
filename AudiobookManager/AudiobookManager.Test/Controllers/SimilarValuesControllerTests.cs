@@ -554,4 +554,88 @@ public class SimilarValuesControllerTests
         _similarValueService.Verify(s => s.AlignAuthorsAsync(It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
         _clientProxy.Verify(c => c.SimilarValueAlignComplete(It.Is<SimilarValueAlignComplete>(p => p.TotalSucceeded == 2)), Times.Once);
     }
+
+    // ---------- Rename ----------
+
+    [TestMethod]
+    [DataRow("invalid", "A", "B")]
+    [DataRow("author", "", "B")]
+    [DataRow("author", "A", "  ")]
+    [DataRow("author", "A", "A")]
+    [DataRow("author", "A", "Smith, John")]
+    public async Task StartRename_AnInvalidRequest_IsRefusedSynchronously(string valueType, string oldValue, string newValue)
+    {
+        var result = await _controller.StartRename(new RenameSimilarValueDto
+        {
+            ValueType = valueType, OldValue = oldValue, NewValue = newValue,
+        });
+
+        ProblemAssert.HasStatus(result, StatusCodes.Status400BadRequest);
+        _similarValueService.Verify(s => s.RenameAuthorAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartRename_ASeriesTheServiceRefuses_RelaysItsMessageAsA400()
+    {
+        _similarValueService.Setup(s => s.ValidateSeriesRenameAsync("Old", "New (Dramatized)"))
+            .ReturnsAsync("Series names are stored without qualifiers.");
+
+        var result = await _controller.StartRename(new RenameSimilarValueDto
+        {
+            ValueType = "series", OldValue = "Old", NewValue = "New (Dramatized)",
+        });
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Series names are stored without qualifiers.");
+        _similarValueService.Verify(s => s.RenameSeriesAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartRename_Author_ReturnsOkImmediately_RenamesTrimmedNames_AndReportsOnTheAlignEvents()
+    {
+        _similarValueService.Setup(s => s.RenameAuthorAsync(
+                "Robert Galbraith", "J.K. Rowling", It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((string _, string __, Func<int, int, int, int, Task> progressAction) =>
+            {
+                progressAction(1, 1, 1, 0).GetAwaiter().GetResult();
+                return (1, 1, 0);
+            });
+        var finished = RegisterFinishedWaiter();
+
+        var result = await _controller.StartRename(new RenameSimilarValueDto
+        {
+            ValueType = "author", OldValue = "  Robert Galbraith ", NewValue = " J.K. Rowling  ",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await AwaitOperationFinished(finished);
+
+        // A rename reports through the alignment events - the client listens for those.
+        _clientProxy.Verify(c => c.SimilarValueAlignProgress(It.Is<SimilarValueAlignProgress>(p => p.Processed == 1)), Times.Once);
+        _clientProxy.Verify(c => c.SimilarValueAlignComplete(It.Is<SimilarValueAlignComplete>(p => p.TotalSucceeded == 1)), Times.Once);
+        _similarValueService.Verify(s => s.RenameSeriesAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartRename_Series_RunsTheSeriesRename()
+    {
+        _similarValueService.Setup(s => s.ValidateSeriesRenameAsync("Old", "New")).ReturnsAsync((string?)null);
+        _similarValueService.Setup(s => s.RenameSeriesAsync("Old", "New", It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((2, 2, 0));
+        var finished = RegisterFinishedWaiter();
+
+        var result = await _controller.StartRename(new RenameSimilarValueDto
+        {
+            ValueType = "series", OldValue = "Old", NewValue = "New",
+        });
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await AwaitOperationFinished(finished);
+
+        _clientProxy.Verify(c => c.SimilarValueAlignComplete(It.Is<SimilarValueAlignComplete>(p => p.TotalProcessed == 2)), Times.Once);
+        _similarValueService.Verify(s => s.RenameAuthorAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
 }

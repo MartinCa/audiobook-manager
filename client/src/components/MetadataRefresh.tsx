@@ -29,6 +29,7 @@ import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { LinkButton } from "./LinkButton";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
+import { AuthorRefreshPendingList } from "./library/AuthorRefreshPendingList";
 import { SeriesConsistencyIssueList } from "./library/SeriesConsistencyIssueList";
 import { AuthorConsistencyIssueList } from "./library/AuthorConsistencyIssueList";
 import { PendingRefreshRowPanel } from "./library/PendingRefreshRowPanel";
@@ -494,6 +495,8 @@ export function MetadataRefresh() {
       </Card>
 
       <SeriesRefreshPendingList />
+
+      <AuthorRefreshPendingList />
 
       <SeriesConsistencyIssueList />
 

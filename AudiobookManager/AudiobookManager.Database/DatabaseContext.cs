@@ -64,6 +64,7 @@ public class DatabaseContext : DbContext
     public DbSet<AuthorConsistencyIssue> AuthorConsistencyIssues { get; set; }
     public DbSet<PendingMetadataRefresh> PendingMetadataRefreshes { get; set; }
     public DbSet<PendingSeriesRefresh> PendingSeriesRefreshes { get; set; }
+    public DbSet<PendingAuthorRefresh> PendingAuthorRefreshes { get; set; }
     public DbSet<PendingOnlineMatch> PendingOnlineMatches { get; set; }
     public DbSet<OrphanDirectory> OrphanDirectories { get; set; }
     public DbSet<Series> Series { get; set; }

@@ -481,6 +481,143 @@ public class PersonRepository : IPersonRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task<bool> MergeAuthorAsync(string fromName, string toName)
+    {
+        if (string.Equals(fromName, toName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var source = await _db.Persons.FirstOrDefaultAsync(p => p.Name == fromName);
+        if (source is null)
+        {
+            return false;
+        }
+
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+
+        var target = await _db.Persons.FirstOrDefaultAsync(p => p.Name == toName);
+        var sourceStillUsed = await _db.Audiobooks.AnyAsync(a =>
+            a.Authors.Any(p => p.Id == source.Id) || a.Narrators.Any(p => p.Id == source.Id));
+
+        if (target is null && !sourceStillUsed)
+        {
+            // No book references the old name, so nothing created the destination: rename the row
+            // in place and everything attached to it (id, match, follow, roster links) stays put.
+            source.Name = toName;
+            await _db.SaveChangesAsync();
+
+            // The roster links carry the author's name as their fallback identity (used if the
+            // person row is ever removed), so they follow the rename like the merge branch's do.
+            await _db.ExpectedBookAuthors
+                .Where(l => l.PersonId == source.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.AuthorName, toName));
+            foreach (var entry in _db.ChangeTracker.Entries<ExpectedBookAuthor>()
+                         .Where(e => e.Entity.PersonId == source.Id)
+                         .ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            // The proposal was for the name the row no longer has.
+            await _db.PendingAuthorRefreshes.Where(p => p.PersonId == source.Id).ExecuteDeleteAsync();
+            await transaction.CommitAsync();
+            return true;
+        }
+
+        if (target is null)
+        {
+            target = new Person(default, toName);
+            _db.Persons.Add(target);
+            await _db.SaveChangesAsync();
+        }
+
+        // The source match moves only onto a destination that has none: an author that was
+        // already matched under the destination name keeps its own, and the old one is dropped
+        // either way (it described an author this name no longer refers to).
+        if (!string.IsNullOrEmpty(source.MatchedSourceId))
+        {
+            if (string.IsNullOrEmpty(target.MatchedSourceId))
+            {
+                target.MatchedSourceName = source.MatchedSourceName;
+                target.MatchedSourceId = source.MatchedSourceId;
+                target.MatchedSourceUrl = source.MatchedSourceUrl;
+                target.LastRefreshedAt = source.LastRefreshedAt;
+            }
+
+            source.MatchedSourceName = null;
+            source.MatchedSourceId = null;
+            source.MatchedSourceUrl = null;
+            source.LastRefreshedAt = null;
+        }
+
+        var follow = await _db.AuthorFollows.FirstOrDefaultAsync(f => f.PersonId == source.Id);
+        if (follow is not null)
+        {
+            if (await _db.AuthorFollows.AnyAsync(f => f.PersonId == target.Id))
+            {
+                _db.AuthorFollows.Remove(follow);
+            }
+            else
+            {
+                follow.PersonId = target.Id;
+            }
+        }
+
+        // Roster links: a book the destination is already linked to would end up with the same
+        // author twice, so that link is dropped rather than moved. The stored author name follows
+        // the person - it is the link's fallback identity when the person row goes away.
+        var linkedBookIds = (await _db.ExpectedBookAuthors
+            .Where(l => l.PersonId == target.Id)
+            .Select(l => l.ExpectedBookId)
+            .ToListAsync()).ToHashSet();
+        var sourceLinks = await _db.ExpectedBookAuthors.Where(l => l.PersonId == source.Id).ToListAsync();
+        foreach (var link in sourceLinks)
+        {
+            if (linkedBookIds.Contains(link.ExpectedBookId))
+            {
+                _db.ExpectedBookAuthors.Remove(link);
+            }
+            else
+            {
+                link.PersonId = target.Id;
+                link.AuthorName = target.Name;
+            }
+        }
+
+        await _db.SaveChangesAsync();
+
+        await _db.UpcomingReleases
+            .Where(r => r.PersonId == source.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.PersonId, target.Id));
+
+        // Both describe the old name's refresh state, which no longer applies to anyone.
+        await _db.AuthorConsistencyIssues.Where(i => i.PersonId == source.Id).ExecuteDeleteAsync();
+        await _db.PendingAuthorRefreshes.Where(p => p.PersonId == source.Id).ExecuteDeleteAsync();
+        // The set-based writes above bypass the change tracker. A tracked copy of a row they
+        // touched would still say it belongs to the old author, and removing that author below
+        // would make EF null (or delete) it again - undoing the move.
+        foreach (var entry in _db.ChangeTracker.Entries()
+                     .Where(e => (e.Entity is AuthorConsistencyIssue i && i.PersonId == source.Id)
+                                 || (e.Entity is PendingAuthorRefresh p && p.PersonId == source.Id)
+                                 || (e.Entity is UpcomingRelease r && r.PersonId == source.Id))
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        // Still referenced - the old name also narrates books, or a book rewrite did not reach
+        // it: the row stays, minus the author-only state moved above.
+        if (!sourceStillUsed)
+        {
+            _db.Persons.Remove(source);
+            await _db.SaveChangesAsync();
+        }
+
+        await transaction.CommitAsync();
+        return true;
+    }
+
     public async Task<List<Person>> GetMatchedAuthorsAsync()
     {
         return await _db.Persons

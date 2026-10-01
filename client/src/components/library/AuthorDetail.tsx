@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   RefreshCw,
   CheckCircle2,
   ChevronRight,
+  Pencil,
   Unplug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,8 @@ import { SectionPager } from "./SectionPager";
 import { LinkButton } from "../LinkButton";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
-import { browseApi } from "@/services/api";
+import { RenameValueDialog } from "@/components/RenameValueDialog";
+import { browseApi, similarValuesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
 import { useBookSelection } from "@/hooks/useBookSelection";
@@ -42,6 +44,7 @@ export function AuthorDetail() {
   const { authorId } = Route.useParams();
   const id = Number(authorId);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // Each section pages server-side; each has its own page state so paging one section doesn't
   // move the others. The unpaged version sent an author's entire catalogue at once. The
@@ -53,6 +56,10 @@ export function AuthorDetail() {
   const [pageSize, setPageSize] = usePageSize();
   const selection = useBookSelection();
   const [refreshing, setRefreshing] = useState(false);
+  // null = closed; a string pre-fills the new-name field (the source's proposal), "" opens it
+  // with the author's current name.
+  const [renameDialog, setRenameDialog] = useState<{ initialNewName?: string } | null>(null);
+  const [dismissingPending, setDismissingPending] = useState(false);
   const [ignoringBookId, setIgnoringBookId] = useState<number | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
   // Standalone-books text search and option filters (Bug 8 unification): local component state
@@ -158,8 +165,58 @@ export function AuthorDetail() {
   });
   const isMatched = Boolean(matchQuery.data?.sourceId);
 
+  // The name the matched source uses for this author when it differs from the library's (a roster
+  // refresh stores it). The endpoint answers 204 when there is none, which the API layer reads as
+  // undefined - mapped to null here since a query function must not resolve undefined.
+  const pendingNameQuery = useQuery({
+    queryKey: queryKeys.authorPending.byAuthor(id),
+    queryFn: () => browseApi.getAuthorPendingRefresh(id).then((pending) => pending ?? null),
+    enabled: Boolean(id),
+  });
+  const pendingName = pendingNameQuery.data ?? null;
+
   const invalidateDetail = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.author.all() });
+  };
+
+  const handleDismissPendingName = async () => {
+    setDismissingPending(true);
+    try {
+      await browseApi.dismissAuthorPendingRefresh(id);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.authorPending.all() });
+    } catch (err: unknown) {
+      notifications.error(handleApiError(err).message);
+    } finally {
+      setDismissingPending(false);
+    }
+  };
+
+  // Every book of the author was rewritten under the new name. The author entry keeps this page's
+  // id when nothing else carried the new name, but a rename onto a name that already existed (or
+  // one that had to be created for the books) leaves this id gone - so the destination is looked
+  // up by name and navigated to before anything refetches against the dead id.
+  const handleRenamed = async (newName: string) => {
+    setRenameDialog(null);
+    let destinationId: number | undefined;
+    try {
+      const status = await similarValuesApi.getEntryStatus("author", newName, 1);
+      destinationId = status.exactMatch?.id ?? undefined;
+    } catch {
+      destinationId = undefined;
+    }
+
+    if (destinationId !== undefined) {
+      await navigate({
+        to: "/library/authors/$authorId",
+        params: { authorId: String(destinationId) },
+        replace: true,
+      });
+    } else {
+      await navigate({ to: "/library/authors", replace: true });
+    }
+
+    // A rename rewrites every book of the author, so far more than this page is stale.
+    void queryClient.invalidateQueries();
   };
 
   const handleRefresh = async () => {
@@ -168,6 +225,8 @@ export function AuthorDetail() {
       await browseApi.refreshAuthor(id);
       notifications.success("Refreshed bibliography from source");
       invalidateDetail();
+      // The refresh may have found the source spelling the author's name differently.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.authorPending.all() });
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {
@@ -247,10 +306,55 @@ export function AuthorDetail() {
         <p className="text-muted-foreground text-sm">
           {author.bookCount} {author.bookCount === 1 ? "audiobook" : "audiobooks"} in library
         </p>
-        <div className="mt-3">
+        <div className="mt-3 space-y-3">
           <AuthorFollowSection authorId={author.id} authorName={author.name} />
+          <Button variant="ghost" size="sm" onClick={() => setRenameDialog({})}>
+            <Pencil className="mr-1.5 h-3.5 w-3.5" />
+            Rename author
+          </Button>
         </div>
       </div>
+
+      {pendingName && (
+        <div className="border-border bg-muted/40 flex flex-col justify-between gap-3 rounded-lg border p-3 text-sm sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <span className="font-semibold">{pendingName.sourceName}</span> spells this author{" "}
+            <span className="font-semibold break-words">{pendingName.proposedName}</span>. Rename
+            the author and every one of their books to match?
+          </div>
+          <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={dismissingPending}
+              onClick={() => {
+                void handleDismissPendingName();
+              }}
+            >
+              Dismiss
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setRenameDialog({ initialNewName: pendingName.proposedName })}
+            >
+              Review rename
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {renameDialog ? (
+        <RenameValueDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRenameDialog(null);
+          }}
+          valueType="author"
+          currentName={author.name}
+          initialNewName={renameDialog.initialNewName}
+          onRenamed={handleRenamed}
+        />
+      ) : null}
 
       <UpcomingReleasesList
         authorId={author.id}

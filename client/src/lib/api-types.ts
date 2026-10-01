@@ -866,6 +866,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse/authors/pending-refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    pageSize?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshPendingPageDto"];
+                        "application/json": components["schemas"]["AuthorRefreshPendingPageDto"];
+                        "text/json": components["schemas"]["AuthorRefreshPendingPageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/pending-refresh/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": number;
+                        "application/json": number;
+                        "text/json": number;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/pending-refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthorRefreshPendingDto"];
+                        "application/json": components["schemas"]["AuthorRefreshPendingDto"];
+                        "text/json": components["schemas"]["AuthorRefreshPendingDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/browse/authors/{authorId}/pending-refresh/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    authorId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/browse/authors/{authorId}/expected-books/ignore": {
         parameters: {
             query?: never;
@@ -5009,6 +5160,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/similar-values/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["RenameSimilarValueDto"];
+                    "text/json": components["schemas"]["RenameSimilarValueDto"];
+                    "application/*+json": components["schemas"]["RenameSimilarValueDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/untagged": {
         parameters: {
             query?: never;
@@ -5577,6 +5767,21 @@ export interface components {
             total?: number;
             items?: components["schemas"]["AuthorMissingSeriesDto"][] | null;
         };
+        AuthorRefreshPendingDto: {
+            /** Format: int64 */
+            authorId?: number;
+            authorName?: string | null;
+            proposedName?: string | null;
+            sourceName?: string | null;
+            sourceUrl?: string | null;
+            /** Format: date-time */
+            fetchedAt?: string;
+        };
+        AuthorRefreshPendingPageDto: {
+            items?: components["schemas"]["AuthorRefreshPendingDto"][] | null;
+            /** Format: int32 */
+            totalCount?: number;
+        };
         AuthorRefreshResultDto: {
             success?: boolean;
             /** Format: date-time */
@@ -6095,6 +6300,11 @@ export interface components {
         };
         QualifierIndicatorsDto: {
             indicators?: components["schemas"]["QualifierIndicatorDto"][] | null;
+        };
+        RenameSimilarValueDto: {
+            valueType?: string | null;
+            oldValue?: string | null;
+            newValue?: string | null;
         };
         ResolveTagMismatchRequest: {
             fieldValues: {

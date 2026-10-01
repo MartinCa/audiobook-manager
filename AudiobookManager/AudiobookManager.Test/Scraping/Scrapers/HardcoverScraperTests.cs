@@ -1608,4 +1608,106 @@ public class HardcoverScraperTests
         StringAssert.Contains(query, "author");
         Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
     }
+
+    // ---------- GetAuthorBibliography() / GetAuthor() ----------
+
+    [TestMethod]
+    public async Task GetAuthorBibliography_ReturnsTheSourcesNameForTheAuthorAlongsideTheBooks()
+    {
+        var target = CreateScraper(_authorAllBooksResponseJson, out var handler);
+
+        var bibliography = await target.GetAuthorBibliography("1");
+
+        // The name rides in the same response as the books: one request, so a roster refresh can
+        // compare it with the library's spelling without spending extra of the daily budget.
+        Assert.AreEqual("Brandon Sanderson", bibliography.Name);
+        Assert.AreEqual(2, bibliography.Books.Count);
+        Assert.AreEqual(1, handler.CapturedRequestBodies.Count);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorBibliography_AnAuthorWithNoContributionsStillReportsTheName()
+    {
+        var target = CreateScraper("""{ "data": { "authors_by_pk": { "id": 1, "name": "New Author" } } }""", out _);
+
+        var bibliography = await target.GetAuthorBibliography("1");
+
+        Assert.AreEqual("New Author", bibliography.Name);
+        Assert.AreEqual(0, bibliography.Books.Count);
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_ByAuthorPageUrl_LooksTheSlugUpAndReturnsTheAuthor()
+    {
+        var target = CreateScraper("""
+            { "data": { "authors": [ { "id": 204214, "name": "Brandon Sanderson", "slug": "brandon-sanderson", "books_count": 312, "canonical": null } ] } }
+            """, out var handler);
+
+        var author = await target.GetAuthor("https://hardcover.app/authors/brandon-sanderson");
+
+        Assert.IsNotNull(author);
+        Assert.AreEqual("204214", author.SourceId);
+        Assert.AreEqual("Brandon Sanderson", author.Name);
+        Assert.AreEqual("https://hardcover.app/authors/brandon-sanderson", author.SourceUrl);
+        Assert.AreEqual(312, author.BookCount);
+        StringAssert.Contains(handler.CapturedRequestBodies.Single(), "brandon-sanderson");
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_ByNumericId_LooksTheIdUp()
+    {
+        var target = CreateScraper("""
+            { "data": { "authors_by_pk": { "id": 77, "name": "Some Author", "slug": "some-author", "books_count": 3, "canonical": null } } }
+            """, out var handler);
+
+        var author = await target.GetAuthor("77");
+
+        Assert.IsNotNull(author);
+        Assert.AreEqual("77", author.SourceId);
+        StringAssert.Contains(handler.CapturedRequestBodies.Single(), "authors_by_pk");
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_AnAliasRow_ResolvesToTheCanonicalAuthor()
+    {
+        var target = CreateScraper("""
+            { "data": { "authors": [ { "id": 5, "name": "Pen Name", "slug": "pen-name", "books_count": 0,
+              "canonical": { "id": 9, "name": "Real Name", "slug": "real-name", "books_count": 12 } } ] } }
+            """, out _);
+
+        var author = await target.GetAuthor("https://hardcover.app/authors/pen-name");
+
+        // The roster and books live on the canonical row, so that is the one to match.
+        Assert.IsNotNull(author);
+        Assert.AreEqual("9", author.SourceId);
+        Assert.AreEqual("Real Name", author.Name);
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_ABookUrl_IsRefusedWithoutAskingTheSource()
+    {
+        var target = CreateScraper("""{ "data": { "authors": [] } }""", out var handler);
+
+        var author = await target.GetAuthor("https://hardcover.app/books/the-hobbit");
+
+        // Only the segment after /authors/ is a slug - a book slug must never be looked up as one.
+        Assert.IsNull(author);
+        Assert.AreEqual(0, handler.CapturedRequestBodies.Count);
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_UnknownSlug_ReturnsNull()
+    {
+        var target = CreateScraper("""{ "data": { "authors": [] } }""", out _);
+
+        Assert.IsNull(await target.GetAuthor("https://hardcover.app/authors/nobody-here"));
+    }
+
+    [TestMethod]
+    public async Task GetAuthor_NullAuthorsByPk_ReturnsNull()
+    {
+        var target = CreateScraper("""{ "data": { "authors_by_pk": null } }""", out _);
+
+        Assert.IsNull(await target.GetAuthor("123"));
+    }
 }
