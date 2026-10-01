@@ -43,12 +43,20 @@ public class AudiobookRepositoryBookFilterTests
     }
 
     private async Task<Audiobook> SeedBookAsync(
-        string bookName, string? www = null, string? language = null, int? durationInSeconds = null)
+        string bookName, string? www = null, string? language = null, int? durationInSeconds = null,
+        string qualifiers = "")
     {
-        return await _repository.InsertAudiobook(new Audiobook(
+        var book = await _repository.InsertAudiobook(new Audiobook(
             default, bookName, null, null, null, 2024,
             null, null, null, language, null, null, www, null, durationInSeconds,
             $"/library/{bookName}.m4b", $"{bookName}.m4b", 1000));
+        if (qualifiers.Length > 0)
+        {
+            await _db.Audiobooks.Where(a => a.Id == book.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.Qualifiers, qualifiers));
+        }
+
+        return book;
     }
 
     [TestMethod]
@@ -98,6 +106,47 @@ public class AudiobookRepositoryBookFilterTests
 
         Assert.AreEqual(1, total);
         Assert.AreEqual("French book", items.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByQualifiers_MatchesAnySelectedKeyExactly()
+    {
+        await SeedBookAsync("Plain book");
+        await SeedBookAsync("Abridged book", qualifiers: ",abridged,");
+        await SeedBookAsync("Dramatized book", qualifiers: ",dramatized,");
+        await SeedBookAsync("Both book", qualifiers: ",abridged,dramatized,");
+
+        var (abridged, abridgedTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(Qualifiers: new[] { "abridged" }));
+        CollectionAssert.AreEquivalent(
+            new[] { "Abridged book", "Both book" }, abridged.Select(b => b.BookName).ToArray());
+        Assert.AreEqual(2, abridgedTotal);
+
+        var (either, _) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(Qualifiers: new[] { "abridged", "dramatized" }));
+        Assert.AreEqual(3, either.Count);
+
+        // A key that is merely a substring of a stored key must not match.
+        var (partial, partialTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(Qualifiers: new[] { "abridge" }));
+        Assert.AreEqual(0, partialTotal);
+        Assert.AreEqual(0, partial.Count);
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByNoQualifier_ReturnsOnlyBooksWithoutQualifiers()
+    {
+        await SeedBookAsync("Plain book");
+        await SeedBookAsync("Abridged book", qualifiers: ",abridged,");
+
+        var (none, noneTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(Qualifiers: new[] { BookSummaryFilter.NoQualifier }));
+        Assert.AreEqual(1, noneTotal);
+        Assert.AreEqual("Plain book", none.Single().BookName);
+
+        var (noneOrAbridged, _) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(Qualifiers: new[] { BookSummaryFilter.NoQualifier, "abridged" }));
+        Assert.AreEqual(2, noneOrAbridged.Count);
     }
 
     [TestMethod]

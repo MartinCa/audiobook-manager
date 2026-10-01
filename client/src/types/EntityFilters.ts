@@ -48,12 +48,18 @@ export interface AuthorListFilters extends EntityListFilters {
   maxBookCount?: number;
 }
 
+// The synthetic "no qualifier" bucket of the book "Qualifier" filter (mirrors the backend's
+// BookSummaryFilter.NoQualifier). Real qualifier options are never hardcoded: they come from
+// GET /settings/book-qualifiers via useBookQualifiers.
+export const NO_QUALIFIER_VALUE = "(none)";
+
 /** The book-list filters BrowseController.GetAudiobooks/SearchAudiobooks accept. */
 export interface BookListFilters {
   [key: string]: boolean | number | string | string[] | undefined;
   sources?: string[];
   genres?: string[];
   languages?: string[];
+  qualifiers?: string[];
   minDurationInSeconds?: number;
   maxDurationInSeconds?: number;
 }

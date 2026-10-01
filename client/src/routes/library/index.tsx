@@ -8,6 +8,7 @@ const librarySearchSchema = z.object({
   sources: z.array(z.string()).optional(),
   genres: z.array(z.string()).optional(),
   languages: z.array(z.string()).optional(),
+  qualifiers: z.array(z.string()).optional(),
   minDurationInSeconds: z.number().optional(),
   maxDurationInSeconds: z.number().optional(),
 });

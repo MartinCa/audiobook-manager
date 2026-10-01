@@ -101,9 +101,10 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? genres = null,
         [FromQuery] List<string>? languages = null,
         [FromQuery] int? minDurationInSeconds = null,
-        [FromQuery] int? maxDurationInSeconds = null)
+        [FromQuery] int? maxDurationInSeconds = null,
+        [FromQuery] List<string>? qualifiers = null)
     {
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
         var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -157,14 +158,15 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? genres = null,
         [FromQuery] List<string>? languages = null,
         [FromQuery] int? minDurationInSeconds = null,
-        [FromQuery] int? maxDurationInSeconds = null)
+        [FromQuery] int? maxDurationInSeconds = null,
+        [FromQuery] List<string>? qualifiers = null)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
         }
 
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
         var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -347,7 +349,8 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? genres = null,
         [FromQuery] List<string>? languages = null,
         [FromQuery] int? minDurationInSeconds = null,
-        [FromQuery] int? maxDurationInSeconds = null)
+        [FromQuery] int? maxDurationInSeconds = null,
+        [FromQuery] List<string>? qualifiers = null)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
             ?? ValidateSearchPaging(standaloneLimit, standaloneOffset)
@@ -380,7 +383,7 @@ public class BrowseController : ControllerBase
             search: null,
             matched: null,
             authorId: authorId);
-        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds);
+        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
             authorId, standaloneLimit, standaloneOffset,
             string.IsNullOrWhiteSpace(q) ? null : q.Trim(),

@@ -219,6 +219,37 @@ public class AudiobookRepository : IAudiobookRepository
             query = query.Where(a => a.Language != null && languages.Contains(a.Language));
         }
 
+        if (filter.Qualifiers is { Count: > 0 } qualifiers)
+        {
+            // Multi-select is "carries any of the chosen qualifiers"; the synthetic NoQualifier
+            // value additionally admits books with none. Tokens are comma-wrapped (see
+            // QualifierColumn) so a key never matches as a substring of another.
+            var wantsNone = qualifiers.Contains(BookSummaryFilter.NoQualifier);
+            var tokens = qualifiers
+                .Where(q => q != BookSummaryFilter.NoQualifier)
+                .Select(q => QualifierColumn.Token(q.Trim().ToLowerInvariant()))
+                .ToList();
+
+            // The OR is built as an expression tree: a closure-captured list's Any(Contains(column))
+            // is not something EF Core reliably translates on SQLite.
+            var param = System.Linq.Expressions.Expression.Parameter(typeof(Audiobook), "a");
+            var column = System.Linq.Expressions.Expression.Property(param, nameof(Audiobook.Qualifiers));
+            var contains = typeof(string).GetMethod(nameof(string.Contains), new[] { typeof(string) })!;
+            System.Linq.Expressions.Expression? any = wantsNone
+                ? System.Linq.Expressions.Expression.Equal(column, System.Linq.Expressions.Expression.Constant(string.Empty))
+                : null;
+            foreach (var token in tokens)
+            {
+                var match = System.Linq.Expressions.Expression.Call(
+                    column, contains, System.Linq.Expressions.Expression.Constant(token));
+                any = any is null ? match : System.Linq.Expressions.Expression.OrElse(any, match);
+            }
+
+            // Only NoQualifier plus unknown keys -> still a valid (possibly empty) predicate.
+            any ??= System.Linq.Expressions.Expression.Constant(false);
+            query = query.Where(System.Linq.Expressions.Expression.Lambda<Func<Audiobook, bool>>(any, param));
+        }
+
         if (filter.MinDurationInSeconds is not null)
         {
             query = query.Where(a => a.DurationInSeconds != null && a.DurationInSeconds >= filter.MinDurationInSeconds);
