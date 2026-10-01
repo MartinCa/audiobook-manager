@@ -153,6 +153,44 @@ describe("api service mappings and contracts", () => {
     });
   });
 
+  describe("Metadata refresh apply", () => {
+    const sentJson = (init?: RequestInit): unknown =>
+      JSON.parse(typeof init?.body === "string" ? init.body : "null");
+
+    it("sends replaceExisting with the apply body, false by default", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+
+      await metadataRefreshApi.applyPending(5, ["Rating"]);
+      await metadataRefreshApi.applyPending(5, ["Rating"], false, undefined, true);
+
+      const bodies = fetchSpy.mock.calls.map((c) => sentJson(c[1]));
+      expect(bodies).toEqual([
+        { fields: ["Rating"], splitTitleOnColon: false, replaceExisting: false },
+        { fields: ["Rating"], splitTitleOnColon: false, replaceExisting: true },
+      ]);
+      expect(fetchSpy.mock.calls[0]![0]).toBe("/api/metadata-refresh/5/apply");
+    });
+
+    it("previews the apply target against check-target and resolves undefined on 204", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      await expect(
+        metadataRefreshApi.checkApplyTarget(5, ["Series"], true, "Main"),
+      ).resolves.toBeUndefined();
+
+      expect(fetchSpy.mock.calls[0]![0]).toBe("/api/metadata-refresh/5/apply/check-target");
+      expect(sentJson(fetchSpy.mock.calls[0]![1])).toEqual({
+        fields: ["Series"],
+        splitTitleOnColon: true,
+        primarySeriesName: "Main",
+      });
+    });
+  });
+
   describe("Series API endpoints", () => {
     it("calls refresh with seriesName in query string", async () => {
       const fetchSpy = vi

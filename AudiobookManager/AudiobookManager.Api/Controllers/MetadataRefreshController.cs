@@ -216,8 +216,16 @@ public class MetadataRefreshController : ControllerBase
     {
         try
         {
-            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName);
+            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(
+                id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName, dto?.ReplaceExisting ?? false);
             return applied ? Ok() : NoContent();
+        }
+        catch (TargetPathExistsException ex)
+        {
+            // Another file already sits where the refreshed metadata would file this book. The
+            // client normally asks first (check-target); this is the answer when it raced or was
+            // skipped, and the user can resolve it by retrying with replaceExisting.
+            return this.ConflictingState(ex.Message, "Target file already exists");
         }
         catch (AudiobookBusyException ex)
         {
@@ -225,6 +233,27 @@ public class MetadataRefreshController : ControllerBase
             // does (MetadataRefreshService.ApplyOneAsync), so another operation already holding
             // it for this book is a "try again", not a server error.
             return this.ConflictingState(ex.Message, "Cannot apply pending refresh");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Previews where applying the same arguments would file the book and whether a different file
+    /// already sits there, so the metadata-refresh page can show the usual duplicate-target dialog
+    /// before it applies. Read-only. 204 when there is nothing to check (no pending snapshot, no
+    /// applicable field).
+    /// </summary>
+    [HttpPost("{id:long}/apply/check-target")]
+    public async Task<ActionResult<TargetPathCheckDto>> CheckApplyTarget(long id, [FromBody] ApplyPendingRefreshDto? dto)
+    {
+        try
+        {
+            var result = await _metadataRefreshService.CheckApplyTargetCollisionAsync(
+                id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName);
+            return result is null ? NoContent() : Ok(new TargetPathCheckDto(result));
         }
         catch (InvalidOperationException ex)
         {

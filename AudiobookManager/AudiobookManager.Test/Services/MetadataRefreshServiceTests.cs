@@ -952,6 +952,136 @@ public class MetadataRefreshServiceTests
         _pendingOnlineMatchRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
     }
 
+    private (Database.Models.Audiobook Book, PendingMetadataRefresh Row) SetUpBookWithRatingPending(long id)
+    {
+        var book = new Database.Models.Audiobook(
+            id, "A Book", null, null, null, 2024,
+            null, null, null, null, "4.0", null, null, null, null,
+            "/library/old/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
+
+        var row = new PendingMetadataRefresh
+        {
+            AudiobookId = id,
+            FetchedAt = DateTime.UtcNow,
+            SourceName = "Audible",
+            SourceUrl = "https://example.com/book",
+            PayloadJson = PendingRefreshPayload.Serialize(new PendingRefreshPayload.Snapshot(
+                PendingRefreshPayload.CurrentVersion,
+                "https://example.com/book",
+                "Audible",
+                new List<string> { "Author A" },
+                new List<string>(),
+                "A Book",
+                null, null, null, null,
+                new List<string>(),
+                null, null,
+                "4.5",
+                null, null, null)),
+            ChangedFieldsJson = "[\"Rating\"]",
+        };
+
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(id)).ReturnsAsync(row);
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+        return (book, row);
+    }
+
+    private void SetUpRecheckScope(long id)
+    {
+        var libraryConsistencyService = new Mock<ILibraryConsistencyService>();
+        libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(id))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService)))
+            .Returns(libraryConsistencyService.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(scopedProvider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+    }
+
+    // Regression: applying from the metadata-refresh page had no way to say "replace the file that
+    // is already there" - the duplicate-target dialog's answer never reached UpdateAudiobook, so a
+    // path collision could only fail. The flag must reach the domain object the save is built from.
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ApplyPendingRefreshAsync_ReplaceExisting_ReachesTheSavedAudiobook(bool replaceExisting)
+    {
+        SetUpBookWithRatingPending(310);
+        SetUpRecheckScope(310);
+
+        Domain.Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(310, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => captured = a)
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var applied = await CreateService().ApplyPendingRefreshAsync(310, replaceExisting: replaceExisting);
+
+        Assert.IsTrue(applied);
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(replaceExisting, captured!.ReplaceExisting == true);
+    }
+
+    [TestMethod]
+    public async Task CheckApplyTargetCollisionAsync_AnotherFileAtTheTarget_ReportsItWithTheAppliedFieldsPath()
+    {
+        SetUpBookWithRatingPending(311);
+
+        Domain.Audiobook? checkedBook = null;
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Domain.Audiobook>()))
+            .Callback<Domain.Audiobook>(a => checkedBook = a)
+            .ReturnsAsync(new TargetPathCollisionResult
+            {
+                TargetPath = "/library/new/book.m4b",
+                Exists = true,
+                ExistingAudiobookId = 7,
+                ExistingSizeInBytes = 4242,
+            });
+
+        var result = await CreateService().CheckApplyTargetCollisionAsync(311);
+
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.Exists);
+        Assert.AreEqual("/library/new/book.m4b", result.TargetPath);
+        Assert.AreEqual(7, result.ExistingAudiobookId);
+        // The check is made against the book as the apply would leave it, not as it is stored.
+        Assert.AreEqual("4.5", checkedBook!.Rating);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Domain.Audiobook>(), It.IsAny<Func<string, int, Task>?>()), Times.Never);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task CheckApplyTargetCollisionAsync_TargetIsTheBooksOwnFile_IsNotACollision()
+    {
+        SetUpBookWithRatingPending(312);
+
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Domain.Audiobook>()))
+            .ReturnsAsync(new TargetPathCollisionResult
+            {
+                TargetPath = "/library/old/book.m4b",
+                Exists = true,
+                ExistingAudiobookId = 312,
+                ExistingSizeInBytes = 1000,
+            });
+
+        var result = await CreateService().CheckApplyTargetCollisionAsync(312);
+
+        Assert.IsNotNull(result);
+        Assert.IsFalse(result.Exists);
+    }
+
+    [TestMethod]
+    public async Task CheckApplyTargetCollisionAsync_NoPendingSnapshot_ReturnsNull()
+    {
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(313)).ReturnsAsync((PendingMetadataRefresh?)null);
+
+        var result = await CreateService().CheckApplyTargetCollisionAsync(313);
+
+        Assert.IsNull(result);
+        _audiobookService.Verify(s => s.CheckTargetPathCollision(It.IsAny<Domain.Audiobook>()), Times.Never);
+    }
+
     #endregion
 
     #region ReevaluatePendingRefreshesAsync

@@ -81,8 +81,12 @@ public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields, bool Spli
 /// <paramref name="PrimarySeriesName"/> optionally picks which of the snapshot's series becomes the
 /// book's primary one (the one in its tags and path). Left out, the primary is chosen the way a
 /// bulk apply chooses it: the book's current primary if the source still lists it.
+/// <paramref name="ReplaceExisting"/> authorizes overwriting a file that already occupies the path
+/// the apply moves the book to (the user's answer to the duplicate-target dialog); without it such
+/// an apply is refused with a 409.
 /// </remarks>
-public record ApplyPendingRefreshDto(List<string>? Fields, bool SplitTitleOnColon = false, string? PrimarySeriesName = null);
+public record ApplyPendingRefreshDto(
+    List<string>? Fields, bool SplitTitleOnColon = false, string? PrimarySeriesName = null, bool ReplaceExisting = false);
 
 /// <summary>The body of POST api/metadata-refresh/apply-selected.</summary>
 public record ApplySelectedMetadataRefreshDto(List<long> AudiobookIds, bool SplitTitleOnColon = false);

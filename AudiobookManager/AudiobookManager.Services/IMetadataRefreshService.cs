@@ -103,6 +103,19 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<bool> ApplyPendingRefreshAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
+        string? primarySeriesName = null, bool replaceExisting = false);
+
+    /// <summary>
+    /// Previews the library path <see cref="ApplyPendingRefreshAsync"/> would move the book to with
+    /// the same arguments, and reports whether another file already occupies it - so the caller can
+    /// offer to replace it before the apply fails. Returns null when there is nothing to check (no
+    /// pending snapshot, the book is gone, or no field would be applied). A target that is the
+    /// book's own current file is not a collision. <paramref name="replaceExisting"/> on the apply
+    /// is what then authorizes overwriting; when it is false and the target is occupied, the apply
+    /// throws <see cref="TargetPathExistsException"/>.
+    /// </summary>
+    Task<TargetPathCollisionResult?> CheckApplyTargetCollisionAsync(
+        long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
         string? primarySeriesName = null);
 
     /// <summary>

@@ -16,6 +16,7 @@ vi.mock("@/services/api", () => ({
   metadataRefreshApi: {
     getPendingForAudiobook: vi.fn(),
     applyPending: vi.fn().mockResolvedValue(undefined),
+    checkApplyTarget: vi.fn().mockResolvedValue(undefined),
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
@@ -121,7 +122,13 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Rating"], false, undefined);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+      42,
+      ["Rating"],
+      false,
+      undefined,
+      false,
+    );
   });
 
   // Regression: CLIENT_KEY_TO_BACKEND_FIELDS had no "www" entry, so a book newly matched via the
@@ -148,7 +155,13 @@ describe("PendingRefreshRowPanel", () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
-    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(42, ["Www"], false, undefined);
+    expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+      42,
+      ["Www"],
+      false,
+      undefined,
+      false,
+    );
   });
 
   // Regression: with the toggle left at its default (unchecked), a "Title: Subtitle"-shaped
@@ -171,6 +184,7 @@ describe("PendingRefreshRowPanel", () => {
       ["Rating"],
       false,
       undefined,
+      false,
     );
 
     const toggle = screen.getByRole("checkbox", {
@@ -185,7 +199,111 @@ describe("PendingRefreshRowPanel", () => {
       ["Rating"],
       true,
       undefined,
+      false,
     );
+  });
+
+  describe("target path collision", () => {
+    const collision = {
+      targetPath: "/library/Author A/Same Title/Same Title.m4b",
+      exists: true,
+      existing: { audiobookId: 7, sizeInBytes: 4242, durationInSeconds: 99 },
+    };
+
+    function setUpRatingDiff() {
+      vi.mocked(metadataRefreshApi.applyPending).mockClear();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockReset();
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithOnlyRatingDiffering,
+      );
+    }
+
+    // Regression: applying from the metadata-refresh page went straight to the apply endpoint, so a
+    // book that would be filed onto an existing file failed with a bare error and no choice of
+    // resolution, unlike the organize/book-detail flows that show the duplicate-target dialog.
+    it("offers the duplicate-target dialog instead of applying when a file is already at the new path", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
+
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+
+      expect(await screen.findByText("Duplicate file at target location")).toBeInTheDocument();
+      expect(screen.getByText(collision.targetPath)).toBeInTheDocument();
+      expect(metadataRefreshApi.checkApplyTarget).toHaveBeenCalledWith(
+        42,
+        ["Rating"],
+        false,
+        undefined,
+      );
+      expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
+    });
+
+    it("applies the checked fields with replaceExisting once the user chooses to replace", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
+      const onApplied = vi.fn();
+
+      renderPanel(onApplied);
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+      fireEvent.click(await screen.findByRole("button", { name: "Replace existing" }));
+
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+        42,
+        ["Rating"],
+        false,
+        undefined,
+        true,
+      );
+      await waitFor(() => expect(onApplied).toHaveBeenCalled());
+    });
+
+    it("applies nothing when the user cancels the dialog", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
+
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+      await waitFor(() =>
+        expect(screen.queryByText("Duplicate file at target location")).not.toBeInTheDocument(),
+      );
+      expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
+    });
+
+    it("applies without the dialog when the target is the book's own file", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue({
+        ...collision,
+        targetPath: bookDetailWithOnlyRatingDiffering.filePath,
+      });
+
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText("Duplicate file at target location")).not.toBeInTheDocument();
+    });
+
+    it("still applies (and lets the server decide) when the preview itself fails", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockRejectedValue(new Error("boom"));
+
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+        42,
+        ["Rating"],
+        false,
+        undefined,
+        false,
+      );
+    });
   });
 
   describe("series", () => {
@@ -248,6 +366,7 @@ describe("PendingRefreshRowPanel", () => {
           ["Series"],
           false,
           undefined,
+          false,
         ),
       );
     });
@@ -273,6 +392,7 @@ describe("PendingRefreshRowPanel", () => {
           ["Series"],
           false,
           "Spinoff",
+          false,
         ),
       );
     });
